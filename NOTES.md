@@ -36,3 +36,16 @@ Tests: intent-followups.test.ts (45 rows), calendar-intent-run.test.mjs +2. Plug
 
 Tests: plugin 1693 pass (intent-run3.test.ts 50 new). Scripts 1702/1704 on a clean run: orion-watch "held queue during focus"
 fails identically on 7438dfe (clock-dependent after midnight); the check-ins test passes on its own (flaky under load).
+
+## Review of 1c5e0ac (backstop)
+
+- Moves: "to" is the new start, "from" the block's current time ("move gym from 7 to 8" = 20:00).
+- Only the item's own start counts: a time whose clause names something else (ends/finishes/home/back/after/before/until/class/
+  lecture/lab/meeting/starts…), "I'm/I'll be at …", or "… percent" is not stated. Unclear = not stated, never a refusal.
+- Worker exec: `writesIn` finds orion-reschedule / orion-agenda-change / orion-plan-study anywhere in the command (paths, `sh -c`,
+  `bash -lc`, quoted, after `cd …;` / `&&`); agenda-change `add T YYYY-MM-DDTHH:mm N` is read as add --at; plan-study --book picks its
+  own slots, so with a stated time it is blocked.
+- Host check: OpenClaw `agent-tools.before-tool-call` returns a veto ("plugin-before-tool-call") when `hookResult?.block`, and
+  `hook-runner-global` merges before_tool_call results with a sticky `block` and stops at the first block: `{ block: true }` is honoured.
+- Tests: plugin 1719 pass. Scripts 1700/1704; the 4 failures (check-ins, orion-checkin tick, orion-watch held queue) fail
+  identically on 1c5e0ac at this hour (clock-dependent).

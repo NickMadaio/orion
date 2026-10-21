@@ -42,7 +42,7 @@ import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
-import { commandArgs, timeMismatch } from "./time-backstop.js";
+import { timeMismatch, writesIn } from "./time-backstop.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
@@ -1273,15 +1273,16 @@ export function registerLocalRouting(api, options) {
             if (pick(event, ctx, "toolName") !== "exec")
                 return undefined;
             const run = runFor(event, ctx);
-            const words = commandArgs((str(event.params?.command) ?? "").trim());
-            const at = words.findIndex((w) => /(?:^|\/)orion-reschedule$/.test(w));
-            if (!run || at < 0)
+            const writes = writesIn(str(event.params?.command) ?? "");
+            if (!run || !writes.length)
                 return undefined;
-            const args = words.slice(at + 1);
-            const date = args[args.indexOf("--date") + 1];
             const now = (options.now ?? (() => new Date()))();
-            const other = args.includes("--date") && date !== "today" && date !== `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-            const off = timeMismatch(run.message, [args], { day: other ? "tomorrow" : "today", now: other ? null : now.getHours() * 60 + now.getMinutes() });
+            const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+            const off = writes.map((args) => {
+                const date = args.includes("--date") ? args[args.indexOf("--date") + 1] : undefined;
+                const other = !!date && date !== "today" && date !== iso;
+                return timeMismatch(run.message, [args], { day: other ? "tomorrow" : "today", now: other ? null : now.getHours() * 60 + now.getMinutes() });
+            }).find(Boolean);
             return off ? { block: true, blockReason: `Orion time check: ${off} Do not run another command; tell Nick exactly this.` } : undefined;
         });
     // 2026-10-19 backstop: the worker reached for `orion-reschedule <write>` by name (the tool guard refuses it). The run remembers it, so

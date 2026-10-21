@@ -1,5 +1,5 @@
 import { type DayWord } from "./intent-time.js";
-/** Every start he says, as the minutes each could be: "tonight at 7" -> [[1140]], "at 9" tomorrow -> [[540, 1260]] (either is his). */
+/** Every start he says for the thing being written, as the minutes each could be: "tonight at 7" -> [[1140]], "at 9" tomorrow -> [[540, 1260]]. */
 export declare function statedStarts(message: string, ctx: {
     day: DayWord;
     now: number | null;
@@ -11,5 +11,7 @@ export declare function timeMismatch(message: string, argvs: string[][], ctx: {
     day: DayWord;
     now: number | null;
 }): string | undefined;
-/** A shell command line's words, quotes kept together (the worker's exec of orion-reschedule). */
+/** A shell command line's words, quotes kept together. */
 export declare function commandArgs(command: string): string[];
+/** Each calendar write a command line would run, as the scheduler argv the backstop reads (orion-agenda-change add is mapped to add --at). */
+export declare function writesIn(command: string): string[][];

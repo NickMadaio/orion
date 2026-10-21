@@ -8,7 +8,7 @@ import { pushAllMinutes, readIntent } from "./calendar-intent.js";
 import { honestLine, registerLocalRouting } from "./local-routing.js";
 import { runScheduleFlow } from "./schedule-flow.js";
 import { addedNotes, spokenReply } from "./schedule-reply.js";
-import { commandArgs, statedStarts, timeMismatch } from "./time-backstop.js";
+import { commandArgs, statedStarts, timeMismatch, writesIn } from "./time-backstop.js";
 const at = (h, m = 0) => new Date(2030, 9, 21, h, m);
 // 10-21: two classes, nothing else.
 const DAY = { date: "2030-10-21", now: "00:18", plan: { commuteMinutes: 45, bufferMinutes: 5, anchors: [{ title: "Gym", minutes: 90 }] }, blocks: [
@@ -156,5 +156,54 @@ describe("hedges and follow-ups (coordinator, 2026-10-21)", () => {
     });
     it.each(["i think resume then gym", "i think resume before gym", "prolly resume then gym", "i suppose resume then gym"])("%j is not a follow-up", (m) => {
         expect(readIntent(m, { now: at(20), last })).not.toHaveProperty("intent");
+    });
+});
+describe("review of 1c5e0ac: the backstop counts only the item's own start, and every way a writer can be called", () => {
+    const ctx = { day: "today", now: 10 * 60 };
+    it.each([
+        // moves: "to" is the new start, "from" is where it is now
+        ["move gym from 7 to 8", [["move", "Gym", "--to", "20:00"]], "ok"],
+        ["move gym from 7 to 8", [["move", "Gym", "--to", "19:00"]], "mismatch"],
+        ["push gym from 6 to 7:30", [["move", "Gym", "--to", "19:30"]], "ok"],
+        ["shift reading from 3pm to 4pm", [["move", "reading", "--to", "16:00"]], "ok"],
+        // times that describe something else are not stated for the item
+        ["put gym after class, my class ends at 5", [["add", "Gym", "90", "--after", "MKTG"]], "ok"],
+        ["put gym after my class at 3", [["add", "Gym", "90", "--after", "MKTG"]], "ok"],
+        ["I'll be home at 6, put gym after that", [["add", "Gym", "90"]], "ok"],
+        ["im at 5 percent, put gym in later", [["add", "Gym", "90"]], "ok"],
+        ["reading before my lecture at 2", [["add", "reading", "30", "--before", "14:00"]], "ok"],
+        ["put dinner when I get back at 7", [["add", "dinner", "45"]], "ok"],
+        ["add reading until my meeting at 4", [["add", "reading", "30"]], "ok"],
+        ["my lab finishes at 4 so put gym at 6", [["add", "Gym", "90", "--at", "18:00"]], "ok"],
+        ["my lab finishes at 4 so put gym at 6", [["add", "Gym", "90"]], "mismatch"],
+        // the item's own time still counts
+        ["put gym at 6, my class ends at 5", [["add", "Gym", "90"]], "mismatch"],
+        ["block 2 hrs for econ homework tonight at 7", [["add", "econ homework", "120"]], "mismatch"],
+    ])("%j with %j: %s", (m, argvs, want) => {
+        expect(timeMismatch(m, argvs, ctx) ? "mismatch" : "ok").toBe(want);
+    });
+    it.each([
+        [`bash -c 'orion-reschedule add "econ homework" 120 --at 13:20'`, [["add", "econ homework", "120", "--at", "13:20"]]],
+        [`sh -c "/x/scripts/orion-reschedule add \\"econ homework\\" 120"`, [["add", "econ homework", "120"]]],
+        [`bash -lc "cd /x && ./scripts/orion-reschedule move Gym --to 19:00"`, [["move", "Gym", "--to", "19:00"]]],
+        [`/x/scripts/orion-reschedule day --plan "Gym, 90, 13:20"`, [["day", "--plan", "Gym, 90, 13:20"]]],
+        [`/x/scripts/orion-agenda-change add "econ" 2030-10-21T13:20 120`, [["add", "econ", "120", "--at", "13:20"]]],
+        [`/x/scripts/orion-plan-study "two sessions" --book`, [["add", "two sessions", "60"]]],
+        [`orion-agenda today`, []],
+        [`/x/scripts/orion-reschedule show --json`, [["show", "--json"]]],
+    ])("writesIn %j", (command, want) => { expect(writesIn(command)).toEqual(want); });
+    it.each([
+        `bash -c 'orion-reschedule add "econ homework" 120 --at 13:20'`,
+        `bash -lc "/home/x/ORION/scripts/orion-reschedule add 'econ homework' 120"`,
+        `cd /x; orion-agenda-change add "econ homework" 2030-10-21T13:20 120`,
+    ])("the worker's wrapped exec %j is blocked when it would not start at 7 PM", async (command) => {
+        const handlers = new Map();
+        registerLocalRouting({ on: (n, f) => handlers.set(n, [...(handlers.get(n) ?? []), f]) }, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "r3b-")), "r.jsonl"),
+            brainSearch: async () => "", clock: () => "Wed 15:00", now: () => at(15), decideImpl: async () => ({ move: "escalate" }), scheduleFlow: async () => ({ outcome: "fallback", reason: "x" }) });
+        const c = { runId: "wb", sessionKey: "agent:main:orion-chat-r3b" };
+        for (const f of handlers.get("before_model_resolve") ?? [])
+            await f({ prompt: "can u block 2 hrs for econ homework tonight at 7, after dinner" }, c);
+        const results = await Promise.all((handlers.get("before_tool_call") ?? []).map((f) => f({ toolName: "exec", params: { command } }, c)));
+        expect(results.find((r) => r && String(r.blockReason ?? "").includes("time check"))).toMatchObject({ block: true });
     });
 });

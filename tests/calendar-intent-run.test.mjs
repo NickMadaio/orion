@@ -206,3 +206,16 @@ test("live run 4 #2b: at 03:47 'move gym from 7 to 8' moves the 19:00 Gym to 20:
   assert.deepEqual(w.writes, [["move", "Gym", "--to", "20:00"]]);
   assert.ok(w.day().includes("Gym 3 20:00-21:30"), w.day().join("\n"));
 });
+
+test("edit follow-up: 'lunch 45 min today at 6pm' then 'make it an hour' resizes that lunch on the real scheduler (no session)", async (t) => {
+  const { blockTarget, parseEdit } = await import("../plugin/orion-control/dist/edit-followup.js");
+  const w = world(t, [15, 10]);
+  const a = await w.say("lunch 45 min today at 6pm");
+  assert.equal(a.outcome, "done", JSON.stringify(a));
+  const target = blockTarget(a.calls, a.outputs, Date.now());
+  assert.deepEqual({ title: target.title, minutes: target.minutes }, { title: "lunch", minutes: 45 });
+  const b = await w.say("make it an hour", { edit: { target, req: parseEdit("make it an hour") } });
+  assert.equal(b.outcome, "done", JSON.stringify(b));
+  assert.deepEqual(w.writes.at(-1), ["resize", "lunch", "60"]);
+  assert.ok(w.day().includes("lunch 3 18:00-19:00"), w.day().join("\n"));
+});

@@ -17,6 +17,7 @@
 */
 import { execFile } from "node:child_process";
 import type { FlowResult } from "./schedule-flow.js";
+import { isEdit } from "./edit-followup.js";
 
 export type SessionExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 export type SessionRequest = { task: string; minutes?: number; until?: string; apps: string[] };
@@ -37,7 +38,8 @@ const NOT_A_START = /\b(end|stop|finish|pause|cancel|abandon|calendar|schedule|t
 // "Resume" the verb only: "start focus for the resume" (his CV, q054) was refused as resuming a session,
 // and the worker then called a tool named orion-session ten times.
 const RESUMES = /^\W*(?:(?:ok(?:ay)?|please|pls|can you|could you)[,\s]+)*resume\b|\bresume\s+(?:(?:the|my|our)\s+)?(?:session|focus(?:ing)?|timer|it|block)\b/i;
-const ruledOut = (message: string): boolean => NOT_A_START.test(message) || RESUMES.test(message);
+// "make it an hour" edits the last thing made, never starts a session (live run 4: it restarted the lunch "session").
+const ruledOut = (message: string): boolean => NOT_A_START.test(message) || RESUMES.test(message) || isEdit(message);
 
 // Live run 4 (2026-10-21): "lunch 45 min today at 1pm" started a real focus session ("lunch") because the desk read a start; "make it an
 // hour" restarted it. A session needs a session word in HIS message; a clock time ("at 1pm", "13:00"), "add/put/schedule", or a meal or an

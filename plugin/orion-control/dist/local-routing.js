@@ -42,6 +42,7 @@ import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
+import { blockTarget, isEdit, NOTHING_TO_EDIT, parseEdit, SESSION_EDIT } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
@@ -325,7 +326,7 @@ export function undoJournalTop(home = homedir(), now = Date.now()) {
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
     message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
-    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}),
+    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}),
     exec: (args, signal) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20, ...(signal ? { signal } : {}) }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
     ask: async (system, user, schema, budgetMs) => {
         try {
@@ -499,6 +500,9 @@ export function registerLocalRouting(api, options) {
     const building = new AsyncLocalStorage();
     // A flow is a write point: once the hook has given up (and nothing was written), none of them starts.
     const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" }));
+    /** Per session: the last thing ORION created or changed (a block, or a focus session it started), for "make it an hour" (edit-followup.ts). */
+    const lastMade = new Map();
+    const recentMade = (key) => { const m = key ? lastMade.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m : undefined; };
     /** Per session: his last reschedule request that was carried out, for a follow-up reorder ("actually do resume before gym"), for 15 minutes. */
     const replanMemory = new Map();
     const forgetReplan = (key) => { if (key)
@@ -597,6 +601,14 @@ export function registerLocalRouting(api, options) {
         if (flow.marks?.length || flow.uncertain)
             recordChange(run.sessionKey, flow.marks ?? []);
         // Any other write forgets the last request; a reschedule remembers itself AFTER that.
+        // What "make it an hour" means next: the block this change wrote (an undo leaves nothing to edit).
+        if (run.sessionKey) {
+            const t = flow.calls.some((c) => /\bundo\b/.test(c)) ? undefined : blockTarget(flow.calls, flow.outputs, Date.now());
+            if (t)
+                lastMade.set(run.sessionKey, t);
+            else
+                lastMade.delete(run.sessionKey);
+        }
         if (!flow.replan)
             forgetReplan(run.sessionKey);
         else if (run.sessionKey)
@@ -769,7 +781,11 @@ export function registerLocalRouting(api, options) {
         // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
         const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
         const intentFirst = !!intentRead && !elsewhere && ("intent" in intentRead ? runsFirst(intentRead.intent) : !!intentRead.tookBack);
-        const codeFirst = intentFirst;
+        // "make it an hour" is an edit of the last thing this chat made: code's, never the desk's (it read a session start in run 4).
+        // Only when ORION made something here, and more recently than a reminder ("make it 5:30" after "remind me at 5" is the reminder's).
+        const made = recentMade(sessionKey);
+        const editing = on && !cutOff && isEdit(message) && !!made && made.at > (lastReminder.get(sessionKey)?.set ?? 0);
+        const codeFirst = intentFirst || editing;
         const decision = cutOff
             ? Promise.resolve({ move: "ask", answer: GO_ON })
             : codeFirst ? Promise.resolve({ move: "escalate", fallback: "code-first", ms: 0 })
@@ -778,7 +794,7 @@ export function registerLocalRouting(api, options) {
                     .then((d) => { deskHealth.record(d, call); return d; })
                     .catch((error) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
         const askContext = parseAskContext(raw);
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(intentFirst ? { codeFirst: true } : {}), ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (runId)
             runs.set(runId, run);
@@ -888,6 +904,22 @@ export function registerLocalRouting(api, options) {
                 const other = recentOther(run.sessionKey);
                 run.flow = { outcome: "say", kind: "ask", text: other ? OTHER_ASKS[other] : UNDO_NOTHING_TO_UNDO };
             }
+            // Live run 4: "make it an hour" changes the last thing made here. A block is resized; a session just started is left running and he is
+            // told so (its length can't be changed without ending it); nothing on record is asked about. It never starts a session.
+            if (!run.flow && !run.cutOff && run.edit) {
+                const target = recentMade(run.sessionKey);
+                const req = parseEdit(run.message);
+                if (!target)
+                    run.flow = { outcome: "say", kind: "ask", text: NOTHING_TO_EDIT };
+                else if (target.kind === "session")
+                    run.flow = { outcome: "say", kind: "plain", text: SESSION_EDIT(target.task) };
+                else if (options.scheduleFlow) {
+                    const flow = await options.scheduleFlow(run.message, clock(), { edit: { target, req }, deadlineAt: flowDeadline(run.started) }).catch((e) => ({ outcome: "fallback", reason: String(e) }));
+                    run.flow = flow.outcome === "fallback" ? { outcome: "say", kind: "plain", text: `I couldn't change ${target.title} just now, so nothing changed. Tell me again in a moment.` } : flow;
+                    markRead(run, target.dateArgs.length ? "day-tomorrow" : "day");
+                    settleSchedule(run);
+                }
+            }
             // 2026-10-20 re-run: a change the intent layer read is the schedule flow's before any other flow looks at it ("resume" is not a focus-session resume).
             if (!run.flow && !run.cutOff && run.codeFirst && options.scheduleFlow) {
                 const flow = await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], deadlineAt: flowDeadline(run.started), ...(run.ask ? { askContext: run.ask } : {}) })
@@ -943,6 +975,9 @@ export function registerLocalRouting(api, options) {
                 run.flow = await options.sessionFlow(run.message, hint).catch((e) => ({ outcome: "fallback", reason: String(e) }));
                 if (run.flow.outcome === "done") {
                     recordOther(run.sessionKey, "focus");
+                    const task = run.flow.calls.map((c) => c.match(/orion-session start\s+(?:"([^"]+)"|(\S+))/)).find(Boolean);
+                    if (run.sessionKey)
+                        lastMade.set(run.sessionKey, { kind: "session", task: task?.[1] ?? task?.[2] ?? "Focus", at: Date.now() });
                     const outputs = run.flow.outputs;
                     run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
                 }

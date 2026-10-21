@@ -9,10 +9,29 @@ final class TodoFloatController {
     private let state: AppState
     private var panel: NSPanel?
     private var watch: AnyCancellable?
+    private var syncWatch: [AnyCancellable] = []
+    private var latest: TodoFloatState
+    private var minimized: Bool
     private static let frameName = "OrionTodoFloat"
 
     init(state: AppState) {
         self.state = state
+        self.latest = state.todoFloat.state
+        self.minimized = state.sessionMinimized
+        // Restored from last launch: keep the sync going only if Reminders is
+        // already allowed. Only a change he makes (chevron, pop out, menu) may
+        // raise the permission prompt.
+        syncSurfaces(prompt: false)
+        syncWatch = [
+            state.todoFloat.$state.dropFirst().sink { [weak self] next in
+                self?.latest = next
+                self?.syncSurfaces(prompt: true)
+            },
+            state.$sessionMinimized.dropFirst().sink { [weak self] next in
+                self?.minimized = next
+                self?.syncSurfaces(prompt: false)
+            }
+        ]
         watch = state.todoFloat.$state
             .map(\.poppedOut)
             .removeDuplicates()
@@ -20,8 +39,14 @@ final class TodoFloatController {
             .sink { [weak self] popped in popped ? self?.show() : self?.hide() }
     }
 
+    /// The sync runs only while a to-do surface is on screen.
+    private func syncSurfaces(prompt: Bool) {
+        let sync = state.todoSync
+        if latest.expanded && !latest.poppedOut && minimized { sync.acquire("dropdown", prompt: prompt) } else { sync.release("dropdown") }
+        if latest.poppedOut { sync.acquire("popout", prompt: prompt) } else { sync.release("popout") }
+    }
+
     private func show() {
-        state.todoSync.start()
         if panel == nil { panel = makePanel() }
         panel?.orderFrontRegardless()
     }
@@ -54,6 +79,12 @@ final class TodoFloatController {
         if !panel.setFrameUsingName(Self.frameName), let screen = NSScreen.main {
             let v = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(x: v.maxX - panel.frame.width - 24, y: v.maxY - panel.frame.height - 24))
+        }
+        // A frame saved on a display that is no longer connected would restore
+        // off screen: bring it back to the middle of the main one.
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        if let main = NSScreen.main, !FrameRecovery.visibleEnough(panel.frame, screens: screens) {
+            panel.setFrame(FrameRecovery.centered(size: panel.frame.size, on: main.visibleFrame), display: false)
         }
         return panel
     }

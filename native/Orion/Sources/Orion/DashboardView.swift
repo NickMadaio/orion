@@ -295,7 +295,7 @@ struct DashboardView: View {
 
         // Prompts for Reminders access the first time, then keeps the list live
         // off EKEventStoreChanged.
-        reminders.start()
+        reminders.acquire("dashboard")
         agenda.start()
         whoop.start()
         health.start()
@@ -326,8 +326,9 @@ struct DashboardView: View {
     }
 
     private func stop() {
-        // `reminders` is deliberately left running: it is shared with the
-        // session float and the to-do pop-out, which outlive this window.
+        // Shared with the session float and the pop-out: this only drops the
+        // dashboard's claim; the sync stops when nothing at all is showing it.
+        reminders.release("dashboard")
         agenda.stop()
         whoop.stop()
         health.stop()

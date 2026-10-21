@@ -132,3 +132,27 @@ enum FloatPanelResize {
         return CGRect(origin: origin, size: newSize)
     }
 }
+
+/// Which to-do surfaces are on screen. The Reminders sync runs only while this
+/// is non-empty.
+struct TodoSurfaceSet {
+    private var names = Set<String>()
+    var isEmpty: Bool { names.isEmpty }
+    mutating func insert(_ name: String) { names.insert(name) }
+    mutating func remove(_ name: String) { names.remove(name) }
+}
+
+/// A saved window frame is only worth restoring if enough of it is on a
+/// connected screen to grab; otherwise the window is recentred on the main one.
+enum FrameRecovery {
+    static func visibleEnough(_ frame: CGRect, screens: [CGRect], minWidth: CGFloat = 60, minHeight: CGFloat = 30) -> Bool {
+        screens.contains { screen in
+            let overlap = screen.intersection(frame)
+            return !overlap.isNull && overlap.width >= minWidth && overlap.height >= minHeight
+        }
+    }
+
+    static func centered(size: CGSize, on screen: CGRect) -> CGRect {
+        CGRect(x: screen.midX - size.width / 2, y: screen.midY - size.height / 2, width: size.width, height: size.height)
+    }
+}

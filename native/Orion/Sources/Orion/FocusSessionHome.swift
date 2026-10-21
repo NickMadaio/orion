@@ -16,6 +16,7 @@ struct FocusSessionHome: View {
     /// Tuck the session into the floating bar and use the rest of ORION (2026-10-06).
     var onMinimize: (() -> Void)?
     @State private var pendingGuard: GuardProposal?
+    @State private var finishConfirm = ArmedConfirm()
 
     var body: some View {
         GeometryReader { proxy in
@@ -165,7 +166,7 @@ struct FocusSessionHome: View {
     }
 
     private var sessionControls: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 10) {
             if let onMinimize {
                 Button { onMinimize() } label: { Label("MINIMIZE", systemImage: "rectangle.bottomthird.inset.filled").textHitTarget() }
                     .help("Keep the session running and go back to ORION")
@@ -173,7 +174,21 @@ struct FocusSessionHome: View {
             Button { model.toggleSessionPause() } label: {
                 Text(model.headline == "Paused" ? "RESUME" : "PAUSE").textHitTarget()
             }
-            Button { model.finishEarly() } label: { Text("FINISH EARLY").textHitTarget() }
+            // Ends the session, so it asks twice: tap, then tap again within 3s.
+            Button {
+                if finishConfirm.tap() {
+                    model.finishEarly()
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + ArmedConfirm.window + 0.1) {
+                        if !finishConfirm.isArmed() { finishConfirm.disarm() }
+                    }
+                }
+            } label: {
+                Text(finishConfirm.isArmed() ? "TAP AGAIN TO END" : "FINISH EARLY")
+                    .foregroundStyle(finishConfirm.isArmed() ? FocusPalette.gold : OrionTheme.textDim)
+                    .textHitTarget()
+            }
+            .help("Ends the session. Click twice.")
         }
         .buttonStyle(.plain)
         .font(OrionTheme.mono(9, .semibold))

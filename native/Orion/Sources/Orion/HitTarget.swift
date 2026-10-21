@@ -29,3 +29,24 @@ extension View {
             .contentShape(Rectangle())
     }
 }
+
+/// Two-step confirm for a destructive control: the first tap arms it, a second
+/// within `window` seconds fires, and an armed state left alone lapses.
+struct ArmedConfirm: Equatable {
+    static let window: TimeInterval = 3
+    private(set) var armedAt: Date?
+
+    func isArmed(now: Date = Date()) -> Bool {
+        guard let armedAt else { return false }
+        return now.timeIntervalSince(armedAt) <= Self.window
+    }
+
+    /// Returns true when this tap should perform the action.
+    mutating func tap(now: Date = Date()) -> Bool {
+        if isArmed(now: now) { armedAt = nil; return true }
+        armedAt = now
+        return false
+    }
+
+    mutating func disarm() { armedAt = nil }
+}

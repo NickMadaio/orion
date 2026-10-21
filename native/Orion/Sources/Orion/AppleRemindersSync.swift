@@ -62,6 +62,14 @@ struct SyncedTask: Identifiable, Equatable {
         (isOverdue ? 0 : 1, priority.rank, dueDate ?? .distantFuture)
     }
 
+    /// The task as it will be once EventKit confirms a completion change.
+    func settingComplete(_ complete: Bool, at date: Date = Date()) -> SyncedTask {
+        var copy = self
+        copy.isComplete = complete
+        copy.completionDate = complete ? (completionDate ?? date) : nil
+        return copy
+    }
+
     var isOverdue: Bool {
         guard let dueDate, !isComplete else { return false }
         return dueDate < Date()
@@ -103,13 +111,34 @@ final class AppleRemindersSync: ObservableObject {
 
     // MARK: - Lifecycle
 
-    func start() {
+    /// A to-do surface (dashboard, session-float dropdown, pop-out) became
+    /// visible. The sync runs while at least one is, and stops when the last
+    /// goes. `prompt: false` is for surfaces restored at launch or mid-session:
+    /// they only start if Reminders access was already granted, so ORION never
+    /// throws a permission dialog at him unasked.
+    func acquire(_ surface: String, prompt: Bool = true) {
+        surfaces.insert(surface)
+        start(prompt: prompt)
+    }
+
+    func release(_ surface: String) {
+        surfaces.remove(surface)
+        if surfaces.isEmpty { stop() }
+    }
+
+    private var surfaces = TodoSurfaceSet()
+
+    func start(prompt: Bool = true) {
         // Shared by the dashboard and the floats, so it is started from several
         // places; only the first does anything.
         guard !started else { return }
+        if !prompt, EKEventStore.authorizationStatus(for: .reminder) != .fullAccess { return }
         started = true
         requestAccess { [weak self] granted in
-            guard let self, granted else { return }
+            guard let self else { return }
+            // Denied (or still undetermined): not running, so a later grant can retry.
+            guard granted else { self.started = false; return }
+            guard self.started else { return }   // released while the prompt was up
             self.refresh()
             // Reminders edited on the phone arrive here as a store change.
             self.changeObserver = NotificationCenter.default.addObserver(
@@ -317,6 +346,12 @@ final class AppleRemindersSync: ObservableObject {
     }
 
     func setComplete(_ id: String, _ complete: Bool) {
+        // Optimistic: the list shows the new state at once, so a second click
+        // before EventKit's async refresh lands reads the NEW state and flips
+        // back, instead of re-sending the stale one.
+        if let index = tasks.firstIndex(where: { $0.id == id }) {
+            tasks[index] = tasks[index].settingComplete(complete)
+        }
         mutate(id) { reminder in
             reminder.isCompleted = complete
             // Clearing the date on completion would lose when it was due, so
@@ -405,6 +440,7 @@ final class AppleRemindersSync: ObservableObject {
             refresh()
         } catch {
             lastError = error.localizedDescription
+            refresh()   // undo any optimistic change
         }
     }
 

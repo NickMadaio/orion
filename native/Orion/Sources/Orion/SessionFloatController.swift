@@ -59,7 +59,6 @@ final class SessionFloatController {
     }
 
     private func show() {
-        state.todoSync.start()
         if panel == nil { panel = makePanel() }
         panel?.orderFrontRegardless()
     }
@@ -94,6 +93,12 @@ final class SessionFloatController {
         if !panel.setFrameUsingName("OrionSessionFloatBar"), let screen = NSScreen.main {
             let v = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(x: v.midX - panel.frame.width / 2, y: v.minY + 28))
+        }
+        // A frame saved on a display that is no longer connected would restore
+        // off screen: bring it back to the middle of the main one.
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        if let main = NSScreen.main, !FrameRecovery.visibleEnough(panel.frame, screens: screens) {
+            panel.setFrame(FrameRecovery.centered(size: panel.frame.size, on: main.visibleFrame), display: false)
         }
         return panel
     }

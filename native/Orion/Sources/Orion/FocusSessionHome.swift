@@ -120,7 +120,7 @@ struct FocusSessionHome: View {
             Spacer()
 
             if isPreview {
-                Button("EXIT PREVIEW") { onExitPreview?() }
+                Button { onExitPreview?() } label: { Text("EXIT PREVIEW").textHitTarget() }
                     .buttonStyle(.plain)
             } else {
                 sessionControls
@@ -165,17 +165,15 @@ struct FocusSessionHome: View {
     }
 
     private var sessionControls: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 2) {
             if let onMinimize {
-                Button { onMinimize() } label: { Label("MINIMIZE", systemImage: "rectangle.bottomthird.inset.filled") }
+                Button { onMinimize() } label: { Label("MINIMIZE", systemImage: "rectangle.bottomthird.inset.filled").textHitTarget() }
                     .help("Keep the session running and go back to ORION")
             }
-            Button(model.headline == "Paused" ? "RESUME" : "PAUSE") {
-                model.toggleSessionPause()
+            Button { model.toggleSessionPause() } label: {
+                Text(model.headline == "Paused" ? "RESUME" : "PAUSE").textHitTarget()
             }
-            Button("FINISH EARLY") {
-                model.finishEarly()
-            }
+            Button { model.finishEarly() } label: { Text("FINISH EARLY").textHitTarget() }
         }
         .buttonStyle(.plain)
         .font(OrionTheme.mono(9, .semibold))
@@ -426,6 +424,7 @@ struct FocusSessionHome: View {
                                 .font(.system(size: 23, weight: .medium))
                                 .offset(x: (!isPreview && !model.mediaIsPlaying) ? 1.5 : 0)
                         }
+                        .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .help(model.mediaIsPlaying ? "Pause" : "Play")
@@ -600,6 +599,7 @@ struct FocusSessionHome: View {
                     Image(systemName: model.canRelease ? "shield.fill" : "shield")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(model.canRelease ? FocusPalette.cyan : OrionTheme.textDim)
+                        .hitTarget()
                 }
                 .buttonStyle(.plain)
                 .help(model.canRelease ? "Release Focus Guard" : "Focus Guard is not configured")
@@ -1304,12 +1304,14 @@ struct SessionMiniBar: View {
             Button { model.toggleSessionPause() } label: {
                 Image(systemName: model.headline == "Paused" ? "play.fill" : "pause.fill").font(.system(size: 12, weight: .semibold))
                     .frame(width: 28, height: 28).overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5))
+                    .padding(2).hitTarget(32, shape: Circle())
             }
             .buttonStyle(.plain).foregroundStyle(FocusPalette.warmWhite)
             .help(model.headline == "Paused" ? "Resume" : "Pause")
             Button(action: onExpand) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 12, weight: .semibold))
                     .frame(width: 28, height: 28).overlay(Circle().strokeBorder(FocusPalette.cyan.opacity(0.5), lineWidth: 0.5))
+                    .padding(2).hitTarget(32, shape: Circle())
             }
             .buttonStyle(.plain).foregroundStyle(FocusPalette.cyan)
             .help("Back to the focus session")

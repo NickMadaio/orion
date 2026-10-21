@@ -99,10 +99,15 @@ final class AppleRemindersSync: ObservableObject {
     private var calendar: EKCalendar?
     private var refreshTimer: Timer?
     private var changeObserver: NSObjectProtocol?
+    private var started = false
 
     // MARK: - Lifecycle
 
     func start() {
+        // Shared by the dashboard and the floats, so it is started from several
+        // places; only the first does anything.
+        guard !started else { return }
+        started = true
         requestAccess { [weak self] granted in
             guard let self, granted else { return }
             self.refresh()
@@ -127,6 +132,7 @@ final class AppleRemindersSync: ObservableObject {
     }
 
     func stop() {
+        started = false
         refreshTimer?.invalidate()
         refreshTimer = nil
         if let changeObserver {

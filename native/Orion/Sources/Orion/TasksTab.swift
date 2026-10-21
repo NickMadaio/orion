@@ -217,6 +217,14 @@ struct TasksTab: View {
     private var tasksSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             if !reminders.access.isGranted { accessNotice }
+            Button { state.todoFloat.togglePopOut() } label: {
+                Label(state.todoFloat.isPoppedOut ? "Close floating to-dos" : "Float to-dos", systemImage: "arrow.up.forward.square")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(OrionTheme.textSoft)
+                    .padding(.horizontal, 4).hitTarget(shape: Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Keep the to-do list on top of everything, in its own small window")
             TodoListScreen(items: todoItems, actions: todoActions, density: .pointer)
                 .disabled(!reminders.access.isGranted)
         }
@@ -240,8 +248,7 @@ struct TasksTab: View {
                 reminders.add(draft.title, due: draft.due, priority: TaskPriority.from(draft.priority.eventKit), notes: notes.text)
             },
             toggle: { id in
-                guard let task = reminders.tasks.first(where: { $0.id == id }) else { return }
-                reminders.setComplete(id, !task.isComplete)
+                TodoCompletion.toggle(id: id, in: reminders.tasks) { reminders.setComplete($0, $1) }
             },
             rename: { reminders.rename($0, to: $1) },
             setPriority: { reminders.setPriority($0, TaskPriority.from($1.eventKit)) },

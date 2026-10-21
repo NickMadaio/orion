@@ -8,6 +8,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private let state: AppState
     private let onTogglePanel: () -> Void
     private let onOpenPreferences: () -> Void
+    private let onToggleTodoFloat: () -> Void
+    private let todoFloatItem = NSMenuItem(title: "Float To-dos", action: nil, keyEquivalent: "")
 
     private var statusItem: NSStatusItem?
     private let menu = NSMenu()
@@ -36,10 +38,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     init(state: AppState,
          onTogglePanel: @escaping () -> Void,
+         onToggleTodoFloat: @escaping () -> Void = {},
          onOpenPreferences: @escaping () -> Void) {
         self.state = state
         self.onTogglePanel = onTogglePanel
         self.onOpenPreferences = onOpenPreferences
+        self.onToggleTodoFloat = onToggleTodoFloat
         super.init()
     }
 
@@ -56,6 +60,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         toggleItem.target = self
         toggleItem.action = #selector(togglePanel)
         menu.addItem(toggleItem)
+        todoFloatItem.target = self
+        todoFloatItem.action = #selector(toggleTodoFloat)
+        menu.addItem(todoFloatItem)
 
         menu.addItem(.separator())
 
@@ -157,6 +164,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         if let panelVisible {
             toggleItem.title = panelVisible ? "Hide Orion" : "Show Orion"
         }
+        todoFloatItem.state = state.todoFloat.isPoppedOut ? .on : .off
         gatewayItem.title = state.gatewayAvailability.title
         voiceItem.title = state.voiceUp
             ? "Voice: daemon reachable"
@@ -179,6 +187,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     // MARK: Actions
+
+    @objc private func toggleTodoFloat() { onToggleTodoFloat() }
 
     @objc private func togglePanel() {
         onTogglePanel()

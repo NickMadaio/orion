@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `UpdateController.start`, and the launch-path note in its header.
     private let updates = UpdateController()
     private var sessionFloatController: SessionFloatController?
+    private var todoFloatController: TodoFloatController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Resolve the voice keys now, off the main thread, so pressing talk never waits on the keychain.
@@ -22,10 +23,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = PanelController(state: state)
         textWindowController = TextWindowController(state: state)
         sessionFloatController = SessionFloatController(state: state) { [weak self] in self?.textWindowController.show() }
+        todoFloatController = TodoFloatController(state: state)
         preferencesController = PreferencesWindowController(state: state)
         menuBarController = MenuBarController(
             state: state,
             onTogglePanel: { [weak self] in self?.togglePanel() },
+            onToggleTodoFloat: { [weak self] in self?.state.todoFloat.togglePopOut() },
             onOpenPreferences: { [weak self] in self?.preferencesController.show() }
         )
         // Left-click the menu bar: the typing surface, focused and ready.

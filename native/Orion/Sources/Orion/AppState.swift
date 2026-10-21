@@ -78,6 +78,11 @@ final class AppState: ObservableObject {
     /// The focus session moved out of the main window into its own floating
     /// panel (SessionFloatController), which stays when the window closes.
     @Published var sessionMinimized = false
+    /// The to-do list the dashboard, the session float's dropdown and the
+    /// pop-out window all read, so a tick in one shows in the others at once.
+    let todoSync = AppleRemindersSync()
+    /// Dropdown / pop-out state for the to-do float, remembered across launches.
+    let todoFloat = TodoFloatModel()
     var hideSummon: (() -> Void)?
     private let chatStore = try? ChatStore(directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/chats"))
     var chatModels: [ModelChoice] { FileManager.default.contents(atPath: ModelContract.path).map(ChatModels.choices(fromModelRoles:)) ?? [] }

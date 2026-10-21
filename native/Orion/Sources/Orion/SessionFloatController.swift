@@ -47,7 +47,19 @@ final class SessionFloatController {
         }
     }
 
+    /// The bar grew (dropdown opened, a to-do added) or shrank: follow it, top
+    /// edge fixed, kept on screen. Deferred a turn so it never resizes the
+    /// window from inside a layout pass.
+    private func fit(to size: CGSize) {
+        DispatchQueue.main.async { [weak self] in
+            guard let panel = self?.panel, abs(panel.frame.height - size.height) > 0.5 || abs(panel.frame.width - size.width) > 0.5 else { return }
+            let visible = (panel.screen ?? NSScreen.main)?.visibleFrame ?? panel.frame
+            panel.setFrame(FloatPanelResize.frame(current: panel.frame, newSize: size, visible: visible), display: true)
+        }
+    }
+
     private func show() {
+        state.todoSync.start()
         if panel == nil { panel = makePanel() }
         panel?.orderFrontRegardless()
     }
@@ -68,7 +80,9 @@ final class SessionFloatController {
         panel.isMovableByWindowBackground = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
-        let view = SessionFloatView(hologram: state.hologram, model: state.sessionTabModel) { [weak self] in
+        let view = SessionFloatView(hologram: state.hologram, model: state.sessionTabModel,
+                                    todoModel: state.todoFloat, todoSync: state.todoSync,
+                                    onSize: { [weak self] size in self?.fit(to: size) }) { [weak self] in
             self?.state.sessionMinimized = false
             self?.onExpand()
         }
@@ -91,13 +105,42 @@ final class SessionFloatController {
 struct SessionFloatView: View {
     let hologram: HologramModel
     @ObservedObject var model: SessionTabModel
+    @ObservedObject var todoModel: TodoFloatModel
+    @ObservedObject var todoSync: AppleRemindersSync
+    var onSize: (CGSize) -> Void = { _ in }
     let onExpand: () -> Void
 
     private let cyan = Color(red: 0.36, green: 0.83, blue: 0.93)
 
     var body: some View {
-        // Its own once-a-second redraw: the panel is not inside the dashboard.
-        TimelineView(.periodic(from: .now, by: 1)) { _ in bar }
+        VStack(alignment: .leading, spacing: 0) {
+            // Its own once-a-second redraw: the panel is not inside the dashboard.
+            TimelineView(.periodic(from: .now, by: 1)) { _ in bar }
+            if todoModel.showsDropdown { dropdown }
+        }
+        .fixedSize()
+        .reportSize(onSize)
+    }
+
+    /// Under the bar: the same real alpha and hairline, a plain list inside.
+    private var dropdown: some View {
+        TodoFloatList(sync: todoSync, standalone: false, onPopOut: { todoModel.popOut() })
+            .frame(width: 330, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.black.opacity(0.42)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
+            .padding(.horizontal, 6).padding(.bottom, 6)
+            .padding(.leading, 40)
+    }
+
+    private var todoToggle: some View {
+        Button { todoModel.toggleExpanded() } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "checklist")
+                Image(systemName: todoModel.showsDropdown ? "chevron.up" : "chevron.down").font(.system(size: 8, weight: .bold))
+            }
+            .padding(.horizontal, 4).hitTarget(shape: Rectangle())
+        }
+        .help(todoModel.isPoppedOut ? "Dock the to-dos back here" : (todoModel.showsDropdown ? "Hide to-dos" : "Show today's to-dos"))
     }
 
     private var bar: some View {
@@ -118,23 +161,26 @@ struct SessionFloatView: View {
                     Text(model.mediaArtist).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 .frame(width: 120, alignment: .leading)
-                HStack(spacing: 12) {
-                    Button { model.mediaPrevious() } label: { Image(systemName: "backward.fill") }.help("Previous")
-                    Button { model.mediaPlayPause() } label: { Image(systemName: model.mediaIsPlaying ? "pause.fill" : "play.fill") }
+                HStack(spacing: 0) {
+                    Button { model.mediaPrevious() } label: { Image(systemName: "backward.fill").hitTarget() }.help("Previous")
+                    Button { model.mediaPlayPause() } label: { Image(systemName: model.mediaIsPlaying ? "pause.fill" : "play.fill").hitTarget() }
                         .help(model.mediaIsPlaying ? "Pause music" : "Play music")
-                    Button { model.mediaNext() } label: { Image(systemName: "forward.fill") }.help("Next")
+                    Button { model.mediaNext() } label: { Image(systemName: "forward.fill").hitTarget() }.help("Next")
                 }
                 .font(.system(size: 11, weight: .semibold))
             }
 
             Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 28)
+            todoToggle
             Button { model.toggleSessionPause() } label: {
                 Image(systemName: model.headline == "Paused" ? "play.fill" : "pause.fill")
                     .frame(width: 26, height: 26).overlay(Circle().strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5))
+                    .padding(3).hitTarget(32, shape: Circle())
             }.help(model.headline == "Paused" ? "Resume session" : "Pause session")
             Button(action: onExpand) {
                 Image(systemName: "arrow.up.left.and.arrow.down.right")
                     .frame(width: 26, height: 26).overlay(Circle().strokeBorder(cyan.opacity(0.5), lineWidth: 0.5))
+                    .padding(3).hitTarget(32, shape: Circle())
             }.foregroundStyle(cyan).help("Back to the focus session")
         }
         .buttonStyle(.plain)

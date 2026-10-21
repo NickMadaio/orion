@@ -18,6 +18,12 @@ struct DashboardView: View {
     @ObservedObject var state: AppState
     var onDismiss: () -> Void
 
+    init(state: AppState, onDismiss: @escaping () -> Void) {
+        self.state = state
+        self.onDismiss = onDismiss
+        self._reminders = ObservedObject(wrappedValue: state.todoSync)
+    }
+
     // `-orion.initialTab project` on launch opens that tab: how a screenshot
     // check reaches a tab without synthetic clicks. Never persisted.
     @State private var selectedTab: DashboardTab =
@@ -32,7 +38,8 @@ struct DashboardView: View {
     /// The task list lives in Apple Reminders, not in AppState — see
     /// AppleRemindersSync for why a task Orion can only show on this Mac is a
     /// worse to-do list than the one already on your phone.
-    @StateObject private var reminders = AppleRemindersSync()
+    /// Owned by AppState: the session float's to-do dropdown reads the same one.
+    @ObservedObject private var reminders: AppleRemindersSync
     @StateObject private var agenda = AppleCalendarSync()
     @StateObject private var todayPlan = TodayPlanModel()
     /// Plan requests from the phone, and plan changes saved by it, every few seconds.
@@ -319,7 +326,8 @@ struct DashboardView: View {
     }
 
     private func stop() {
-        reminders.stop()
+        // `reminders` is deliberately left running: it is shared with the
+        // session float and the to-do pop-out, which outlive this window.
         agenda.stop()
         whoop.stop()
         health.stop()

@@ -80,6 +80,13 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-22 — Run-5 fixes: moves across days, "it", ownership ledger (Claude, Opus worker)
+
+- A move resolves to the block ORION last made, on any day. Times are read against that block's own time.
+- "it", "that" and "this" mean the last target. With no target, ORION asks.
+- **Ownership:** explicit edits Nick names (move, extend, resize, swap, drop) may act on any of his events except classes and plans with people. Side-effect changes (late, replan-rest, fill, push everything) move only ORION's own blocks: the ledger plus tags.
+- `orion-reschedule ledger backfill [--dry-run]` marks old ORION blocks from the undo journal's creates, created-events, pins and tags. It doesn't infer ownership from titles.
+
 ### 2026-10-21 (night) — Focus controls and the floating to-do list (Claude)
 
 - **Hit targets.** `HitTarget.swift` gives each control a hit area of at least 28 pt. Before, clicks fell through to `isMovableByWindowBackground`. FINISH EARLY now needs a second tap within 3 s.

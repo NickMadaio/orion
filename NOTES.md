@@ -87,3 +87,17 @@ that name, or one that moved, are asked about, never resized. An edit with no re
 hour?"), never left to the worker. "ok make it an hour actually", "make it an hour instead", "actually make it 30", "can u make it
 longer" are edits; an edit is never a session start. Plugin 1814 pass; scripts: the 4 clock-dependent failures + 1 timing test
 (awareness-cli, passes alone).
+
+## fix/intent-r5 (from origin/main 7358a39): live run 5
+
+1. "move gym from 7 to 8" right after "add gym tomorrow at 7pm": a name not on today (or only an already-ended one), when ORION just made
+   or touched that block here, is THAT block on its day (the edit follow-ups' last-target record, title + start).
+2. "move tomorrow's gym from 7 to 8": "tomorrow's" is read as the day; 7/8 are read against the Gym's own 19:00 -> 20:00.
+3. ORION's blocks are movable whatever calendar they are in: the bridge returns no calendar and the old School blocks lost their
+   [orion:kind] marker, so (a) the scheduler now records every block it creates in orion-written.json (beside the undo journal; tests
+   never touch the live file) and toBlocks treats those ids as ORION's, and (b) an untagged to-do title he does alone ("finish resume",
+   "apply to …") is movable unless it is a class, a deadline or social. A fixed non-class is said as "an event I didn't book".
+4. "it"/"that"/"this" in a move is the last target; "push it 15 min" (no direction) is later; with no target it is asked.
+5. "add stretching, call mom at 5" -> "Want stretching at 5 too, or just the call? What time for stretching?"
+Note: one test run had written a stray orion-written.json (3 fake ids) into the live ~/.openclaw/orion-controlled before the path was
+isolated; it was removed. Plugin 1833 pass; scripts 1710 pass (agentic-halts flaky once under load, passes alone).

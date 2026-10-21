@@ -66,7 +66,7 @@ describe("1. run 4 #7 and #9: a plain add at a time he said is booked at that ti
         ["add stretching then a call with mom at 5", [["add", "stretching", "30"]]],
     ])("the time is another clause's: %j is not put back (and the write is still refused, not booked at 17:00)", (m, argvs) => {
         expect(repairStart(m, argvs, { day: "today", now: 600 })).toBeUndefined();
-        expect(timeMismatch(m, argvs, { day: "today", now: 600 })).toMatch(/^You said 5:00 PM/);
+        expect(timeMismatch(m, argvs, { day: "today", now: 600 })).toBe("Want stretching at 5 too, or just the call? What time for stretching?");
     });
     it.each([
         ["add stretching at 5", "17:00"], ["put stretching for 20 min at 5pm", "17:00"],

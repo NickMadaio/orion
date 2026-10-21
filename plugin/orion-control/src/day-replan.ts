@@ -138,7 +138,10 @@ function resolveItem(name: string, day: Day, facts: DayPlanFacts, stated?: numbe
   const anchorOf = facts.anchors.find((a) => { const w = wordsOf(a.title); return said.length > 0 && said.every((x) => w.some((y) => sameWord(x, y))); });
   const now = day.now ? toMin(day.now) : -1;
   const onDay = blocksNamed(name, day).sort((a, b) => Number(toMin(b.end) > now) - Number(toMin(a.end) > now) || toMin(a.start) - toMin(b.start))[0];
-  if (onDay && (onDay.fixed || isClass(onDay))) return { say: "cannot", text: `${onDay.title.replace(/\s+—.*$/, "")} is a class or a plan with people, so it doesn't move. I haven't changed anything.` };
+  // Live run 5: a fixed block that is not a class is an event ORION did not book; said as such, not as "a class or a plan with people".
+  if (onDay && (onDay.fixed || isClass(onDay))) return { say: "cannot", text: isClass(onDay) || /\bwith\b/i.test(onDay.title)
+    ? `${onDay.title.replace(/\s+—.*$/, "")} is a class or a plan with people, so it doesn't move. I haven't changed anything.`
+    : `${onDay.title} is an event on your calendar that I didn't book, so I don't move it. I haven't changed anything.` };
   // A daily anchor keeps its own length (Gym is 90 minutes), however short today's block was squeezed; anything else takes the length he said, else its own.
   const minutes = anchorOf?.minutes ?? stated ?? (onDay ? toMin(onDay.end) - toMin(onDay.start) : undefined);
   const title = onDay?.title ?? anchorOf?.title ?? (stated ? name : undefined);

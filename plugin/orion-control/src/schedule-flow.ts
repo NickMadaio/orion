@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js";
 import { eveningTime, spokenTimesToDigits } from "./direct-add.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
-import { replanReply, type ReplanAsk } from "./day-replan.js";
+import { blocksNamed, replanReply, type ReplanAsk } from "./day-replan.js";
 import { editLength, type EditRequest, type EditTarget } from "./edit-followup.js";
 import { readIntent } from "./calendar-intent.js";
 import { planIntent } from "./intent-run.js";
@@ -559,7 +559,7 @@ async function execute(argvs: string[][], { exec, undoTop, when, undone, before,
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit }: {
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }: {
   message: string; clock: string; now?: Date; askContext?: AskContext;
   exec: (args: string[], signal?: AbortSignal) => Promise<{ stdout: string; code: number }>;
   /** budgetMs: how long this one call may take (turn-budget.ts); a model call past it is abandoned and answers null. */
@@ -573,6 +573,8 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   onWriteStart?: () => void;
   /** His last reschedule request in this chat (what "actually do resume before gym" reorders). */
   replanContext?: ReplanAsk;
+  /** The block ORION last made or changed in this chat ("it", or a name that is not on the day he named). */
+  lastTarget?: { title: string; start?: string; dateArgs: string[] };
   /** "make it an hour" after a change: the block ORION last wrote in this chat, and the new length (edit-followup.ts) */
   edit?: { target: Extract<EditTarget, { kind: "block" }>; req: EditRequest };
 }): Promise<FlowResult> {
@@ -614,11 +616,29 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   const dated = titled ? { args: titled.dateArgs, label: titled.when } : intent
     ? { args: intent.date ? ["--date", intent.date] : intent.day === "tomorrow" ? ["--date", "tomorrow"] : [], label: intent.day === "tomorrow" ? "tomorrow" : undefined }
     : dayArgsFor(message, now);
-  const { args: dateArgs, label: when } = dated;
+  let { args: dateArgs, label: when } = dated;
   const whichDay = "ask" in dated ? dated.ask : undefined;
   if (whichDay) return takenBack({ outcome: "say", text: whichDay, kind: "ask" });
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
+  // Live run 5: "move gym from 7 to 8" right after "add gym tomorrow at 7pm", and "push it 15 min" after "add reading tomorrow at 8pm":
+  // "it", or a name that is not on the day he named, is the block ORION last made here, on ITS day, by title and start.
+  let target: NonNullable<typeof lastTarget> | undefined;
+  if (intent?.verb === "move" && !intent.all && lastTarget) {
+    const name = intent.items[0]!.name;
+    const same = name === "it" || blocksNamed(name, { ...day, blocks: [{ title: lastTarget.title, start: "00:00", end: "00:00", fixed: false }] }).length > 0;
+    const daySaid = /\b(?:today|tonight|tomorrow|tmrw)\b/i.test(message);
+    // "Not on today" includes one that is already over today (a finished Gym is not the one he wants moved to 8 PM).
+    const nowMin = day.now ? toMin(day.now) : -1;
+    const aheadToday = blocksNamed(name, day).filter((x) => toMin(x.end) > nowMin);
+    if (same && (name === "it" || (!aheadToday.length && !daySaid))) {
+      target = lastTarget;
+      if (lastTarget.dateArgs.join(" ") !== dateArgs.join(" ")) {
+        try { day = JSON.parse((await exec(["show", "--json", ...lastTarget.dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
+        dateArgs = lastTarget.dateArgs; when = lastTarget.dateArgs.includes("tomorrow") ? "tomorrow" : undefined;
+      }
+    } else if (same && daySaid) target = lastTarget;
+  }
   // The backstop's day: a time he said must be the start every write uses (time-backstop.ts, live run 3).
   const clockCtx = { day: (day.now ? "today" : "tomorrow") as "today" | "tomorrow", now: day.now ? Number(day.now.slice(0, 2)) * 60 + Number(day.now.slice(3, 5)) : null };
   // The refused argv is kept on the result so the routing log shows what the write contained (live run 4: the walk's refusal was a mystery).
@@ -633,7 +653,8 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     // The scheduler's clock is the one that counts: the times are read again against the day's own "now" (they agree on the live route).
     const dayNow = day.now ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), ...day.now.split(":").map(Number) as [number, number]) : now;
     const again = readIntent(message, { now: dayNow, ...(replanContext ? { last: replanContext } : {}), ...(askContext ? { ask: askContext } : {}) });
-    const settled = "intent" in again && again.intent.day === intent.day ? again.intent : intent;
+    const read2 = "intent" in again && again.intent.day === intent.day ? again.intent : intent;
+    const settled = target ? { ...read2, target, day: (day.now ? "today" : "tomorrow") as "today" | "tomorrow" } : read2;
     const planned = planIntent(settled, day, { message, ...(askContext ? { askContext } : {}) });
     // An "outside" follow-up ("dinner then gym") changes nothing and keeps the request it followed as the one remembered.
     const replan: ReplanAsk | undefined = intent.replan && !intent.outside?.length ? { ...intent.replan, day: intent.day, date: day.date } : undefined;

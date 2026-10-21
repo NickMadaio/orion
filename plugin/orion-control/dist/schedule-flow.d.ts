@@ -267,7 +267,7 @@ export type FlowResult =
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit }: {
+export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }: {
     message: string;
     clock: string;
     now?: Date;
@@ -291,6 +291,12 @@ export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, no
     onWriteStart?: () => void;
     /** His last reschedule request in this chat (what "actually do resume before gym" reorders). */
     replanContext?: ReplanAsk;
+    /** The block ORION last made or changed in this chat ("it", or a name that is not on the day he named). */
+    lastTarget?: {
+        title: string;
+        start?: string;
+        dateArgs: string[];
+    };
     /** "make it an hour" after a change: the block ORION last wrote in this chat, and the new length (edit-followup.ts) */
     edit?: {
         target: Extract<EditTarget, {

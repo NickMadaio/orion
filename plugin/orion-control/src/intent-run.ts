@@ -69,6 +69,15 @@ function planAdd(intent: CalendarIntent, day: Day, message: string, askContext?:
 /** The block a move, extend or remove is about, or the line that says why there is none. */
 function target(intent: CalendarIntent, day: Day, what: string): { block: DayBlock } | IntentPlan | undefined {
   const item = intent.items[0]!;
+  // The block ORION last made here, by title and the start it was written at (schedule-flow.ts set intent.target).
+  if (intent.target) {
+    const t = intent.target;
+    const named = day.blocks.filter((x) => x.title.toLowerCase() === t.title.toLowerCase());
+    const hit = t.start ? named.find((x) => x.start === t.start) : named.length === 1 ? named[0] : undefined;
+    if (hit) return { block: hit };
+    if (item.name === "it") return { kind: "say", say: "plain", text: `I can't find the ${t.title} I just ${intent.verb === "move" ? "booked" : "changed"} on ${onWhat(intent)} any more, so I haven't ${what} anything.` };
+  }
+  if (item.name === "it") return { kind: "say", say: "ask", text: `Which block should I ${intent.verb === "move" ? "move" : "change"}? I haven't changed anything.` };
   const b = blockFor(item.name, day);
   if (b === "ambiguous") return undefined;   // "lab" = the CS Lab study block or the lab class: the normal path asks
   if (!b) return { kind: "say", say: "cannot", text: `There's no ${item.name} on ${onWhat(intent)}, so I haven't ${what} anything.` };
@@ -170,4 +179,4 @@ export function planIntent(intent: CalendarIntent, day: Day, ctx: { message: str
 
 /** The intents code runs before the front desk is asked (local-routing.ts): the ones whose words alone decide the change. */
 export const runsFirst = (intent: CalendarIntent): boolean =>
-  intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid)) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));
+  intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid || intent.items[0]?.name === "it")) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));

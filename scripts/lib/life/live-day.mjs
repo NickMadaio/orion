@@ -7,6 +7,7 @@ import { ignoredEvent } from "./config.mjs";
 import { bridgeRequest } from "./bridge-path.mjs";
 import { isSkipped } from "./skips.mjs";
 import { markLoggedEvents, withLoggedLedger } from "./logged.mjs";
+import { writtenIdentifiers } from "./written.mjs";
 
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
@@ -34,9 +35,14 @@ export function isSocial(title) {
 /** Things he does alone that ORION may move when the day changes. */
 const MOVABLE_ALONE = /\b(study|revise|revision|homework|reading|gym|workout|run|nap|rest|break|relax|chill|gam(e|es|ing)|play|grocer(y|ies)|shopping|errands?|clean(ing)?|laundry|chores?|tidy|side project|youtube|edit(ing)?|content|video|lunch|dinner|breakfast|meal prep|cook(ing)?|sleep)\b/i;
 
+// A to-do he does alone, the way ORION titles the blocks it books from his list ("finish resume", "apply to internships"): his older
+// ORION blocks lost their marker on the School calendar (live run 5) and read as fixed plans. Never a class, a deadline or anything social.
+const TODO_ALONE = /^(?:finish|write|draft|apply|email|prep|prepare|practice|practise|review|update|fix|submit|outline|research|revise|edit|polish|work on|start on|do)\b/i;
+
 export function movable(title, orionKind) {
   if (orionKind) return true;                 // ORION planned it itself
   if (isSocial(title)) return false;
+  if (TODO_ALONE.test(title) && !["class", "deadline"].includes(classify(title))) return true;
   return MOVABLE_ALONE.test(title);
 }
 
@@ -48,7 +54,7 @@ export function tagsOf(e) {
 }
 
 /** Calendar events as blocks. Fixed unless ORION planned it or it is something he does alone. */
-export function toBlocks(events, date) {
+export function toBlocks(events, date, written = writtenIdentifiers()) {
   return events
     .filter((e) => e.allDay !== "true" && localDate(new Date(e.start)) === date)
     .map((e, i) => {
@@ -62,10 +68,12 @@ export function toBlocks(events, date) {
       // was filed as a class and pinned in place over his lunch (2026-10-01).
       const tags = tagsOf(e);
       const rank = (tags.find((t) => /^rank-(must|high|medium|low)$/.test(t)) ?? "").slice(5) || undefined;
-      const fixed = e.orion ? false : kind === "class" || kind === "deadline" || !movable(title, null);
+      // ORION's own block (its marker, or its id in orion-written.json) moves whatever calendar it is in (live run 5).
+      const ours = !!e.orion || written.has(e.identifier);
+      const fixed = ours ? false : kind === "class" || kind === "deadline" || !movable(title, null);
       return { id: `cal-${i}-${String(e.identifier ?? i).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || i}`,
                title: title.slice(0, 120), kind, date, start: minuteOf(start),
-               end: Math.max(minuteOf(start) + 1, endMinute), fixed, source: e.orion ? "orion" : "calendar",
+               end: Math.max(minuteOf(start) + 1, endMinute), fixed, source: ours ? "orion" : "calendar",
                calendarId: e.identifier ?? null, tags, logged: tags.includes("logged"), ...(rank ? { rank } : {}) };
     })
     .sort((a, b) => a.start - b.start);

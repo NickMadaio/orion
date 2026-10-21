@@ -9,6 +9,7 @@ import { readPins, savePins } from "./pins.mjs";
 import { weightOf } from "./priority.mjs";
 import { removeSlips, touchDirty } from "./slips.mjs";
 import { removeLogged } from "./logged.mjs";
+import { recordWritten } from "./written.mjs";
 import { loadConfig } from "./config.mjs";
 
 export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO
@@ -114,6 +115,7 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
         const result = await bridge("create_calendar_event", payload);
         if (pinCreated.includes(c.id)) addedPins.push(result.identifier);
         createdIds[c.id] = result.identifier;
+        if (!c.fixed) recordWritten([result.identifier]);   // ORION's own block, whatever calendar it lands on
         undo.push({ op: "create", identifier: result.identifier, title: payload.title });
         journal();
       }

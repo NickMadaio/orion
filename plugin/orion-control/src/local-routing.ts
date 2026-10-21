@@ -77,7 +77,7 @@ export type LocalRoutingOptions = {
   /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
-  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk; edit?: { target: Extract<EditTarget, { kind: "block" }>; req: NonNullable<ReturnType<typeof parseEdit>> } }) => Promise<FlowResult>;
+  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk; lastTarget?: { title: string; start?: string; dateArgs: string[] }; edit?: { target: Extract<EditTarget, { kind: "block" }>; req: NonNullable<ReturnType<typeof parseEdit>> } }) => Promise<FlowResult>;
   /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
   lateFlow?: (minutes: number) => Promise<FlowResult>;
   /** Reads his texts or Gmail by code (read-only scripts); tests pass a stub (q066, q069). */
@@ -411,9 +411,9 @@ export function undoJournalTop(home = homedir(), now = Date.now()): string | nul
 }
 
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
-export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk; edit?: { target: Extract<EditTarget, { kind: "block" }>; req: NonNullable<ReturnType<typeof parseEdit>> } } = {}): Promise<FlowResult> => runScheduleFlow({
+export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk; lastTarget?: { title: string; start?: string; dateArgs: string[] }; edit?: { target: Extract<EditTarget, { kind: "block" }>; req: NonNullable<ReturnType<typeof parseEdit>> } } = {}): Promise<FlowResult> => runScheduleFlow({
   message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
-  ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}),
+  ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}), ...(opts.lastTarget ? { lastTarget: opts.lastTarget } : {}),
   exec: (args, signal) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20, ...(signal ? { signal } : {}) }, (e, stdout, stderr) =>
     resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
   ask: async (system, user, schema, budgetMs) => {
@@ -592,7 +592,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     ...(schedule ? { scheduleFlow: (m: string, c: string, o: Parameters<NonNullable<LocalRoutingOptions["scheduleFlow"]>>[2] = {}) => {
       const r = building.getStore();
       const context = recentReplan(r?.sessionKey);
-      return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : {}) });
+      const made = recentMade(r?.sessionKey);
+      return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(made?.kind === "block" ? { lastTarget: { title: made.title, ...(made.start ? { start: made.start } : {}), dateArgs: made.dateArgs } } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : {}) });
     } } : {}),
     ...(options.lateFlow ? { lateFlow: marked(options.lateFlow)! } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow)! } : {}),
     ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow)! } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow)! } : {}) };

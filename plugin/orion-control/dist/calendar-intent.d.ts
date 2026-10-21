@@ -52,6 +52,12 @@ export type CalendarIntent = {
     outside?: string[];
     /** add: "yes" to ORION's own offer, or the "put X [from now] until T" sentence (direct-add.ts reads it against the day). */
     until?: true;
+    /** move / edit: the block ORION last made or changed in this chat ("it", or a name not on the day it was said for), by title and start */
+    target?: {
+        title: string;
+        start?: string;
+        dateArgs: string[];
+    };
     /** move: "push everything 30 min" — every block of his still ahead today, by the same minutes */
     all?: true;
     /** the remembered request's date, when a follow-up acts on it */

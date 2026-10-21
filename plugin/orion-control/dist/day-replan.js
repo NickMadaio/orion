@@ -127,7 +127,8 @@ function resolveItem(name, day, facts, stated) {
     const now = day.now ? toMin(day.now) : -1;
     const onDay = blocksNamed(name, day).sort((a, b) => Number(toMin(b.end) > now) - Number(toMin(a.end) > now) || toMin(a.start) - toMin(b.start))[0];
     // Live run 5: a fixed block that is not a class is an event ORION did not book; said as such, not as "a class or a plan with people".
-    if (onDay && (onDay.fixed || isClass(onDay)))
+    // An item he names may be one of his own events that is not a class or a plan with people (review of 6fc2b13): it moves because he named it.
+    if (onDay && (onDay.fixed || isClass(onDay)) && !(onDay.nameable && !isClass(onDay)))
         return { say: "cannot", text: isClass(onDay) || /\bwith\b/i.test(onDay.title)
                 ? `${onDay.title.replace(/\s+—.*$/, "")} is a class or a plan with people, so it doesn't move. I haven't changed anything.`
                 : `${onDay.title} is an event on your calendar that I didn't book, so I don't move it. I haven't changed anything.` };
@@ -143,8 +144,9 @@ function resolveItem(name, day, facts, stated) {
     return { item: { title: title.replace(/,/g, " ").replace(/\s+/g, " ").trim(), minutes }, ...(over ? { over } : {}) };
 }
 /** The first start at or after `from` where `minutes` clear every class and plan with people (the last class's trip home included), and the first thing that pushed it. */
-function fitAround(from, minutes, day, facts) {
-    const fixed = day.blocks.filter((b) => b.fixed).sort((a, b) => toMin(a.start) - toMin(b.start));
+function fitAround(from, minutes, day, facts, named = []) {
+    // What he names in this request is being re-placed, so it is never in its own way (his own Gym, named "gym first").
+    const fixed = day.blocks.filter((b) => b.fixed && !named.some((n) => norm(n) === norm(b.title))).sort((a, b) => toMin(a.start) - toMin(b.start));
     let t = from;
     let because;
     for (let moved = true; moved;) {
@@ -212,7 +214,7 @@ export function planReplan(ask, day, words = "") {
     if (now === null && anchorEnd === undefined)
         return undefined;
     const wanted = Math.max(earliest, now !== null ? ceil5(now) : 0);
-    const { start, because } = fitAround(wanted, items[0].minutes, day, facts);
+    const { start, because } = fitAround(wanted, items[0].minutes, day, facts, items.map((i) => i.title));
     if (start + items[0].minutes > 1440)
         return { say: "cannot", text: `${items[0].title} wouldn't finish before midnight if it came first at ${ampm(start)}, so I haven't changed anything.` };
     const label = ask.anchor ? norm(ask.anchor).replace(/\b(?:my|the|our)\s+/g, "") || "class" : implicit === lastClass && implicit !== classes[0] ? "last class" : "first class";

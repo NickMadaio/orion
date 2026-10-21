@@ -252,7 +252,19 @@ const nowMinute = today ? nowDate.getHours() * 60 + nowDate.getMinutes() : 0;
 const patterns = loadPatterns();
 const wakeMinute = patterns?.wake?.median != null ? patterns.wake.median : toMinute(config.usualWake);
 const events = await calendarEvents().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
-const blocks = pinBlocks(toBlocks(events, date), date);
+let blocks = pinBlocks(toBlocks(events, date), date);
+/*
+ Explicit vs automatic (review of 6fc2b13). A block he NAMES in move / extend / resize / swap / drop may be any of his own events that is not
+ a class, a deadline or a plan with people ("move gym to 7" on his own Gym, as on live). For that one command it is freed; everything ORION
+ changes as a side effect (the cascade, re-plans, bumps, fill, push everything) still only touches ORION's blocks (ledger or marker).
+*/
+const nameableBy = (b) => !b.fixed || b.pinned || b.nameable;
+const freeNamed = (target) => {
+  if (!target.fixed || target.pinned) return target;
+  const freed = { ...target, fixed: false, named: true };
+  blocks = blocks.map((b) => (b.id === target.id ? freed : b));
+  return freed;
+};
 /*
  `ledger backfill` (review of 7d5f393): once, after deploy, mark the events ORION already made as its own in orion-written.json, on hard
  evidence only (backfillEvidence: the undo journal's creates, the app's created-events record, ORION's pins, its notes markers). Idempotent:
@@ -282,7 +294,9 @@ if (command === "show") {
     // plan (2026-10-20): what code needs to place a block without asking the model — the trip home, the gap between blocks and the
     // daily anchors' own lengths ("gym first after I get home" is class end + commute + buffer, 90 minutes).
     plan: { commuteMinutes: config.commuteMinutes, bufferMinutes: config.bufferMinutes, anchors: (config.anchors ?? []).map((a) => ({ title: a.title, minutes: a.minutes })) },
-    blocks: [...blocks].sort((a, b) => a.start - b.start).map((b) => ({ title: b.title, start: hhmm(b.start), end: hhmm(b.end), fixed: !!b.fixed && !b.pinned, pinned: !!b.pinned, kind: b.kind })) }));
+    blocks: [...blocks].sort((a, b) => a.start - b.start).map((b) => ({ title: b.title, start: hhmm(b.start), end: hhmm(b.end), fixed: !!b.fixed && !b.pinned, pinned: !!b.pinned, kind: b.kind,
+      // nameable: one of his own events (not a class or a plan with people) that he may move or change himself by naming it
+      ...(b.fixed && !b.pinned && b.nameable ? { nameable: true } : {}) })) }));
   // pinned = an ORION block at a time he stated: the planner keeps it there, but he can still move it.
   process.exit(0);
 }
@@ -379,7 +393,7 @@ async function writeShape(label, pins, firstLines, persist = true) {
   const moves = [...pinMoves, ...lengthMoves(result, shrunk, day).filter((m) => !pinnedIds.has(m.id))];
   const removed = result.unplaced.map((u) => byId.get(u.id)).filter(Boolean);
   refuseIfBroken(projectDay(blocks, { moves, created: [], removed }), nowMinute, label);
-  if (!dry) await applyPlan({ date, moves, created: [], removed, blocksById: byId, pinIds: persist ? pins.map(p => p.block.calendarId) : [] }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+  if (!dry) await applyPlan({ date, moves, created: [], removed, blocksById: byId, pinIds: persist ? pins.filter((p) => p.block.source === "orion").map(p => p.block.calendarId) : [] }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
   if (!dry) await verifyWritten(date, nowMinute);
   console.log(`${dry ? "Would change" : "Changed"} ${dayName} ${date}:`);
   for (const line of firstLines) console.log(`  ${line}`);
@@ -498,8 +512,9 @@ if (command === "late") {
 } else if (command === "extend") {
   const name = rest[0]; const until = minute(flag("--until")); const more = Number(rest[1]);
   if (!name || (until === null && !(Number.isInteger(more) && more >= 5 && more <= 480))) fail('usage: orion-reschedule extend "<title>" --until HH:MM | <minutes>');
-  const target = findBlock(name) ?? notFound(name);
-  if (target.fixed && !target.pinned) fail(`"${target.title}" is a class: use overrun <minutes> --what "${target.title}"`, 2);
+  const found = findBlock(name) ?? notFound(name);
+  if (!nameableBy(found)) fail(`"${found.title}" is a class: use overrun <minutes> --what "${found.title}"`, 2);
+  const target = freeNamed(found);
   const end = until ?? Math.max(target.end, nowMinute) + more;
   if (end <= target.start || end > 1440) fail(`NOTHING WAS CHANGED: ${target.title} starts at ${hhmm(target.start)}, so it cannot end at ${hhmm(end)}`, 1);
   // 2026-10-07: ORION read "extend 70" as "make it 70 minutes long" twice.
@@ -514,15 +529,17 @@ if (command === "late") {
 } else if (command === "resize") {
   const name = rest[0]; const n = Number(rest[1]);
   if (!name || !Number.isInteger(n) || n < 5 || n > 480) fail('usage: orion-reschedule resize "<title>" <minutes>');
-  const target = findBlock(name, { allowPast: false }) ?? notFound(name);
-  if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
+  const found = findBlock(name, { allowPast: false }) ?? notFound(name);
+  if (!nameableBy(found)) fail(`NOTHING WAS CHANGED: "${found.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
+  const target = freeNamed(found);
   await writeShape("resizing it", [{ block: target, start: target.start, end: target.start + n }], [`${target.title} is now ${n} min: ${hhmm(target.start)}–${hhmm(target.start + n)} (was ${target.end - target.start} min)`]);
 } else if (command === "move") {
   // "Move study to 4": same length, new start; the rest cascades around it.
   const name = rest[0];
   if (!name) fail('usage: orion-reschedule move "<title>" --to HH:MM | --by <minutes>');
-  const target = findBlock(name, { allowPast: false }) ?? notFound(name);
-  if (target.fixed && !target.pinned) fail(`NOTHING WAS CHANGED: "${target.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
+  const found = findBlock(name, { allowPast: false }) ?? notFound(name);
+  if (!nameableBy(found)) fail(`NOTHING WAS CHANGED: "${found.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
+  const target = freeNamed(found);
   /*
    2026-10-07: "start organize safari directly after CS lab, ending 20 minutes
    before the DS assessment" took two messages and four failed calls because
@@ -561,7 +578,7 @@ if (command === "late") {
   const one = findBlock(x, { allowPast: false }) ?? notFound(x);
   const two = findBlock(y, { allowPast: false }) ?? notFound(y);
   if (one.id === two.id) fail(`NOTHING WAS CHANGED: "${x}" and "${y}" are the same block`, 1);
-  const fixedOne = [one, two].find((b) => b.fixed && !b.pinned);
+  const fixedOne = [one, two].find((b) => !nameableBy(b));
   if (fixedOne) fail(`NOTHING WAS CHANGED: "${fixedOne.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
   const [early, late] = one.start <= two.start ? [one, two] : [two, one];
   if (early.start < nowMinute && today) fail(`NOTHING WAS CHANGED: ${early.title} has already started; swap only things that have not`, 1);
@@ -1043,7 +1060,8 @@ if (command === "day" || command === "add") {
     return next;
   });
 }
-const droppable = (list, from) => list.filter((block) => block.end > from && (!block.fixed || block.pinned) && block.kind !== "class" && block.kind !== "deadline"
+// A drop by name is explicit: any of his own events he names that is not a class or a plan with people.
+const droppable = (list, from) => list.filter((block) => block.end > from && nameableBy(block) && block.kind !== "class" && block.kind !== "deadline"
   && rest.some((name) => sameThing(name, block.title)));
 if (command === "day" || command === "add") add = sensible(add);
 // "Delete everything after finishing the resume": every planned block that
@@ -1093,7 +1111,8 @@ add = add.filter((item) => {
 });
 // Restating a block replaces the old copy ("Dinner" twice on the calendar, 2026-09-30).
 const restated = (command === "day" || command === "add")
-  ? blocks.filter((block) => (!block.fixed || block.pinned) && block.end > nowMinute && add.some((item) => sameThing(item.title, block.title) && sameThing(block.title, item.title)))
+  // An item he names in this request may be one of his own events ("reschedule … gym first" with his own Gym): named, so it may move.
+  ? blocks.filter((block) => nameableBy(block) && block.end > nowMinute && add.some((item) => sameThing(item.title, block.title) && sameThing(block.title, item.title)))
   : [];
 let removed = replaceDay || clearMovable
   ? blocks.filter((block) => block.end > nowMinute

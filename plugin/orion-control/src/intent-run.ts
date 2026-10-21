@@ -19,6 +19,8 @@ const cap = (t: string): string => t.replace(/^./, (c) => c.toUpperCase());
 const label = (b: DayBlock): string => b.title.replace(/\s+—.*$/, "");
 const onWhat = (intent: CalendarIntent): string => (intent.day === "tomorrow" ? "your day tomorrow" : "your day");
 const isFixed = (b: DayBlock): boolean => b.fixed || b.kind === "class";
+/** For a command he gives by name (move, extend, remove): his own events count, unless a class or a plan with people (review of 6fc2b13). */
+const namedFixed = (b: DayBlock): boolean => isFixed(b) && !(b.nameable && b.kind !== "class");
 const nowOf = (day: Day): number | null => (day.now ? toMin(day.now) : null);
 
 /** The block on the day his name means: one still to come first, else the latest. Two different blocks by that name: "ambiguous" (never a guess). */
@@ -38,8 +40,8 @@ function issueText(issue: TimeIssue, item: IntentItem, intent: CalendarIntent, d
 }
 
 /** The fixed block (a class, a plan with people) a block at [start, start+minutes) would sit on. */
-const clashWith = (start: number, minutes: number, day: Day): DayBlock | undefined =>
-  day.blocks.filter(isFixed).find((b) => toMin(b.start) < start + minutes && toMin(b.end) > start);
+const clashWith = (start: number, minutes: number, day: Day, self?: DayBlock): DayBlock | undefined =>
+  day.blocks.filter((b) => isFixed(b) && b !== self).find((b) => toMin(b.start) < start + minutes && toMin(b.end) > start);
 
 function planAdd(intent: CalendarIntent, day: Day, message: string, askContext?: AskContext): IntentPlan | undefined {
   const item = intent.items[0]!;
@@ -81,7 +83,7 @@ function target(intent: CalendarIntent, day: Day, what: string): { block: DayBlo
   const b = blockFor(item.name, day);
   if (b === "ambiguous") return undefined;   // "lab" = the CS Lab study block or the lab class: the normal path asks
   if (!b) return { kind: "say", say: "cannot", text: `There's no ${item.name} on ${onWhat(intent)}, so I haven't ${what} anything.` };
-  if (isFixed(b)) return intent.verb === "move" ? { kind: "say", say: "cannot", text: `${cap(label(b))} is a class or a plan with people, so it doesn't move. I haven't changed anything.` } : undefined;
+  if (namedFixed(b)) return intent.verb === "move" ? { kind: "say", say: "cannot", text: `${cap(label(b))} is a class or a plan with people, so it doesn't move. I haven't changed anything.` } : undefined;
   return { block: b };
 }
 
@@ -117,7 +119,7 @@ function planMove(intent: CalendarIntent, day: Day): IntentPlan | undefined {
   }
   if (now !== null && to < now) return { kind: "say", say: "cannot", text: `That would start ${label(b)} at ${ampm(to)}, which has already passed, so I haven't moved it.` };
   if (to + (toMin(b.end) - toMin(b.start)) > 1440) return { kind: "say", say: "cannot", text: `${cap(label(b))} would run past midnight from ${ampm(to)}, so I haven't moved it.` };
-  const clash = clashWith(to, toMin(b.end) - toMin(b.start), day);
+  const clash = clashWith(to, toMin(b.end) - toMin(b.start), day, b);   // his own named block is never in its own way
   if (clash) return { kind: "say", say: "cannot", text: `${cap(label(clash))} is ${span(toMin(clash.start), toMin(clash.end))}${intent.day === "tomorrow" ? " tomorrow" : ""}, so ${label(b)} can't go at ${ampm(to)}. I haven't moved it. Tell me another time.` };
   return { kind: "run", argv: ["move", b.title, "--to", hhmm(to)], title: b.title };
 }

@@ -107,3 +107,10 @@ or its id in orion-written.json; `movable()` reads nothing else (aloneActivity i
 New one-shot `orion-reschedule ledger backfill [--dry-run]`: marks events from the undo journal's create steps, orion-created-events.json
 (exact id or its uuid part), pins.json and markers; prints each event marked and why; idempotent ("Nothing new to mark"). Until the
 backfill runs, old unmarked ORION blocks (finish resume) stay fixed. Tests: the reviewer's 8 titles stay fixed. Plugin 1833; scripts 1712 pass.
+
+Review of 6fc2b13: explicit vs automatic. show --json/toBlocks mark his own events that are not a class, a deadline or a plan with people
+`nameable` (still fixed). Explicit commands he names (move, extend, resize, swap, drop by name; an item named in a re-plan) may act on
+them (`nameableBy` + `freeNamed` in orion-reschedule; `namedFixed` in intent-run; resolveItem in day-replan); his events are never
+pinned by it (a pin would later be backfill evidence). Automatic changes (cascade, late, re-plan of the rest, fill, drop --after, push
+everything) still touch only ORION's blocks. Tests: explicit-vs-automatic.test.mjs (5, real scheduler incl. the 8 real titles never moving
+as a side effect, "move Fix car to 11" moving), explicit-automatic.test.ts (8). Plugin 1841; scripts 1717 pass.

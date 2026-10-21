@@ -74,9 +74,12 @@ export function toBlocks(events, date, written = writtenIdentifiers()) {
       // ORION's own block (its marker, or its id in orion-written.json) moves whatever calendar it is in (live run 5).
       const ours = movable(e.orion, e.identifier, written);
       const fixed = !ours;
+      // nameable: he may still move it himself by name ("move gym to 7"), unless it is a class, a deadline or a plan with people. Automatic
+      // changes (re-plans, bumps, fill, push everything) never touch it: it stays fixed for them (review of 6fc2b13).
+      const nameable = ours || (kind !== "class" && kind !== "deadline" && !isSocial(title));
       return { id: `cal-${i}-${String(e.identifier ?? i).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || i}`,
                title: title.slice(0, 120), kind, date, start: minuteOf(start),
-               end: Math.max(minuteOf(start) + 1, endMinute), fixed, source: ours ? "orion" : "calendar",
+               end: Math.max(minuteOf(start) + 1, endMinute), fixed, nameable, source: ours ? "orion" : "calendar",
                calendarId: e.identifier ?? null, tags, logged: tags.includes("logged"), ...(rank ? { rank } : {}) };
     })
     .sort((a, b) => a.start - b.start);

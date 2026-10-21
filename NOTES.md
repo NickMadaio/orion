@@ -64,3 +64,9 @@ fails identically on 7438dfe (clock-dependent after midnight); the check-ins tes
    (focus, lock in, pomodoro, session, timer, deep work); a clock time, a calendar verb, or a meal/activity noun is a calendar item.
    The add is code-first, so the session flow never sees it.
 Tests: plugin 1761 pass (intent-r4.test.ts 40). Scripts 1702/1706; the 4 failures are the same clock-dependent ones as on the base.
+
+Review of efc37af: desk-read session starts no longer need a session word (only the calendar-item exclusion stays): "25 min on
+resume", "lets get to work on the essay", "work on resume for 25 min", "study econ for 45", "start 25 min on resume" start sessions;
+the lunch negatives hold. The time put-back only happens when the stated time is in the item's own clause (comma, and, then, but,
+also, plus split clauses): "add stretching, call mom at 5" is not put back and the write is refused, never 17:00 stretching.
+Plugin 1772 pass; scripts 1702/1706, the same 4 clock-dependent failures as on the base.

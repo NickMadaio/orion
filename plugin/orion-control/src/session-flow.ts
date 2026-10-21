@@ -41,7 +41,7 @@ const ruledOut = (message: string): boolean => NOT_A_START.test(message) || RESU
 
 // Live run 4 (2026-10-21): "lunch 45 min today at 1pm" started a real focus session ("lunch") because the desk read a start; "make it an
 // hour" restarted it. A session needs a session word in HIS message; a clock time ("at 1pm", "13:00"), "add/put/schedule", or a meal or an
-// activity is a calendar item, never a session.
+// activity is a calendar item, never a session. (A desk-read start with no session word still counts: "25 min on resume", review of efc37af.)
 const SESSION_WORD = /\b(?:focus(?:ing)?|lock(?:ed)?\s+in|pomodoro|session|timer|deep work|study mode|work mode)\b/i;
 const CLOCK_SAID = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b\d{1,2}:\d{2}\b|\b(?:at|from)\s+\d{1,2}\b|\b(?:noon|midday|tonight|tomorrow|this (?:morning|afternoon|evening))\b/i;
 const CALENDAR_VERB = /\b(?:add|put|schedule|book|pencil|slot|block (?:off|out)|calendar)\b/i;
@@ -50,9 +50,9 @@ const MEAL_OR_ACTIVITY = /\b(?:lunch|dinner|breakfast|brunch|meal|snack|coffee|e
 const calendarItem = (message: string): boolean => CALENDAR_VERB.test(message) || (!SESSION_WORD.test(message) && (CLOCK_SAID.test(message) || MEAL_OR_ACTIVITY.test(message)));
 
 export const isSessionStart = (message: string): boolean => (START.test(message) || MODE_ON.test(message)) && !ruledOut(message) && !calendarItem(message);
-/** His words start a session, or the front desk read a start and his own words name a session and nothing rules one out. */
+/** His words start a session, or the front desk read a start and nothing in his words rules one out (a calendar item does: review of efc37af). */
 export const startsSession = (message: string, hint: SessionHint = {}): boolean =>
-  isSessionStart(message) || (!!hint.start && SESSION_WORD.test(message) && !ruledOut(message) && !calendarItem(message));
+  isSessionStart(message) || (!!hint.start && !ruledOut(message) && !calendarItem(message));
 
 const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
 

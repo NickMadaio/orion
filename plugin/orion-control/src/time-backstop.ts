@@ -68,6 +68,11 @@ export function repairStart(message: string, argvs: string[][], ctx: { day: DayW
   const w = writes[0]!;
   const flag = w[0] === "add" ? "--at" : w[0] === "move" ? "--to" : undefined;
   if (!flag || w.includes(flag) || w.includes("--after") || w.includes("--before") || w.includes("--until")) return undefined;
+  // The time must sit in the item's own clause: "add stretching, call mom at 5" — the 5 is the call's, never stretching's (review of efc37af).
+  const title = (w[1] ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((x) => x.length >= 3);
+  const clauses = spokenTimesToDigits(message).split(/[,;.!?]|\b(?:and|then|but|also|plus)\b/i);
+  const timed = clauses.filter((c) => new RegExp(String.raw`\b(?:at|from|starting|to)\s+${CLOCK}(?![\w:])`, "i").test(c));
+  if (timed.length !== 1 || !title.some((t) => new RegExp(`\\b${t}`, "i").test(timed[0]!))) return undefined;
   const at = stated[0]![0]!;
   const fixed = [...w, flag, `${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}`];
   return argvs.map((a) => (a === w ? fixed : a));

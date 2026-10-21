@@ -60,6 +60,19 @@ describe("1. run 4 #7 and #9: a plain add at a time he said is booked at that ti
     ])("repairStart leaves %j alone", (argvs, want) => {
         expect(repairStart("45 min walk today at 5pm", argvs, { day: "today", now: 226 })).toEqual(want);
     });
+    it.each([
+        ["add stretching, call mom at 5", [["add", "stretching", "30"]]],
+        ["add stretching and call mom at 5", [["add", "stretching", "30"]]],
+        ["add stretching then a call with mom at 5", [["add", "stretching", "30"]]],
+    ])("the time is another clause's: %j is not put back (and the write is still refused, not booked at 17:00)", (m, argvs) => {
+        expect(repairStart(m, argvs, { day: "today", now: 600 })).toBeUndefined();
+        expect(timeMismatch(m, argvs, { day: "today", now: 600 })).toMatch(/^You said 5:00 PM/);
+    });
+    it.each([
+        ["add stretching at 5", "17:00"], ["put stretching for 20 min at 5pm", "17:00"],
+    ])("the item's own clause: %j is put back at %s", (m, when) => {
+        expect(repairStart(m, [["add", "stretching", "30"]], { day: "today", now: 600 })).toEqual([["add", "stretching", "30", "--at", when]]);
+    });
 });
 describe("2. run 4 #2b: 'move gym from 7 to 8' with the Gym at 19:00 moves it to 20:00, at 03:47 too", () => {
     it.each([
@@ -85,13 +98,16 @@ describe("2. run 4 #2b: 'move gym from 7 to 8' with the Gym at 19:00 moves it to
 describe("3. run 4 #10: a meal or activity with a time is a calendar add, never a focus session", () => {
     const LUNCH_HINT = { start: true, task: "lunch", minutes: 45 };
     it.each([
-        ["lunch 45 min today at 1pm", LUNCH_HINT], ["make it an hour", { start: true }], ["gym 30 min at 6", { start: true }], ["dinner at 7", { start: true }],
+        ["lunch 45 min today at 1pm", LUNCH_HINT], ["lunch 45 min", LUNCH_HINT], ["lunch at 1pm", { start: true, task: "lunch" }], ["gym 30 min at 6", { start: true }], ["dinner at 7", { start: true }],
         ["add a 45 min reading block", { start: true }], ["nap 20 min", { start: true }], ["start my lunch at 1pm", {}], ["start work on the laundry at 6", {}],
         ["start a study block at 3pm", {}], ["walk for 45 minutes", { start: true }],
     ])("%j (desk hint %j) is not a session", (m, hint) => {
         expect(startsSession(m, hint)).toBe(false);
     });
     it.each([
+        // desk-read starts with no session word, as on live (review of efc37af)
+        ["25 min on resume", { start: true }], ["lets get to work on the essay", { start: true }], ["work on resume for 25 min", { start: true }],
+        ["study econ for 45", { start: true }], ["start 25 min on resume", { start: true }],
         ["start a focus session for 45 min", {}], ["lock in for an hour", { start: true }], ["pomodoro 25 min", { start: true }], ["start a focus session until 8:30 pm", {}],
         ["focus mode on for an hour, leetcode", {}], ["start a 25 minute timer session", { start: true }],
     ])("%j (desk hint %j) is a session", (m, hint) => {
@@ -103,7 +119,8 @@ describe("3. run 4 #10: a meal or activity with a time is a calendar add, never 
         const sched = [];
         registerLocalRouting({ on: (n, f) => handlers.set(n, [...(handlers.get(n) ?? []), f]) }, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "r4-")), "r.jsonl"),
             brainSearch: async () => "", clock: () => "Wed 03:52", now: () => at(3, 52),
-            decideImpl: async () => ({ move: "tool", tool: "session", args: { do: "start", task: "lunch", minutes: "45" }, say: "Starting your 45-minute lunch session at 1 PM." }),
+            // Run 4's exact desk decisions: a lunch "session" for the first turn, an ask for "make it an hour".
+            decideImpl: async ({ message }) => (/lunch/.test(message) ? { move: "tool", tool: "session", args: { do: "start", task: "lunch", minutes: "45" }, say: "Starting your 45-minute lunch session at 1 PM." } : { move: "ask", answer: "What do you want to make an hour?" }),
             sessionFlow: async (m) => { sessions.push(m); return { outcome: "done", reply: "Your focus session is running: 45 minutes.", calls: ["exec orion-session start lunch --minutes 45 --json"], outputs: ["ok"] }; },
             scheduleFlow: async (m) => { sched.push(m); return { outcome: "done", calls: ["exec orion-reschedule add lunch 45 --at 13:00"], outputs: ["Changed:\n  planned lunch: 13:00–13:45"] }; } });
         for (const [id, m] of [["l1", "lunch 45 min today at 1pm"], ["l2", "make it an hour"]]) {

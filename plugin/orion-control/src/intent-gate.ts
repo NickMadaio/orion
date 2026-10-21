@@ -42,7 +42,7 @@ const IMPERATIVE = /^(?:re-?schedule|re-?do|re-?plan|re-?arrange|re-?organi[sz]e
 export const TAKEN_BACK = /(?:\bjk+|\bj\/k|just kidding|\bkidd?in[g']?|\bjkjk|\bn(?:ever|evr|vr)\s*-?\s*m(?:i|y)?n?d\b|\bnevermnd|\bnvm+|\blo+l+z*|\blm+a+o+|\bro+fl|\bha(?:ha)+h?|\bor not|\bscratch that|\bforget (?:it|that)|\bi dunno|\bdunno|\bidc|\bi don'?t care|\bwhatever|\bidk|\bgot nothing)\W*$/i;
 // Doubt in the middle of the message: "gym first or whatever, idc".
 // Trailing hedges too ("gym first ish", "… kinda?", "idk tho"): a hedge at the end is not an order (review 2026-10-21). "im kinda tired tho" mid-sentence is not one.
-export const DOUBT = /\b(?:or whatever|dunno|idc|idek|idk|i don'?t care|not sure|no idea|who knows|or something|or smth|or sth|or smthn|or somethin|i guess|meh)\b|\b(?:ish|kinda|sorta|maybe|probably|prob|idk tho|i think)\W*$/i;
+export const DOUBT = /\b(?:or whatever|dunno|idc|idek|idk|i don'?t care|not sure|no idea|who knows|or something|or smth|or sth|or smthn|or somethin|i guess|i suppose|i think|prolly|meh)\b|\b(?:ish|kinda|sorta|maybe|probably|prob|idk tho|i think)\W*$/i;
 /** The replan gate: the message starts with the request and does not take it back at the end. */
 export const startsAsRequest = (text: string): boolean => { const rest = text.replace(COURTESY, ""); return IMPERATIVE.test(rest) && !TAKEN_BACK.test(text); };
 // Second thoughts, doubt and hearsay anywhere in the message: not an order (review round 3, 2026-10-20).

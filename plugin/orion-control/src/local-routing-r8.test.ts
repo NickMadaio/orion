@@ -85,7 +85,7 @@ describe("q029: running late, three turns", () => {
     const messages = [{ role: "user", content: "x" }, { role: "assistant", content: [{ type: "text", text: reply }] }];
     const [out] = await h.f.fire("before_agent_finalize", { lastAssistantMessage: reply, messages, hadDeterministicSideEffect: true }, ctx);
     expect(out).toBeUndefined();
-    expect(JSON.stringify(messages[1])).toContain("Nothing was moved — what's left today is classes and plans with fixed times, which don't slide.");
+    expect(JSON.stringify(messages[1])).toContain("I couldn't move anything, so nothing was moved — what's left today is classes and plans with fixed times, which don't slide.");
     expect(JSON.stringify(messages[1])).not.toContain("adjusted");
   });
 });

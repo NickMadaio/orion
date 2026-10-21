@@ -167,3 +167,22 @@ test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (noth
   assert.deepEqual(early.writes, [["add", "walk", "30", "--at", "05:00"]]);
   assert.equal(b.outcome, "done", JSON.stringify(b));
 });
+
+test("live run 3 #8: 'can u block 2 hrs for econ homework tonight at 7' books 7:00-9:00 PM, not 1:20 PM", async (t) => {
+  const w = world(t, [15, 10]);
+  const before = w.day();
+  const r = await w.say("can u block 2 hrs for econ homework tonight at 7");
+  assert.equal(r.outcome, "done", JSON.stringify(r));
+  assert.deepEqual(w.writes, [["add", "econ homework", "120", "--at", "19:00"]]);
+  assert.deepEqual(w.day().filter((l) => !before.includes(l)), ["econ homework 3 19:00-21:00"]);
+});
+
+test("live run 3 #2c: 'ok and push everything 30 min' slides every block of his still ahead by 30 minutes; classes stay", async (t) => {
+  const events = [...EVENTS.filter((e) => e.title !== "Gym"), { title: "Gym", start: at(3, 18), end: at(3, 19, 30), orion: "gym", orionTags: "gym" }];
+  const w = world(t, [15, 10], events);
+  const r = await w.say("ok and push everything 30 min");
+  assert.deepEqual(w.writes, [["day", "--plan", "Gym, 90, 18:30"]]);
+  assert.equal(r.outcome, "done", JSON.stringify(r));
+  assert.ok(w.day().includes("Gym 3 18:30-20:00"), w.day().join("\n"));
+  assert.ok(w.day().includes("ECON1115 Principles of Macroeconomics 3 13:30-15:00"));
+});

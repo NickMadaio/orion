@@ -1,6 +1,6 @@
 import { type ReplanAsk } from "./day-replan.js";
 import { type Refusal } from "./intent-gate.js";
-import { type DayWord } from "./intent-time.js";
+import { type ClockContext, type DayWord } from "./intent-time.js";
 import type { AskContext } from "./schedule-flow.js";
 export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend";
 /** A clock that cannot be used as said: already behind him today, or 9 tomorrow with no am/pm. */
@@ -49,6 +49,8 @@ export type CalendarIntent = {
     outside?: string[];
     /** add: "yes" to ORION's own offer, or the "put X [from now] until T" sentence (direct-add.ts reads it against the day). */
     until?: true;
+    /** move: "push everything 30 min" — every block of his still ahead today, by the same minutes */
+    all?: true;
     /** the remembered request's date, when a follow-up acts on it */
     date?: string;
 };
@@ -60,6 +62,9 @@ export type IntentRead = {
 };
 /** What a follow-up needs from the request before it: the request, and the date it was for. */
 export type IntentMemory = ReplanAsk;
+export declare const PART: (t: string) => ClockContext["part"];
+/** "push everything 30 min", "ok and push the rest of my day back an hour": the minutes, or null. Today only; never a question or a hedge. */
+export declare function pushAllMinutes(message: string): number | null;
 /**
  * His sentence as one structured change, or why not. ctx.now is the clock; ctx.last is his last reschedule request in this chat
  * (for "actually do resume before gym"); ctx.ask is ORION's open question (for "yes" to its offer).

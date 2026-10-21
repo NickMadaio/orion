@@ -100,14 +100,14 @@ describe("H4: the finalize safety net only replaces after host-run tools", () =>
       expect(JSON.stringify(messages[1])).toContain(reply.slice(0, 20));
     }
   });
-  it("q029: the host-run exec plus a false claim is still replaced", async () => {
+  it("q029: the host-run exec plus a false claim is still replaced (a push code does not read: \"push my day back 15 minutes\" itself is the late flow now)", async () => {
     const h = harness([{ move: "escalate", tier: "standard" }]);
-    const { ctx } = await h.turn("push my day back 15 minutes");
+    const { ctx } = await h.turn("push my day back 15 minutes, if that works");
     await h.f.fire("after_tool_call", { toolName: "exec", params: { command: "/x/scripts/orion-reschedule late 15" }, result: NOTHING_BOOKED }, ctx);
     const reply = "Your schedule has been adjusted. Everything has been pushed forward.";
     const messages = [{ role: "user", content: "x" }, { role: "assistant", content: [{ type: "text", text: reply }] }];
     await h.f.fire("before_agent_finalize", { lastAssistantMessage: reply, messages, hadDeterministicSideEffect: false }, ctx);
-    expect(JSON.stringify(messages[1])).toContain("Nothing was moved");
+    expect(JSON.stringify(messages[1])).toContain("I couldn't move anything, so nothing was moved");
   });
 });
 

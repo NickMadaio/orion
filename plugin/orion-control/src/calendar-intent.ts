@@ -31,6 +31,8 @@ export type CalendarIntent = {
   outside?: string[];
   /** add: "yes" to ORION's own offer, or the "put X [from now] until T" sentence (direct-add.ts reads it against the day). */
   until?: true;
+  /** move: "push everything 30 min" — every block of his still ahead today, by the same minutes */
+  all?: true;
   /** the remembered request's date, when a follow-up acts on it */
   date?: string;
 };
@@ -42,7 +44,7 @@ export type IntentMemory = ReplanAsk;
 const WEEKDAY = /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun|mondays?|weekends?|week|month|year|days|fortnight|the day after|tmrw night after)\b|\b\d{1,2}(?:st|nd|rd|th)\b|\b\d{1,2}\/\d{1,2}\b|\b(?:january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/i;
 const TOMORROW = /\b(?:tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
 const LATE_NIGHT_UNTIL = 5;
-const PART = (t: string): ClockContext["part"] => (/\b(?:tonight|this evening|evening|night)\b/i.test(t) ? "evening" : /\bmorning\b/i.test(t) ? "morning" : undefined);
+export const PART = (t: string): ClockContext["part"] => (/\b(?:tonight|this evening|evening|night|this afternoon|afternoon)\b/i.test(t) ? "evening" : /\bmorning\b/i.test(t) ? "morning" : undefined);
 const norm = (t: string): string => t.toLowerCase().replace(/[’']/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 
 /** The day his words are for: today, tomorrow, or another day (not this layer's). Before 5 AM "tomorrow" is asked about by the normal path. */
@@ -56,13 +58,13 @@ function dayOf(text: string, now: Date): DayWord | "other" {
 const NOT_A_NAME = /\b(?:and|then|or|but|if|so|with|because|after|before|between|until|till|from|instead|every|each|daily|weekly|something|anything|stuff|thing|things|reminder|remind|alarm|wake|timer|todo|to-do|task|tasks|table|flight|train|hotel|uber|taxi|cab|ride|ticket|tickets|text|email|message|lights?|music|everything|all|it|that|this|them|those|rest|ish|now|case|just|in|on|next|maybe|later|soon|sometime|today|tonight|tomorrow)\b/i;
 const FILLER = /\b(?:please|pls|for me|on my calendar|to my calendar|in my calendar|on my day|to my day|in there|real quick|tho|though|today|tonight|tomorrow|this (?:morning|afternoon|evening)|morning|afternoon|evening|night)\b/gi;
 function cleanName(t: string): string | undefined {
-  const name = t.replace(FILLER, " ").replace(/^\s*(?:in|down|me in|me down|me for)\s+/i, "").replace(/\s+/g, " ").trim()
+  const name = t.replace(FILLER, " ").replace(/^\s*(?:in|down|me in|me down|me for|for|out for|off for|aside for|time for)\s+/i, "").replace(/\s+/g, " ").trim()
     .replace(/^(?:(?:a|an|some|my|the|another|one|quick|short|little)\s+)+/i, "").replace(/\s+(?:in|for|on)$/i, "").trim();
   if (!name || name.split(" ").length > 4 || !/^[a-z][a-z' &-]*$/i.test(name) || NOT_A_NAME.test(name)) return undefined;
   return name;
 }
 
-const LEAD_VERB_ADD = /^(?:put|add|schedule|book|pencil(?:\s+in)?|slot(?:\s+in)?|block\s+(?:off|out))\s+/i;
+const LEAD_VERB_ADD = /^(?:put|add|schedule|book|pencil(?:\s+in)?|slot(?:\s+in)?|block(?:\s+(?:off|out))?|set\s+aside|make\s+time|carve\s+out)\s+/i;
 const AT = new RegExp(String.raw`\bat\s+(?<t>${CLOCK})(?![\w:])`, "i");
 /** "can u put a 45 min walk tomorrow at 5", "add gym at 6pm", "book a 30 min nap at 3": an add at a time (or with a length), today or tomorrow. */
 function readTimedAdd(text: string, day: DayWord, now: number | null): CalendarIntent | undefined {
@@ -176,6 +178,18 @@ function readUntil(raw: string, day: DayWord, now: number | null, ask?: AskConte
   return { verb: "add", items: [item], day, until: true, anchor: { kind: "now" } };
 }
 
+// Live run 3 (2026-10-21): "ok and push everything 30 min" went to the form, then the worker's own `day --rebuild`
+// (no such option), whose failure the host appended to the reply. `late N` only clears the next N minutes, so this is its own move (intent-run.ts).
+const PUSH_ALL = /^(?:(?:ok(?:ay)?|so|and|yeah|yea|yes|please|pls|can you|can u|could you|just|actually)[,\s]+)*(?:push|move|shift|slide|bump)\s+(?:everything|it all|all of it|the rest(?:\s+of\s+(?:my|the)\s+day)?|everything else|my (?:whole )?day|the whole day)(?:\s+(?:back|later|along|down))?\s+(?:by\s+)?(?<len>(?:\d{1,3}|an?|half an?|one|two)\s*(?:-\s*)?(?:min(?:ute)?s?|m|hours?|hrs?|h)|half an hour|an hour and a half)(?:\s+(?:back|later))?(?:\s+(?:please|pls))?[.!]*$/i;
+/** "push everything 30 min", "ok and push the rest of my day back an hour": the minutes, or null. Today only; never a question or a hedge. */
+export function pushAllMinutes(message: string): number | null {
+  const m = message.trim();
+  const hit = PUSH_ALL.exec(m);
+  if (!hit?.groups || dayOf(fixTypos(m), new Date(2030, 0, 1, 12)) !== "today" || refusalOf(m, { lenient: true })) return null;
+  const { minutes, rest } = takeLength(hit.groups.len!);
+  return minutes && !rest ? minutes : null;
+}
+
 /** Replan in his words: the items in his order, the anchor, the day. */
 function fromReplan(ask: ReplanAsk, day: DayWord, extra: Partial<CalendarIntent> = {}): CalendarIntent {
   const anchor: IntentAnchor = ask.anchor ? { kind: "block", name: ask.anchor } : ask.home ? { kind: "home" } : day === "today" ? { kind: "now" } : { kind: "first-class" };
@@ -241,6 +255,9 @@ function parseShapes(raw: string, ctx: { now: Date }): CalendarIntent | undefine
   const now = day === "today" ? ctx.now.getHours() * 60 + ctx.now.getMinutes() : null;
   const replan = parseReplanRequest(raw);
   if (replan) return fromReplan(replan, day);
+  // "ok and push everything 30 min" (live run 3): every block of his still ahead today slides that much; classes stay.
+  const pushAll = day === "today" ? pushAllMinutes(raw) : null;
+  if (pushAll !== null) return { verb: "move", items: [{ name: "everything", by: pushAll }], day, all: true };
   return readTimedAdd(fixed, day, now) ?? readMove(fixed, day, now) ?? readExtend(fixed, day, now) ?? readRemove(fixed, day);
 }
 

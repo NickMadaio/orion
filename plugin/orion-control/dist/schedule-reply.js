@@ -140,3 +140,36 @@ export function uncertainReply(before, after, when) {
         return `${lead} Your calendar${when ? ` for ${when}` : ""} now differs from before: ${diff.slice(0, 5).join("; ")}. Say "undo" to put it back.`;
     return `${lead} Your calendar${when ? ` for ${when}` : ""} reads the same as before, but I can't be sure the change didn't go through. Say "undo" if anything looks wrong.`;
 }
+const norm = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const hm2min = (t) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
+const lengthWords = (n) => (n === 60 ? "an hour" : n === 90 ? "an hour and a half" : n === 120 ? "two hours" : n % 60 === 0 ? `${n / 60} hours` : `${n} minutes`);
+/**
+ * Live run 3 (2026-10-21): "piano practice first after class" booked a new 60-minute block at 1:20 PM and said only "Done: piano practice 1:20-2:20 PM".
+ * For each block a `day --plan` created that was not on his day: that it was added, how long and why that long, and where it landed if not where asked.
+ */
+export function addedNotes(before, outputs, argvs, message, opts = {}) {
+    const asked = new Map();
+    for (const argv of argvs.filter((a) => a[0] === "day"))
+        argv.forEach((a, i) => {
+            if (argv[i - 1] !== "--plan")
+                return;
+            const [title, minutes, at] = a.split(",").map((x) => x.trim());
+            if (title)
+                asked.set(norm(title), { minutes: Number(minutes), ...(at && /^\d{1,2}:\d{2}$/.test(at) ? { at: hm2min(at) } : {}) });
+        });
+    const notes = [];
+    for (const line of outputs.flatMap((o) => (nothingWritten(o) ? [] : o.split("\n")))) {
+        const m = line.trim().match(/^planned (.+?): (\d{2}:\d{2})–(\d{2}:\d{2})/);
+        const plan = m ? asked.get(norm(m[1])) : undefined;
+        if (!m || !plan || before.blocks.some((b) => norm(b.title) === norm(m[1])))
+            continue;
+        const start = hm2min(m[2]);
+        const minutes = hm2min(m[3]) - start;
+        const anchor = before.plan?.anchors.find((a) => norm(a.title) === norm(m[1]));
+        const why = anchor ? ", its usual length" : opts.statedMinutes || /\b\d+\s*(?:min|hour|hr)|\b(?:an?|half an?) hour\b/i.test(message) ? "" : ". You didn't say how long, so that's a default length; tell me if it should be different";
+        const cap = m[1].replace(/^./, (c) => c.toUpperCase());
+        const moved = !opts.landed && plan.at !== undefined && plan.at !== start ? ` It couldn't go at ${ampm(`${String(Math.floor(plan.at / 60)).padStart(2, "0")}:${String(plan.at % 60).padStart(2, "0")}`)}, so that's the first free time after it.` : "";
+        notes.push(`${cap} wasn't on your day, so I added ${lengthWords(minutes)} at ${ampm(m[2])}${why}.${moved}`);
+    }
+    return notes.join(" ");
+}

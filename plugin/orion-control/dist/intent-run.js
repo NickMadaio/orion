@@ -69,7 +69,22 @@ function target(intent, day, what) {
         return intent.verb === "move" ? { kind: "say", say: "cannot", text: `${cap(label(b))} is a class or a plan with people, so it doesn't move. I haven't changed anything.` } : undefined;
     return { block: b };
 }
+/** "push everything 30 min": every movable block not yet started today, each at its own start + N, in one `day --plan` (its own lengths, so a must keeps its 90). */
+function planPushAll(intent, day) {
+    const by = intent.items[0].by ?? 0;
+    const now = nowOf(day) ?? 0;
+    const ahead = day.blocks.filter((b) => !isFixed(b) && toMin(b.start) > now).sort((a, b) => toMin(a.start) - toMin(b.start));
+    if (!ahead.length)
+        return { kind: "say", say: "plain", text: `There's nothing of yours left on your day to push (${day.blocks.some((b) => isFixed(b) && toMin(b.end) > now) ? "only classes and plans with fixed times are ahead, and those don't move" : "nothing is planned after now"}), so nothing changed.` };
+    const last = ahead[ahead.length - 1];
+    if (toMin(last.end) + by > 1440)
+        return { kind: "say", say: "cannot", text: `${cap(label(last))} would run past midnight if everything moved ${by} minutes later, so I haven't moved anything.` };
+    const argv = ["day", ...ahead.flatMap((b) => ["--plan", `${b.title.replace(/,/g, " ")}, ${toMin(b.end) - toMin(b.start)}, ${hhmm(toMin(b.start) + by)}`])];
+    return { kind: "run", argv, title: ahead[0].title };
+}
 function planMove(intent, day) {
+    if (intent.all)
+        return planPushAll(intent, day);
     const item = intent.items[0];
     const t = target(intent, day, "moved");
     if (!t || !("block" in t))
@@ -152,4 +167,4 @@ export function planIntent(intent, day, ctx) {
     }
 }
 /** The intents code runs before the front desk is asked (local-routing.ts): the ones whose words alone decide the change. */
-export const runsFirst = (intent) => intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));
+export const runsFirst = (intent) => intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "move" && !!intent.all) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));

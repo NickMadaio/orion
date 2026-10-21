@@ -48,6 +48,7 @@ export function lateMinutesAnswer(message: string): number | null {
 const PUSH = /^(?:(?:yeah|yea|yes|yep|yup|ok(?:ay)?|sure|please|pls|go ahead|and)[,\s]+)*(?:push|move|shift|slide|bump)\s+(?:everything|it all|all of it|the rest|everything else|all)(?:\s+(?:after(?:wards)?(?:\s+(?:it|that|now))?|back|later|along|forward|down))?(?:\s+(?:please|pls))?[.!]*$/i;
 const YES = /^(?:yeah|yea|yes|yep|yup|ok(?:ay)?|sure|please|do it|go ahead)[.!\s]*$/i;
 export const isLateConfirm = (message: string): boolean => PUSH.test(message.trim());
+
 export const isBareYes = (message: string): boolean => YES.test(message.trim());
 
 const failureLine = (lines: string[]): string | undefined =>

@@ -14,3 +14,25 @@
 
 Tests: intent-followups.test.ts (45 rows), calendar-intent-run.test.mjs +2. Plugin 1643 pass. Scripts 1701/1702: the one failure
 (delivery-senders "held queue during focus") also fails on 8f8bc92 after midnight; clock-dependent, unrelated.
+
+## Live run 3 fixes (on 7438dfe)
+
+1. Wrong write ("block 2 hrs for econ homework tonight at 7" -> 1:20 PM): the intent layer reads block / block out / set aside /
+   make time / pencil in / schedule / add / book, "for N hrs", and tonight / this evening / this afternoon at T (PM). Backstop
+   (`time-backstop.ts`) on every write path: the intent path, the form path (before any preview or "go ahead?"), the worker's
+   restatement (it runs through the flow), and the worker's own exec (before_tool_call blocks it). A start he said, after the
+   same evening/AM-PM rules, must be a start one of the writes uses (add --at, move --to, day --plan time), or nothing runs and he
+   is told "You said 7:00 PM, but that change would have put … at …".
+2. A block a `day --plan` created that was not on his day: "Piano practice wasn't on your day, so I added an hour at 1:20 PM."
+   plus "you didn't say how long, so that's a default length" when it was, and where it went if not where asked.
+3. "Exec failed": the HOST appends it (OpenClaw payloads `resolveToolErrorWarningPolicy`): after a failed mutating exec it shows
+   "⚠️ Exec failed: …" unless the final reply acknowledges the failure (MUTATING_FAILURE_INABILITY_PATTERN: couldn't/can't … change/
+   move/…). The plugin can't strip it on the agent CLI route. So (a) "push everything N min" is now code (`move` all: every
+   block of his still ahead +N, own lengths, one `day --plan`; classes and blocks under way stay; "nothing of yours left to push"
+   said with why) and never reaches the worker; `late N` was wrong for it (it only clears the next N minutes); (b) the plugin's
+   honest lines now say "I couldn't make that change …" / "I couldn't move anything, so nothing was moved …", which the host
+   counts as an acknowledgement (test copies the host's pattern). 5 old tests updated for that wording.
+4. Hedges: prolly, i suppose, i think anywhere. "i think resume then gym" is refused on the follow-up path.
+
+Tests: plugin 1693 pass (intent-run3.test.ts 50 new). Scripts 1702/1704 on a clean run: orion-watch "held queue during focus"
+fails identically on 7438dfe (clock-dependent after midnight); the check-ins test passes on its own (flaky under load).

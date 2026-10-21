@@ -27,7 +27,10 @@ enum WakeSignals {
         let last = UserDefaults.standard.double(forKey: sentKey + event)
         guard moment.timeIntervalSince1970 - last > 30 * 60 else { return }
         UserDefaults.standard.set(moment.timeIntervalSince1970, forKey: sentKey + event)
-        await CloudLink.sendNow(.sleep(event: event, at: ISO8601DateFormatter().string(from: moment)))
+        let entry = LinkLog.sleep(event: event, at: ISO8601DateFormatter().string(from: moment))
+        // iCloud refused (no signal at 9 AM): keep it and retry on the next location or refresh wake,
+        // instead of dropping it and losing the morning brief.
+        if await CloudLink.sendNow(entry) == false { SignalQueue.enqueue(entry) }
     }
 
     @MainActor private static var observing = false

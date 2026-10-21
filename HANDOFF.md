@@ -80,6 +80,18 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-21 (night) — Phone background location, weather retry, honest Gmail status (Claude)
+
+- **Phone** (`native/OrionMobile`):
+  - Uses a `CLServiceSession(.always)`. Monitors start at launch, and each place's first state is emitted.
+  - `CaptureGate` (MobileCore) ignores fixes the app requested itself, and throttles significant-change and refresh captures to one per 5 min. Geofence events always capture.
+  - Signals and the outbox flush under `beginBackgroundTask`.
+  - Uses the `location` background mode.
+  - The Mac publishes the seeded home at 150 m as `knownPlaces`. This needs the Mac app rebuilt (OrionLink).
+  - Nick must install the new build from Xcode.
+- **Weather**: `weatherWithRetry` makes 4 attempts with backoff, under a 60 s cap. When it fails, the brief says the weather wasn't available.
+- **Gmail**: `lib/gmail-status.mjs` decides status from a live search. On `invalid_grant`, ORION says to run `gog auth add nmadaio08@gmail.com`. The token expired 2026-08-14.
+
 ### 2026-10-21 — Edit follow-ups ("make it an hour") (Claude, Opus worker)
 
 - "make it an hour", "make it 30", "longer" and "shorter" (corrections like "…actually" and "…instead" included) resize the last block ORION wrote in the chat.

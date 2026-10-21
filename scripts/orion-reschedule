@@ -53,7 +53,7 @@
 // Only movable things move (study, gym, games, rest, groceries, chores, side
 // projects, meals alone, anything ORION planned). Classes, deadlines and plans
 // with people never do. Every change is written to Apple Calendar and can be undone.
-import { calendarEvents, toBlocks, allDayTitles, localDate, classify, isSocial, movable as movableTitle } from "./lib/life/live-day.mjs";
+import { calendarEvents, toBlocks, allDayTitles, localDate, classify, isSocial, aloneActivity } from "./lib/life/live-day.mjs";
 import { replan } from "./lib/life/replan.mjs";
 import { bumpAnchors, noRoomWhy } from "./lib/life/bump.mjs";
 import { cooldownOf, cooldownAsk, clearCooldown, readClears, norm as normTitle } from "./lib/life/cooldown.mjs";
@@ -61,7 +61,7 @@ import { freeGaps } from "./lib/life/gaps.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
-import { applyPlan, undoLast, bridge, clean, iso, recordUndo, appendUndoSteps } from "./lib/life/calendar-write.mjs";
+import { applyPlan, undoLast, bridge, clean, iso, recordUndo, appendUndoSteps, UNDO_FILE } from "./lib/life/calendar-write.mjs";
 import { addSkip } from "./lib/life/skips.mjs";
 import { ramp } from "./lib/life/deadline-ramp.mjs";
 import { parsePlans } from "./lib/life/plan-parse.mjs";
@@ -74,7 +74,7 @@ import { bedOn, readWakeRequest } from "./lib/life/night.mjs";
 import { loadPatterns } from "./lib/life/history.mjs";
 import { withMinimums, shrinkPlan, applyShrink } from "./lib/life/lengths.mjs";
 import { clockNow } from "./lib/life/bridge-path.mjs";
-import { pinBlocks } from "./lib/life/pins.mjs";
+import { pinBlocks, readPins } from "./lib/life/pins.mjs";
 import { minimumFor } from "./lib/life/lengths.mjs";
 import { finishEarly } from "./lib/life/early.mjs";
 import { findCurrent, findOwn, checkContext, linkOf, matchTodo, closeLoops, endFocusSession, nextItem, summaryLine, nothingLine, classLine } from "./lib/life/done-early.mjs";
@@ -86,6 +86,9 @@ import { weightOf } from "./lib/life/priority.mjs";
 import { sandbox } from "./lib/life/bridge-path.mjs";
 import { appendSlips, readSlips, touchDirty } from "./lib/life/slips.mjs";
 import { appendLogged } from "./lib/life/logged.mjs";
+import { backfillEvidence, recordWritten, writtenIdentifiers } from "./lib/life/written.mjs";
+
+import { controlledDir } from "./lib/life/slips.mjs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -110,7 +113,7 @@ if (unknown.length) {
  and "Study" as more titles to remove, ignored --by, and ORION reported both
  changes as done. Refuse the whole call instead of doing part of it.
 */
-const COMMANDS = new Set(["add", "busy", "clear", "day", "displace", "drop", "early", "extend", "fill", "log", "late", "minimums", "move", "now",
+const COMMANDS = new Set(["add", "busy", "clear", "day", "displace", "drop", "early", "extend", "fill", "ledger", "log", "late", "minimums", "move", "now",
   "overrun", "rename", "resize", "show", "skip", "swap", "tidy", "undo"]);
 const glued = restRaw.find((w) => COMMANDS.has(String(w).toLowerCase()));
 if (COMMANDS.has(command) && glued) {
@@ -250,6 +253,27 @@ const patterns = loadPatterns();
 const wakeMinute = patterns?.wake?.median != null ? patterns.wake.median : toMinute(config.usualWake);
 const events = await calendarEvents().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 const blocks = pinBlocks(toBlocks(events, date), date);
+/*
+ `ledger backfill` (review of 7d5f393): once, after deploy, mark the events ORION already made as its own in orion-written.json, on hard
+ evidence only (backfillEvidence: the undo journal's creates, the app's created-events record, ORION's pins, its notes markers). Idempotent:
+ a second run marks nothing new. Prints every event it marked and why. --dry-run prints and writes nothing.
+*/
+if (command === "ledger") {
+  if (rest[0] !== "backfill") fail("usage: orion-reschedule ledger backfill [--dry-run]");
+  const readJson = (file, fallback) => { try { return JSON.parse(readLock(file, "utf8")); } catch { return fallback; } };
+  const evidence = backfillEvidence({ events, journal: readJson(UNDO_FILE, []), created: readJson(joinPath(controlledDir(), "orion-created-events.json"), []), pins: readPins() });
+  const have = writtenIdentifiers();
+  const fresh = [...evidence.keys()].filter((id) => !have.has(id));
+  const onCalendar = new Map(events.map((e) => [e.identifier, e]));
+  const shown = fresh.filter((id) => onCalendar.has(id)).map((id) => { const e = onCalendar.get(id); const at = new Date(e.start);
+    return `  marked ${e.title} ${localDate(at)} ${hhmm(at.getHours() * 60 + at.getMinutes())} (${evidence.get(id).join(", ")})`; });
+  if (!fresh.length) { console.log(`Nothing new to mark: ${have.size} ORION event ids already in the ledger.`); process.exit(0); }
+  if (!dry) recordWritten(fresh);
+  console.log(`${dry ? "Would mark" : "Marked"} ${fresh.length} event id${fresh.length === 1 ? "" : "s"} as ORION's own (${shown.length} on the calendar now):`);
+  for (const line of shown) console.log(line);
+  if (fresh.length > shown.length) console.log(`  ${fresh.length - shown.length} more from the journal or pins are not on the calendar now (recorded too).`);
+  process.exit(0);
+}
 // `show --json` (2026-10-12): the whole day as data, past blocks included — read-only. What a model
 // needs to name the blocks he means ("between Discrete Structures and my lab" after DS has ended).
 if (command === "show") {
@@ -952,7 +976,7 @@ if (command === "day") {
     if (!title || !Number.isInteger(n) || n < 5 || n > 720) fail(`bad --plan "${raw}" (want "<title>, <minutes>, HH:MM, fixed")`);
     // Nick's rule: plans with people (and classes) stay put; what he does alone can move,
     // even if the caller said "fixed" (a scenario run pinned "clean" over his meal prep).
-    const fixed = isSocial(title) || (fx === "fixed" && !movableTitle(title));
+    const fixed = isSocial(title) || (fx === "fixed" && !aloneActivity(title));
     if (fixed && when === null) fail(`"${title}" is a fixed plan and needs a time`);
     add.push({ title, kind: classify(title), minutes: n, importance, ...(when !== null ? { at: when } : {}), fixed });
   }

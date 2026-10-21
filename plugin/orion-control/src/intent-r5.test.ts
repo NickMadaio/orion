@@ -62,7 +62,7 @@ describe("2. 'move tomorrow's gym from 7 to 8' reads 7/8 against the Gym's own 1
 });
 
 describe("3. ORION's own older blocks are movable whatever calendar they are in (finish resume on School)", () => {
-  it("execution: with finish resume movable (scripts' toBlocks), the replan puts gym first after the first class (its only class, so + the trip home), then resume", async () => {
+  it("execution: with finish resume ORION's (marked by the ledger backfill), the replan puts gym first after the first class (its only class, so + the trip home), then resume", async () => {
     const { writes } = await flow("reschedule tomorrow after my first class, gym first then resume", { t: tomorrow(), out: "Changed:\n  planned Gym: 10:35–12:05" });
     expect(writes).toEqual([["day", "--plan", "Gym, 90, 11:20", "--plan", "finish resume, 60, 12:55", "--date", "tomorrow"]]);
   });

@@ -35,15 +35,18 @@ export function isSocial(title) {
 /** Things he does alone that ORION may move when the day changes. */
 const MOVABLE_ALONE = /\b(study|revise|revision|homework|reading|gym|workout|run|nap|rest|break|relax|chill|gam(e|es|ing)|play|grocer(y|ies)|shopping|errands?|clean(ing)?|laundry|chores?|tidy|side project|youtube|edit(ing)?|content|video|lunch|dinner|breakfast|meal prep|cook(ing)?|sleep)\b/i;
 
-// A to-do he does alone, the way ORION titles the blocks it books from his list ("finish resume", "apply to internships"): his older
-// ORION blocks lost their marker on the School calendar (live run 5) and read as fixed plans. Never a class, a deadline or anything social.
-const TODO_ALONE = /^(?:finish|write|draft|apply|email|prep|prepare|practice|practise|review|update|fix|submit|outline|research|revise|edit|polish|work on|start on|do)\b/i;
+/** A plan he STATES (`day --plan "clean, 30, 18:00, fixed"`) that he does alone: it may still move. Never used to decide an existing event. */
+export function aloneActivity(title) {
+  return !isSocial(title) && MOVABLE_ALONE.test(title);
+}
 
-export function movable(title, orionKind) {
-  if (orionKind) return true;                 // ORION planned it itself
-  if (isSocial(title)) return false;
-  if (TODO_ALONE.test(title) && !["class", "deadline"].includes(classify(title))) return true;
-  return MOVABLE_ALONE.test(title);
+/**
+ * Whether an event on his calendar is ORION's own and so may move (review of 7d5f393): ONLY hard evidence — the [orion:kind] marker ORION
+ * writes into its notes, or its id in orion-written.json (every block ORION creates, and `orion-reschedule ledger backfill` for older
+ * ones). No title rule: "Fix car — Kwik Fit 10am" or "Prep cook" are his and never move.
+ */
+export function movable(orionKind, identifier, written = writtenIdentifiers()) {
+  return !!orionKind || (!!identifier && written.has(identifier));
 }
 
 /** Tags after the kind marker: the bridge returns every [orion:x] marker as orionTags (array or comma list). */
@@ -69,8 +72,8 @@ export function toBlocks(events, date, written = writtenIdentifiers()) {
       const tags = tagsOf(e);
       const rank = (tags.find((t) => /^rank-(must|high|medium|low)$/.test(t)) ?? "").slice(5) || undefined;
       // ORION's own block (its marker, or its id in orion-written.json) moves whatever calendar it is in (live run 5).
-      const ours = !!e.orion || written.has(e.identifier);
-      const fixed = ours ? false : kind === "class" || kind === "deadline" || !movable(title, null);
+      const ours = movable(e.orion, e.identifier, written);
+      const fixed = !ours;
       return { id: `cal-${i}-${String(e.identifier ?? i).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || i}`,
                title: title.slice(0, 120), kind, date, start: minuteOf(start),
                end: Math.max(minuteOf(start) + 1, endMinute), fixed, source: ours ? "orion" : "calendar",

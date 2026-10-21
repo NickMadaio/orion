@@ -95,9 +95,15 @@ longer" are edits; an edit is never a session start. Plugin 1814 pass; scripts: 
 2. "move tomorrow's gym from 7 to 8": "tomorrow's" is read as the day; 7/8 are read against the Gym's own 19:00 -> 20:00.
 3. ORION's blocks are movable whatever calendar they are in: the bridge returns no calendar and the old School blocks lost their
    [orion:kind] marker, so (a) the scheduler now records every block it creates in orion-written.json (beside the undo journal; tests
-   never touch the live file) and toBlocks treats those ids as ORION's, and (b) an untagged to-do title he does alone ("finish resume",
+   never touch the live file) and toBlocks treats those ids as ORION's. (A title rule was tried and removed in review.)
    "apply to …") is movable unless it is a class, a deadline or social. A fixed non-class is said as "an event I didn't book".
 4. "it"/"that"/"this" in a move is the last target; "push it 15 min" (no direction) is later; with no target it is asked.
 5. "add stretching, call mom at 5" -> "Want stretching at 5 too, or just the call? What time for stretching?"
 Note: one test run had written a stray orion-written.json (3 fake ids) into the live ~/.openclaw/orion-controlled before the path was
 isolated; it was removed. Plugin 1833 pass; scripts 1710 pass (agentic-halts flaky once under load, passes alone).
+
+Review of 7d5f393: the to-do title rule is gone. An existing event is ORION's (movable) only on hard evidence: its [orion:kind] marker
+or its id in orion-written.json; `movable()` reads nothing else (aloneActivity is kept only for plans he states with `day --plan`).
+New one-shot `orion-reschedule ledger backfill [--dry-run]`: marks events from the undo journal's create steps, orion-created-events.json
+(exact id or its uuid part), pins.json and markers; prints each event marked and why; idempotent ("Nothing new to mark"). Until the
+backfill runs, old unmarked ORION blocks (finish resume) stay fixed. Tests: the reviewer's 8 titles stay fixed. Plugin 1833; scripts 1712 pass.

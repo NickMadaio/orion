@@ -27,3 +27,24 @@ export function recordWritten(ids) {
     renameSync(`${file}.tmp`, file);
   } catch { /* ledger only */ }
 }
+
+/**
+ * `orion-reschedule ledger backfill` (review of 7d5f393): the identifiers of events ORION made, on HARD evidence only —
+ *   journal  a create step in the undo journal (reschedule-undo.json)
+ *   created  orion-created-events.json (the Mac app's record of what it created)
+ *   pin      pins.json (ORION pins only blocks it placed)
+ *   tag      the [orion:kind] marker ORION writes into an event's notes
+ * No title counts. Returns each id with every reason it has.
+ */
+export function backfillEvidence({ events, journal = [], created = [], pins = {} }) {
+  const reasons = new Map();
+  const add = (id, why) => { if (typeof id === "string" && id) reasons.set(id, [...new Set([...(reasons.get(id) ?? []), why])]); };
+  for (const entry of Array.isArray(journal) ? journal : []) for (const step of entry?.steps ?? []) if (step?.op === "create") add(step.identifier, "journal");
+  // The app records EventKit eventIdentifiers ("<calendar>:<uuid>"); the bridge lists calendarItemIdentifiers. Only an exact match, or the
+  // record's own uuid part equal to an event's id, is evidence.
+  const createdSet = new Set((Array.isArray(created) ? created : []).flatMap((c) => (typeof c === "string" ? [c, c.split(":").at(-1)] : [])));
+  for (const e of events) if (createdSet.has(e.identifier)) add(e.identifier, "created");
+  for (const ids of Object.values(pins ?? {})) for (const id of Array.isArray(ids) ? ids : []) add(id, "pin");
+  for (const e of events) if (e.orion) add(e.identifier, "tag");
+  return reasons;
+}

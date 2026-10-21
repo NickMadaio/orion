@@ -9,8 +9,8 @@
 import { takeLength } from "./intent-time.js";
 import { writesIn } from "./time-backstop.js";
 const LEAD = /^(?:(?:ok(?:ay)?|actually|no|nah|wait|and|so|please|pls|just|hmm+|um+|can you|can u|could you)[,.\s]+)*/i;
-const MAKE = /^(?:make|change|set)\s+(?:it|that|this|the (?:block|session|one))\s+(?:to\s+)?(?<len>.+?)\s*(?:instead|then|please|pls)?[.!]*$/i;
-const BARE = /^(?:(?:make\s+(?:it|that)\s+)?(?:a\s+(?:bit|little)\s+|a lot\s+|much\s+)?(?<dir>longer|shorter)|(?:add|give it)\s+(?<more>.+?)\s+more)[.!]*$/i;
+const MAKE = /^(?:make|change|set)\s+(?:it|that|this|the (?:block|session|one))\s+(?:to\s+)?(?<len>.+?)(?:\s+(?:instead|then|please|pls|actually|tho|though))*[.!]*$/i;
+const BARE = /^(?:(?:make\s+(?:it|that)\s+)?(?:a\s+(?:bit|little)\s+|a lot\s+|much\s+)?(?<dir>longer|shorter)|(?:add|give it)\s+(?<more>.+?)\s+more)(?:\s+(?:instead|then|please|pls|actually|tho|though))*[.!?]*$/i;
 /** "make it an hour" -> { minutes: 60 }, "make it 30" -> { minutes: 30 }, "longer" -> { direction }, "make it 15 min longer" -> { delta: 15 }. */
 export function parseEdit(message) {
     const text = message.trim().replace(LEAD, "").trim();
@@ -52,7 +52,7 @@ export function blockTarget(calls, outputs, at) {
     const esc = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const span = out.match(new RegExp(String.raw `(?:planned ${esc}|${esc} moved|${esc} is now \d+ min)[^\n]*?(\d{2}):(\d{2})–(\d{2}):(\d{2})`, "i"));
     const minutes = span ? (Number(span[3]) * 60 + Number(span[4])) - (Number(span[1]) * 60 + Number(span[2])) : undefined;
-    return { kind: "block", title, dateArgs: d >= 0 && argv[d + 1] ? ["--date", argv[d + 1]] : [], ...(minutes && minutes > 0 ? { minutes } : {}), at };
+    return { kind: "block", title, dateArgs: d >= 0 && argv[d + 1] ? ["--date", argv[d + 1]] : [], ...(minutes && minutes > 0 ? { minutes } : {}), ...(span ? { start: `${span[1]}:${span[2]}` } : {}), at };
 }
 /** The new length for the block, or what to ask. */
 export function editLength(req, current) {
@@ -64,3 +64,7 @@ export function editLength(req, current) {
 }
 export const SESSION_EDIT = (task) => `Your ${task === "Focus" ? "focus" : `${task}`} session is already running, and I can't change its length without ending it, so I've left it as it is. Say "finish" when you're done, or tell me if you meant a calendar block.`;
 export const NOTHING_TO_EDIT = "Make what longer or shorter? I haven't changed anything. Tell me which block and how long it should be.";
+const lengthWords = (n) => (n === 60 ? "an hour" : n === 90 ? "an hour and a half" : n % 60 === 0 ? `${n / 60} hours` : `${n} minutes`);
+/** No block made here to apply it to: asked, in code, never the worker's guess (review of 45b3383). */
+export const whichOne = (req) => req.minutes ? `Which one should I make ${lengthWords(req.minutes)}? I haven't changed anything.`
+    : `Which one should I make ${req.direction ?? (req.delta !== undefined && req.delta < 0 ? "shorter" : "longer")}? I haven't changed anything.`;

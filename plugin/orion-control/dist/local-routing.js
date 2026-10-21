@@ -42,7 +42,7 @@ import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
-import { blockTarget, isEdit, NOTHING_TO_EDIT, parseEdit, SESSION_EDIT } from "./edit-followup.js";
+import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
@@ -499,9 +499,11 @@ export function registerLocalRouting(api, options) {
     // Which run a flow belongs to, so a flow that is running when the prompt hook gives up can be stopped and its writes known (review, 2026-10-20).
     const building = new AsyncLocalStorage();
     // A flow is a write point: once the hook has given up (and nothing was written), none of them starts.
-    const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" }));
+    const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); forgetMade(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" }));
     /** Per session: the last thing ORION created or changed (a block, or a focus session it started), for "make it an hour" (edit-followup.ts). */
     const lastMade = new Map();
+    const forgetMade = (key) => { if (key)
+        lastMade.delete(key); };
     const recentMade = (key) => { const m = key ? lastMade.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m : undefined; };
     /** Per session: his last reschedule request that was carried out, for a follow-up reorder ("actually do resume before gym"), for 15 minutes. */
     const replanMemory = new Map();
@@ -550,6 +552,7 @@ export function registerLocalRouting(api, options) {
     /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
     const sessionChanges = new Map();
     const recordChange = (sessionKey, marks) => {
+        forgetMade(sessionKey); // any write: "make it an hour" no longer means the older block (review of 45b3383)
         if (!sessionKey)
             return;
         forgetReplan(sessionKey);
@@ -560,6 +563,7 @@ export function registerLocalRouting(api, options) {
     const otherChanges = new Map();
     const recordOther = (sessionKey, kind) => { if (sessionKey) {
         forgetReplan(sessionKey);
+        forgetMade(sessionKey);
         otherChanges.set(sessionKey, { at: Date.now(), kind });
     } };
     const recentOther = (sessionKey) => {
@@ -783,8 +787,10 @@ export function registerLocalRouting(api, options) {
         const intentFirst = !!intentRead && !elsewhere && ("intent" in intentRead ? runsFirst(intentRead.intent) : !!intentRead.tookBack);
         // "make it an hour" is an edit of the last thing this chat made: code's, never the desk's (it read a session start in run 4).
         // Only when ORION made something here, and more recently than a reminder ("make it 5:30" after "remind me at 5" is the reminder's).
+        // An edit-shaped message is always code's (never the worker's guess), unless a reminder set here is the newer thing ("make it 5:30").
         const made = recentMade(sessionKey);
-        const editing = on && !cutOff && isEdit(message) && !!made && made.at > (lastReminder.get(sessionKey)?.set ?? 0);
+        const reminderAt = lastReminder.get(sessionKey)?.set ?? 0;
+        const editing = on && !cutOff && isEdit(message) && (made ? made.at > reminderAt : Date.now() - reminderAt > CORRECTION_WINDOW_MS);
         const codeFirst = intentFirst || editing;
         const decision = cutOff
             ? Promise.resolve({ move: "ask", answer: GO_ON })
@@ -910,7 +916,7 @@ export function registerLocalRouting(api, options) {
                 const target = recentMade(run.sessionKey);
                 const req = parseEdit(run.message);
                 if (!target)
-                    run.flow = { outcome: "say", kind: "ask", text: NOTHING_TO_EDIT };
+                    run.flow = { outcome: "say", kind: "ask", text: whichOne(req) };
                 else if (target.kind === "session")
                     run.flow = { outcome: "say", kind: "plain", text: SESSION_EDIT(target.task) };
                 else if (options.scheduleFlow) {
@@ -1343,7 +1349,12 @@ export function registerLocalRouting(api, options) {
                 recordChange(run.sessionKey, []);
             if (UNDO_COMMAND.test(command))
                 forgetReplan(run.sessionKey); // an undo ends the last reschedule request
+            // The worker's own write of any kind (scheduler in any wrapper, agenda-change, a session, an undo): the last block made is no longer known.
+            if (writesIn(command).some((a) => a[0] !== "show") || UNDO_COMMAND.test(command) || /orion-session\s+(?!status)/.test(command))
+                forgetMade(run.sessionKey);
         }
+        if (toolName !== "exec" && /orion_task_run|tool_call/.test(toolName))
+            forgetMade(run.sessionKey);
         run.hostTools = (run.hostTools ?? 0) + 1;
         run.tools.push({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });
         const made = run.tools[run.tools.length - 1];

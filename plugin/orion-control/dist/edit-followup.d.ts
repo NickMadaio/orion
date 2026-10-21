@@ -1,8 +1,10 @@
+/** start: where the block was written (HH:MM), so a second block of the same name is never the one changed. */
 export type EditTarget = {
     kind: "block";
     title: string;
     dateArgs: string[];
     minutes?: number;
+    start?: string;
     at: number;
 } | {
     kind: "session";
@@ -27,3 +29,5 @@ export declare function editLength(req: EditRequest, current?: number): {
 };
 export declare const SESSION_EDIT: (task: string) => string;
 export declare const NOTHING_TO_EDIT = "Make what longer or shorter? I haven't changed anything. Tell me which block and how long it should be.";
+/** No block made here to apply it to: asked, in code, never the worker's guess (review of 45b3383). */
+export declare const whichOne: (req: EditRequest) => string;

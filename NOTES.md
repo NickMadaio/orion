@@ -80,3 +80,10 @@ ruled out as a session start whatever the desk reads). Only when something was m
 ("make it 5:30" after a reminder stays the reminder's); bare numbers under 15 are times, not lengths. The desk is skipped for it.
 Tests: edit-followup.test.ts 29, calendar-intent-run.test.mjs +1 (real scheduler resize). Plugin 1801 pass; scripts 1701/1707:
 the 4 clock-dependent failures as on the base, plus 2 timing tests that pass when run alone.
+
+Review of 45b3383: the last-block record is cleared on ANY write in the chat (code flows, the worker's exec of any calendar writer in
+any wrapper, undo, a session, a task-run action), and a block is identified by title + the start it was written at; two blocks of
+that name, or one that moved, are asked about, never resized. An edit with no record is asked in code ("Which one should I make an
+hour?"), never left to the worker. "ok make it an hour actually", "make it an hour instead", "actually make it 30", "can u make it
+longer" are edits; an edit is never a session start. Plugin 1814 pass; scripts: the 4 clock-dependent failures + 1 timing test
+(awareness-cli, passes alone).

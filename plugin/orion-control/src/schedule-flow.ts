@@ -787,7 +787,11 @@ async function runEdit(edit: { target: Extract<EditTarget, { kind: "block" }>; r
   const read = (): Promise<Day | undefined> => exec(["show", "--json", ...target.dateArgs]).then((r) => JSON.parse(r.stdout) as Day, () => undefined);
   const day = await read();
   if (!day) return { outcome: "fallback", reason: "could not read the day" };
-  const b = day.blocks.find((x) => normTitle(x.title) === normTitle(target.title));
+  // The block by title AND where it was written: a second "Gym" today is never the one changed. With no start on record, only a unique title.
+  const named = day.blocks.filter((x) => normTitle(x.title) === normTitle(target.title));
+  const b = target.start ? named.find((x) => x.start === target.start) : named.length === 1 ? named[0] : undefined;
+  // `resize` names a block by title: with two of that name on the day it could change the wrong one, so he is asked.
+  if (named.length > 1) return { outcome: "say", kind: "ask", text: `There are ${named.length} ${target.title} blocks on your day (${named.map((x) => `${ampm(x.start)}–${ampm(x.end)}`).join(", ")}), so I haven't changed either. Which one should change?` };
   const when = target.dateArgs.includes("tomorrow") ? "tomorrow" : undefined;
   if (!b) return { outcome: "say", kind: "plain", text: `I can't find ${target.title} on your day any more, so I haven't changed anything.` };
   if (b.fixed) return { outcome: "say", kind: "plain", text: `${b.title} is a class or a plan with people, so its length doesn't change. I haven't changed anything.` };

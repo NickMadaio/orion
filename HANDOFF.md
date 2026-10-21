@@ -80,6 +80,14 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-21 (night) — Focus controls and the floating to-do list (Claude)
+
+- **Hit targets.** `HitTarget.swift` gives each control a hit area of at least 28 pt. Before, clicks fell through to `isMovableByWindowBackground`. FINISH EARLY now needs a second tap within 3 s.
+- **To-do dropdown.** The minimized session float has a dropdown of today's to-dos (`TodoFloatModel`), ticked off through `TodoCompletion`, shared with the Tasks tab.
+- **Pop-out window.** An always-on-top to-do window (`TodoFloatController`) opens from the dropdown, the menu bar ("Float To-dos") or the Tasks tab.
+- **Reminders sync.** `AppleRemindersSync` lives on AppState. It runs only while a to-do surface is visible, and it prompts for access only on an explicit open.
+- **Off-screen windows.** A saved window frame on a disconnected screen is re-centred.
+
 ### 2026-10-21 (night) — Phone background location, weather retry, honest Gmail status (Claude)
 
 - **Phone** (`native/OrionMobile`):

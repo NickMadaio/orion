@@ -48,7 +48,7 @@ test("a class that already happened with evidence he missed it is named kindly",
 
 test("no weather: a fallback line instead of silence", () => {
   const text = composeBriefing({ now: at(8), today: "2026-10-15", day: day1015, calendar: "ok", weather: null });
-  assert.match(text, /couldn't get the weather/i);
+  assert.match(text, /Weather wasn't available yet/i);
 });
 
 test("the day's low is the whole day's, not the remaining hours'", () => {
@@ -125,7 +125,7 @@ test("no weather: the brief is still sent, with the fallback line", () => {
   const h = harness({ weather: "fail" });
   const r = h.run();
   assert.equal(r.status, 0, r.stderr);
-  assert.match(h.outbox()[0].text, /couldn't get the weather/i);
+  assert.match(h.outbox()[0].text, /Weather wasn't available yet/i);
 });
 
 test("incident 2026-10-15: an unreadable calendar is never spoken as 'nothing on the calendar'", () => {

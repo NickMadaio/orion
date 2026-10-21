@@ -10,7 +10,7 @@
 */
 import { stripExecFailed } from "./memory-facts.js";
 
-const GMAIL_SIGN_IN = "I can't read your Gmail right now — it needs signing in again.";
+const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
 const GMAIL_OTHER = "I couldn't read your Gmail just now.";
 // Review 6 H-A (2026-10-16): an offline Mac prints `Get "https://…": … oauth2: cannot fetch token: … no such host` — that is

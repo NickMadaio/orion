@@ -186,7 +186,7 @@ export function composeBriefing({ now, day = [], travel = [], todos = [], today,
   const sky = weatherLine(weather, nowMinute);
   // weather === null means it was asked for and failed (undefined: not asked): say so instead of dropping it silently.
   if (sky) parts.push(sky);
-  else if (weather === null) parts.push("I couldn't get the weather just now - check the forecast before you head out.");
+  else if (weather === null) parts.push("Weather wasn't available yet - check the forecast before you head out.");
   parts.push("Anything you want to change?");
   return parts.join(" ");
 }

@@ -30,7 +30,7 @@ import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { actualWake } from "./lib/life/night.mjs";
 import { isRealClass } from "./lib/reach/class-ladder.mjs";
 import { shouldBrief, alarmClock, composeBriefing, buildView } from "./lib/reach/morning.mjs";
-import { weather } from "./lib/reach/weather.mjs";
+import { weatherWithRetry } from "./lib/reach/weather.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
@@ -148,7 +148,7 @@ function withTimeout(promise, ms) {
 async function readWeather() {
   // ORION_WEATHER_FILE is a test seam (never the network in tests); a missing or FAIL file is a failure.
   if (process.env.ORION_WEATHER_FILE) return JSON.parse(readFileSync(process.env.ORION_WEATHER_FILE, "utf8"));
-  return weather(DIR, now);
+  return (await weatherWithRetry(DIR, now, { log: (m) => { console.error(m); try { appendFileSync(join(DIR, "morning.log"), `${new Date().toISOString()} ${m}\n`); } catch {} } })).data;
 }
 
 async function gather() {
@@ -156,8 +156,8 @@ async function gather() {
   // bridge or weather call can no longer hold the brief for minutes. A failed read is "unknown", never "nothing".
   const readDay = async () => { try { return { day: await withTimeout(liveDay(today), 20000), calendar: "ok" }; } catch { return { day: [], calendar: "unknown" }; } };
   const [{ day, calendar }, sky] = await Promise.all([readDay(),
-    // Weather: one retry, then null so the brief says it could not get it (instead of silently dropping the sentence).
-    (async () => { for (let i = 0; i < 2; i++) { try { return await withTimeout(readWeather(), 20000); } catch {} } return null; })()]);
+    // Weather: retried with backoff inside a 60 s cap (the network may not be up at wake), every error logged; null makes the brief say so.
+    readWeather().catch((e) => { console.error(`weather: ${e instanceof Error ? e.message : e}`); return null; })]);
   const travel = (() => { try { return commuteWalls(day, loadConfig()); } catch { return []; } })();
   const same = (a, b) => String(a).toLowerCase().includes(String(b).toLowerCase()) || String(b).toLowerCase().includes(String(a).toLowerCase());
   let todos = [];

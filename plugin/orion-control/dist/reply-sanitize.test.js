@@ -3,7 +3,7 @@ import { REPLY_FAILED, mailReadFailed, sanitizeReply } from "./reply-sanitize.js
 describe("sanitizeReply (H4, r8b2 2026-10-16)", () => {
     it("q069: an oauth/URL dump becomes one sign-in line", () => {
         const raw = 'I tried. Get "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=x": oauth2: "invalid_grant" "Token has been expired or revoked."';
-        expect(sanitizeReply(raw, { mailFailed: true })).toBe("I can't read your Gmail right now — it needs signing in again.");
+        expect(sanitizeReply(raw, { mailFailed: true })).toBe("Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.");
     });
     it("q070: a trailing Exec failed line is removed", () => {
         expect(sanitizeReply("Nothing matched.\n⚠️ 🛠️ Exec failed: `~/Desktop/ORION/scripts/orion-gmail-search \"x\"`")).toBe("Nothing matched.");
@@ -46,7 +46,7 @@ describe("sanitizeReply (H4, r8b2 2026-10-16)", () => {
     it("the sign-in line is said only after a failed mail read; the raw shape is cut on any turn (review 6 M-D)", () => {
         const raw = 'Get "https://gmail.googleapis.com/x": oauth2: "invalid_grant"';
         expect(sanitizeReply(raw)).toBe(REPLY_FAILED);
-        expect(sanitizeReply(raw, { mailFailed: true })).toBe("I can't read your Gmail right now — it needs signing in again.");
+        expect(sanitizeReply(raw, { mailFailed: true })).toBe("Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.");
         expect(sanitizeReply("Operation not permitted", { mailFailed: true })).toBe("I can't read your texts — ORION needs Full Disk Access.");
         expect(mailReadFailed([{ canonical: 'exec orion-gmail-search "x"', stdout: "oops", exit: 1 }])).toBe(true);
         expect(mailReadFailed([{ canonical: 'exec orion-messages recent 3', stdout: 'Get "https://x": oauth2: "invalid_grant"', exit: null }])).toBe(true);

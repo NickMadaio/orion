@@ -13,6 +13,7 @@
 
 import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { GMAIL_EXPIRED, classifyGmailError } from "./gmail-status.mjs";
 
 const ACCOUNT = "nmadaio08@gmail.com";
 
@@ -82,7 +83,7 @@ export async function gog(orionRoot, args) {
       if (code === 0) resolve(out);
       // Pass gog's own words through. "Report its actual error, never claim
       // setup is missing" is a standing rule, and it needs the actual error.
-      else reject(new Error(err.trim() || `gog exited ${code}`));
+      else reject(new Error(classifyGmailError(err) === "expired" ? GMAIL_EXPIRED : err.trim() || `gog exited ${code}`));
     });
   });
 

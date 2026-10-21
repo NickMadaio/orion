@@ -80,6 +80,21 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-21 (night) — Intent follow-ups and the stated-time backstop (Claude, Opus worker)
+
+- **Time reading:**
+  - After midnight it is honest: a block can't cross midnight, so it offers 11:55 PM.
+  - Before 5 AM, a small hour reads as this morning.
+  - An ambiguous hour gets an AM/PM question.
+- **Crash path:** reads the day back and reports what changed. It never says "nothing changed" without proof.
+- **Stated-time backstop** on every write path (code, form, restatement, worker exec): the written start must equal a time Nick stated for that item. For moves, the "to" time is the start.
+  - Times about other things ("class ends at 5", "home at 6", "5 percent") are ignored.
+  - Calendar writers are detected anywhere in a command, including `sh -c`.
+- **New verbs:** block, book, set aside; plus durations and "tonight at T".
+- **Messages:** an added item that wasn't on his day says so. "push everything N min" runs in code.
+- **Hedges refused:** prolly, i suppose, i think, idek, or smth.
+- **Known:** four script tests are clock-dependent and fail at night: delivery-senders:95, proactive-dedupe-lines-checkin:62, proactive-review-fixes:216 and :323. The gate reads the real clock and ignores the test's `--at`. Fix the seam.
+
 ### 2026-10-21 — Calendar intent layer (Claude, Opus worker)
 
 The patchwork of schedule parsers is replaced with one layer in `plugin/orion-control/src`:

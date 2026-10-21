@@ -80,6 +80,15 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-21 — Edit follow-ups ("make it an hour") (Claude, Opus worker)
+
+- "make it an hour", "make it 30", "longer" and "shorter" (corrections like "…actually" and "…instead" included) resize the last block ORION wrote in the chat.
+  - The block is matched by title plus start.
+  - The target clears on any write.
+  - If there is no target, ORION asks "Which one…?".
+  - These edits never start a session.
+- Minor, open: "make it an hour?" and "make it an hour jk" are not edits.
+
 ### 2026-10-21 — Run-4 fixes (Claude, Opus worker)
 
 - **Timed adds in code:** "X N min today at T" adds are read in code. A form write that only drops the stated time gets that time put back, but only when the time belongs to the item's own clause.

@@ -41,7 +41,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         // left the geofences and the service session dead until he opened ORION.
         if PhoneSignals.shared.enabled {
             PhoneSignals.shared.start()
-            if launchOptions?[.location] != nil { PhoneSignals.shared.captureAndFlush() }
+            if launchOptions?[.location] != nil { PhoneSignals.shared.captureAndFlush(.significantChange) }
         }
         #if !targetEnvironment(simulator)
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }

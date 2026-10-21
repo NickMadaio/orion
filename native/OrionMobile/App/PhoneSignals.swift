@@ -33,6 +33,8 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
     private var timer: Timer?
     private var latestPlace: CLLocation?
     private var fixCount = 0
+    private var gate = CaptureGate()
+    private var started = false
     /// Also sends the root view's outbox (entries iCloud refused earlier); set by the foreground root view.
     var flushOutbox: (() async -> Void)?
     private var routeObserver: NSObjectProtocol?
@@ -44,7 +46,6 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
         // Needs the "location" background mode (Info.plist): lets a one-shot fix finish after a
         // geofence or significant-change wake, when the app is not in the foreground.
         location.allowsBackgroundLocationUpdates = true
-        location.pausesLocationUpdatesAutomatically = false
         UIDevice.current.isBatteryMonitoringEnabled = true
     }
 
@@ -58,15 +59,19 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
         case .authorizedWhenInUse: location.requestAlwaysAuthorization()
         default: break
         }
+        // Idempotent in iOS too, and needed again once "Always" is granted.
         if CLLocationManager.significantLocationChangeMonitoringAvailable() {
             location.startMonitoringSignificantLocationChanges()
         }
-        location.requestLocation()
+        // Called at launch, on the root view's appear and on authorization changes: set up once.
+        guard !started else { return }
+        started = true
+        requestFix()
         sample()
         // A geofence crossing is sent now, with a sample, rather than waiting for the next foreground.
         PlaceMonitor.shared.start { [weak self] entry in
             self?.deliver(entry)
-            self?.captureAndFlush()
+            self?.captureAndFlush(.geofence)
         }
         // Connecting or disconnecting headphones is worth one extra sample (the phone's audio route).
         if routeObserver == nil {
@@ -78,11 +83,13 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
         }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.location.requestLocation(); self?.sample() }
+            Task { @MainActor in self?.requestFix(); self?.sample() }
         }
     }
 
     func stop() {
+        started = false
+        location.stopUpdatingLocation()   // never started; makes sure nothing continuous is left running
         timer?.invalidate(); timer = nil
         location.stopMonitoringSignificantLocationChanges()
         if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
@@ -120,11 +127,24 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
     /// What a background wake does (geofence, significant change, background refresh): take a fresh
     /// fix and a sample, then send the queue and the outbox at once. Held open with a background-task
     /// assertion so iOS does not suspend the app between the sample and the upload.
-    func captureAndFlush() {
+    func captureAndFlush(_ reason: CaptureGate.Reason) {
+        guard gate.allow(reason, at: Date()) else { flushQueued(); return }
         BackgroundAssertion.run("orion.capture") { await self.captureAndFlushNow() }
     }
 
-    func captureAndFlushNow() async {
+    /// For callers that already hold a background assertion (the BG refresh task).
+    func captureAndFlushNow(_ reason: CaptureGate.Reason) async {
+        guard gate.allow(reason, at: Date()) else { await flushQueuedNow(); return }
+        await captureAndFlushNow()
+    }
+
+    /// Every one-shot fix goes through here so its answer is recognised as ours.
+    private func requestFix() {
+        gate.noteRequestedFix(at: Date())
+        location.requestLocation()
+    }
+
+    private func captureAndFlushNow() async {
         guard enabled else { await flushQueuedNow(); return }
         await refreshFix(timeout: 5)
         await takeSample()
@@ -135,7 +155,7 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
     /// Ask for one fix and wait (briefly) for it, so the sample carries where he is now.
     private func refreshFix(timeout: TimeInterval) async {
         let before = fixCount
-        location.requestLocation()
+        requestFix()
         var waited = 0.0
         while fixCount == before, waited < timeout {
             try? await Task.sleep(nanoseconds: 250_000_000); waited += 0.25
@@ -172,8 +192,9 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
         guard !flushing else { return }
         flushing = true
         defer { flushing = false }
-        // Re-read each time: entries queued while this runs go out in the same pass.
-        while let item = SignalQueue.pending().first {
+        // One pass over what is queued now, each removed by its own text; entries queued meanwhile
+        // go with the next flush, so a removal that matches nothing cannot make this spin.
+        for item in SignalQueue.pending() {
             if let log, UIApplication.shared.applicationState == .active { log(item.entry) }
             else if await CloudLink.sendNow(item.entry) == false { return }
             SignalQueue.remove(item.text)
@@ -185,17 +206,21 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
         Task { @MainActor in
             self.latestPlace = latest
             self.fixCount += 1
+            let ours = self.gate.consumeRequestedFix(at: Date())
             // Moving around after bedtime (the trip home from a night out) means awake.
             await NightRoutine.shared.noteAwake(at: latest?.timestamp ?? Date(), planner: PlannerStore())
             // A significant change in the background: sample and send now, not at the next foreground.
-            if UIApplication.shared.applicationState != .active { self.captureAndFlush() }
+            // (Not for a fix we asked for ourselves: that would loop.)
+            if !ours, UIApplication.shared.applicationState != .active { self.captureAndFlush(.significantChange) }
         }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in if self.enabled { self.start() } }
     }
-    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in _ = self.gate.consumeRequestedFix(at: Date()) }
+    }
 }
 
 /// Samples and place events taken while the app was not in the foreground (a significant-change

@@ -80,6 +80,13 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-21 — Run-4 fixes (Claude, Opus worker)
+
+- **Timed adds in code:** "X N min today at T" adds are read in code. A form write that only drops the stated time gets that time put back, but only when the time belongs to the item's own clause.
+- **Moves from the block's own time:** "move gym from 7 to 8" reads the times against the gym block's own time.
+- **Session starts:** a desk-read start is refused only for calendar items (a clock time, a calendar verb, or a meal or activity).
+- **Open:** a desk-read "make it an hour" can still start a session. Live did this before as well.
+
 ### 2026-10-21 (night) — Intent follow-ups and the stated-time backstop (Claude, Opus worker)
 
 - **Time reading:**

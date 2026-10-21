@@ -18,16 +18,24 @@ final class PlaceMonitor {
     static let maxPlaces = 20
 
     /// The seed until the Mac has published his places: home, so the first leave/arrive works at once.
-    static let home = LinkSnapshot.KnownPlace(id: "home", name: "Scape Shoreditch", lat: 51.5273608, lon: -0.0865265, radiusM: 120, kind: "home")
+    /// The same home, at the same 150 m, the Mac publishes when it has no known-places file.
+    static let home = LinkSnapshot.KnownPlace.seededHome
 
     private var emit: ((LinkLog) -> Void)?
     private var monitor: CLMonitor?
     private var events: Task<Void, Never>?
+    /// Held for as long as places are watched. On iOS 18+ a CLMonitor only gets region events while a
+    /// service session with "Always" authorization is alive; without one, events are silently not delivered.
+    private var serviceSession: AnyObject?
+    private static let statesKey = "orion.places.state.v2"
     private var watched: [String: LinkSnapshot.KnownPlace] = [:]
 
     func start(emit: @escaping (LinkLog) -> Void) {
         self.emit = emit
         guard events == nil else { return }
+        if #available(iOS 18.0, *), serviceSession == nil {
+            serviceSession = CLServiceSession(authorization: .always)
+        }
         events = Task { [weak self] in
             let monitor = await CLMonitor("orion.places")
             await MainActor.run { self?.monitor = monitor }
@@ -45,6 +53,8 @@ final class PlaceMonitor {
         events?.cancel(); events = nil
         if let monitor { for id in watched.keys { Task { await monitor.remove(id) } } }
         watched = [:]; monitor = nil
+        if #available(iOS 18.0, *), let session = serviceSession as? CLServiceSession { session.invalidate() }
+        serviceSession = nil
     }
 
     /// The Mac's latest list of places (from the snapshot). Replaces what is watched.
@@ -78,12 +88,13 @@ final class PlaceMonitor {
         }
         guard watched[event.identifier] != nil || event.identifier == Self.home.id else { return }
         // CLMonitor reports the current state when a place is added; only a change is a crossing.
-        // The first time a place is seen it just records where he is.
-        var states = UserDefaults.standard.dictionary(forKey: "orion.places.state") as? [String: String] ?? [:]
+        // The first state seen for a place is reported too: it says where he is right now (he may
+        // already be home), and without it a place never reports until he has crossed it twice.
+        var states = UserDefaults.standard.dictionary(forKey: Self.statesKey) as? [String: String] ?? [:]
         let previous = states[event.identifier]
         states[event.identifier] = name
-        UserDefaults.standard.set(states, forKey: "orion.places.state")
-        guard let previous, previous != name else { return }
+        UserDefaults.standard.set(states, forKey: Self.statesKey)
+        guard PlaceTransitions.shouldEmit(previous: previous, new: name) else { return }
         emit?(.place(event: name, placeId: event.identifier, at: ISO8601DateFormatter().string(from: event.date)))
     }
 }

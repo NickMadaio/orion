@@ -25,6 +25,10 @@
 	<array>
 		<string>remote-notification</string>
 		<string>fetch</string>
+		<!-- location: lets a geofence or significant-change wake finish a fresh fix and the upload that
+		     follows it while the app is in the background, so wake and place signals reach the Mac in
+		     minutes (the app only uses region monitoring and significant changes, not continuous tracking). -->
+		<string>location</string>
 	</array>
 </dict>
 </plist>

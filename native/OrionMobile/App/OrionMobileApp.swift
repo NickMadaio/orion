@@ -36,8 +36,13 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
         // Every launch, foreground or background, brings the widgets and lock screen up to date.
         Task { @MainActor in await BackgroundRefresh.run(force: true) }
-        // Relaunched in the background by a significant location change: resume listening.
-        if launchOptions?[.location] != nil, PhoneSignals.shared.enabled { PhoneSignals.shared.start() }
+        // Whatever woke the app (a geofence, a significant change, a push, the user), location listening
+        // restarts here: waiting for the first foreground meant a relaunch by anything but `.location`
+        // left the geofences and the service session dead until he opened ORION.
+        if PhoneSignals.shared.enabled {
+            PhoneSignals.shared.start()
+            if launchOptions?[.location] != nil { PhoneSignals.shared.captureAndFlush(.significantChange) }
+        }
         #if !targetEnvironment(simulator)
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         application.registerForRemoteNotifications()
@@ -253,6 +258,7 @@ struct PhoneRootView: View {
             #endif
             routine.log = { [weak remote] entry in remote?.log(entry) }
             PhoneSignals.shared.log = { [weak remote] entry in remote?.logQuietly(entry) }
+            PhoneSignals.shared.flushOutbox = { [weak remote] in await remote?.flushOutbox() }
             PhoneSignals.shared.start()
             WakeSignals.observeCharger()
             let planner = self.planner, routine = self.routine, remote = self.remote

@@ -514,15 +514,8 @@ final class LinkEngine: ObservableObject {
     /// Places Nick confirmed (known-places.json, C6), for the phone's geofences.
     private func knownPlaces() -> [LinkSnapshot.KnownPlace]? {
         let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/known-places.json")
-        guard let data = try? Data(contentsOf: file), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let list = object["places"] as? [[String: Any]] else { return nil }
-        let places = list.compactMap { item -> LinkSnapshot.KnownPlace? in
-            guard let id = item["id"] as? String, let lat = (item["lat"] as? NSNumber)?.doubleValue,
-                  let lon = (item["lon"] as? NSNumber)?.doubleValue, (-90...90).contains(lat), (-180...180).contains(lon) else { return nil }
-            return .init(id: id, name: item["name"] as? String ?? id, lat: lat, lon: lon,
-                         radiusM: (item["radiusM"] as? NSNumber)?.doubleValue ?? 120, kind: item["kind"] as? String ?? "other")
-        }
-        return places.isEmpty ? nil : Array(places.prefix(20))
+        // No file yet: the seeded home (150 m), the same one the Mac's own awareness uses.
+        return KnownPlacesReader.places(fileData: try? Data(contentsOf: file))
     }
 
     /// "Started" / "10 more min" / "Done" tapped on a check-in notification.

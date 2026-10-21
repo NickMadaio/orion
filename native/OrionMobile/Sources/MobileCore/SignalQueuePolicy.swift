@@ -5,8 +5,11 @@ import Foundation
 /// its limit the oldest plain samples go first, and a place event is dropped only when nothing but place events is left.
 public enum SignalQueuePolicy {
     public static func isPlace(_ entry: LinkLog) -> Bool {
-        if case .place = entry { return true }
-        return false
+        // A place event or a wake signal is worth more than a plain sample (the morning brief waits on the latter).
+        switch entry {
+        case .place, .sleep: return true
+        default: return false
+        }
     }
 
     /// `items` oldest first; the result keeps their order and at most `limit` of them.

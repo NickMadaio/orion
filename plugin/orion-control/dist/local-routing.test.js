@@ -164,7 +164,7 @@ describe("local routing — on mode", () => {
         const messages = [{ role: "user", content: "move gym to 7" }, { role: "assistant", content: [{ type: "text", text: "Done — gym is at 7." }] }];
         const [first] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7.", messages }, ctx);
         expect(first).toBeUndefined();
-        expect(JSON.stringify(messages[1])).toContain("Nothing was moved — Gym did not fit.");
+        expect(JSON.stringify(messages[1])).toContain("I couldn't move anything, so nothing was moved — Gym did not fit.");
         expect(JSON.stringify(messages[1])).not.toContain("gym is at 7");
         expect(lines(logPath).at(-1)).toMatchObject({ mode: "on", escalationNeeded: true });
     });
@@ -259,7 +259,7 @@ describe("local routing — on mode", () => {
             await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I added 45 minutes of macro studying." }, ctx2);
         await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-agenda today" }, result: "today 5:15 PM — grind leetcode" }, ctx2);
         const [sent2] = (await f.fire("reply_payload_sending", { payload: { text: "I added 45 minutes of macro studying." }, runId: "p2", sessionKey: "agent:main:y" }, {}));
-        expect(sent2?.payload.text).toMatch(/didn't manage/);
+        expect(sent2?.payload.text).toMatch(/couldn't make that change/);
     });
     it("a timed reminder goes to alarm_set (never orion-tasks), with the day worked out by code", async () => {
         const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl");

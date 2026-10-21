@@ -95,7 +95,7 @@ const REORDER = /^(?:my\s+|the\s+)?(?<x>[a-z][a-z' -]{0,30}?)\s+(?:before|ahead 
 export function parseReorder(message: string, context: ReplanAsk): ReplanAsk | undefined {
   const raw = message.replace(/\s+/g, " ").trim();
   const text = fixTypos(raw);
-  if (!text || text.includes("?") || refusalOf(raw, { lenient: true })) return undefined;
+  if (!text || text.includes("?") || refusalOf(raw, { lenient: true, followUp: true })) return undefined;
   const m = text.replace(REORDER_LEAD, "").match(REORDER);
   const [x, y] = [m?.groups?.x?.trim(), m?.groups?.y?.trim()];
   if (!x || !y || x.split(/\s+/).length > 4 || y.split(/\s+/).length > 4 || /\d/.test(`${x}${y}`)) return undefined;

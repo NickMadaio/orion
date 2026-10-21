@@ -11,6 +11,8 @@ export declare const startsAsRequest: (text: string) => boolean;
 export declare const SECOND_THOUGHTS: RegExp;
 export declare const HEARSAY: RegExp;
 export declare const POLITE: RegExp;
+/** A report of what already happened ("we did resume then gym", "i went to the gym first"): never a follow-up order. */
+export declare const PAST_REPORT: RegExp;
 export type Refusal = "question" | "take-back" | "doubt" | "hearsay" | "second-thoughts" | "not-a-request";
 /** A question is not an order, but "can you … ?" ending the message is a polite one. */
 export declare const isQuestionText: (text: string) => boolean;
@@ -21,4 +23,5 @@ export declare const isQuestionText: (text: string) => boolean;
  */
 export declare function refusalOf(raw: string, opts?: {
     lenient?: boolean;
+    followUp?: boolean;
 }): Refusal | undefined;

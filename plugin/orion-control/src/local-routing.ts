@@ -43,6 +43,7 @@ import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
+import { timeMismatch, writesIn } from "./time-backstop.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
@@ -492,7 +493,7 @@ const HONEST_STOP = "The check still finds a problem. Undo any change you made i
  *  so the reply_payload_sending swap never runs there. Left to HONEST_STOP alone, the 9B repeated
  *  "I've started the focus session" verbatim (2026-10-15). */
 export const honestLine = (calendar: boolean): string => calendar
-  ? "I didn't manage to make that change — nothing on your calendar changed. Can you say it again?"
+  ? "I couldn't make that change — nothing on your calendar changed. Can you say it again?"
   : "I didn't actually do that — nothing was started or changed. Can you say it again?";
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
 const LOOKUP_CLAIM = /claims a lookup/;
@@ -655,7 +656,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs[i] ?? "", exit: null }));
     const turn = run.sessionKey ? lastTurn.get(run.sessionKey) : undefined;
     if (turn && run.sessionKey) lastTurn.set(run.sessionKey, { ...turn, marks: flow.marks ?? [] });
-    if (flow.marks?.length) recordChange(run.sessionKey, flow.marks);
+    // An unknown outcome may have written: "undo" is allowed for it.
+    if (flow.marks?.length || flow.uncertain) recordChange(run.sessionKey, flow.marks ?? []);
     // Any other write forgets the last request; a reschedule remembers itself AFTER that.
     if (!flow.replan) forgetReplan(run.sessionKey);
     else if (run.sessionKey) replanMemory.set(run.sessionKey, { ask: flow.replan, at: Date.now() });
@@ -794,7 +796,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const intentRead = on && !cutOff && options.scheduleFlow ? readIntent(message, { now: (options.now ?? (() => new Date()))(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey)! } : {}) }) : undefined;
     // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
     const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
-    const codeFirst = !!intentRead && !elsewhere && ("intent" in intentRead ? runsFirst(intentRead.intent) : !!intentRead.tookBack);
+    const intentFirst = !!intentRead && !elsewhere && ("intent" in intentRead ? runsFirst(intentRead.intent) : !!intentRead.tookBack);
+    const codeFirst = intentFirst;
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
       : codeFirst ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })
@@ -803,7 +806,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         .then((d) => { deskHealth.record(d, call); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(codeFirst ? { codeFirst } : {}), ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(intentFirst ? { codeFirst: true } : {}), ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -1202,6 +1205,22 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     return guardTaskRun(toolName, event.params, { action: expected.action, args: expected.args });
   });
 
+  // Live run 3 (2026-10-21) backstop: the worker's own scheduler write must start at a time Nick said (time-backstop.ts), or it does not run.
+  if (on) api.on("before_tool_call", (event, ctx) => {
+    if (pick(event, ctx, "toolName") !== "exec") return undefined;
+    const run = runFor(event, ctx);
+    const writes = writesIn(str((event.params as Record<string, unknown> | undefined)?.command) ?? "");
+    if (!run || !writes.length) return undefined;
+    const now = (options.now ?? (() => new Date()))();
+    const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const off = writes.map((args) => {
+      const date = args.includes("--date") ? args[args.indexOf("--date") + 1] : undefined;
+      const other = !!date && date !== "today" && date !== iso;
+      return timeMismatch(run.message, [args], { day: other ? "tomorrow" : "today", now: other ? null : now.getHours() * 60 + now.getMinutes() });
+    }).find(Boolean);
+    return off ? { block: true, blockReason: `Orion time check: ${off} Do not run another command; tell Nick exactly this.` } : undefined;
+  });
+
   // 2026-10-19 backstop: the worker reached for `orion-reschedule <write>` by name (the tool guard refuses it). The run remembers it, so
   // the reply is never "I can't" / "I need you to confirm" after he already asked: see heldChange in before_agent_finalize.
   if (on) api.on("before_tool_call", (event, ctx) => {
@@ -1301,7 +1320,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // "Your schedule has been adjusted" went out, though the check had found it). With a tool already run, the honest
       // line goes in place NOW, from the scheduler's own words when it says nothing was booked/changed.
       const honestNow = on && !flowActed && !run.reminder && ((run.hostTools ?? 0) > 0 || hostDrops) && findings.some((f) => FALSE_CLAIM.test(f))
-        ? nothingMovedReply(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).slice(-1).map((t) => t.stdout), /\b(late|move|push)\b/.test(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).at(-1)?.canonical ?? "") ? "Nothing was moved" : undefined)
+        ? nothingMovedReply(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).slice(-1).map((t) => t.stdout), /\b(late|move|push)\b/.test(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).at(-1)?.canonical ?? "") ? "I couldn't move anything, so nothing was moved" : "I couldn't make that change, so nothing on your calendar was changed")
           ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)))
         : undefined;
       if (honestNow) { owed = honestNow; remember([runId, sessionKeyNow], honestNow); }

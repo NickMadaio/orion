@@ -19,9 +19,10 @@ import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-pro
 import { replanReply, type ReplanAsk } from "./day-replan.js";
 import { readIntent } from "./calendar-intent.js";
 import { planIntent } from "./intent-run.js";
+import { timeMismatch } from "./time-backstop.js";
 import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
-import { FAILED, nothingWritten, spokenFailure, spokenReply, summarize } from "./schedule-reply.js";
+import { addedNotes, FAILED, nothingWritten, spokenFailure, spokenReply, summarize, uncertainReply, UNKNOWN_OUTCOME } from "./schedule-reply.js";
 export { nothingWritten, spokenFailure, spokenReply, summarize };
 
 export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string };
@@ -512,24 +513,33 @@ export const TOOK_BACK = "Okay, you took that back, so I've left your day as it 
 export type FlowResult =
   /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
   /** reply: a flow that builds its own reply (session-flow.ts) — used as-is instead of spokenReply(outputs). */
-  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string; /** the reschedule request this change carried out, remembered for a follow-up reorder */ replan?: ReplanAsk }
+  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */ uncertain?: true; /** the reschedule request this change carried out, remembered for a follow-up reorder */ replan?: ReplanAsk }
   /** plain: said exactly as written (no "That doesn't fit" framing). calls/outputs: a scheduler run that changed nothing. */
   | { outcome: "say"; text: string; kind: "cannot" | "ask" | "plain"; calls?: string[]; outputs?: string[]; pending?: PendingAdd; /** a reschedule request that was read but not carried out, remembered for a follow-up */ replan?: ReplanAsk }
   | { outcome: "fallback"; reason: string };
 
 /** Runs argv lists in order, recording what ran and the undo stamp of each change (shared by a fresh request and a confirmed pending one). */
-async function execute(argvs: string[][], { exec, undoTop, when, undone }: {
+async function execute(argvs: string[][], { exec, undoTop, when, undone, before, reread }: {
   exec: (args: string[]) => Promise<{ stdout: string; code: number }>; undoTop: () => string | null; when?: string; undone: number;
+  /** the day as it was read before the write, and a way to read it again: what an unknown outcome is checked against */
+  before?: Day; reread?: () => Promise<Day | undefined>;
 }): Promise<FlowResult> {
-  const calls: string[] = []; const outputs: string[] = []; const marks: string[] = [];
+  const calls: string[] = []; const outputs: string[] = []; const marks: string[] = []; let unknown = false;
   for (const argv of argvs) {
-    const before = undoTop();
-    const { stdout } = await exec(argv);
+    const top = undoTop();
+    const { stdout, code } = await exec(argv);
     calls.push(`exec orion-reschedule ${argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`);
     outputs.push(stdout);
     const after = undoTop();
-    if (after && after !== before) marks.push(after);
+    if (after && after !== top) marks.push(after);
+    // A crash, a kill or an exit that is not one of its own refusals: nobody knows what was written (review 2026-10-21).
+    if (stdout.startsWith(UNKNOWN_OUTCOME) || (code !== 0 && !FAILED.test(stdout) && !nothingWritten(stdout))) { unknown = true; break; }
     if (FAILED.test(stdout)) break; // the rest depended on this one
+  }
+  if (unknown) {
+    // Never "nothing changed" and never a "Done" without proof: the day is read back and compared with how it was.
+    const now = reread ? await reread().catch(() => undefined) : undefined;
+    return { outcome: "done", calls, outputs, marks, undone, uncertain: true, reply: uncertainReply(before, now, when) };
   }
   // The scheduler refused and nothing was written: that is not "done" — "done" told the worker "You
   // already made this change" and skipped the work check (sweep 2026-10-16, q043/q051/q093).
@@ -571,11 +581,13 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     onWriteStart?.();
     const out = await execRaw(args);
     // The scheduler died without a word (killed, or its own timeout): his day may have changed.
-    if (out.code !== 0 && !out.stdout.trim()) return { stdout: "The scheduler stopped before it reported back, so your day may have changed. Check your calendar; say \"undo\" to put the last change back.", code: 1 };
+    if (out.code !== 0 && !out.stdout.trim()) return { stdout: UNKNOWN_OUTCOME, code: 1 };
     return out;
   };
   const tooSlow: FlowResult = { outcome: "fallback", reason: "too slow" };
-  if (pending?.kind === "push") return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0 });
+  /** The day a stored argv was for (its --date), read again: only after an unknown outcome. */
+  const readDayAgain = (argv: string[]): Promise<Day | undefined> => { const i = argv.indexOf("--date"); return exec(["show", "--json", ...(i >= 0 && argv[i + 1] ? ["--date", argv[i + 1]!] : [])]).then((r) => JSON.parse(r.stdout) as Day, () => undefined); };
+  if (pending?.kind === "push") return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0, reread: () => readDayAgain(pending.argvs[0] ?? []) });
   // Spoken times ("until ten thirty") are read as digits before anything else looks at them (2026-10-19).
   message = spokenTimesToDigits(message);
   const titled = pending?.kind === "title" ? pending : undefined;
@@ -602,6 +614,10 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   if (whichDay) return takenBack({ outcome: "say", text: whichDay, kind: "ask" });
   let day: Day;
   try { day = JSON.parse((await exec(["show", "--json", ...dateArgs])).stdout); } catch { return { outcome: "fallback", reason: "could not read the day" }; }
+  // The backstop's day: a time he said must be the start every write uses (time-backstop.ts, live run 3).
+  const clockCtx = { day: (day.now ? "today" : "tomorrow") as "today" | "tomorrow", now: day.now ? Number(day.now.slice(0, 2)) * 60 + Number(day.now.slice(3, 5)) : null };
+  const offTime = (argvs: string[][]): FlowResult | undefined => { const t = timeMismatch(message, argvs, clockCtx); return t ? { outcome: "say", kind: "ask", text: t } : undefined; };
+  const reread = (): Promise<Day | undefined> => exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout) as Day, () => undefined);
   // "nothing" / "just chilling" to a blank ask logs nothing: the blank is answered, no calendar call (spec 3.5 step 6).
   if (!titled && askContext && NOTHING_REPLY.test(message)) return takenBack({ outcome: "say", kind: "plain", text: "Okay — I'll leave that time as it is." });
   const clash = titled ? undefined : contradiction(message);
@@ -619,11 +635,16 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     if (planned?.kind === "say") return takenBack({ outcome: "say", text: planned.text, kind: planned.say, ...remember });
     if (planned) {
       if (left() <= 0) return tooSlow;
-      const ran = await execute([[...planned.argv, ...dateArgs]], { exec, undoTop, when, undone });
+      const off = offTime([planned.argv]);
+      if (off) return takenBack(off as Extract<FlowResult, { outcome: "say" }>);
+      const ran = await execute([[...planned.argv, ...dateArgs]], { exec, undoTop, when, undone, before: day, reread });
+      if (ran.outcome === "done" && ran.uncertain) return { ...ran, ...remember };
       if (planned.replan) {
         if (ran.outcome !== "done") return ran.outcome === "say" ? { ...ran, ...remember } : ran;
         const after: Day | undefined = await exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout) as Day, () => undefined);
-        return { ...ran, reply: (after && replanReply(after, planned.replan, ran.outputs, when)) || spokenReply(ran.outputs, when), ...remember };
+        const added = addedNotes(day, ran.outputs, [planned.argv], message, { landed: true });
+        const said = (after && replanReply(after, planned.replan, ran.outputs, when)) || spokenReply(ran.outputs, when);
+        return { ...ran, reply: added ? `${said} ${added}` : said, ...remember };
       }
       // A must (the Gym) is never cut to make room: a change that would need that is refused, and he is asked (2026-10-20 live test).
       if (ran.outcome === "say" && /didn't fit/i.test(ran.text)) return { ...ran, text: `${ran.text} I won't cut it short to fit, so nothing was changed. Tell me if ${planned.title} should end earlier, or whether it should wait.` };
@@ -690,6 +711,9 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     }
   }
   const argvs = runs.map((c) => [...c.args, ...dateArgs]);
+  // Whatever the form wrote, a time he said is the start it uses, or nothing runs (live run 3: "tonight at 7" became 1:20 PM).
+  const off = titled ? undefined : offTime(argvs);
+  if (off) return takenBack(off as Extract<FlowResult, { outcome: "say" }>);
   // An add he did not pin to a time must not shuffle his day: look first (--dry-run writes nothing), ask if it would (r8, 2026-10-16).
   // Every add is previewed BEFORE any step runs: an early return after an earlier step had written lost its record (H2).
   const previewed: string[] = []; const previewCalls: string[] = []; const effects: Effect[] = [];
@@ -704,7 +728,11 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     effects.push(...displaced(preview, argv[1]));
   }
   if (effects.length) return takenBack({ outcome: "say", kind: "ask", text: `That would ${effectPhrase(effects)} — go ahead?`, pending: { kind: "push", argvs: runs.map((c) => [...c.args, "--date", day.date]), displaced: [...new Set(effects.map((e) => e.name))], ...(when ? { when } : {}) } });
-  return left() <= 0 ? tooSlow : execute(argvs, { exec, undoTop, when, undone });
+  if (left() <= 0) return tooSlow;
+  const ran = await execute(argvs, { exec, undoTop, when, undone, before: day, reread });
+  // A block the plan created that was not on his day is said to be new, with its length and why (live run 3).
+  const added = ran.outcome === "done" && !ran.uncertain ? addedNotes(day, ran.outputs, argvs, message) : "";
+  return added && ran.outcome === "done" ? { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} ${added}` } : ran;
 }
 
 type Effect = { name: string; how: "push" | "shorten" | "off" };

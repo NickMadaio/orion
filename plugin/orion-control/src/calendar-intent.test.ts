@@ -21,7 +21,7 @@ const AUDITS: Array<[string, string, Ctx, unknown]> = [
   ["live #2a", "can u redo my evening, gym first then resume", { now: at(20, 56) }, { intent: { verb: "replan", day: "today", items: [{ name: "gym" }, { name: "resume" }] } }],
   ["live #2b", "actually do resume before gym", { now: at(20, 57), last: LAST_TODAY }, { intent: { verb: "reorder", day: "today", items: [{ name: "resume" }, { name: "gym" }], replan: { again: true } } }],
   ["live #2b with nothing on record", "actually do resume before gym", { now: at(20, 57) }, { refused: "second-thoughts" }],
-  ["live #2c", "ok and push everything 30 min", { now: at(20, 58) }, { refused: "unparsed" }],
+  ["live #2c (run 3: in code)", "ok and push everything 30 min", { now: at(20, 58) }, { intent: { verb: "move", all: true, items: [{ name: "everything", by: 30 }] } }],
   ["live #3", "should i do gym first tonight?", { now: at(20, 59) }, { refused: "question" }],
   ["live #4", "reschedule my night, gym first. actually no nvm", { now: at(21, 0) }, { refused: "take-back" }],
   ["live #5", "put cs lab from now until ten thirty", { now: at(20, 58) }, { intent: { verb: "add", until: true, day: "today", items: [{ name: "cs lab", fromNow: true, start: "21:00", end: "22:30", minutes: 90 }] } }],
@@ -30,7 +30,7 @@ const AUDITS: Array<[string, string, Ctx, unknown]> = [
   // the re-run, 22:40-22:47, against tomorrow
   ["re-run #2a", "can u redo tomorrow after my first class, gym first then resume", { now: at(22, 40) }, { intent: { verb: "replan", day: "tomorrow", anchor: { kind: "block", name: "first class" }, items: [{ name: "gym" }, { name: "resume" }] } }],
   ["re-run #2b", "actually do resume before gym", { now: at(22, 41), last: LAST_TOMORROW }, { intent: { verb: "reorder", day: "tomorrow", date: "2030-10-04", anchor: { kind: "block", name: "first class" }, items: [{ name: "resume" }, { name: "gym" }] } }],
-  ["re-run #2c", "ok and push everything 30 min", { now: at(22, 42) }, { refused: "unparsed" }],
+  ["re-run #2c (run 3: in code)", "ok and push everything 30 min", { now: at(22, 42) }, { intent: { verb: "move", all: true, items: [{ by: 30 }] } }],
   ["re-run #5 at 22:42: 10:30 PM has passed", "put cs lab from now until ten thirty", { now: at(22, 42) }, { intent: { verb: "add", until: true, items: [{ name: "cs lab", start: "22:45", issue: { kind: "passed", at: "22:30", field: "end" } }] } }],
   ["re-run #6", "ok so reschedule tomorrow after my first class and put gym frist then whatevers left by priorty, im kinda tired tho", { now: at(22, 43) }, { intent: { verb: "replan", day: "tomorrow", anchor: { kind: "block", name: "first class" }, items: [{ name: "gym" }] } }],
   ["re-run #7", "reschedule tomorrow, put piano practice first", { now: at(22, 43) }, { intent: { verb: "replan", day: "tomorrow", anchor: { kind: "first-class" }, items: [{ name: "piano practice" }] } }],
@@ -133,7 +133,7 @@ describe("follow-ups to the remembered request (live-as-nick.test.ts §3)", () =
   it.each(["dinner then gym", "ok dinner then gym", "nah dinner before gym", "actually do dinner before gym", "put dinner first, then gym"])("%j names something new: read as such, never a reorder", (message) => {
     expect(read(message, { now: at(20, 57), last: LAST_TODAY })).toMatchObject({ intent: { verb: "reorder", outside: ["dinner"] } });
   });
-  it.each([["actually do resume before gym?", "question"], ["actually nah, resume before gym maybe", "second-thoughts"], ["she said do resume before gym", "hearsay"]])("%j is not a reorder (%s)", (message, reason) => {
+  it.each([["actually do resume before gym?", "question"], ["actually nah, resume before gym maybe", "doubt"], ["she said do resume before gym", "hearsay"]])("%j is not a reorder (%s)", (message, reason) => {
     expect(read(message, { now: at(20, 57), last: LAST_TODAY })).toMatchObject({ refused: reason });
   });
 });
@@ -171,7 +171,6 @@ describe("adds, moves, extends and removes: one block, its clock resolved for th
     ["put something small at 5", "unparsed"],               // no name: the form asks what
     ["put gym friday at 5", "other-day"],
     ["add 45 mins of leetcode after my lab", "unparsed"],   // an anchored add: the form's anchorFromMessage
-    ["push everything back 30 min", "unparsed"],            // the late flow's
     ["cancel that", "unparsed"],                            // undo's
     ["i go to the gym every morning, put it at 7 tomorrow", "unparsed"],
     ["put gym at 6 but only if i finish the essay", "not-a-request"],

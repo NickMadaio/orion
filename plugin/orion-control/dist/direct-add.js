@@ -80,7 +80,7 @@ export function parseDirectAdd(message, day, ask) {
         if ("passed" in end)
             return { say: "cannot", text: `${ampm(end.passed)} has already passed (it's ${ampm(now)}), so I haven't booked ${title}. Tell me a later end time.` };
         if ("pastMidnight" in end)
-            return { say: "cannot", text: `${ampm(end.pastMidnight)} is past midnight, so I haven't booked it. Tell me an earlier end time.` };
+            return { say: "cannot", text: `${ampm(end.pastMidnight)} is after midnight, and a block can't run into tomorrow, so I haven't booked ${title}. Say "until 11:55 PM" to book it until then.` };
         if ("before" in end)
             return { say: "cannot", text: `${ampm(end.before)} is before it would start (${ampm(start)}), so I haven't booked ${title}.` };
         const until = end.at;

@@ -145,3 +145,44 @@ test("today, earlier in the day: move and extend are one call each, and one undo
   assert.equal(e.outcome, "done", JSON.stringify(e));
   assert.ok(w.day().includes("Gym 3 18:00-20:00"), w.day().join("\n"));
 });
+
+test("follow-up 3: the scheduler writes, then its output is lost (a crash): the reply reads the day back and says what is now there, with undo", async (t) => {
+  const w = world(t, [22, 46]);
+  const lost = async (args) => { const r = await w.exec(args); return args[0] === "show" ? r : { stdout: "", code: 1 }; };
+  const r = await runScheduleFlow({ message: "can u put a 45 min walk tomorrow at 5", clock: "Thu 22:46", now: new Date(2030, 9, 3, 22, 46), exec: lost,
+    ask: async () => { throw new Error("the form must not be asked"); } });
+  assert.equal(r.outcome, "done");
+  assert.equal(r.uncertain, true);
+  assert.equal(r.reply, "The scheduler stopped before it reported back. Your calendar for tomorrow now differs from before: walk added at 5:00 PM–5:45 PM. Say \"undo\" to put it back.");
+});
+
+test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (nothing booked); a walk at 5 at 2 AM is 5 AM", async (t) => {
+  const late = world(t, [23, 0]);
+  const before = late.day();
+  const a = await late.say("put cs lab from now until 2am");
+  assert.match(a.text, /^2:00 AM is after midnight, and a block can't run into tomorrow/);
+  assert.deepEqual(late.day(), before);
+  const early = world(t, [2, 0]);
+  const b = await early.say("put a walk at 5");
+  assert.deepEqual(early.writes, [["add", "walk", "30", "--at", "05:00"]]);
+  assert.equal(b.outcome, "done", JSON.stringify(b));
+});
+
+test("live run 3 #8: 'can u block 2 hrs for econ homework tonight at 7' books 7:00-9:00 PM, not 1:20 PM", async (t) => {
+  const w = world(t, [15, 10]);
+  const before = w.day();
+  const r = await w.say("can u block 2 hrs for econ homework tonight at 7");
+  assert.equal(r.outcome, "done", JSON.stringify(r));
+  assert.deepEqual(w.writes, [["add", "econ homework", "120", "--at", "19:00"]]);
+  assert.deepEqual(w.day().filter((l) => !before.includes(l)), ["econ homework 3 19:00-21:00"]);
+});
+
+test("live run 3 #2c: 'ok and push everything 30 min' slides every block of his still ahead by 30 minutes; classes stay", async (t) => {
+  const events = [...EVENTS.filter((e) => e.title !== "Gym"), { title: "Gym", start: at(3, 18), end: at(3, 19, 30), orion: "gym", orionTags: "gym" }];
+  const w = world(t, [15, 10], events);
+  const r = await w.say("ok and push everything 30 min");
+  assert.deepEqual(w.writes, [["day", "--plan", "Gym, 90, 18:30"]]);
+  assert.equal(r.outcome, "done", JSON.stringify(r));
+  assert.ok(w.day().includes("Gym 3 18:30-20:00"), w.day().join("\n"));
+  assert.ok(w.day().includes("ECON1115 Principles of Macroeconomics 3 13:30-15:00"));
+});

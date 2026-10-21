@@ -210,7 +210,8 @@ describe("a cut flow is stopped, and the line says what is true", () => {
     it("a scheduler that dies without a word is reported as a change that may have happened", async () => {
         const res = await runScheduleFlow({ message: SENTENCE, clock: "Tue 16:16", now: new Date(2030, 9, 3, 16, 16), ask: async () => null,
             exec: async (args) => (args[0] === "show" ? { stdout: JSON.stringify(DAY), code: 0 } : { stdout: "", code: 1 }) });
-        expect(JSON.stringify(res)).toMatch(/may have changed/);
+        // 2026-10-21: the day is read back; it reads the same, so that is said, and that it cannot be sure (never "nothing changed").
+        expect(res).toMatchObject({ outcome: "done", uncertain: true, reply: expect.stringMatching(/stopped before it reported back.*reads the same as before, but I can't be sure/) });
     });
     it("the flow itself starts nothing once aborted, and tells the hook when a write begins", async () => {
         const ac = new AbortController();

@@ -32,6 +32,7 @@ function blockFor(name: string, day: Day): DayBlock | "ambiguous" | undefined {
 function issueText(issue: TimeIssue, item: IntentItem, intent: CalendarIntent, day: Day, what: string): string {
   if (issue.kind === "from-now-not-today") return `"From now" only works for today, so I haven't booked ${item.name} ${intent.day}. Tell me when it should start.`;
   if (issue.kind === "ambiguous") return `Do you mean ${ampm(toMin(issue.choices[0]))} or ${ampm(toMin(issue.choices[1]))} ${intent.day}? I haven't ${what} ${item.name} yet.`;
+  if (issue.kind === "past-midnight") return `${ampm(toMin(issue.at))} is after midnight, and a block can't run into tomorrow, so I haven't ${what} ${item.name}. Say "until 11:55 PM" to book it until then.`;
   const now = nowOf(day);
   return `${ampm(toMin(issue.at))} has already passed${now !== null ? ` (it's ${ampm(now)})` : ""}, so I haven't ${what} ${item.name}. Tell me a later time${issue.field === "start" && intent.day === "today" ? ", or say tomorrow" : ""}.`;
 }
@@ -42,7 +43,7 @@ const clashWith = (start: number, minutes: number, day: Day): DayBlock | undefin
 
 function planAdd(intent: CalendarIntent, day: Day, message: string, askContext?: AskContext): IntentPlan | undefined {
   const item = intent.items[0]!;
-  if (item.issue && (item.issue.kind !== "passed" || !intent.until)) return { kind: "say", say: item.issue.kind === "ambiguous" ? "ask" : "cannot", text: issueText(item.issue, item, intent, day, "booked") };
+  if (item.issue && (!["passed", "past-midnight"].includes(item.issue.kind) || !intent.until)) return { kind: "say", say: item.issue.kind === "ambiguous" ? "ask" : "cannot", text: issueText(item.issue, item, intent, day, "booked") };
   if (intent.until) {
     // "put X [from now] until T": direct-add.ts reads it against the day (the title ORION uses, --again for a second session, the same clock rules).
     const direct = parseDirectAdd(message, day, askContext);
@@ -75,7 +76,20 @@ function target(intent: CalendarIntent, day: Day, what: string): { block: DayBlo
   return { block: b };
 }
 
+/** "push everything 30 min": every movable block not yet started today, each at its own start + N, in one `day --plan` (its own lengths, so a must keeps its 90). */
+function planPushAll(intent: CalendarIntent, day: Day): IntentPlan {
+  const by = intent.items[0]!.by ?? 0;
+  const now = nowOf(day) ?? 0;
+  const ahead = day.blocks.filter((b) => !isFixed(b) && toMin(b.start) > now).sort((a, b) => toMin(a.start) - toMin(b.start));
+  if (!ahead.length) return { kind: "say", say: "plain", text: `There's nothing of yours left on your day to push (${day.blocks.some((b) => isFixed(b) && toMin(b.end) > now) ? "only classes and plans with fixed times are ahead, and those don't move" : "nothing is planned after now"}), so nothing changed.` };
+  const last = ahead[ahead.length - 1]!;
+  if (toMin(last.end) + by > 1440) return { kind: "say", say: "cannot", text: `${cap(label(last))} would run past midnight if everything moved ${by} minutes later, so I haven't moved anything.` };
+  const argv = ["day", ...ahead.flatMap((b) => ["--plan", `${b.title.replace(/,/g, " ")}, ${toMin(b.end) - toMin(b.start)}, ${hhmm(toMin(b.start) + by)}`])];
+  return { kind: "run", argv, title: ahead[0]!.title };
+}
+
 function planMove(intent: CalendarIntent, day: Day): IntentPlan | undefined {
+  if (intent.all) return planPushAll(intent, day);
   const item = intent.items[0]!;
   const t = target(intent, day, "moved");
   if (!t || !("block" in t)) return t;
@@ -148,4 +162,4 @@ export function planIntent(intent: CalendarIntent, day: Day, ctx: { message: str
 
 /** The intents code runs before the front desk is asked (local-routing.ts): the ones whose words alone decide the change. */
 export const runsFirst = (intent: CalendarIntent): boolean =>
-  intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));
+  intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "move" && !!intent.all) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));

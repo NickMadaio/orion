@@ -16,6 +16,7 @@
  named back, never silently dropped.
 */
 import { execFile } from "node:child_process";
+import { isEdit } from "./edit-followup.js";
 export const ORION_SESSION = "/Users/nickmadaio/Desktop/ORION/scripts/orion-session";
 const DEFAULT_TASK = "Focus";
 const RUNNING_STATES = new Set(["running", "paused", "waiting-for-return"]);
@@ -29,7 +30,8 @@ const NOT_A_START = /\b(end|stop|finish|pause|cancel|abandon|calendar|schedule|t
 // "Resume" the verb only: "start focus for the resume" (his CV, q054) was refused as resuming a session,
 // and the worker then called a tool named orion-session ten times.
 const RESUMES = /^\W*(?:(?:ok(?:ay)?|please|pls|can you|could you)[,\s]+)*resume\b|\bresume\s+(?:(?:the|my|our)\s+)?(?:session|focus(?:ing)?|timer|it|block)\b/i;
-const ruledOut = (message) => NOT_A_START.test(message) || RESUMES.test(message);
+// "make it an hour" edits the last thing made, never starts a session (live run 4: it restarted the lunch "session").
+const ruledOut = (message) => NOT_A_START.test(message) || RESUMES.test(message) || isEdit(message);
 // Live run 4 (2026-10-21): "lunch 45 min today at 1pm" started a real focus session ("lunch") because the desk read a start; "make it an
 // hour" restarted it. A session needs a session word in HIS message; a clock time ("at 1pm", "13:00"), "add/put/schedule", or a meal or an
 // activity is a calendar item, never a session. (A desk-read start with no session word still counts: "25 min on resume", review of efc37af.)

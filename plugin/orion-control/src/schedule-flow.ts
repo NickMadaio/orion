@@ -17,6 +17,7 @@ import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js
 import { eveningTime, spokenTimesToDigits } from "./direct-add.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
 import { replanReply, type ReplanAsk } from "./day-replan.js";
+import { editLength, type EditRequest, type EditTarget } from "./edit-followup.js";
 import { readIntent } from "./calendar-intent.js";
 import { planIntent } from "./intent-run.js";
 import { repairStart, timeMismatch } from "./time-backstop.js";
@@ -558,7 +559,7 @@ async function execute(argvs: string[][], { exec, undoTop, when, undone, before,
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext }: {
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit }: {
   message: string; clock: string; now?: Date; askContext?: AskContext;
   exec: (args: string[], signal?: AbortSignal) => Promise<{ stdout: string; code: number }>;
   /** budgetMs: how long this one call may take (turn-budget.ts); a model call past it is abandoned and answers null. */
@@ -572,6 +573,8 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   onWriteStart?: () => void;
   /** His last reschedule request in this chat (what "actually do resume before gym" reorders). */
   replanContext?: ReplanAsk;
+  /** "make it an hour" after a change: the block ORION last wrote in this chat, and the new length (edit-followup.ts) */
+  edit?: { target: Extract<EditTarget, { kind: "block" }>; req: EditRequest };
 }): Promise<FlowResult> {
   const left = (): number => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
   // A READ is stopped by the signal; a WRITE never is: once the scheduler has begun to write it finishes (it is bounded by its own timeout), and a write that
@@ -588,6 +591,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   const tooSlow: FlowResult = { outcome: "fallback", reason: "too slow" };
   /** The day a stored argv was for (its --date), read again: only after an unknown outcome. */
   const readDayAgain = (argv: string[]): Promise<Day | undefined> => { const i = argv.indexOf("--date"); return exec(["show", "--json", ...(i >= 0 && argv[i + 1] ? ["--date", argv[i + 1]!] : [])]).then((r) => JSON.parse(r.stdout) as Day, () => undefined); };
+  if (edit) return runEdit(edit, { exec, undoTop });
   if (pending?.kind === "push") return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0, reread: () => readDayAgain(pending.argvs[0] ?? []) });
   // Spoken times ("until ten thirty") are read as digits before anything else looks at them (2026-10-19).
   message = spokenTimesToDigits(message);
@@ -774,3 +778,27 @@ function effectPhrase(effects: Effect[]): string {
 }
 
 const ampm = (t: string): string => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
+
+/** "make it an hour": `resize` the block ORION last wrote, read back from the day first (it may have moved or gone since). */
+async function runEdit(edit: { target: Extract<EditTarget, { kind: "block" }>; req: EditRequest }, { exec, undoTop }: {
+  exec: (args: string[]) => Promise<{ stdout: string; code: number }>; undoTop: () => string | null;
+}): Promise<FlowResult> {
+  const { target, req } = edit;
+  const read = (): Promise<Day | undefined> => exec(["show", "--json", ...target.dateArgs]).then((r) => JSON.parse(r.stdout) as Day, () => undefined);
+  const day = await read();
+  if (!day) return { outcome: "fallback", reason: "could not read the day" };
+  // The block by title AND where it was written: a second "Gym" today is never the one changed. With no start on record, only a unique title.
+  const named = day.blocks.filter((x) => normTitle(x.title) === normTitle(target.title));
+  const b = target.start ? named.find((x) => x.start === target.start) : named.length === 1 ? named[0] : undefined;
+  // `resize` names a block by title: with two of that name on the day it could change the wrong one, so he is asked.
+  if (named.length > 1) return { outcome: "say", kind: "ask", text: `There are ${named.length} ${target.title} blocks on your day (${named.map((x) => `${ampm(x.start)}–${ampm(x.end)}`).join(", ")}), so I haven't changed either. Which one should change?` };
+  const when = target.dateArgs.includes("tomorrow") ? "tomorrow" : undefined;
+  if (!b) return { outcome: "say", kind: "plain", text: `I can't find ${target.title} on your day any more, so I haven't changed anything.` };
+  if (b.fixed) return { outcome: "say", kind: "plain", text: `${b.title} is a class or a plan with people, so its length doesn't change. I haven't changed anything.` };
+  const current = toMin(b.end) - toMin(b.start);
+  const len = editLength(req, current);
+  if ("ask" in len) return { outcome: "say", kind: "ask", text: len.ask.replace("? It's", `? ${b.title} is`) };
+  if (len.minutes === current) return { outcome: "say", kind: "plain", text: `${b.title} is already ${current} minutes (${ampm(b.start)}–${ampm(b.end)}), so nothing changed.` };
+  if (len.minutes < 5 || len.minutes > 720) return { outcome: "say", kind: "cannot", text: `${len.minutes} minutes isn't a length I can give ${b.title}, so I haven't changed anything.` };
+  return execute([["resize", b.title, String(len.minutes), ...target.dateArgs]], { exec, undoTop, ...(when ? { when } : {}), undone: 0, before: day, reread: read });
+}

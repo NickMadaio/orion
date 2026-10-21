@@ -70,3 +70,20 @@ resume", "lets get to work on the essay", "work on resume for 25 min", "study ec
 the lunch negatives hold. The time put-back only happens when the stated time is in the item's own clause (comma, and, then, but,
 also, plus split clauses): "add stretching, call mom at 5" is not put back and the write is refused, never 17:00 stretching.
 Plugin 1772 pass; scripts 1702/1706, the same 4 clock-dependent failures as on the base.
+
+## fix/edit-followup (from 6360bfe; origin/main still f506bba)
+
+"make it an hour" / "make it 30" / "longer" / "shorter" (edit-followup.ts) apply to the last thing ORION made in this chat: a block
+it wrote is resized (`resize`, same start, read back from the day first; already that length, gone, or a class is said); a focus
+session it just started is left running and he is told its length can't change without ending it; never a new session (an edit is
+ruled out as a session start whatever the desk reads). Only when something was made here and more recently than a reminder
+("make it 5:30" after a reminder stays the reminder's); bare numbers under 15 are times, not lengths. The desk is skipped for it.
+Tests: edit-followup.test.ts 29, calendar-intent-run.test.mjs +1 (real scheduler resize). Plugin 1801 pass; scripts 1701/1707:
+the 4 clock-dependent failures as on the base, plus 2 timing tests that pass when run alone.
+
+Review of 45b3383: the last-block record is cleared on ANY write in the chat (code flows, the worker's exec of any calendar writer in
+any wrapper, undo, a session, a task-run action), and a block is identified by title + the start it was written at; two blocks of
+that name, or one that moved, are asked about, never resized. An edit with no record is asked in code ("Which one should I make an
+hour?"), never left to the worker. "ok make it an hour actually", "make it an hour instead", "actually make it 30", "can u make it
+longer" are edits; an edit is never a session start. Plugin 1814 pass; scripts: the 4 clock-dependent failures + 1 timing test
+(awareness-cli, passes alone).

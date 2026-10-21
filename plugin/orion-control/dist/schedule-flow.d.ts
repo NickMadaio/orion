@@ -1,6 +1,7 @@
 import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
 import { type ReplanAsk } from "./day-replan.js";
+import { type EditRequest, type EditTarget } from "./edit-followup.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
 import { nothingWritten, spokenFailure, spokenReply, summarize } from "./schedule-reply.js";
 export { nothingWritten, spokenFailure, spokenReply, summarize };
@@ -266,7 +267,7 @@ export type FlowResult =
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart, replanContext }: {
+export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit }: {
     message: string;
     clock: string;
     now?: Date;
@@ -290,4 +291,11 @@ export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, no
     onWriteStart?: () => void;
     /** His last reschedule request in this chat (what "actually do resume before gym" reorders). */
     replanContext?: ReplanAsk;
+    /** "make it an hour" after a change: the block ORION last wrote in this chat, and the new length (edit-followup.ts) */
+    edit?: {
+        target: Extract<EditTarget, {
+            kind: "block";
+        }>;
+        req: EditRequest;
+    };
 }): Promise<FlowResult>;

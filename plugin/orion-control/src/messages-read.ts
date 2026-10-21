@@ -73,7 +73,7 @@ const label = (r: MessagesRead): string => r.kind === "gmail" ? "Gmail" : "texts
 
 // review 5 H1 (2026-10-16): `googleapis` / bare `token` no longer mean sign-in (a DNS error names googleapis).
 // q069 (2026-10-16 r8b2): raw script output (URLs, oauth text, paths) never reaches Nick; known failures get one short line.
-const GMAIL_SIGN_IN = "I can't read your Gmail right now — it needs signing in again.";
+const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const FULL_DISK = "I can't read your texts — ORION needs Full Disk Access.";
 export function failureLine(req: MessagesRead, out: string): string {
   // Review 6 H-A (2026-10-16): network shapes first — an offline oauth refresh prints "oauth2: cannot fetch token … no such host".

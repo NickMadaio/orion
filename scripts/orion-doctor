@@ -325,7 +325,7 @@ if [[ -x /opt/homebrew/bin/gog ]]; then
       bad "Gmail: the refresh token is REVOKED or EXPIRED (oauth2 invalid_grant)"
       print "        Everything local looks fine — the token exists and decrypts."
       print "        Google is refusing it. Orion cannot read mail until it is re-granted."
-      print "        Fix:  gog auth manage"
+      print "        Fix:  gog auth add nmadaio08@gmail.com"
       print "        then, on the account row, click 'Add more permissions' — that is"
       print "        the re-grant path. The page says CONNECTED either way, because it"
       print "        is reporting that a token is stored, not that it works."

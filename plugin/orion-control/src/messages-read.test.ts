@@ -68,7 +68,7 @@ describe("runMessagesRead", () => {
   it("never speaks raw CLI or URL text: known failures get a short line, unknown ones a generic one", async () => {
     const raw = 'orion-gmail-search: Get "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=x": oauth2: "invalid_grant" "Token has been expired or revoked."';
     const g = await runMessagesRead({ kind: "gmail", query: "internship offer" }, stub(raw, 1).exec);
-    expect(g.say).toBe("I can't read your Gmail right now — it needs signing in again.");
+    expect(g.say).toBe("Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.");
     const odd = await runMessagesRead({ kind: "recent", limit: 3 }, stub("orion-messages: sqlite3 exploded at /Users/nickmadaio/Library/Messages/chat.db --foo", 1).exec);
     expect(odd.say).toBe("I couldn't read your texts just now. Nothing was sent or changed.");
     expect(`${g.say}${odd.say}`).not.toMatch(/https?:|\/Users|--/);

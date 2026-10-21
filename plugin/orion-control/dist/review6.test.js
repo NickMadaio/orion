@@ -10,11 +10,11 @@ const GRANT = `Get "https://gmail.googleapis.com/gmail/v1/users/me/threads?q=x":
 describe("H-A: offline is not 'sign in again'", () => {
     it("failureLine: network shapes win", () => {
         expect(failureLine({ kind: "gmail", query: "x" }, OFFLINE)).toBe("I couldn't reach Gmail just now.");
-        expect(failureLine({ kind: "gmail", query: "x" }, GRANT)).toBe("I can't read your Gmail right now — it needs signing in again.");
+        expect(failureLine({ kind: "gmail", query: "x" }, GRANT)).toBe("Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.");
     });
     it("sanitizer: offline dump → reach line; invalid_grant → sign-in; other Get error → generic", () => {
         expect(sanitizeReply(OFFLINE, { mailFailed: true })).toBe("I couldn't reach Gmail just now.");
-        expect(sanitizeReply(GRANT, { mailFailed: true })).toBe("I can't read your Gmail right now — it needs signing in again.");
+        expect(sanitizeReply(GRANT, { mailFailed: true })).toBe("Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.");
         expect(sanitizeReply(`Get "https://gmail.googleapis.com/x": 500 Internal Server Error`, { mailFailed: true })).toBe("I couldn't read your Gmail just now.");
     });
 });
@@ -50,7 +50,7 @@ describe("M-B / M-D / M-C", () => {
         expect(sanitizeReply(`Here's what happened.\n${GRANT}`)).toBe("Here's what happened.");
     });
     it("no garbled piece or URL before the failure line", () => {
-        expect(sanitizeReply("The Gmail search failed with an invalid_grant error, so Gmail is not signed in.", { mailFailed: true })).toBe("I can't read your Gmail right now — it needs signing in again.");
-        expect(sanitizeReply("The search failed: https://gmail.googleapis.com/x?q=x returned invalid_grant", { mailFailed: true })).toBe("I can't read your Gmail right now — it needs signing in again.");
+        expect(sanitizeReply("The Gmail search failed with an invalid_grant error, so Gmail is not signed in.", { mailFailed: true })).toBe("Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.");
+        expect(sanitizeReply("The search failed: https://gmail.googleapis.com/x?q=x returned invalid_grant", { mailFailed: true })).toBe("Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.");
     });
 });

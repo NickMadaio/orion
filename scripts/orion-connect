@@ -21,6 +21,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gmailStatus } from "./lib/gmail-status.mjs";
 import { validateSpec, buildRequest, keepFields } from "./lib/connect/spec.mjs";
 import { canvasCourseSnapshot, canvasRead } from "./lib/connect/canvas.mjs";
 
@@ -64,7 +65,7 @@ function needs(spec) {
 const age = (file) => { try { return (Date.now() - statSync(file).mtimeMs) / 3600000; } catch { return null; } };
 const hours = (h) => (h === null ? "never" : h < 1 ? `${Math.round(h * 60)} min ago` : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`);
 
-function systemStatus() {
+async function systemStatus() {
   const rows = [];
   const node = process.execPath;
   const run = (args, timeout = 15000) => spawnSync(args[0], args.slice(1), { encoding: "utf8", timeout });
@@ -75,9 +76,7 @@ function systemStatus() {
   let messages = "NOT readable (Full Disk Access for the gateway)";
   try { closeSync(openSync(join(HOME, "Library/Messages/chat.db"), "r")); messages = "working (sending needs Nick's OK each time)"; } catch {}
   rows.push(["iMessage", messages]);
-  const gmail = run([node, join(HERE, "orion-gmail-latest")], 20000);
-  const gtext = `${gmail.stdout}${gmail.stderr}`;
-  rows.push(["Gmail", gmail.status === 0 && !/error|invalid_grant/i.test(gtext) ? "working (read-only)" : /invalid_grant|revoked|expired/i.test(gtext) ? "DISCONNECTED — Google revoked the token; Nick re-grants with `gog auth manage`" : `NOT working: ${gtext.trim().split("\n").at(-1)?.slice(0, 120) ?? "no answer"}`]);
+  rows.push(["Gmail", (await gmailStatus(join(HERE, ".."))).say]); // a real authenticated read, not a token-file check
   const log = readJSON(join(CONTROLLED, "health-log.json"), {});
   const lastWhoop = Object.entries(log.days ?? {}).filter(([, d]) => d.recovery != null).map(([k]) => k).sort().at(-1);
   rows.push(["WHOOP (sleep, recovery)", lastWhoop ? `working — latest ${lastWhoop}` : "no WHOOP data yet (connect it in the ORION app ▸ Health)"]);
@@ -99,7 +98,7 @@ if (!command || command === "help") fail(readFileSync(fileURLToPath(import.meta.
 
 if (command === "list") {
   console.log("Built-in connections:");
-  for (const [name, status] of systemStatus()) console.log(`  ${name.padEnd(32)} ${status}`);
+  for (const [name, status] of await systemStatus()) console.log(`  ${name.padEnd(32)} ${status}`);
   console.log("Connectors (orion-connect run <name> <op>):");
   const all = specs();
   if (!all.size) console.log("  none yet — build one with orion-connect how");

@@ -48,7 +48,8 @@ claims live before acting.
 
 ## Current edges to verify live
 
-- Gmail reading is connected through fixed wrappers; real Gmail send is not a
+- Gmail reading goes through fixed wrappers, but is connected only if a live read
+  works (`orion-connect list`); the sign-in can expire (invalid_grant); real Gmail send is not a
   verified catalog action yet.
 - Apple Messages/Contacts and EventKit Calendar/Reminders have typed routes, but
   macOS privacy grants are responsible-process-specific and must be checked live.

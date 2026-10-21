@@ -279,7 +279,7 @@ test("the real brief, end to end: with a readable calendar and weather it names 
   const text = w.outbox()[0].text;
   assert.match(text, /CS1800 Discrete Structures at 9/);
   assert.match(text, /12 degrees/);
-  assert.doesNotMatch(text, /couldn't read|couldn't get the weather/);
+  assert.doesNotMatch(text, /couldn't read|Weather wasn't available yet/);
 });
 
 // ---- re-review N1 / N2 -------------------------------------------------------------------------

@@ -186,3 +186,23 @@ test("live run 3 #2c: 'ok and push everything 30 min' slides every block of his 
   assert.ok(w.day().includes("Gym 3 18:30-20:00"), w.day().join("\n"));
   assert.ok(w.day().includes("ECON1115 Principles of Macroeconomics 3 13:30-15:00"));
 });
+
+test("live run 4 #7/#9: '45 min walk today at 5pm' and 'need to do laundry, 1 hr, today at 6pm' are booked at those times (no false block)", async (t) => {
+  const w = world(t, [3, 50]);
+  const before = w.day();
+  const a = await w.say("45 min walk today at 5pm");
+  assert.equal(a.outcome, "done", JSON.stringify(a));
+  const b = await w.say("need to do laundry, 1 hr, today at 6pm");
+  assert.equal(b.outcome, "done", JSON.stringify(b));
+  assert.deepEqual(w.writes, [["add", "walk", "45", "--at", "17:00"], ["add", "laundry", "60", "--at", "18:00"]]);
+  assert.deepEqual(w.day().filter((l) => !before.includes(l)).sort(), ["laundry 3 18:00-19:00", "walk 3 17:00-17:45"]);
+});
+
+test("live run 4 #2b: at 03:47 'move gym from 7 to 8' moves the 19:00 Gym to 20:00", async (t) => {
+  const events = [...EVENTS.filter((e) => e.title !== "Gym"), { title: "Gym", start: at(3, 19), end: at(3, 20, 30), orion: "gym", orionTags: "gym" }];
+  const w = world(t, [3, 47], events);
+  const r = await w.say("move gym from 7 to 8");
+  assert.equal(r.outcome, "done", JSON.stringify(r));
+  assert.deepEqual(w.writes, [["move", "Gym", "--to", "20:00"]]);
+  assert.ok(w.day().includes("Gym 3 20:00-21:30"), w.day().join("\n"));
+});

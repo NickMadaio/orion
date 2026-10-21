@@ -18,6 +18,7 @@ export type TimeIssue = {
     kind: "from-now-not-today";
 };
 /** endSaid: an extend's end as he said it ("9"), read against the block's own start when the day is known. */
+/** fromSaid/toSaid: a move "from 7 to 8" as he said it, read against the block's own time once the day is known (live run 4). */
 export type IntentItem = {
     name: string;
     start?: string;
@@ -26,6 +27,8 @@ export type IntentItem = {
     fromNow?: boolean;
     by?: number;
     endSaid?: string;
+    fromSaid?: string;
+    toSaid?: string;
     issue?: TimeIssue;
 };
 export type IntentAnchor = {

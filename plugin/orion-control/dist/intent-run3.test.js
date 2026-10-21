@@ -45,7 +45,9 @@ describe("1b. the backstop: a time he said is the start every write uses, or not
         ["block 2 hrs for econ homework tonight at 7", [["add", "econ homework", "120", "--at", "19:00"]], "ok"],
         ["block 2 hrs for econ homework tonight at 7", [["add", "econ homework", "120", "--at", "07:00"]], "mismatch"],
         ["move gym to 7", [["move", "Gym", "--to", "19:00"]], "ok"],
-        ["move gym to 7", [["move", "Gym", "--to", "07:00"]], "mismatch"],
+        // a move's bare "to 7" may be either half of the day: the writer reads it against the block (live run 4); see intent-r4.test.ts
+        ["move gym to 7", [["move", "Gym", "--to", "07:00"]], "ok"],
+        ["move gym to 7pm", [["move", "Gym", "--to", "07:00"]], "mismatch"],
         ["move gym to 7 and push the resume back", [["move", "Gym", "--to", "19:00"], ["move", "resume", "--to", "21:00"]], "ok"],
         ["put piano from 5 to 6", [["add", "piano", "60", "--at", "17:00"]], "ok"],
         ["gym at 1:20 after class", [["day", "--plan", "Gym, 90, 13:20"]], "ok"],
@@ -59,21 +61,27 @@ describe("1b. the backstop: a time he said is the start every write uses, or not
         expect(timeMismatch(m, argvs, day) ? "mismatch" : "ok").toBe(want);
     });
     it("says what he said and what it would have done", () => {
-        expect(timeMismatch("block 2 hrs for econ homework tonight at 7", [["add", "econ homework", "120"]], ctx)).toBe("You said 7:00 PM, but that change would have put econ homework at a time of its own, so I haven't changed anything. Say it again with the time, like \"put econ homework at 7 PM\".");
+        expect(timeMismatch("block 2 hrs for econ homework tonight at 7", [["add", "econ homework", "120"]], ctx)).toBe("You said 7:00 PM, but the change I worked out would have put econ homework wherever there was room, not at that time, so I haven't changed anything. Say it again with the time, like \"put econ homework at 7 PM\".");
     });
     it("statedStarts follows the evening and AM/PM rules", () => {
         expect(statedStarts("tonight at 7", ctx)).toEqual([[1140]]);
         expect(statedStarts("at 9 tomorrow", { day: "tomorrow", now: null })).toEqual([[540, 1260]]);
         expect(statedStarts("from 5 to 7", ctx)).toEqual([[1020]]);
     });
-    it("the form path: a form add that dropped 'tonight at 7' is refused, nothing written", async () => {
+    it("the form path: a form add that dropped 'tonight at 7' gets its 19:00 back (live run 4), never a 1:20 PM", async () => {
         const writes = [];
         const steps = [{ do: "add", what: "econ homework", minutes: 120 }];
         const r = await runScheduleFlow({ message: "can u block 2 hrs for econ homework tonight at 7, after dinner", clock: "x", now: at(15), ask: async () => ({ steps }),
             exec: async (a) => { if (a[0] !== "show")
-                writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify({ ...DAY, now: "15:00" }) : "Changed:\n  planned econ homework: 13:20–15:20", code: 0 }; } });
-        expect(writes.filter((w) => !w.includes("--dry-run"))).toEqual([]);
-        expect(r).toMatchObject({ outcome: "say", kind: "ask", text: expect.stringMatching(/^You said 7:00 PM, but that change would have put econ homework at a time of its own/) });
+                writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify({ ...DAY, now: "15:00" }) : "Changed:\n  planned econ homework: 19:00–21:00", code: 0 }; } });
+        expect(writes).toEqual([["add", "econ homework", "120", "--at", "19:00"]]);
+        expect(r.outcome).toBe("done");
+    });
+    it("the form path: a form add at a different time than he said is still refused, and the refused write is kept for the log", async () => {
+        const steps = [{ do: "add", what: "econ homework", minutes: 120, to: "13:20" }];
+        const r = await runScheduleFlow({ message: "can u block 2 hrs for econ homework tonight at 7, after dinner", clock: "x", now: at(15), ask: async () => ({ steps }),
+            exec: async (a) => ({ stdout: a[0] === "show" ? JSON.stringify({ ...DAY, now: "15:00" }) : "Changed", code: 0 }) });
+        expect(r).toMatchObject({ outcome: "say", kind: "ask", text: expect.stringMatching(/^You said 7:00 PM, but the change I worked out would have put econ homework at 1:20 PM/), blocked: [["add", "econ homework", "120", "--at", "13:20"]] });
     });
     it("the worker's own exec is blocked with the same reason", async () => {
         const handlers = new Map();

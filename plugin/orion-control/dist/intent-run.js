@@ -95,7 +95,23 @@ function planMove(intent, day) {
     const now = nowOf(day);
     if (now !== null && toMin(b.end) <= now)
         return { kind: "say", say: "plain", text: `${cap(label(b))} already ended at ${ampm(toMin(b.end))}, so I haven't moved it. Say "add ${item.name}" and when, if you want another one.` };
-    const to = item.start ? toMin(item.start) : toMin(b.start) + (item.by ?? 0);
+    // "move gym from 7 to 8" with Gym at 19:00: both clocks are read in the block's own half of the day (live run 4: "8" became 8 AM).
+    let to = item.start ? toMin(item.start) : toMin(b.start) + (item.by ?? 0);
+    if (item.toSaid) {
+        const near = (said) => {
+            const c = parseClock(said);
+            if (!c)
+                return undefined;
+            if (c.exact)
+                return (c.ap ? (c.h % 12) * 60 + (c.ap === "p" ? 720 : 0) : c.h * 60) + c.m;
+            const am = (c.h % 12) * 60 + c.m;
+            return [am, am + 720].sort((x, y) => Math.abs(x - toMin(b.start)) - Math.abs(y - toMin(b.start)) || y - x)[0];
+        };
+        const from = item.fromSaid ? near(item.fromSaid) : undefined;
+        if (from !== undefined && from !== toMin(b.start))
+            return { kind: "say", say: "plain", text: `${cap(label(b))} is at ${ampm(toMin(b.start))}, not ${ampm(from)}, so I haven't moved it. Tell me where it should go, like "move ${item.name} to ${ampm(toMin(b.start) + 60).replace(":00", "")}".` };
+        to = near(item.toSaid) ?? to;
+    }
     if (now !== null && to < now)
         return { kind: "say", say: "cannot", text: `That would start ${label(b)} at ${ampm(to)}, which has already passed, so I haven't moved it.` };
     if (to + (toMin(b.end) - toMin(b.start)) > 1440)
@@ -167,4 +183,4 @@ export function planIntent(intent, day, ctx) {
     }
 }
 /** The intents code runs before the front desk is asked (local-routing.ts): the ones whose words alone decide the change. */
-export const runsFirst = (intent) => intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "move" && !!intent.all) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));
+export const runsFirst = (intent) => intent.verb === "replan" || intent.verb === "reorder" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid)) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));

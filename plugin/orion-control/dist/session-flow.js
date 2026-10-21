@@ -30,9 +30,18 @@ const NOT_A_START = /\b(end|stop|finish|pause|cancel|abandon|calendar|schedule|t
 // and the worker then called a tool named orion-session ten times.
 const RESUMES = /^\W*(?:(?:ok(?:ay)?|please|pls|can you|could you)[,\s]+)*resume\b|\bresume\s+(?:(?:the|my|our)\s+)?(?:session|focus(?:ing)?|timer|it|block)\b/i;
 const ruledOut = (message) => NOT_A_START.test(message) || RESUMES.test(message);
-export const isSessionStart = (message) => (START.test(message) || MODE_ON.test(message)) && !ruledOut(message);
-/** His words start a session, or the front desk read a start and nothing in his words rules one out. */
-export const startsSession = (message, hint = {}) => isSessionStart(message) || (!!hint.start && !ruledOut(message));
+// Live run 4 (2026-10-21): "lunch 45 min today at 1pm" started a real focus session ("lunch") because the desk read a start; "make it an
+// hour" restarted it. A session needs a session word in HIS message; a clock time ("at 1pm", "13:00"), "add/put/schedule", or a meal or an
+// activity is a calendar item, never a session.
+const SESSION_WORD = /\b(?:focus(?:ing)?|lock(?:ed)?\s+in|pomodoro|session|timer|deep work|study mode|work mode)\b/i;
+const CLOCK_SAID = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b\d{1,2}:\d{2}\b|\b(?:at|from)\s+\d{1,2}\b|\b(?:noon|midday|tonight|tomorrow|this (?:morning|afternoon|evening))\b/i;
+const CALENDAR_VERB = /\b(?:add|put|schedule|book|pencil|slot|block (?:off|out)|calendar)\b/i;
+const MEAL_OR_ACTIVITY = /\b(?:lunch|dinner|breakfast|brunch|meal|snack|coffee|eat(?:ing)?|cook(?:ing)?|gym|walk|run(?:ning)?|workout|lift(?:ing)?|yoga|swim(?:ming)?|nap|shower|laundry|groceries|shopping|chores?|clean(?:ing)?|piano|guitar|practice|call|meeting|class|lecture|lab)\b/i;
+// With a session word ("start a focus session until 8:30 pm") only a calendar verb makes it a calendar item.
+const calendarItem = (message) => CALENDAR_VERB.test(message) || (!SESSION_WORD.test(message) && (CLOCK_SAID.test(message) || MEAL_OR_ACTIVITY.test(message)));
+export const isSessionStart = (message) => (START.test(message) || MODE_ON.test(message)) && !ruledOut(message) && !calendarItem(message);
+/** His words start a session, or the front desk read a start and his own words name a session and nothing rules one out. */
+export const startsSession = (message, hint = {}) => isSessionStart(message) || (!!hint.start && SESSION_WORD.test(message) && !ruledOut(message) && !calendarItem(message));
 const WORD_NUMBERS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
 function readMinutes(message) {
     const m = message.toLowerCase();

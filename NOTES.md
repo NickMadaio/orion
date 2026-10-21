@@ -49,3 +49,18 @@ fails identically on 7438dfe (clock-dependent after midnight); the check-ins tes
   `hook-runner-global` merges before_tool_call results with a sticky `block` and stops at the first block: `{ block: true }` is honoured.
 - Tests: plugin 1719 pass. Scripts 1700/1704; the 4 failures (check-ins, orion-checkin tick, orion-watch held queue) fail
   identically on 1c5e0ac at this hour (clock-dependent).
+
+## fix/intent-r4 (from f506bba): live run 4
+
+1. False block on "45 min walk today at 5pm" / "need to do laundry, 1 hr, today at 6pm": the routing log showed the desk picked
+   `tasks add`, the flow's form wrote `add walk 45` with NO --at, and the backstop (rightly) found no 17:00 in it. Fixes: the intent
+   layer reads verbless timed adds (thing + length or day + "at T"; statements like "my class ends at 5 today" are not adds); a lone
+   form add/move that only left out the one start he said gets it put in (`repairStart`) instead of refused; a refusal keeps the
+   refused argv on the flow result and in the routing log (`flow.blocked`); clearer wording.
+2. "move gym from 7 to 8" at 03:47: the backstop read a bare "8" as 8 AM (before-5-AM rule) and refused the right 20:00. Now a move's
+   bare times are read against the block's own time (`fromSaid`/`toSaid`, nearest half-day to the block); a "from" that is not where
+   the block is is said; the backstop accepts either half for a move's bare "to" (not a contradicted am/pm).
+3. "lunch 45 min today at 1pm" started a focus session from the desk's hint. A session now needs a session word in his message
+   (focus, lock in, pomodoro, session, timer, deep work); a clock time, a calendar verb, or a meal/activity noun is a calendar item.
+   The add is code-first, so the session flow never sees it.
+Tests: plugin 1761 pass (intent-r4.test.ts 40). Scripts 1702/1706; the 4 failures are the same clock-dependent ones as on the base.

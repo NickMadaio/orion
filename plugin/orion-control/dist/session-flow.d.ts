@@ -17,7 +17,7 @@ export type SessionHint = {
 };
 export declare const ORION_SESSION = "/Users/nickmadaio/Desktop/ORION/scripts/orion-session";
 export declare const isSessionStart: (message: string) => boolean;
-/** His words start a session, or the front desk read a start and nothing in his words rules one out. */
+/** His words start a session, or the front desk read a start and his own words name a session and nothing rules one out. */
 export declare const startsSession: (message: string, hint?: SessionHint) => boolean;
 /** His request, or null. A front-desk start (hint.start) counts only when nothing in his words rules a start out. */
 export declare function parseSessionRequest(message: string, hint?: SessionHint): SessionRequest | null;

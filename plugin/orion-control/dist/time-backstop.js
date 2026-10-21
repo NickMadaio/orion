@@ -38,6 +38,12 @@ export function statedStarts(message, ctx) {
         if (!said)
             return [];
         // A time already past is still the time he said; whether it has passed is not this check's business.
+        // A move's bare "to 8" is read against the block's own time by whoever writes it (intent-run.ts): either half of the day is his (live run 4:
+        // before 5 AM "to 8" read as 8 AM refused the right 20:00).
+        if (move && !said.exact && said.h !== 12) {
+            const am = (said.h % 12) * 60 + said.m;
+            return [[am, am + 720]];
+        }
         const r = resolveStart(said, { day: ctx.day, now: ctx.now, ...(part ? { part } : {}) });
         return "at" in r ? [[r.at]] : "ambiguous" in r ? [r.ambiguous] : [[r.passed]];
     });
@@ -53,6 +59,24 @@ export function writtenStarts(argv) {
         return argv.flatMap((a, i) => (argv[i - 1] === "--plan" ? a.split(",").map((x) => x.trim()).filter((x) => /^\d{1,2}:\d{2}$/.test(x)).map(toMin) : []));
     return [];
 }
+/**
+ * A lone add or move that simply left out the one start he said (the form wrote `add walk 45`, no --at, for "45 min walk today at 5pm"): the start
+ * is put in, so a correct 17:00 write runs instead of being refused (live run 4). Anything else (a different time written, several writes,
+ * an anchor, two times said, a time with two readings) returns undefined and the mismatch check decides.
+ */
+export function repairStart(message, argvs, ctx) {
+    const writes = argvs.filter((a) => STARTS.has(a[0] ?? ""));
+    const stated = statedStarts(message, ctx);
+    if (writes.length !== 1 || stated.length !== 1 || stated[0].length !== 1)
+        return undefined;
+    const w = writes[0];
+    const flag = w[0] === "add" ? "--at" : w[0] === "move" ? "--to" : undefined;
+    if (!flag || w.includes(flag) || w.includes("--after") || w.includes("--before") || w.includes("--until"))
+        return undefined;
+    const at = stated[0][0];
+    const fixed = [...w, flag, `${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}`];
+    return argvs.map((a) => (a === w ? fixed : a));
+}
 /** What to say instead of running these writes, or undefined when every time he said is a start one of them uses. */
 export function timeMismatch(message, argvs, ctx) {
     const writes = argvs.filter((a) => STARTS.has(a[0] ?? ""));
@@ -67,8 +91,8 @@ export function timeMismatch(message, argvs, ctx) {
         return undefined;
     const title = writes[0][0] === "day" ? (writes[0][2] ?? "").split(",")[0].trim() : writes[0][1] ?? "it";
     const said = missing.map(ampm).join(" or ");
-    const would = written.length ? ` at ${written.map(ampm).join(", ")}` : " at a time of its own";
-    return `You said ${said}, but that change would have put ${title}${would}, so I haven't changed anything. Say it again with the time, like "put ${title} at ${ampm(missing[missing.length - 1]).replace(":00", "")}".`;
+    const would = written.length ? `at ${written.map(ampm).join(", ")}` : "wherever there was room, not at that time";
+    return `You said ${said}, but the change I worked out would have put ${title} ${would}, so I haven't changed anything. Say it again with the time, like "put ${title} at ${ampm(missing[missing.length - 1]).replace(":00", "")}".`;
 }
 /** A shell command line's words, quotes kept together. */
 export function commandArgs(command) {

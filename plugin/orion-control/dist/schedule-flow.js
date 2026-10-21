@@ -18,7 +18,7 @@ import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-pro
 import { replanReply } from "./day-replan.js";
 import { readIntent } from "./calendar-intent.js";
 import { planIntent } from "./intent-run.js";
-import { timeMismatch } from "./time-backstop.js";
+import { repairStart, timeMismatch } from "./time-backstop.js";
 import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
 import { addedNotes, FAILED, nothingWritten, spokenFailure, spokenReply, summarize, uncertainReply, UNKNOWN_OUTCOME } from "./schedule-reply.js";
@@ -640,7 +640,8 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     }
     // The backstop's day: a time he said must be the start every write uses (time-backstop.ts, live run 3).
     const clockCtx = { day: (day.now ? "today" : "tomorrow"), now: day.now ? Number(day.now.slice(0, 2)) * 60 + Number(day.now.slice(3, 5)) : null };
-    const offTime = (argvs) => { const t = timeMismatch(message, argvs, clockCtx); return t ? { outcome: "say", kind: "ask", text: t } : undefined; };
+    // The refused argv is kept on the result so the routing log shows what the write contained (live run 4: the walk's refusal was a mystery).
+    const offTime = (argvs) => { const t = timeMismatch(message, argvs, clockCtx); return t ? { outcome: "say", kind: "ask", text: t, blocked: argvs } : undefined; };
     const reread = () => exec(["show", "--json", ...dateArgs]).then((r) => JSON.parse(r.stdout), () => undefined);
     // "nothing" / "just chilling" to a blank ask logs nothing: the blank is answered, no calendar call (spec 3.5 step 6).
     if (!titled && askContext && NOTHING_REPLY.test(message))
@@ -750,7 +751,9 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
             return takenBack({ outcome: "say", kind: "ask", text: `${said.replace(/^./, (c) => c.toUpperCase())} — which one goes where?` });
         }
     }
-    const argvs = runs.map((c) => [...c.args, ...dateArgs]);
+    // The form left out the one start he said: put it in (live run 4: "45 min walk today at 5pm" became `add walk 45` with no time).
+    const formed = runs.map((c) => [...c.args, ...dateArgs]);
+    const argvs = (titled ? undefined : repairStart(message, formed, clockCtx)) ?? formed;
     // Whatever the form wrote, a time he said is the start it uses, or nothing runs (live run 3: "tonight at 7" became 1:20 PM).
     const off = titled ? undefined : offTime(argvs);
     if (off)

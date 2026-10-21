@@ -256,6 +256,7 @@ export type FlowResult =
     outputs?: string[];
     pending?: PendingAdd; /** a reschedule request that was read but not carried out, remembered for a follow-up */
     replan?: ReplanAsk;
+    /** the writes the time backstop refused, as they were (logged) */ blocked?: string[][];
 } | {
     outcome: "fallback";
     reason: string;

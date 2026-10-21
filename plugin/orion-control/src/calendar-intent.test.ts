@@ -152,7 +152,7 @@ describe("adds, moves, extends and removes: one block, its clock resolved for th
     ["book a 30 min nap at 2:30pm", at(9), { verb: "add", items: [{ name: "nap", minutes: 30, start: "14:30" }] }],
     ["schedule reading for an hour at 17:00", at(9), { verb: "add", items: [{ name: "reading", minutes: 60, start: "17:00" }] }],
     ["put a 45 min walk tomorrow", at(15), { verb: "add", day: "tomorrow", items: [{ name: "walk", minutes: 45 }] }],
-    ["move gym to 7", at(15), { verb: "move", items: [{ name: "gym", start: "19:00" }] }],
+    ["move gym to 7", at(15), { verb: "move", items: [{ name: "gym", toSaid: "7" }] }],   // read against the block (intent-run.ts)
     ["push dinner back 30 min", at(15), { verb: "move", items: [{ name: "dinner", by: 30 }] }],
     ["move reading 15 minutes earlier", at(15), { verb: "move", items: [{ name: "reading", by: -15 }] }],
     ["extend gym until 9", at(20), { verb: "extend", items: [{ name: "gym", endSaid: "9" }] }],

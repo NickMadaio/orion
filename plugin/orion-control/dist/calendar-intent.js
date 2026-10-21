@@ -75,9 +75,31 @@ function readTimedAdd(text, day, now) {
     return { verb: "add", items: [item], day };
 }
 const MOVE = new RegExp(String.raw `^(?:move|push|shift|bump)\s+(?:my\s+|the\s+)?(?<x>[a-z][a-z' &-]{0,40}?)\s+(?:(?:to|at)\s+(?<t>${CLOCK})|(?<dir1>back|later|forward|earlier)\s+(?:by\s+)?(?<len1>.+?)|(?:by\s+)?(?<len2>.+?)\s+(?<dir2>later|earlier|back|forward))\s*$`, "i");
-/** "move gym to 7", "push dinner back 30 min", "push gym 30 min later": one block, one new time. */
+// Live run 4 (2026-10-21): "45 min walk today at 5pm", "lunch 45 min today at 1pm", "need to do laundry, 1 hr, today at 6pm" have no verb but
+// are nothing else: a thing, a length or a day, and a clock. Read as an add (never a focus session); a statement about a block is not one.
+const BARE_LEAD = /^(?:(?:i\s+)?(?:need|have|got|want)\s+to\s+(?:do\s+)?|gotta\s+(?:do\s+)?|(?:i'?ll|ill|i will)\s+do\s+)/i;
+const STATEMENT = /\b(?:is|are|was|were|be|been|ends?|ended|starts?|started|finish(?:es|ed)?|begins?|got|has|had|have|did|done|over|left|went)\b/i;
+function readBareAdd(text, day, now) {
+    const body = text.replace(COURTESY, "").replace(/[.!]+$/, "").trim();
+    if (LEAD_VERB_ADD.test(body) || !AT.test(body))
+        return undefined;
+    const rest = body.replace(BARE_LEAD, "").replace(/\s*,\s*/g, " ").trim();
+    const length = takeLength(rest);
+    if (!length.minutes && !/\b(?:today|tonight|tomorrow|this (?:morning|afternoon|evening))\b/i.test(rest))
+        return undefined;
+    if (STATEMENT.test(rest) || /^(?:my|the|our)\b/i.test(rest))
+        return undefined;
+    return readTimedAdd(`put ${rest}`, day, now);
+}
+const MOVE_FROM = new RegExp(String.raw `^(?:move|push|shift|bump)\s+(?:my\s+|the\s+)?(?<x>[a-z][a-z' &-]{0,40}?)\s+from\s+(?<f>${CLOCK})\s+to\s+(?<t>${CLOCK})\s*$`, "i");
+/** "move gym to 7", "move gym from 7 to 8", "push dinner back 30 min", "push gym 30 min later": one block, one new time. */
 function readMove(text, day, now) {
     const body = text.replace(COURTESY, "").replace(FILLER, " ").replace(/\s+/g, " ").replace(/[.!]+$/, "").trim();
+    const from = body.match(MOVE_FROM);
+    if (from?.groups) {
+        const name = cleanName(from.groups.x);
+        return name && parseClock(from.groups.f) && parseClock(from.groups.t) ? { verb: "move", items: [{ name, fromSaid: from.groups.f, toSaid: from.groups.t }], day } : undefined;
+    }
     const m = body.match(MOVE);
     if (!m?.groups)
         return undefined;
@@ -88,6 +110,9 @@ function readMove(text, day, now) {
         const said = parseClock(m.groups.t);
         if (!said)
             return undefined;
+        // A bare "to 8" is read against the block's own time (intent-run.ts): Gym at 19:00 goes to 20:00, never 8 AM (live run 4, at 03:46).
+        if (!said.exact && said.h !== 12 && !PART(text))
+            return { verb: "move", items: [{ name, toSaid: m.groups.t }], day };
         const r = resolveStart(said, { day, now, part: PART(text) });
         const item = { name };
         if ("at" in r)
@@ -266,7 +291,7 @@ function parseShapes(raw, ctx) {
     const pushAll = day === "today" ? pushAllMinutes(raw) : null;
     if (pushAll !== null)
         return { verb: "move", items: [{ name: "everything", by: pushAll }], day, all: true };
-    return readTimedAdd(fixed, day, now) ?? readMove(fixed, day, now) ?? readExtend(fixed, day, now) ?? readRemove(fixed, day);
+    return readTimedAdd(fixed, day, now) ?? readBareAdd(fixed, day, now) ?? readMove(fixed, day, now) ?? readExtend(fixed, day, now) ?? readRemove(fixed, day);
 }
 /** The intent, when there is one (anything else: the normal path). */
 export const parseCalendarIntent = (message, ctx) => {

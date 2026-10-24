@@ -160,3 +160,12 @@ test("the day review counts a routine stretch as known, not as a blank", () => {
   assert.ok(!withIt.blank.some((b) => b.end > 19 * 60));
   assert.match(actualText(withIt), /club 7-10 \(as usual\)/);
 });
+
+test("the scheduler walls off a confident routine window, unless something already sits there", async () => {
+  const { routineWalls } = await import("../scripts/lib/patterns/hooks.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "routines-"));
+  writeRoutines(dir, { routines: [{ ...confident(), start: 19 * 60, end: 23 * 60, label: "club" }], at: "x", sources: {} });
+  assert.deepEqual(routineWalls({ dir, date: "2026-10-30" }), [{ start: 1140, end: 1380, title: "usual club" }]);
+  assert.deepEqual(routineWalls({ dir, date: "2026-10-30", existing: [{ start: 1200, end: 1260 }] }), []);
+  assert.deepEqual(routineWalls({ dir, date: "2026-10-29" }), []);
+});

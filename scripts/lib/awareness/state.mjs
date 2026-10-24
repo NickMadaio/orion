@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { LIMITS, UNKNOWN, derive, isFresh } from "./facets.mjs";
 import { readJson, writeJsonAtomic } from "./io.mjs";
 import { activeDeclaration, clearDeclared, INPUT_MINUTES } from "./declared.mjs";
+import { routineFacet } from "../patterns/hooks.mjs";
 
 export const SCHEMA = "orion.awareness.v1";
 export const FILE = "awareness.json";
@@ -26,11 +27,11 @@ const emptyFacets = (at = null) => ({
  */
 export function readAwareness({ dir = controlledDir(), now = new Date(), maxAgeMs = Infinity } = {}) {
   const file = readJson(join(dir, FILE));
-  if (!file || file.schema !== SCHEMA) return withDeclared(finish({ schema: SCHEMA, at: null, ...emptyFacets(), meta: {} }), dir, now);
+  if (!file || file.schema !== SCHEMA) return withRoutine(withDeclared(finish({ schema: SCHEMA, at: null, ...emptyFacets(), meta: {} }), dir, now), dir, now);
   const ok = (name, facet, limit = limitFor(name, facet)) => facet && typeof facet === "object" && isFresh(facet.at, Math.min(limit, maxAgeMs), now);
   const pick = (name, facet, unknown) => (ok(name, facet) ? facet : { ...unknown(facet?.at ?? null) });
   const audio = file.audio ?? {};
-  return withDeclared(finish({
+  return withRoutine(withDeclared(finish({
     schema: SCHEMA, at: file.at ?? null,
     session: pick("session", file.session, UNKNOWN.session),
     calendar: pick("calendar", file.calendar, UNKNOWN.calendar),
@@ -41,8 +42,11 @@ export function readAwareness({ dir = controlledDir(), now = new Date(), maxAgeM
              phone: ok("audioPhone", audio.phone) ? audio.phone : UNKNOWN.audio(audio.phone?.at ?? null) },
     sleep: pick("sleep", file.sleep, UNKNOWN.sleep),
     meta: file.meta ?? {},
-  }), dir, now);
+  }), dir, now), dir, now);
 }
+
+/** The routine he is probably in (lib/patterns): learned, never declared; computed at read time, never stored here. */
+const withRoutine = (aw, dir, now) => ({ ...aw, routine: routineFacet({ dir, now, location: aw.location }) });
 
 /** A location facet that carries `expiresAt` lapses then; an older one falls back to its source's age limit. */
 const locationOk = (facet, ok, now) => {

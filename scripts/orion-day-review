@@ -20,6 +20,7 @@ import { readLedger } from "./lib/curiosity/ledger.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { actualWake } from "./lib/life/night.mjs";
 import { readAwareness } from "./lib/awareness/state.mjs";
+import { routineWindows } from "./lib/patterns/hooks.mjs";
 
 const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
 const here = import.meta.dirname;
@@ -39,7 +40,7 @@ const evidence = { nights: readJson("sleep-actual.json")?.nights ?? [], sleepLog
 const wokeAt = actualWake(date, evidence)?.minute ?? null;
 const attendance = Object.fromEntries(blocks.filter((b) => b.kind === "class" && b.fixed && b.source !== "orion").map((b) => [b.id, classAttendance(b, { wokeAt, phone })]));
 const actual = actualDay({ blocks, focusHistory: jsonl("focus-history.jsonl"), attendance, slips: jsonl("slips.jsonl"), early: jsonl("logged.jsonl").filter((r) => r.early && r.date === date),
-  asks: readLedger(DIR).asks, now: { date, minute } });
+  asks: readLedger(DIR).asks, routines: routineWindows({ dir: DIR, date }), now: { date, minute } });
 const text = actualText(actual);
 
 if (args.includes("--json")) console.log(JSON.stringify({ date, ...actual, text }, null, 2));

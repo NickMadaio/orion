@@ -196,10 +196,12 @@ function sessionsOf(history, date) {
  * @param slips        slips.jsonl rows for the day (C10)
  * @param early        logged.jsonl rows with `early: true` ("Done early"): those blocks read "done early"
  * @param asks         curiosity ledger asks
+ * @param routines     windows a confident learned routine claims today ([{ start, end, label }], lib/patterns): an expectation, so
+ *                     not a blank to ask about, and never listed as done
  * @param now          { date, minute }
  * @returns { done: [{ title, start, end, how }], slipped: [{ title, why }], free: [{ start, end }], blank: [{ start, end }], focusMinutes }
  */
-export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {}, slips = [], asks = [], early = [], now }) {
+export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {}, slips = [], asks = [], early = [], routines = [], now }) {
   // `logged` comes from WP6's live-day (tags / logged); accept either spelling of the marker
   const blocks = rawBlocks.map((b) => (b.logged || !b.tags?.includes("logged") ? b : { ...b, logged: true }));
   const sessions = sessionsOf(focusHistory, now.date);
@@ -221,7 +223,7 @@ export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {
   const stillPlanned = blocks.filter((b) => b.source === "orion" && !b.fixed && !b.logged && b.end <= now.minute && !["rest", "sleep", "commute"].includes(b.kind)
     && !/^(wind down|break)$/i.test(b.title) && !evidenced(b) && !slipRows.some((s) => titlesShare(b.title, s.title) || s.title === b.title))
     .map((b) => ({ title: b.title, why: "no-evidence", replacedBy: null, missedMinutes: b.end - b.start }));
-  const covering = blocks.map((b) => ({ start: b.start, end: b.end }));
+  const covering = [...blocks, ...routines].map((b) => ({ start: b.start, end: b.end }));
   return {
     done,
     slipped: [...slipRows, ...stillPlanned],

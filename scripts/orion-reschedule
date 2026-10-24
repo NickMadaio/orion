@@ -58,6 +58,7 @@ import { replan } from "./lib/life/replan.mjs";
 import { bumpAnchors, noRoomWhy } from "./lib/life/bump.mjs";
 import { cooldownOf, cooldownAsk, clearCooldown, readClears, norm as normTitle } from "./lib/life/cooldown.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
+import { routineWalls } from "./lib/patterns/hooks.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
@@ -318,6 +319,9 @@ if (flag("--until") !== undefined && !["extend", "move"].includes(command) && un
 const statedStart = command === "add" ? minute(flag("--at")) : null;
 const window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), Math.max(statedStart, 300)) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
+// ORION's own planning (fill, tidy, his to-do list) does not book work into a confident learned routine (his usual night out);
+// anything he places himself, or that is already there, is left alone (lib/patterns).
+if (["fill", "tidy"].includes(command) || (command === "day" && args.includes("--todos"))) blocked.push(...routineWalls({ dir: controlledDir(), date, existing: toBlocks(events, date) }));
 // Words keep five letters ("studying" ~ "study"), but a word with a digit is a code and stays whole:
 // cut to five, CS2101 and CS2100 were both "cs210" (2026-10-11).
 const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "")).map((x) => (/\d/.test(x) ? x : x.slice(0, 5))).filter((x) => x.length >= 3);

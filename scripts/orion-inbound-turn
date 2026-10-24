@@ -30,6 +30,7 @@ import { readFileSync } from "node:fs";
 import { readDelivered, pickOutreach, injectArgs, sessionLive } from "./lib/reach/reply-context.mjs";
 import { ackBedtime, isBedtimeRow } from "./lib/reach/bedtime-guard.mjs";
 import { readJson, writeJsonAtomic } from "./lib/awareness/io.mjs";
+import { noteInbound } from "./lib/patterns/hooks.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
@@ -78,6 +79,7 @@ try {
   const earlier = readTurns(DIR);   // before this message: "first message after the ask" needs the others only
   const ask = askAnswered({ asks: readLedger(DIR).asks, replyTo, turns: earlier, now: now.getTime() });
   appendTurn(DIR, now);
+  noteInbound({ dir: DIR, ask, text: flag("--text"), now });   // routine evidence: his yes/no to "Out tonight like usual?", or "staying in"
   if (ask) {
     const bin = process.env.ORION_PROACTIVE_BIN || join(import.meta.dirname, "orion-proactive");
     // After the inject, which has its own deadline: a slow close can delay this process, never put the inject after the turn.

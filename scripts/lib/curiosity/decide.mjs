@@ -16,6 +16,7 @@ const sameTitle = (a, b) => { const x = norm(a).split(" ").filter(Boolean), y = 
 export function blankBlocker(aw, { minute, ledger, turns = [], now, from = 9 * 60, to = 22 * 60, day = [] }) {
   if (day.some((b) => b.logged && b.start <= minute && b.end > minute - JUST_LOGGED_MINUTES)) return "just-logged";
   if (aw.sleep?.state !== "awake" || aw.sleep?.inWindow) return "sleep";
+  if (aw.routine?.holdsAsks) return "routine";   // his usual night out is known, not a blank to ask about
   if (!["none", "unknown"].includes(aw.session?.state)) return "session";
   if (aw.calendar?.state !== "ok") return "calendar-unknown";
   if (aw.calendar.now || aw.calendar.travelNow) return "busy";

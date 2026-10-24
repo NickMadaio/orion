@@ -177,7 +177,7 @@ if (isBedtimeWhy(reason) && (/^proactive: bed-/.test(reason) || kind === "remind
     process.exit(0);
   }
 }
-let verdict = gate(aw, { kind, urgentKind, now });
+let verdict = gate(aw, { kind, urgentKind, now, why: reason, tier });   // why/tier: the routine hold is for bedtime lines only
 // The review he is sent as he says goodnight must not be held by that very declaration (only the review may ask).
 // It lifts ONLY the declared-sleep hold: a focus session, a class or real quiet hours still hold it.
 if (args.includes("--gate-exempt") && /^curiosity: review-/.test(reason) && verdict.action === "hold" && verdict.heldFor === "quiet" && aw.sleep?.source === "declared") {

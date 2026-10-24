@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -41,7 +41,7 @@ describe("progress doc (pure)", () => {
         expect(addStage(done, "thinking", at(71))).toBe(done);
     });
     it("file names keep only safe characters", () => {
-        expect(progressFileName("agent:main:orion-chat-9311FB49")).toBe("agent_main_orion-chat-9311FB49.json");
+        expect(progressFileName("agent:main:orion-chat-9311FB49")).toBe("agent_main_orion-chat-9311fb49.json"); // same name the app computes
         expect(progressFileName("../../etc/passwd")).toBe(".._.._etc_passwd.json");
         expect(progressFileName("")).toBe("unknown.json");
     });
@@ -50,6 +50,7 @@ describe("stages from what really ran", () => {
     it("reads map to stages, in order, without repeats", () => {
         expect(stagesForReads(["day", "notes", "learned", "deadlines"])).toEqual(["reading-calendar", "checking-notes", "checking-deadlines"]);
         expect(stagesForReads(["day-tomorrow"])).toEqual(["reading-tomorrow"]);
+        expect(stagesForReads(["focus"])).toEqual(["checking-focus"]); // a focus read is not a calendar read (review LOW)
         expect(stagesForReads(["something-new"])).toEqual([]);
         expect(stagesForReads(undefined)).toEqual([]);
     });
@@ -104,6 +105,20 @@ describe("TurnProgress writes the file atomically", () => {
         const p = new TurnProgress("/dev/null/not-a-dir");
         expect(() => { p.begin("k", null); p.stage("k", "thinking"); p.finish("k"); }).not.toThrow();
     });
+    it("a new turn prunes files untouched for a day (review LOW)", () => {
+        const dir = tmp();
+        const old = join(dir, "agent_main_orion-chat-old.json");
+        writeFileSync(old, "{}");
+        const twoDaysAgo = new Date(T0.getTime() - 2 * 86_400_000);
+        utimesSync(old, twoDaysAgo, twoDaysAgo);
+        const fresh = join(dir, "agent_main_orion-chat-fresh.json");
+        writeFileSync(fresh, "{}");
+        utimesSync(fresh, T0, T0);
+        new TurnProgress(dir, () => T0).begin("k", "r");
+        expect(existsSync(old)).toBe(false);
+        expect(existsSync(fresh)).toBe(true);
+        expect(existsSync(join(dir, progressFileName("k")))).toBe(true);
+    });
     it("stage before begin is ignored", () => {
         const dir = tmp();
         new TurnProgress(dir).stage("k", "thinking");
@@ -125,8 +140,11 @@ describe("local routing writes the stages a turn really went through", () => {
             await fn(event, ctx); };
         await fire("before_model_resolve", { prompt: message });
         await fire("before_prompt_build", { prompt: message, messages: [] });
-        for (const command of tools)
+        for (const tool of tools) {
+            const [command, result] = Array.isArray(tool) ? tool : [tool, "today: B1 09:00-10:30 CS1800 Lecture"];
             await fire("before_tool_call", { toolName: "exec", params: { command } });
+            await fire("after_tool_call", { toolName: "exec", params: { command }, result });
+        }
         const mid = JSON.parse(readFileSync(join(dir, "turn-progress", "agent_main_orion-chat-abc.json"), "utf8"));
         await fire("agent_end", { success: true, durationMs: 1000 });
         const end = JSON.parse(readFileSync(join(dir, "turn-progress", "agent_main_orion-chat-abc.json"), "utf8"));
@@ -139,11 +157,17 @@ describe("local routing writes the stages a turn really went through", () => {
         expect(end.done).toBe(true);
     });
     it("the worker's tool calls become stages, a write with its target", async () => {
-        const { mid } = await turn({}, "what is on today and move gym to 6", ["orion-agenda day", 'orion-reschedule day --plan "Gym, 90, 18:00"']);
+        const { mid } = await turn({}, "what is on today and move gym to 6", ["orion-agenda day", ['orion-reschedule day --plan "Gym, 90, 18:00"', "DONE — this really happened: Gym 18:00-19:30 booked"]]);
         const stages = mid.stages.map((s) => s.stage);
         expect(stages).toContain("reading-calendar");
         expect(stages[stages.length - 1]).toBe("changing-calendar");
         expect(mid.stages[mid.stages.length - 1].detail).toBe("Gym");
+    });
+    it("a write is a stage only once it worked (review MEDIUM 5)", async () => {
+        const failed = await turn({}, "move gym to 6", [["orion-agenda day", "today"], ['orion-reschedule day --plan "Gym, 90, 18:00"', "error: NOT BOOKED, the calendar refused it"]]);
+        expect(failed.mid.stages.map((s) => s.stage)).not.toContain("changing-calendar");
+        const worked = await turn({}, "move gym to 6", [['orion-reschedule day --plan "Gym, 90, 18:00"', "DONE — this really happened: Gym 18:00-19:30 booked"]]);
+        expect(worked.mid.stages.map((s) => s.stage)).toContain("changing-calendar");
     });
     it("a session that is internal writes nothing", async () => {
         const dir = tmp();

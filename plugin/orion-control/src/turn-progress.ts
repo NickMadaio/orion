@@ -47,9 +47,10 @@ export const PRUNE_AFTER_MS = 24 * 60 * 60_000;
 /** Most stages a single turn keeps; a tool loop cannot grow the file without bound. */
 export const MAX_STAGES = 24;
 
-/** The file name for a session key: anything but letters, digits, dot, dash and underscore becomes "_". */
+/** The file name for a session key, lowercased (the app's chat ids are uppercase UUIDs; the gateway's keys are not):
+ *  anything but letters, digits, dot, dash and underscore becomes "_". */
 export function progressFileName(sessionKey: string): string {
-  const safe = sessionKey.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 160);
+  const safe = sessionKey.toLowerCase().replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 160);
   return `${safe || "unknown"}.json`;
 }
 

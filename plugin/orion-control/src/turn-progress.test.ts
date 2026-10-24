@@ -49,7 +49,7 @@ describe("progress doc (pure)", () => {
   });
 
   it("file names keep only safe characters", () => {
-    expect(progressFileName("agent:main:orion-chat-9311FB49")).toBe("agent_main_orion-chat-9311FB49.json");
+    expect(progressFileName("agent:main:orion-chat-9311FB49")).toBe("agent_main_orion-chat-9311fb49.json");   // same name the app computes
     expect(progressFileName("../../etc/passwd")).toBe(".._.._etc_passwd.json");
     expect(progressFileName("")).toBe("unknown.json");
   });

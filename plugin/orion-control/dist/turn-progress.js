@@ -9,7 +9,7 @@
  * Writes are atomic (temp file + rename), mode 0600, and never throw into a hook: progress is a courtesy,
  * never a reason for a turn to fail.
  */
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 export const STAGE_LABELS = {
     "understanding": "working out what you need",
@@ -19,16 +19,20 @@ export const STAGE_LABELS = {
     "checking-deadlines": "checking what's due",
     "checking-notes": "looking through my notes",
     "checking-messages": "reading your messages",
+    "checking-focus": "checking your focus session",
     "changing-calendar": "making the change on your calendar",
     "thinking": "putting the answer together",
     "double-checking": "double-checking the answer",
     "using-tool": "running a tool",
 };
+/** Progress files older than this are deleted when a new turn begins (one file per session otherwise lingers forever). */
+export const PRUNE_AFTER_MS = 24 * 60 * 60_000;
 /** Most stages a single turn keeps; a tool loop cannot grow the file without bound. */
 export const MAX_STAGES = 24;
-/** The file name for a session key: anything but letters, digits, dot, dash and underscore becomes "_". */
+/** The file name for a session key, lowercased (the app's chat ids are uppercase UUIDs; the gateway's keys are not):
+ *  anything but letters, digits, dot, dash and underscore becomes "_". */
 export function progressFileName(sessionKey) {
-    const safe = sessionKey.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 160);
+    const safe = sessionKey.toLowerCase().replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 160);
     return `${safe || "unknown"}.json`;
 }
 export function beginDoc(sessionKey, runId, now) {
@@ -57,7 +61,7 @@ export function stagesForReads(reads) {
     const map = {
         "day": "reading-calendar", "day-tomorrow": "reading-tomorrow", "deadlines": "checking-deadlines",
         "notes": "checking-notes", "learned": "checking-notes", "messages": "checking-messages", "gmail": "checking-messages",
-        "todos": "checking-todos", "focus": "reading-calendar",
+        "todos": "checking-todos", "focus": "checking-focus",
     };
     const out = [];
     for (const read of reads ?? []) {
@@ -108,7 +112,25 @@ export class TurnProgress {
     begin(sessionKey, runId) {
         if (!sessionKey)
             return;
+        this.prune();
         this.put(beginDoc(sessionKey, runId, this.now()));
+    }
+    /** Deletes progress files (and stray temp files) not touched for a day. Never throws. */
+    prune() {
+        const cutoff = this.now().getTime() - PRUNE_AFTER_MS;
+        try {
+            for (const name of readdirSync(this.dir)) {
+                if (!name.endsWith(".json") && !name.endsWith(".tmp"))
+                    continue;
+                const file = join(this.dir, name);
+                try {
+                    if (statSync(file).mtimeMs < cutoff)
+                        unlinkSync(file);
+                }
+                catch { /* raced with a writer: leave it */ }
+            }
+        }
+        catch { /* no directory yet */ }
     }
     stage(sessionKey, stage, detail) {
         const doc = sessionKey ? this.docs.get(sessionKey) : undefined;

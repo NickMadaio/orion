@@ -65,6 +65,11 @@ export function wakesOf({ nights = [], sleepLog = [] }) {
   return out;
 }
 
+const NIGHT_OUT_TITLE = /\b(club|clubbing|party|pub|bar|rave|drinks|gig|concert|night out)\b/i;
+/** Evening calendar events whose title says night out: corroboration only ({ date, label, start, end }). */
+export const nightOutEvents = (rows) => (rows ?? []).filter((r) => r?.date && Number.isFinite(r.start) && r.start >= 17 * 60 && NIGHT_OUT_TITLE.test(String(r.title ?? "")))
+  .map((r) => ({ date: r.date, label: String(r.title).match(NIGHT_OUT_TITLE)[1].toLowerCase(), start: r.start, end: r.end }));
+
 const label = (title) => String(title ?? "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
 /**
@@ -79,14 +84,15 @@ export function gatherEvidence({ dir, now = new Date(), env = process.env, calen
     .map((r) => ({ start: r.startedAt, end: r.endedAt })).filter((s) => !Number.isNaN(Date.parse(s.start)) && !Number.isNaN(Date.parse(s.end)));
   const logged = jsonl(join(dir, "logged.jsonl")).filter((r) => r.date && Number.isFinite(r.start) && Number.isFinite(r.end))
     .map((r) => ({ date: r.date, label: label(r.title), start: r.start, end: r.end, source: "logged" }));
-  const mine = (calendar ?? []).filter((r) => r.source !== "orion" || r.logged).map((r) => ({ date: r.date, label: label(r.title), start: r.start, end: r.end, source: "calendar" }));
+  // The calendar is what was PLANNED, never what he did: it only corroborates a night out (an evening event titled club, party...)
+  const corroborations = nightOutEvents(calendar);
   const messages = readMessages(sessionsDir(env), { now });
   const asks = readLedger(dir).asks;
   return {
     fixes, isHome: homeTest(places, fixes), placeName: placeNamer(places), sessions,
-    activities: [...logged, ...mine].filter((a) => a.label),
+    activities: logged.filter((a) => a.label), corroborations,
     wakes: wakesOf({ nights: readJson(join(dir, "sleep-actual.json"))?.nights ?? [], sleepLog: health.sleepLog ?? [] }),
     messages, askReplies: answersToAsks(asks, messages), answers: readAnswers(dir),
-    counts: { fixes: fixes.length, sessions: sessions.length, logged: logged.length, calendar: mine.length, messages: messages.length },
+    counts: { fixes: fixes.length, sessions: sessions.length, logged: logged.length, calendar: corroborations.length, messages: messages.length },
   };
 }

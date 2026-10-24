@@ -93,9 +93,10 @@ export function learnRoutines({ evenings = {}, statements = [], activities = [],
     if (r) routines.push(r);
   }
   // daytime things he logged or told an ask about ("was at the gym"), per label and weekday
-  const done = [...activities, ...statements.filter((s) => s.source === "answer" && s.polarity > 0 && s.label !== "out" && Number.isFinite(s.start) && s.start < 17 * 60)]
+  // only what he logged or said he did; a calendar row is a plan, never a completion
+  const done = [...activities.filter((a) => a.source !== "calendar"), ...statements.filter((s) => s.source === "answer" && s.polarity > 0 && s.label !== "out" && Number.isFinite(s.start) && s.start < 17 * 60)]
     .filter((a) => a.date >= from && a.date <= today && a.label);
-  const loggedDays = new Set(activities.map((a) => a.date));
+  const loggedDays = new Set(activities.filter((a) => a.source !== "calendar").map((a) => a.date));
   for (const label of new Set(done.map((a) => a.label))) {
     for (let weekday = 0; weekday < 7; weekday++) {
       const outcomes = datesOn(weekday, from, today).map((date) => {

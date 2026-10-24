@@ -152,7 +152,7 @@ test("no blank asks about where he is while he is out on his usual night", () =>
   assert.equal(blankBlocker(aw, { minute: 1425, ledger: { asks: [] }, now: Date.parse("2026-10-30T23:45:00"), to: 24 * 60 }), "routine");
 });
 
-test("the day review counts a routine stretch as known, not as a blank", () => {
+test("the day review does not count a routine stretch as a blank, nor as done", () => {
   const evening = { ...confident(), start: 19 * 60, end: 23 * 60, label: "club" };
   const windows = routineWindowsFor([evening], "2026-10-30");
   const now = { date: "2026-10-30", minute: 22 * 60 };
@@ -160,7 +160,8 @@ test("the day review counts a routine stretch as known, not as a blank", () => {
   assert.ok(without.blank.some((b) => b.start < 20 * 60 && b.end > 20 * 60));
   const withIt = actualDay({ blocks: [], routines: windows, now });
   assert.ok(!withIt.blank.some((b) => b.end > 19 * 60));
-  assert.match(actualText(withIt), /club 7-10 \(as usual\)/);
+  assert.deepEqual(withIt.done, []);                       // an expectation, never a completion
+  assert.doesNotMatch(actualText(withIt), /as usual|club/);
 });
 
 test("the scheduler walls off a confident routine window, unless something already sits there", async () => {
@@ -195,4 +196,18 @@ test("only going-out statements count for evenings; 'home tonight after the club
   assert.equal(verdictOf("nah staying in"), "refute");
   assert.equal(verdictOf("yeah"), "confirm");
   assert.equal(verdictOf("going out, nah not tired"), "confirm");
+});
+
+test("calendar classes never become routines; a calendar event only corroborates a night out", async () => {
+  const { learnRoutines } = await import("../scripts/lib/patterns/learn.mjs");
+  const { nightOutEvents } = await import("../scripts/lib/patterns/sources.mjs");
+  const acts = ["2026-10-05", "2026-10-12", "2026-10-19"].map((date) => ({ date, label: "cs2101", start: 540, end: 600, source: "calendar" }));
+  const r = learnRoutines({ activities: acts, now: new Date("2026-10-24T12:00:00") });
+  assert.deepEqual(r, []);
+  assert.deepEqual(routineWindowsFor(r, "2026-10-26"), []);
+  assert.deepEqual(nightOutEvents([{ date: "2026-10-23", title: "CS2101 Lab", start: 1080, end: 1200 }, { date: "2026-10-23", title: "Fabric club night", start: 1380, end: 1620 }]),
+    [{ date: "2026-10-23", label: "club", start: 1380, end: 1620 }]);
+  // three calendar "club" events and no phone/words: not a routine on their own
+  const cal = ["2026-10-09", "2026-10-16", "2026-10-23"].map((date) => ({ date, label: "club", start: 1380, end: 1620 }));
+  assert.deepEqual(learnFromEvidence({ fixes: [], isHome, corroborations: cal }, { now: new Date("2026-10-24T12:00:00") }).routines, []);
 });

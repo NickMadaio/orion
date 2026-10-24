@@ -10,6 +10,11 @@ struct OutreachRow: Equatable {
     var ask: OutreachAsk? = nil
     /// Why ORION sent it (`--why`).
     var why: String? = nil
+    /// A bedtime line (orion-proactive's bed-* keys, or the late "Session done… past bedtime" reminder): by its key, never its words.
+    var isBedtime: Bool {
+        guard let why else { return false }
+        return why.hasPrefix("proactive: bed-") || (why.hasPrefix("proactive: session-done-") && text.contains("past bedtime"))
+    }
 }
 
 /// `ask` of an outreach row (contract C4): `{ askId, type, window: { date, start, end|null }, place, title }`.
@@ -27,12 +32,25 @@ struct OutreachAsk: Equatable {
 
 /// The id of the question open on this Mac right now (a bubble or a spoken one), set by
 /// `SpokenQuestionFollowUp`'s owner. An explicit id beats the timed guess.
+/// Review 2026-10-23: it was never cleared, so hours later any message was "the answer" to it. Now it lasts `ttl`, is taken
+/// once by the turn that uses it (`take`), and a new or switched chat clears it.
 enum OutreachReplyTo {
+    static let ttl: TimeInterval = 30 * 60
     private static let lock = NSLock()
     private static var value: String?
+    private static var setAt: Date?
+    static func set(_ id: String?, now: Date = Date()) { lock.lock(); defer { lock.unlock() }; value = id; setAt = id == nil ? nil : now }
+    static func peek(now: Date = Date()) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard let value, let setAt, now.timeIntervalSince(setAt) <= ttl, setAt <= now.addingTimeInterval(60) else { return nil }
+        return value
+    }
+    /// The id for this turn, and gone after it.
+    static func take(now: Date = Date()) -> String? { let id = peek(now: now); set(nil); return id }
+    static func clear() { set(nil) }
     static var current: String? {
-        get { lock.lock(); defer { lock.unlock() }; return value }
-        set { lock.lock(); defer { lock.unlock() }; value = newValue }
+        get { peek() }
+        set { set(newValue) }
     }
 }
 
@@ -77,7 +95,7 @@ enum OutreachContext {
                   let text = row["text"] as? String,
                   let stamp = row["at"] as? String,
                   let at = fractional.date(from: stamp) ?? plain.date(from: stamp) else { return nil }
-            return OutreachRow(id: row["id"] as? String, text: text, at: at, held: row["channel"] as? String == "hold",
+            return OutreachRow(id: row["id"] as? String, text: text, at: at, held: row["channel"] as? String == "hold" || row["status"] != nil,
                               ask: parseAsk(row["ask"]), why: row["why"] as? String)
         }
     }
@@ -121,14 +139,19 @@ final class OutreachTracker {
 
     /// Call once per turn: returns the context line ("" for none) and records the turn.
     /// An explicit `replyTo` (the question open right now) wins over the timed guess:
-    /// it skips the "no turn since" rule, but keeps the window and "only once".
+    /// it keeps the window, "only once" and (review 2026-10-23) "not if he spoke since"; a newer bedtime line wins over it.
     func prefix(rows: [OutreachRow], now: Date = Date(), replyTo: String? = nil) -> String {
         lock.lock(); defer { lock.unlock() }
         defer { lastTurnAt = now }
         if let replyTo, let row = rows.first(where: { $0.id == replyTo && !$0.held }) {
-            guard row.at <= now, now.timeIntervalSince(row.at) <= OutreachContext.window(for: row), row.id != consumedID else { return "" }
-            consumedID = row.id
-            return OutreachContext.label(for: row, now: now)
+            // A newer bedtime line wins over the older line he tapped (review 2026-10-23): it is what he is answering now.
+            let bedtime = rows.filter { !$0.held && $0.isBedtime && $0.at > row.at && $0.at <= now }.max(by: { $0.at < $1.at })
+            let target = bedtime ?? row
+            guard target.at <= now, now.timeIntervalSince(target.at) <= OutreachContext.window(for: target), target.id != consumedID else { return "" }
+            // He has spoken since it was sent: this message is not the answer to it, tapped or not.
+            if let lastTurnAt, lastTurnAt >= target.at { return "" }
+            consumedID = target.id
+            return OutreachContext.label(for: target, now: now)
         }
         guard let latest = rows.filter({ !$0.held }).max(by: { $0.at < $1.at }) else { return "" }
         guard now.timeIntervalSince(latest.at) <= OutreachContext.window(for: latest), latest.at <= now else { return "" }

@@ -16,6 +16,8 @@
 //   orion-checkin cancel [id] [--because "<reason>"]                 plans changed — no scolding
 //   orion-checkin close "<what>"                                      he finished that thing ("Done early"): every open check-in and
 //                                                                  not-started loop about it is closed as done, so ORION stops nudging
+//   orion-checkin find --what "<what>" [--block <blockId>]           the ONE open plan loop a reply is about, as { open, id }; exit 1 when
+//                                                                  there is none or more than one (2026-10-23: never "the newest one")
 //   orion-checkin show <id|latest>                                  one open check-in as JSON: { id, what, block, blockWindow } (what "Done early" reads)
 //   orion-checkin list                                               what is pending
 //   orion-checkin tick [--json]                                      advance due loops; print alerts
@@ -182,6 +184,14 @@ switch (command) {
       ? `Fair — back in ${Math.max(5, Math.min(45, minutes))} min about ${c.what}.`
       : `That reads as putting it off (${verdict.kind}). Not deferring — the check-in stays on and gets firmer.`);
     break;
+  }
+  case "find": {
+    // A reply to ORION's own "Time to start: Gym" acts on that loop only: the plan loop for that block (or that title), open,
+    // and exactly one. None or several is { open: false } and exit 1, so the caller does nothing rather than guess.
+    const what = String(flag("--what") ?? "").trim().toLowerCase(), block = flag("--block");
+    const hit = state.checkins.filter((c) => open(c) && c.block && (block ? c.block === block : what && String(c.what).trim().toLowerCase() === what));
+    console.log(JSON.stringify(hit.length === 1 ? { open: true, id: hit[0].id, what: hit[0].what, block: hit[0].block } : { open: false, matches: hit.length }));
+    process.exit(hit.length === 1 ? 0 : 1);
   }
   case "show": {
     // The open check-in a Done is about, with the block it follows. Never an error: { "open": false } when it is gone.

@@ -8,9 +8,15 @@
    3. when the message answers an open curiosity ask (it carries --reply-to, or it is the first message after the newest ask
       within 90 min), runs `orion-proactive ask-outcome <askId> answered`, or `nothing` for "nothing really".
 
-   orion-inbound-turn [--reply-to <askId|outreach id>] [--source phone|mac] [--text "<his message>"]
+   4. (2026-10-23) when the message answers something ORION said first (lib/reach/reply-context.mjs), writes that message into
+      the reply's gateway session as ORION's own turn (`--session <key>`, gateway chat.inject), once, so the model and the front
+      desk see it as conversation and not as a label; and a reply to a bedtime line, whatever it says, ends the bedtime ladder
+      for the night (lib/reach/bedtime-guard.mjs).
 
- Best effort and silent: it never blocks or fails a chat turn. Seams (tests): ORION_CONTROLLED_DIR, ORION_REACH_NOW, ORION_PROACTIVE_BIN.
+   orion-inbound-turn [--reply-to <askId|outreach id>] [--source phone|mac] [--session <gateway session key>] [--text "<his message>"]
+
+ Best effort and silent: it never blocks or fails a chat turn. Seams (tests): ORION_CONTROLLED_DIR, ORION_REACH_NOW, ORION_PROACTIVE_BIN,
+ ORION_OPENCLAW_BIN (the gateway CLI the inject runs).
 */
 import { spawn, spawnSync } from "node:child_process";
 import { homedir } from "node:os";
@@ -21,6 +27,9 @@ import { noteInboundText } from "./lib/awareness/declared.mjs";
 import { reviewNowOnGoodnight } from "./lib/reach/review-time.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { readFileSync } from "node:fs";
+import { readDelivered, pickOutreach, injectArgs, sessionLive } from "./lib/reach/reply-context.mjs";
+import { ackBedtime, isBedtimeRow } from "./lib/reach/bedtime-guard.mjs";
+import { readJson, writeJsonAtomic } from "./lib/awareness/io.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
@@ -41,12 +50,37 @@ function sendReviewFirst() {
   spawn(process.execPath, [bin, "--send", "--date", key, "--gate-exempt", "--mark-sent", "--source", source], { detached: true, stdio: "ignore", env: process.env }).on("error", () => {}).unref();
 }
 try { noteInboundText({ dir: DIR, text: flag("--text"), now, bedtime: loadConfig().bedtime, afterDeclare: sendReviewFirst }); } catch { /* best effort */ }
+const sessionKey = /^[A-Za-z0-9._:-]{1,200}$/.test(flag("--session") ?? "") ? flag("--session") : null;
+const INJECTED = "outreach-injected.json";
+// The caller's deadline (epoch ms): it waits for this process until just after it, so an inject never lands after its turn has
+// started (review 2026-10-23: the Mac waited 6 s, the inject could take 8). Default: 4 s from now.
+const injectBy = Number(flag("--inject-by")) || Date.now() + 4000;   // wall clock: the caller waits in real time
+try {
+  const turns = readTurns(DIR);
+  const row = pickOutreach(readDelivered(DIR), { replyTo, turns, now: now.getTime() });
+  // Only a reply to a bedtime-family line (by its key), never to a line that only mentions bedtime (review 2026-10-23).
+  if (row && isBedtimeRow(row)) ackBedtime(DIR, now);
+  const key = row && sessionKey ? `${sessionKey}|${row.id}` : null;
+  const done = readJson(join(DIR, INJECTED))?.keys ?? [];
+  // Never into a session the gateway would reset (idle past its window, or none yet): chat.inject refreshes it and revived an old,
+  // unrelated conversation (review 2026-10-23). That turn starts fresh and the label carries the message instead.
+  const fresh = key ? sessionLive({ sessionKey, now: now.getTime() }) : { ok: false };
+  const budget = injectBy - Date.now();
+  if (key && !done.includes(key) && fresh.ok && budget >= 1000) {
+    const bin = process.env.ORION_OPENCLAW_BIN || join(homedir(), ".openclaw/bin/openclaw");
+    const r = spawnSync(bin, injectArgs({ sessionKey: fresh.key, row, timeoutMs: Math.max(500, budget - 500) }), { env: process.env, timeout: budget, encoding: "utf8", killSignal: "SIGKILL" });
+    if (r.status === 0) writeJsonAtomic(DIR, INJECTED, { keys: [...done, key].slice(-100) });
+    // stdout says whether it is in the session: the caller keeps the label either way
+    process.stdout.write(r.status === 0 ? `injected ${row.id}\n` : `not injected ${row.id}\n`);
+  } else if (key && !fresh.ok) process.stdout.write(`not injected ${row.id} (${fresh.reason})\n`);
+} catch { /* the label still carries it */ }
 try {
   const earlier = readTurns(DIR);   // before this message: "first message after the ask" needs the others only
   const ask = askAnswered({ asks: readLedger(DIR).asks, replyTo, turns: earlier, now: now.getTime() });
   appendTurn(DIR, now);
   if (ask) {
     const bin = process.env.ORION_PROACTIVE_BIN || join(import.meta.dirname, "orion-proactive");
+    // After the inject, which has its own deadline: a slow close can delay this process, never put the inject after the turn.
     spawnSync(process.execPath, [bin, "ask-outcome", ask.askId, outcomeFor(flag("--text"))], { env: process.env, timeout: 8000, stdio: "ignore" });
   }
 } catch { /* a chat turn never fails on this */ }

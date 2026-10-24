@@ -57,6 +57,7 @@ import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } fro
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
+import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -66,7 +67,9 @@ type HookApi = { on: (name: string, fn: Handler, opts?: { priority?: number; tim
 export type LocalRoutingOptions = {
   mode: LocalRoutingMode;
   logPath: string;
-  decideImpl?: (input: { message: string; clock: string; timeoutMs?: number }) => Promise<Decision>;
+  decideImpl?: (input: { message: string; clock: string; timeoutMs?: number; history?: Array<{ role: "user" | "assistant"; content: string }> }) => Promise<Decision>;
+  /** Runs orion-checkin with these arguments (index.ts wires the real script); a reply to a start line sets its check-in through it (2026-10-23). */
+  checkinRun?: (args: string[]) => Promise<{ stdout: string; code: number }>;
   clock?: () => string;
   finalizeWaitMs?: number;
   workerProvider?: string;
@@ -149,6 +152,8 @@ type Run = {
   hostTools?: number;
   /** An open outreach question (his prompt's ORION context line): the blank or the planned block it asked about. */
   ask?: AskContext;
+  /** What ORION said first, that this message answers (Mac label or phone line; 2026-10-23). */
+  outreach?: Outreach;
   /** r8 review 2 HIGH-1 (2026-10-16): code itself ran a read this turn (messages, gmail, focus status), as opposed to `provided` brain snippets or the day. */
   codeRead?: boolean;
   /** Said out loud (the app's spoken marker), not typed. */
@@ -444,6 +449,10 @@ function exactReply(flow: FlowResult): string {
 }
 
 const ampm12 = (t: string): string => { const [h, m] = t.split(":").map(Number); return `${((h ?? 0) + 11) % 12 + 1}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
+
+/** orion-checkin with fixed arguments (no shell): a reply to ORION's start line sets or closes its check-in (2026-10-23). Wired in by index.ts only. */
+export const liveCheckinRun = (args: string[]): Promise<{ stdout: string; code: number }> => new Promise((resolve) =>
+  execFile(RESCHEDULE.replace(/orion-reschedule$/, "orion-checkin"), args, { timeout: 15000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 })));
 
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export const liveExtractReminder = async (message: string, clock?: string): Promise<{ time: string | null; label: string } | null> => {
@@ -815,15 +824,17 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const reminderAt = lastReminder.get(sessionKey)?.set ?? 0;
     const editing = on && !cutOff && isEdit(message) && (made ? made.at > reminderAt : Date.now() - reminderAt > CORRECTION_WINDOW_MS);
     const codeFirst = intentFirst || editing;
+    // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
+    const outreach = parseOutreach(raw);
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
       : codeFirst ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })
       : Promise.resolve(deskHealth.begin()).then((call) => Promise.resolve()
-        .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs }))
+        .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs, ...(outreach ? { history: outreachHistory(outreach) } : {}) }))
         .then((d) => { deskHealth.record(d, call); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -899,6 +910,29 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
       if (run.cutOff && !run.flow) run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
+      // 2026-10-23: a short answer to ORION's own bedtime or start line is read against that line by code: "shush" after a bedtime
+      // reminder is not a log entry, "I'm meal prepping" after "Gym, now" is not a calendar change with no time.
+      // Only a WHOLE short answer ("in 10", "yeah", "shush"), never a request that also says one (review 2026-10-23: "set an alarm for
+      // 8 am", "remind me in 10 min to call mom", "play some music" were all taken): those go to the normal turn, with the context.
+      if (!run.flow && !run.cutOff && run.outreach && !isCrisis(run.message) && run.settled.move !== "tool" && !CHANGE_REQUEST.test(run.message)
+        && !REMINDER.test(run.message) && !LIVE_DATA.test(run.message) && !isSessionStart(run.message)) {
+        const plan = planOutreachReply(run.outreach, run.message);
+        if (plan && !plan.act) run.flow = { outcome: "say", kind: "plain", text: plan.text };
+        else if (plan?.act && plan.find && options.checkinRun) {
+          // The one loop this start line belongs to, by id; none or several and code does nothing (the turn goes on as usual).
+          const found = await options.checkinRun(["find", "--what", plan.find.what]).catch(() => ({ stdout: "", code: 1 }));
+          let id: string | undefined;
+          try { const f = JSON.parse(found.stdout.trim().split("\n").at(-1) ?? "") as { open?: boolean; id?: unknown }; if (found.code === 0 && f.open && typeof f.id === "string") id = f.id; } catch { /* not found */ }
+          if (id) {
+            const args = loopArgs(plan.act, id);
+            const ran = await options.checkinRun(args).catch(() => ({ stdout: "", code: 1 }));
+            run.tools.push({ canonical: `exec orion-checkin ${args.join(" ")}`, stdout: ran.stdout, exit: ran.code });
+            // A defer orion-checkin refuses ("That reads as putting it off") is said as it said it, never as done.
+            const refused = plan.act.verb === "defer" && !/^Fair\b/.test(ran.stdout.trim());
+            if (ran.code === 0) run.flow = { outcome: "say", kind: "plain", text: refused ? ran.stdout.trim().split("\n")[0]! : plan.text };
+          }
+        }
+      }
       // A bare "cancel that" / "undo" with no change made in THIS chat has nothing to take back: ask, fixed text,
       // no tools (q092, 2026-10-16). A reminder just set, or one being asked about, owns the word instead.
       if (!run.flow && !run.cutOff && isBareUndo(run.message) && !changedRecently(run.sessionKey)
@@ -1193,7 +1227,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const ignoreNote = run.settled.move === "ignore" ? `\n\n${IGNORE_NOTE}` : "";
       // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
       const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
+        ...(run.outreach ? { prependContext: outreachNote(run.outreach) } : {}) };
     }), { timeoutMs: HOOK_TIMEOUT_MS });
   }
 

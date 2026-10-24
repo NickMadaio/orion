@@ -93,6 +93,14 @@ final class InboundTurnLogTests: XCTestCase {
         XCTAssertEqual(command, PhaseCommand(executable: "/n/node", arguments: ["/s/orion-inbound-turn", "--reply-to", "reach-9", "--text", "was at the gym"]))
         let plain = InboundTurnLog.command(text: "hi", replyTo: nil, node: "/n/node", scriptsDir: "/s", exists: all)
         XCTAssertEqual(plain?.arguments, ["/s/orion-inbound-turn", "--text", "hi"])
+        let injected = InboundTurnLog.command(text: "im doing work shush up", replyTo: nil, session: "orion-chat-33E1581C", node: "/n/node", scriptsDir: "/s", exists: all)
+        XCTAssertEqual(injected?.arguments, ["/s/orion-inbound-turn", "--session", "orion-chat-33E1581C", "--text", "im doing work shush up"])
+        XCTAssertTrue(InboundTurnLog.settle(timeout: 2))
+        // The inject has a deadline before the turn's wait ends: it can never land after the turn started (review 2026-10-23).
+        let by = Date(timeIntervalSince1970: 1_800_000_005)
+        let timed = InboundTurnLog.command(text: "in 10", replyTo: nil, session: "orion-chat-x", injectBy: by, node: "/n/node", scriptsDir: "/s", exists: all)
+        XCTAssertEqual(timed?.arguments, ["/s/orion-inbound-turn", "--session", "orion-chat-x", "--inject-by", "1800000005000", "--text", "in 10"])
+        XCTAssertLessThan(InboundTurnLog.settleSeconds - InboundTurnLog.injectMargin, InboundTurnLog.settleSeconds)
         XCTAssertNil(InboundTurnLog.command(text: "hi", replyTo: nil, node: "/n/node", scriptsDir: "/s", exists: { $0 != "/s/orion-inbound-turn" }))
         XCTAssertEqual(InboundTurnLog.command(text: String(repeating: "x", count: 500), replyTo: nil, node: "n", scriptsDir: "s", exists: all)?.arguments.last?.count, 200)
     }

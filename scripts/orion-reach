@@ -45,7 +45,8 @@ import { allowed, chooseChannel, speakOnMac } from "./lib/reach/route.mjs";
 import { tierOf, budgetVerdict, dropGuard, COUNTED_WHY } from "./lib/reach/budget.mjs";
 import { clearDeclared } from "./lib/awareness/declared.mjs";
 import { gate, resolveAwareness, audienceOf } from "./lib/reach/gate.mjs";
-import { loadConfig } from "./lib/life/config.mjs";
+import { loadConfig, toMinute } from "./lib/life/config.mjs";
+import { bedtimeVerdict, readBedtimeEvidence, isBedtimeWhy, phoneInHand } from "./lib/reach/bedtime-guard.mjs";
 import { localDate } from "./lib/life/live-day.mjs";
 import { presence } from "./lib/reach/presence.mjs";
 import { bypassesQuiet, isUrgentNotification, URGENT_KINDS } from "./lib/reach/quiet.mjs";
@@ -159,6 +160,23 @@ if (args.includes("--awake")) { here.quiet = false; here.lateAwake = false; }
 if (args.includes("--awake") && !dry) { try { clearDeclared(DIR); } catch {} }
 const aw = resolveAwareness({ dir: DIR, now, env: process.env, legacy: here, probe: !dry });
 if (args.includes("--awake") && aw.sleep.state !== "awake") aw.sleep = { state: "awake", source: "caller" };
+// A bedtime line stops on evidence he is in bed (2026-10-23): goodnight said, a bedtime line already answered, the phone on the
+// charger and still, the Mac locked or untouched after bedtime, or the nightly cap reached. Dropped, never queued or re-routed to the phone.
+if (isBedtimeWhy(reason) && (/^proactive: bed-/.test(reason) || kind === "reminder")) {
+  const bed = Number.isFinite(aw.sleep?.bed) ? aw.sleep.bed % 1440 : toMinute(config.bedtime ?? "00:00");
+  const bedEvidence = readBedtimeEvidence({ dir: DIR, now, bed, mac: { locked: here.locked, displayAsleep: here.displayAsleep, idleSeconds: here.idleSeconds } });
+  // Away from the Mac, a bedtime line would become a phone push. It goes only to a phone that is in his hand: an idle, unknown
+  // or put-down phone near bedtime is the in-bed case the signals cannot rule out (review 2026-10-23, finding 10).
+  const awayFromMac = here.locked || here.displayAsleep || !(Number(here.idleSeconds) < 300);
+  const checked = bedtimeVerdict(bedEvidence);
+  const bedVerdict = checked.ok && awayFromMac && !phoneInHand(bedEvidence)
+    ? { ok: false, reason: "he is away from the Mac and his phone is not in his hand" } : checked;
+  if (!bedVerdict.ok) {
+    logDropped("in-bed", { detail: bedVerdict.reason });
+    console.log(`Held — not sent: ${bedVerdict.reason}.`);
+    process.exit(0);
+  }
+}
 let verdict = gate(aw, { kind, urgentKind, now });
 // The review he is sent as he says goodnight must not be held by that very declaration (only the review may ask).
 // It lifts ONLY the declared-sleep hold: a focus session, a class or real quiet hours still hold it.

@@ -65,6 +65,10 @@ Entries older than 2026-08-27 were moved out of both handoffs on 2026-09-01 into
 `docs/planning/_archive/`. On 2026-09-30 that folder was moved out of the repo to
 `~/Desktop/ORION-archive/2026-09-30/` (still in git history). Do not plan from the archives.
 
+## Learning the codebase
+
+To explain or teach how ORION works, use the study guide in `docs/learn/` (entry: `LEARN.md` → `docs/learn/00_START_HERE.md`). Its citations are pinned to commit `6c93032`; check anything newer against HEAD.
+
 ## Gates and checkpoints
 
 Phase 32.5 is a documentation checkpoint, not a numbered phase, and not

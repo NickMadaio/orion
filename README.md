@@ -138,6 +138,7 @@ docs/        vision, phase plans, agent work plans — see docs/README.md
 ## Key documents
 
 - `HANDOFF.md`: current state, newest first
+- `LEARN.md` → `docs/learn/`: a study guide to the whole codebase (architecture, history, prompts, tools, walkthroughs)
 - `AGENTS.md`: working rules for coding agents in this repo
 - `docs/planning/v2/`: phase plans, the capability registry and the gates
 - `docs/agentic/`: how the local dev loop works, and its plans

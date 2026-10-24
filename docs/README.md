@@ -6,6 +6,7 @@ gates. These docs are that engineering record.
 
 | Where | What |
 |---|---|
+| `learn/` | **Study guide to the whole codebase**: start at `learn/00_START_HERE.md` (snapshot `6c93032`) |
 | `vision/` | What ORION is for: `ORION_PURPOSE.md` (external executive function) and the original wishlist |
 | `planning/v2/` | The 85-phase program: `PHASE_GATES.json` (gate state, read by `scripts/orion_v2_phase_gate.py`), capability registry, security invariants, and dated design/proof notes for each slice |
 | `planning/offline-roadmap-results/` | Per-phase implementation packets that the agent plans are built from |

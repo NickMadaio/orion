@@ -535,9 +535,8 @@ the sandbox, not on the gateway: run it with the gauntlet when he OKs it.
 - Repo cleanup: stale planning docs, old eval run folders (raw logs/JSON) and
   the old handoffs archived to `~/Desktop/ORION-archive/2026-10-14/`;
   `ORION_V3_HANDOFF.md` → `docs/planning/v3/ORION_V3_SPEC.md`; this file rewritten.
-- `docs/learn/` (untracked) is a learning guide another session was writing on
-  2026-10-14; it was left alone. Commit it or delete it once that session says
-  it is finished.
+- `docs/learn/` is a learning guide written 2026-10-14/15 (snapshot `6c93032`);
+  finished and committed 2026-10-24. Entry point: `LEARN.md`.
 
 ### 2026-10-13 — To-do list redesign; finished to-dos unbooked (Claude)
 

@@ -18,7 +18,7 @@ The one exception is `docs/planning/v2/HANDOFF.md`, which is CLOSED and says so 
 top. It survives only because `PHASE_GATES.json` cites it as evidence for phases
 1–33; it is a record, not a place to look for what is current.
 
-Other companions: `docs/planning/` (design docs, including one `PHASE_N_PLAN.md` per
+Other companions: `LEARN.md` → `docs/learn/` (a full study guide to the codebase, snapshot `6c93032`: architecture, history, every prompt/tool/API call, walkthroughs; start at `docs/learn/00_START_HERE.md`), `docs/planning/` (design docs, including one `PHASE_N_PLAN.md` per
 phase), `native/Orion/README.md` (the app), `NICK-TODO.md` (what Nick is waiting
 on). Phase 32.5's product charter and additive recovery gates are in
 `docs/planning/v2/PHASE_32_5_CAPABILITY_CHARTER.md` and

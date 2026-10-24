@@ -28,6 +28,7 @@ export function deferral(aw, now) {
   if (s.state === "focus") return "focus";
   if (s.state === "paused" && !(Date.parse(s.since) && now.getTime() - Date.parse(s.since) >= 3 * MIN)) return "pause";
   if (aw.calendar?.now?.kind === "class" || aw.calendar?.travelNow) return "class";
+  if (aw.routine?.holdsAsks) return "routine";   // out on his usual night: no "should be home" / not-started nudges
   return null;
 }
 

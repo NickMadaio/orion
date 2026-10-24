@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { bypassesQuiet } from "./quiet.mjs";
 import { readAwareness, refreshIfOld } from "../awareness/state.mjs";
+import { routineHold } from "../patterns/hooks.mjs";
 
 /** Someone who paused is not focusing, but the first minutes of a pause still hold (Nick: 3 min). */
 export const PAUSE_GRACE_MS = 3 * 60_000;
@@ -21,6 +22,8 @@ export function gate(aw, { kind = null, urgentKind = null, now = Date.now() } = 
   const t = ms(now);
   if (bypassesQuiet({ urgentKind })) return { action: "deliver", reason: "a reminder he set or a class he is about to miss always goes" };
   if (aw?.sleep?.state === "asleep") return { action: "hold", reason: "quiet hours - it waits until he is up", heldFor: "quiet" };
+  const routine = routineHold(aw, { kind });   // learned routine (lib/patterns): no bedtime nag on his usual night out
+  if (routine) return { action: "hold", reason: routine, heldFor: "routine" };
   const session = aw?.session;
   if (session?.state === "focus") return { action: "hold", reason: "a focus session is running - batched until a break", heldFor: "focus" };
   if (session?.state === "paused") {

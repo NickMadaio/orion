@@ -34,6 +34,10 @@ final class BargeInMonitor {
     /// `BargeInPolicy` has already judged it a real interruption for the
     /// current phase and route.
     var onBargeIn: ((String) -> Void)?
+    /// Fires on the main thread whenever recognition yields words, before any policy: "he is talking", from voice
+    /// detection rather than raw level (a noisy kitchen is loud but says nothing). Used to keep ORION's cue and
+    /// progress updates from talking over him (2026-10-23 review, HIGH 4).
+    var onHeardWords: (() -> Void)?
 
     /// Whatever Orion is CURRENTLY saying, read fresh on every candidate —
     /// never cached, so a stale value can neither wrongly reject nor wrongly
@@ -191,6 +195,7 @@ final class BargeInMonitor {
 
     private func consider(_ text: String) {
         guard !text.isEmpty else { return }
+        onHeardWords?()
         let now = Date()
         guard now.timeIntervalSince(lastFire) > BargeInMonitor.retriggerGuard else { return }
 

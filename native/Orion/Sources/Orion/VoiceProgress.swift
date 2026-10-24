@@ -36,8 +36,11 @@ struct ProgressSnapshot: Equatable {
 
 enum VoiceProgressFile {
     /// The app's session ("orion-chat-<id>", "orion-app-v2") as the gateway names it, then the plugin's file name rule.
+    /// Lowercased: the gateway lowercases session keys (`agent:main:orion-chat-9311fb49-…` for the app's
+    /// `9311FB49-…` chat), and the plugin names the file from the gateway's key (review LOW).
     static func fileName(session: String) -> String {
-        let full = session.hasPrefix("agent:") ? session : "agent:main:\(session)"
+        let lowered = session.lowercased()
+        let full = lowered.hasPrefix("agent:") ? lowered : "agent:main:\(lowered)"
         let safe = String(full.unicodeScalars.map { scalar -> Character in
             let ok = CharacterSet.alphanumerics.contains(scalar) && scalar.isASCII || scalar == "." || scalar == "_" || scalar == "-"
             return ok ? Character(scalar) : "_"
@@ -50,9 +53,10 @@ enum VoiceProgressFile {
             .appendingPathComponent(fileName(session: session))
     }
 
-    /// The plugin's JSON, or nil when it is missing, unreadable, or from an earlier turn
-    /// (started more than `skew` before this one).
-    static func parse(_ data: Data, notBefore: Date, skew: TimeInterval = 5) -> ProgressSnapshot? {
+    /// The plugin's JSON, or nil when it is missing, unreadable, or from an earlier turn. The plugin's turn begins
+    /// after the app sends (the CLI has to start first), so anything that began before this turn did — beyond a
+    /// sub-second clock tolerance — is a previous turn's file (review LOW).
+    static func parse(_ data: Data, notBefore: Date, skew: TimeInterval = 0.5) -> ProgressSnapshot? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let startedText = root["startedAt"] as? String,
               let started = isoDate(startedText),
@@ -72,18 +76,61 @@ enum VoiceProgressFile {
         return parse(data, notBefore: notBefore)
     }
 
+    // Built once (review LOW): a formatter per read was the costliest part of a 4 Hz poll.
+    private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let whole = ISO8601DateFormatter()
+    private static let formatterLock = NSLock()
+
     private static func isoDate(_ text: String) -> Date? {
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+        formatterLock.lock(); defer { formatterLock.unlock() }
+        return fractional.date(from: text) ?? whole.date(from: text)
     }
+}
+
+/// Reads the plugin's progress file off the main thread, once a second, and keeps the latest snapshot for the
+/// companion's tick to read without touching the disk (review LOW).
+final class VoiceProgressReader {
+    private let queue = DispatchQueue(label: "com.nickmadaio.orion.voice-progress-read", qos: .utility)
+    private let lock = NSLock()
+    private var latest: ProgressSnapshot?
+    private var timer: DispatchSourceTimer?
+
+    var snapshot: ProgressSnapshot? {
+        lock.lock(); defer { lock.unlock() }
+        return latest
+    }
+
+    func start(read: @escaping () -> ProgressSnapshot?) {
+        stop()
+        let source = DispatchSource.makeTimerSource(queue: queue)
+        source.schedule(deadline: .now(), repeating: 1.0)
+        source.setEventHandler { [weak self] in
+            let value = read()
+            guard let self else { return }
+            self.lock.lock(); self.latest = value; self.lock.unlock()
+        }
+        timer = source
+        source.resume()
+    }
+
+    func stop() {
+        timer?.cancel()
+        timer = nil
+    }
+
+    deinit { timer?.cancel() }
 }
 
 enum VoiceProgressPhrases {
     /// The plugin's stage labels (`STAGE_LABELS` in turn-progress.ts), so their updates can be rendered ahead of time.
     static let knownLabels = [
         "working out what you need", "checking your calendar", "looking at tomorrow", "checking your to-dos",
-        "checking what's due", "looking through my notes", "reading your messages", "making the change on your calendar",
+        "checking what's due", "looking through my notes", "reading your messages", "checking your focus session",
+        "making the change on your calendar",
         "putting the answer together", "double-checking the answer", "running a tool",
     ]
     /// Every fixed phrase an update or the handoff can say (a change with a named target is rendered when first needed).
@@ -114,6 +161,8 @@ struct VoiceProgressPlan: Equatable {
     static let interval: TimeInterval = 13
     static let maxUpdates = 3
     static let handoffAt: TimeInterval = 45
+    /// The handoff waits for him to finish a sentence, but never past this (review HIGH 4).
+    static let handoffHardLimit: TimeInterval = 50
 
     let spokenKeys: [String]
     let updates: Int
@@ -140,7 +189,7 @@ struct VoiceProgressPlan: Equatable {
     func next(elapsed: TimeInterval, stages: [ProgressStage], replyReady: Bool, busy: Bool) -> (Action, VoiceProgressPlan) {
         if replyReady || handedOff { return (.none, self) }
         if elapsed >= VoiceProgressPlan.handoffAt {
-            if busy { return (.none, self) }
+            if busy && elapsed < VoiceProgressPlan.handoffHardLimit { return (.none, self) }
             let after = VoiceProgressPlan(spokenKeys: spokenKeys, updates: updates, lastAt: elapsed, plainUsed: plainUsed, handedOff: true)
             return (.handoff(text: VoiceProgressPhrases.handoff), after)
         }
@@ -157,12 +206,12 @@ struct VoiceProgressPlan: Equatable {
     }
 }
 
-/// Drives one voice turn's cue, updates and handoff on a 0.5 s tick. The app gives it closures; it owns no audio
+/// Drives one voice turn's cue, updates and handoff on a 0.25 s tick. The app gives it closures; it owns no audio
 /// and no turn state of its own beyond the plan, so `AppState` stays the one place a turn is decided.
 final class VoiceTurnCompanion {
     struct Hooks {
-        /// The plugin's stages so far (read from disk).
-        var stages: () -> [ProgressStage]
+        /// The plugin's latest snapshot (read off the main thread by `VoiceProgressReader`).
+        var progress: () -> ProgressSnapshot?
         /// Seconds since the mic last heard him speak, nil if not recently.
         var heardSpeechAgo: () -> TimeInterval?
         /// Something is playing (a cue or update).
@@ -206,6 +255,8 @@ final class VoiceTurnCompanion {
         timer = nil
     }
 
+    deinit { timer?.invalidate() }
+
     func tick(now: Date = Date()) {
         guard !replyReady else { return }
         let elapsed = now.timeIntervalSince(startedAt)
@@ -224,8 +275,11 @@ final class VoiceTurnCompanion {
                 return
             }
         }
-        let busy = hooks.isPlaying() || (ago.map { $0 < VoiceCuePolicy.quietFor } ?? false)
-        let (action, after) = plan.next(elapsed: elapsed, stages: hooks.stages(), replyReady: replyReady, busy: busy)
+        let snapshot = hooks.progress()
+        // The plugin says the turn is finished: the reply is on its way, so no update is started now (review LOW).
+        let finishing = snapshot?.done == true
+        let busy = finishing || hooks.isPlaying() || (ago.map { $0 < VoiceCuePolicy.quietFor } ?? false)
+        let (action, after) = plan.next(elapsed: elapsed, stages: snapshot?.stages ?? [], replyReady: replyReady, busy: busy)
         plan = after
         switch action {
         case .none: break
@@ -240,13 +294,18 @@ final class VoiceTurnCompanion {
 }
 
 /// Where a handed-off answer goes: the bubble (AppState) and his phone thread, via orion-reach.
+///
+/// Review MEDIUM 6: "I'll text you" is a promise, so the text is never dropped. No `--no-queue`: when the reach gate
+/// holds it (his sleep window, a quiet time), orion-reach queues it and sends it when the hold ends — in the morning
+/// after sleep, never a ping at night. Not `--urgent`: an answer is not an emergency. Its why is not a proactive,
+/// plan or curiosity one, so no daily budget can drop it.
 enum VoiceHandoff {
     static func phoneCommand(answer: String, node: String, scriptsDir: String, exists: (String) -> Bool) -> PhaseCommand? {
         let reach = scriptsDir + "/orion-reach"
         let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, exists(node), exists(reach) else { return nil }
         return PhaseCommand(executable: node, arguments: [
-            reach, text, "--kind", "update", "--channel", "phone", "--no-queue",
+            reach, text, "--kind", "update", "--channel", "phone",
             "--why", "the answer to a spoken question that ran long",
         ])
     }

@@ -27,8 +27,6 @@ enum VoiceCuePolicy {
     static let hold: TimeInterval = 1.2
     /// After this long from the end of his speech a cue is stale (he is mid-way through the next thought).
     static let staleAfter: TimeInterval = 4.0
-    /// Input above this level counts as him speaking (same scale as `orionNormalisedLevel`; BargeInMonitor opens at 0.14).
-    static let speechLevel: Double = 0.14
     /// How recently the mic must have heard him for a cue to wait.
     static let quietFor: TimeInterval = 0.6
 
@@ -83,6 +81,108 @@ enum VoiceCuePolicy {
     }
 }
 
+/// Callbacks waiting for a cue to end. Natural end fires them; an interruption (his voice, Escape) cancels them
+/// without firing — review HIGH 1: stopping a cue must never start the answer over him.
+final class CueWaiters {
+    private var pending: [Int: () -> Void] = [:]
+    private var nextID = 0
+
+    var isEmpty: Bool { pending.isEmpty }
+
+    @discardableResult
+    func add(_ callback: @escaping () -> Void) -> Int {
+        nextID += 1
+        pending[nextID] = callback
+        return nextID
+    }
+
+    /// The cue played to its end: everyone waiting goes on.
+    func finishedNaturally() {
+        let callbacks = pending.sorted { $0.key < $1.key }.map(\.value)
+        pending = [:]
+        callbacks.forEach { $0() }
+    }
+
+    /// He interrupted: nobody waiting goes on.
+    func interrupted() { pending = [:] }
+
+    /// One waiter's own time limit: fires it if it is still pending. Returns whether it fired.
+    func contains(_ id: Int) -> Bool { pending[id] != nil }
+
+    @discardableResult
+    func expire(_ id: Int) -> Bool {
+        guard let callback = pending.removeValue(forKey: id) else { return false }
+        callback()
+        return true
+    }
+}
+
+/// A reply that landed while a cue or update was playing (review HIGH 1). Immutable: each step returns the next hold.
+struct VoiceReplyHold: Equatable {
+    /// The turn whose reply has landed (updates for it must never start after this).
+    let landedGeneration: Int?
+    /// The reply text waiting for the cue to end, if any.
+    let heldText: String?
+
+    static let empty = VoiceReplyHold(landedGeneration: nil, heldText: nil)
+
+    enum Action: Equatable {
+        case speakNow
+        case waitForCue
+    }
+
+    func landed(generation: Int, text: String, cuePlaying: Bool) -> (Action, VoiceReplyHold) {
+        cuePlaying
+            ? (.waitForCue, VoiceReplyHold(landedGeneration: generation, heldText: text))
+            : (.speakNow, VoiceReplyHold(landedGeneration: generation, heldText: nil))
+    }
+
+    func hasLanded(_ generation: Int) -> Bool { landedGeneration == generation }
+
+    /// The cue ended on its own (or its wait ran out): the held reply is spoken.
+    func cueEnded() -> (String?, VoiceReplyHold) {
+        (heldText, VoiceReplyHold(landedGeneration: landedGeneration, heldText: nil))
+    }
+
+    /// He spoke or pressed Escape: the held reply stays in the bubble only (and is kept for "continue").
+    func interrupted() -> (String?, VoiceReplyHold) {
+        (heldText, VoiceReplyHold(landedGeneration: landedGeneration, heldText: nil))
+    }
+}
+
+/// Voice turns handed off at 45 s whose answers are still due (review HIGH 2: back-to-back handoffs each get theirs).
+struct HandoffLedger: Equatable {
+    let pending: Set<Int>
+    static let empty = HandoffLedger(pending: [])
+    func adding(_ generation: Int) -> HandoffLedger { HandoffLedger(pending: pending.union([generation])) }
+    /// True exactly once per handed-off turn.
+    func claiming(_ generation: Int) -> (Bool, HandoffLedger) {
+        pending.contains(generation) ? (true, HandoffLedger(pending: pending.subtracting([generation]))) : (false, self)
+    }
+}
+
+/// Whether he is talking, from recognised words only (review HIGH 4). Raw mic level is not speech: a kitchen at
+/// 0.4-0.87 would otherwise hold back the cue, every update and the handoff. ORION's own phrase, while it plays and
+/// just after, is not him.
+struct VoiceActivity: Equatable {
+    let lastWordsAt: Date?
+    static let none = VoiceActivity(lastWordsAt: nil)
+    static let ownEchoTail: TimeInterval = 0.5
+    static let window: TimeInterval = 5
+
+    func heardWords(at: Date, cuePlaying: Bool, cueEndedAt: Date) -> VoiceActivity {
+        if cuePlaying || at.timeIntervalSince(cueEndedAt) < VoiceActivity.ownEchoTail { return self }
+        return VoiceActivity(lastWordsAt: at)
+    }
+
+    /// Seconds since he last spoke, nil when not in the last few seconds.
+    func heardSpeechAgo(now: Date) -> TimeInterval? {
+        guard let lastWordsAt else { return nil }
+        let ago = now.timeIntervalSince(lastWordsAt)
+        return ago >= 0 && ago < VoiceActivity.window ? ago : nil
+    }
+}
+
 /// Plays short pre-rendered phrases (cues and progress updates) outside `SpeechOutput`, so a cue never ends the
 /// speaking phase or opens the ear for a follow-up. Main thread only.
 final class VoiceCuePlayer: NSObject, AVAudioPlayerDelegate {
@@ -94,16 +194,18 @@ final class VoiceCuePlayer: NSObject, AVAudioPlayerDelegate {
     var isPlaying: Bool { player?.isPlaying ?? false }
 
     private var player: AVAudioPlayer?
-    private var finished: (() -> Void)?
-    private var token = 0
+    private let waiters = CueWaiters()
     private let renderQueue = DispatchQueue(label: "com.nickmadaio.orion.voice-cue-render", qos: .utility)
     private var rendering = Set<String>()
 
     private let cacheDir: URL
+    private let socketPath: String
     private let provider: () -> String
 
-    init(cacheDir: URL = VoiceCuePlayer.defaultCacheDir, provider: @escaping () -> String = { VoiceSettings.tts.daemonProvider }) {
+    init(cacheDir: URL = VoiceCuePlayer.defaultCacheDir, socketPath: String = TTSClient.socketPath,
+         provider: @escaping () -> String = { VoiceSettings.tts.daemonProvider }) {
         self.cacheDir = cacheDir
+        self.socketPath = socketPath
         self.provider = provider
     }
 
@@ -127,29 +229,60 @@ final class VoiceCuePlayer: NSObject, AVAudioPlayerDelegate {
         return String(hash, radix: 16)
     }
 
+    /// Smallest file that can hold a WAV header and any audio at all.
+    static let minimumBytes = 64
+
+    /// A cached phrase that exists, has some size and decodes. A bad file (truncated render, a crash mid-move,
+    /// disk trouble) is deleted, so the next `prepare` renders it again: the cache repairs itself (review MEDIUM 7).
     func isRendered(_ text: String) -> Bool {
-        FileManager.default.fileExists(atPath: fileURL(for: text).path)
+        let url = fileURL(for: text)
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        if size >= VoiceCuePlayer.minimumBytes, let file = try? AVAudioFile(forReading: url), file.length > 0 { return true }
+        try? FileManager.default.removeItem(at: url)
+        OrionLog.write("[cue] removed a damaged cached phrase — it will be rendered again")
+        return false
     }
 
     /// Renders any phrase not yet cached, one at a time, off the main thread. Safe to call repeatedly.
-    /// `rendered` fires on the main thread once per phrase this call rendered (or failed to).
-    func prepare(_ texts: [String], rendered: ((String) -> Void)? = nil) {
+    /// `rendered` fires on the main thread once per phrase this call tried, with whether it is now cached.
+    func prepare(_ texts: [String], rendered: ((String, Bool) -> Void)? = nil) {
         let missing = texts.filter { !isRendered($0) && !rendering.contains($0) }
         guard !missing.isEmpty else { return }
         missing.forEach { rendering.insert($0) }
         let jobs = missing.map { ($0, fileURL(for: $0)) }
         let dir = cacheDir
         let voice = provider()
+        let socket = socketPath
         renderQueue.async { [weak self] in
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             for (text, url) in jobs {
-                VoiceCuePlayer.render(text: text, to: url, provider: voice)
+                let ok = VoiceCuePlayer.render(text: text, to: url, provider: voice, socketPath: socket)
                 DispatchQueue.main.async {
                     self?.rendering.remove(text)
-                    rendered?(text)
+                    rendered?(text, ok)
                 }
             }
         }
+    }
+
+    /// The launch render, retried while the TTS daemon is not up yet (review MEDIUM 7). Stops once everything is
+    /// cached or after `attempts` tries. `onAttempt` is for tests.
+    func prepareUntilReady(_ texts: [String], retryEvery: TimeInterval = 60, attempts: Int = 10, onAttempt: ((Int, Int) -> Void)? = nil) {
+        func attempt(_ number: Int) {
+            let missing = texts.filter { !isRendered($0) }
+            onAttempt?(number, missing.count)
+            guard !missing.isEmpty, number <= attempts else { return }
+            var left = missing.count
+            var failed = 0
+            prepare(missing) { [weak self] _, ok in
+                left -= 1
+                if !ok { failed += 1 }
+                guard left == 0, failed > 0, self != nil else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + retryEvery) { attempt(number + 1) }
+            }
+        }
+        attempt(1)
     }
 
     /// For an update or the handoff: play now if cached, else render it first and play it if it is still wanted
@@ -157,89 +290,95 @@ final class VoiceCuePlayer: NSObject, AVAudioPlayerDelegate {
     func playSoon(_ text: String, within: TimeInterval, stillWanted: @escaping () -> Bool) {
         if play(text) { return }
         let asked = Date()
-        prepare([text]) { [weak self] done in
-            guard let self, done == text, stillWanted(), Date().timeIntervalSince(asked) <= within else { return }
+        prepare([text]) { [weak self] done, ok in
+            guard let self, ok, done == text, stillWanted(), Date().timeIntervalSince(asked) <= within else { return }
             self.play(text)
         }
     }
 
     /// Daemon file mode: one request, one `{"ok": true, "output": ...}` frame. Written to a temp name and moved
-    /// into place, so a half-written file is never played.
-    private static func render(text: String, to url: URL, provider: String) {
+    /// into place, so a half-written file is never played. Returns whether the phrase is now cached.
+    private static func render(text: String, to url: URL, provider: String, socketPath: String) -> Bool {
         let temp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(getpid()).tmp.wav")
         do {
-            let connection = try UnixSocketConnection(path: TTSClient.socketPath, timeout: 20)
+            let connection = try UnixSocketConnection(path: socketPath, timeout: 20)
             defer { connection.closeSocket() }
             try connection.send(json: ["op": "synth", "text": text, "output": temp.path, "provider": provider])
             guard let frame = try connection.readFrame(), frame["ok"] as? Bool == true,
                   FileManager.default.fileExists(atPath: temp.path) else {
                 try? FileManager.default.removeItem(at: temp)
-                return
+                return false
             }
             try? FileManager.default.removeItem(at: url)
             try FileManager.default.moveItem(at: temp, to: url)
+            return true
         } catch {
             try? FileManager.default.removeItem(at: temp)
             OrionLog.write("[cue] could not render a phrase — \(error.localizedDescription)")
+            return false
         }
     }
 
-    /// Plays a cached phrase now. Returns false (and starts rendering it for next time) when it is not cached yet:
+    /// Plays a cached phrase now. Returns false when it is not cached (and starts rendering it for next time):
     /// a cue that would arrive late is worse than none.
     @discardableResult
-    func play(_ text: String, finished: (() -> Void)? = nil) -> Bool {
+    func play(_ text: String) -> Bool {
+        guard isRendered(text) else {
+            prepare([text])
+            return false
+        }
         let url = fileURL(for: text)
-        guard FileManager.default.fileExists(atPath: url.path) else { return false }
-        stop()
-        guard let next = try? AVAudioPlayer(contentsOf: url) else { return false }
-        token += 1
+        if player != nil { cut() }
+        guard let next = try? AVAudioPlayer(contentsOf: url) else {
+            try? FileManager.default.removeItem(at: url)
+            return false
+        }
         next.delegate = self
         next.prepareToPlay()
         guard next.play() else { return false }
         player = next
         currentText = text
         lastText = text
-        self.finished = finished
         OrionLog.write("[cue] \"\(text)\"")
         return true
     }
 
-    /// Barge-in, or the reply taking over. Immediate.
+    /// Barge-in or Escape: silence now, and whatever was waiting for the cue to end is cancelled, never started.
     func stop() {
-        guard let player else { return }
-        player.stop()
-        self.player = nil
-        end()
+        waiters.interrupted()
+        cut()
     }
 
-    /// Calls `then` once nothing is playing, or after `atMost` seconds (then the phrase is cut).
+    /// Calls `then` when the phrase ends on its own, or after `atMost` seconds (the phrase is cut for the reply).
+    /// Never called if `stop()` interrupts first.
     func whenQuiet(atMost: TimeInterval, then: @escaping () -> Void) {
         guard isPlaying else { return then() }
-        let mine = token
-        var fired = false
-        let once = { if !fired { fired = true; then() } }
-        let previous = finished
-        finished = { previous?(); once() }
+        let id = waiters.add(then)
         DispatchQueue.main.asyncAfter(deadline: .now() + atMost) { [weak self] in
-            guard let self, !fired else { return }
-            if self.token == mine { self.stop() }
-            once()
+            guard let self else { return }
+            // Its own limit: cut the phrase only if this waiter is still the one pending.
+            guard self.waiters.contains(id) else { return }
+            self.cut()
+            self.waiters.expire(id)
         }
     }
 
-    private func end() {
+    /// Ends playback without firing or cancelling waiters.
+    private func cut() {
+        guard let current = player else { return }
+        current.stop()
+        player = nil
         currentText = ""
         lastEndedAt = Date()
-        let callback = finished
-        finished = nil
-        callback?()
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.player === player else { return }
             self.player = nil
-            self.end()
+            self.currentText = ""
+            self.lastEndedAt = Date()
+            self.waiters.finishedNaturally()
         }
     }
 }

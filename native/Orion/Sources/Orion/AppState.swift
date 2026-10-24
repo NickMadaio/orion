@@ -433,9 +433,13 @@ final class AppState: ObservableObject {
     /// Voice turns (2026-10-23): the instant cue, spoken progress and the 45 s handoff — see VoiceCue.swift, VoiceProgress.swift.
     private let voiceCue = VoiceCuePlayer()
     private var voiceCompanion: VoiceTurnCompanion?
-    private var lastHeardSpeechAt = Date.distantPast
-    /// The turn ORION said he would text the answer to; its answer goes to the bubble and the phone, not the speakers.
-    private var handedOffGeneration: Int?
+    /// Whether he is talking, from recognised words only — never raw level (review HIGH 4).
+    private var voiceActivity = VoiceActivity.none
+    /// Turns ORION said he would text the answer to; each answer goes to the bubble and the phone once (review HIGH 2).
+    private var handoffs = HandoffLedger.empty
+    /// A reply that landed while a cue played: spoken when the cue ends, bubble-only if he interrupts (review HIGH 1).
+    private var replyHold = VoiceReplyHold.empty
+    private let progressReader = VoiceProgressReader()
     /// The paused turn's answer, once it has arrived, waiting for "continue".
     private var pausedReplacementText: String?
 
@@ -1174,7 +1178,6 @@ final class AppState: ObservableObject {
             self.retainForVerification(buffer)
             self.wakeWord.observe(buffer, level: level)
             self.bargeInMonitor.observe(buffer, level: level)
-            if level >= VoiceCuePolicy.speechLevel, !self.voiceCue.isPlaying, !self.speechOutput.isSpeaking { self.lastHeardSpeechAt = Date() }
         }
         wakeWord.tolerance = wakeSensitivity.tolerance
         bargeInMonitor.currentlySpoken = { [weak self] in
@@ -1187,8 +1190,13 @@ final class AppState: ObservableObject {
             guard let self else { return .idle }
             return self.voiceCue.isPlaying && self.phase == .thinking ? .speaking(.playing) : self.turnPhaseForBargeIn()
         }
+        bargeInMonitor.onHeardWords = { [weak self] in
+            guard let self else { return }
+            self.voiceActivity = self.voiceActivity.heardWords(at: Date(), cuePlaying: self.voiceCue.isPlaying, cueEndedAt: self.voiceCue.lastEndedAt)
+        }
+        // Retried while the TTS daemon is not up yet (review MEDIUM 7).
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
-            self?.voiceCue.prepare(VoiceCuePolicy.allPhrases + VoiceProgressPhrases.renderable)
+            self?.voiceCue.prepareUntilReady(VoiceCuePolicy.allPhrases + VoiceProgressPhrases.renderable)
         }
         bargeInMonitor.onBargeIn = { [weak self] text in self?.handleSpokenBargeIn(text) }
         wakeWord.onUnavailable = { [weak self] message in
@@ -1315,8 +1323,17 @@ final class AppState: ObservableObject {
             // path that has to survive that clear — see `beginListening`.
             preservedTranscript = heardText
         case .thinking:
-            OrionLog.write("[bargein] confident speech during .thinking — pausing, not cancelling")
             voiceCue.stop()
+            // The answer already landed and was waiting for the cue: it stays in the bubble, never starts over him.
+            if keepHeldReplyInBubble() {
+                OrionLog.write("[bargein] spoke over a cue with the answer waiting — answer left in the bubble")
+                conversationOpen = true
+                setPhase(.idle)
+                beginListening(handsFree: true)
+                preservedTranscript = heardText
+                return
+            }
+            OrionLog.write("[bargein] confident speech during .thinking — pausing, not cancelling")
             pauseThinking(reason: "user spoke during thinking", heardSeed: heardText)
         default:
             break
@@ -1362,7 +1379,7 @@ final class AppState: ObservableObject {
 
     private func setPhase(_ next: OrionPhase) {
         phase = next
-        if next != .thinking { voiceCompanion?.stop(); voiceCompanion = nil }
+        if next != .thinking { voiceCompanion?.stop(); voiceCompanion = nil; progressReader.stop() }
         hologram.setState(next.hologramState)
         onSpeakingChanged?(next == .speaking)
         // Every phase that can strand the whole app gets a guaranteed exit.
@@ -1962,6 +1979,9 @@ final class AppState: ObservableObject {
         if phase == .speaking {
             setPhase(.idle)
             statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Stopped"
+        } else if phase == .thinking, keepHeldReplyInBubble() {
+            setPhase(.idle)
+            statusLine = wakeWordEnabled ? "Listening for “Orion”" : "Stopped"
         } else if phase == .thinking {
             cancelThinking(reason: "user cancelled")
         }
@@ -2080,8 +2100,9 @@ final class AppState: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 if self.askGeneration == generation { self.voiceCompanion?.stop() }
-                if self.handedOffGeneration == generation {
-                    self.handedOffGeneration = nil
+                let (handedOff, ledger) = self.handoffs.claiming(generation)
+                self.handoffs = ledger
+                if handedOff {
                     self.deliverHandedOff(result)
                     return
                 }
@@ -2248,8 +2269,31 @@ final class AppState: ObservableObject {
         chatThinking = reply.thinking
         saveChat(.orion, text: reply.text, thinking: reply.thinking)
         append(.orion, reply.text)
-        guard voiceCue.isPlaying else { return speak(reply.text, origin: origin) }
-        voiceCue.whenQuiet(atMost: 2.0) { [weak self] in self?.speak(reply.text, origin: origin) }
+        let (action, hold) = replyHold.landed(generation: askGeneration, text: reply.text, cuePlaying: voiceCue.isPlaying)
+        replyHold = hold
+        switch action {
+        case .speakNow:
+            speak(reply.text, origin: origin)
+        case .waitForCue:
+            // Fires only when the cue ends on its own or its 2 s run out; `voiceCue.stop()` (his voice, Escape)
+            // cancels it, and then the answer stays in the bubble (review HIGH 1).
+            voiceCue.whenQuiet(atMost: 2.0) { [weak self] in
+                guard let self else { return }
+                let (text, next) = self.replyHold.cueEnded()
+                self.replyHold = next
+                if let text { self.speak(text, origin: origin) }
+            }
+        }
+    }
+
+    /// A reply waiting on a cue that he just interrupted: kept for "continue", left in the bubble, not spoken.
+    /// Returns whether there was one.
+    private func keepHeldReplyInBubble() -> Bool {
+        let (text, next) = replyHold.interrupted()
+        replyHold = next
+        guard let text else { return false }
+        interruptedReplyText = text
+        return true
     }
 
     // MARK: Voice turn companion (2026-10-23)
@@ -2257,20 +2301,21 @@ final class AppState: ObservableObject {
     private func startVoiceCompanion(message: String, session: String, generation: Int, startedAt: Date) {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let companion = VoiceTurnCompanion(message: message, startedAt: startedAt, hooks: .init(
-            stages: { VoiceProgressFile.read(home: home, session: session, notBefore: startedAt)?.stages ?? [] },
-            heardSpeechAgo: { [weak self] in
-                guard let self else { return nil }
-                let ago = Date().timeIntervalSince(self.lastHeardSpeechAt)
-                return ago < 5 ? ago : nil
-            },
+            progress: { [weak self] in self?.progressReader.snapshot },
+            heardSpeechAgo: { [weak self] in self?.voiceActivity.heardSpeechAgo(now: Date()) },
             isPlaying: { [weak self] in self?.voiceCue.isPlaying ?? false },
             playCue: { [weak self] phrase in self?.voiceCue.play(phrase) ?? false },
             sayUpdate: { [weak self] line in
-                self?.voiceCue.playSoon(line, within: 2.5) { [weak self] in self?.askGeneration == generation && self?.phase == .thinking }
+                // Never after the reply landed (review HIGH 1): a late render must not start over the answer.
+                self?.voiceCue.playSoon(line, within: 2.5) { [weak self] in
+                    guard let self else { return false }
+                    return self.askGeneration == generation && self.phase == .thinking && !self.replyHold.hasLanded(generation)
+                }
             },
             show: { [weak self] line in self?.append(.system, line) },
             handOff: { [weak self] line in self?.handOffVoiceTurn(line, generation: generation) }
         ))
+        progressReader.start { VoiceProgressFile.read(home: home, session: session, notBefore: startedAt) }
         voiceCompanion = companion
         companion.start()
     }
@@ -2282,7 +2327,7 @@ final class AppState: ObservableObject {
         OrionLog.write("[voice] 45 s without an answer — handing off to the bubble and phone")
         disarmWatchdog()
         stopProgressPolling()
-        handedOffGeneration = generation
+        handoffs = handoffs.adding(generation)
         askGeneration += 1
         append(.orion, line)
         voiceCue.playSoon(line, within: 5) { true }

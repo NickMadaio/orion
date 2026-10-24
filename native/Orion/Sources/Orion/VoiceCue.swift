@@ -183,6 +183,28 @@ struct VoiceActivity: Equatable {
     }
 }
 
+/// One attempt of the launch render: whether to try again once it settles (a failure, or a phrase it had to skip
+/// because it was already being rendered on demand). Main thread only.
+final class RenderRound {
+    private var left: Set<String> = []
+    private var failed = false
+    private var skipped = false
+
+    /// Returns true when nothing could be taken this round (all already rendering): try again later.
+    func begin(taken: [String], wanted: [String]) -> Bool {
+        left = Set(taken)
+        skipped = Set(taken).count < Set(wanted).count
+        return taken.isEmpty
+    }
+
+    /// Returns true when this was the last phrase of the round and the round needs another go.
+    func finish(_ text: String, ok: Bool) -> Bool {
+        guard left.remove(text) != nil else { return false }
+        if !ok { failed = true }
+        return left.isEmpty && (failed || skipped)
+    }
+}
+
 /// Plays short pre-rendered phrases (cues and progress updates) outside `SpeechOutput`, so a cue never ends the
 /// speaking phase or opens the ear for a follow-up. Main thread only.
 final class VoiceCuePlayer: NSObject, AVAudioPlayerDelegate {
@@ -199,14 +221,16 @@ final class VoiceCuePlayer: NSObject, AVAudioPlayerDelegate {
     private var rendering = Set<String>()
 
     private let cacheDir: URL
-    private let socketPath: String
     private let provider: () -> String
+    /// Renders one phrase to a file; runs on the render queue. The daemon by default; tests pass their own.
+    private let renderer: (_ text: String, _ url: URL, _ provider: String) -> Bool
 
     init(cacheDir: URL = VoiceCuePlayer.defaultCacheDir, socketPath: String = TTSClient.socketPath,
-         provider: @escaping () -> String = { VoiceSettings.tts.daemonProvider }) {
+         provider: @escaping () -> String = { VoiceSettings.tts.daemonProvider },
+         renderer: ((String, URL, String) -> Bool)? = nil) {
         self.cacheDir = cacheDir
-        self.socketPath = socketPath
         self.provider = provider
+        self.renderer = renderer ?? { text, url, voice in VoiceCuePlayer.render(text: text, to: url, provider: voice, socketPath: socketPath) }
     }
 
     static var defaultCacheDir: URL {
@@ -232,57 +256,76 @@ final class VoiceCuePlayer: NSObject, AVAudioPlayerDelegate {
     /// Smallest file that can hold a WAV header and any audio at all.
     static let minimumBytes = 64
 
-    /// A cached phrase that exists, has some size and decodes. A bad file (truncated render, a crash mid-move,
-    /// disk trouble) is deleted, so the next `prepare` renders it again: the cache repairs itself (review MEDIUM 7).
+    /// Cheap, main-thread check: the file is there and big enough. Whether it decodes is checked off the main
+    /// thread by `prepare` (re-review LOW), and `play` deletes a file AVAudioPlayer cannot open.
     func isRendered(_ text: String) -> Bool {
-        let url = fileURL(for: text)
-        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        VoiceCuePlayer.looksPresent(fileURL(for: text))
+    }
+
+    private static func looksPresent(_ url: URL) -> Bool {
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-        if size >= VoiceCuePlayer.minimumBytes, let file = try? AVAudioFile(forReading: url), file.length > 0 { return true }
+        return size >= minimumBytes
+    }
+
+    /// Render-queue check: present, big enough and decodes. A bad file is deleted so it is rendered again (MEDIUM 7).
+    private static func isGood(_ url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        if looksPresent(url), let file = try? AVAudioFile(forReading: url), file.length > 0 { return true }
         try? FileManager.default.removeItem(at: url)
         OrionLog.write("[cue] removed a damaged cached phrase — it will be rendered again")
         return false
     }
 
-    /// Renders any phrase not yet cached, one at a time, off the main thread. Safe to call repeatedly.
-    /// `rendered` fires on the main thread once per phrase this call tried, with whether it is now cached.
-    func prepare(_ texts: [String], rendered: ((String, Bool) -> Void)? = nil) {
-        let missing = texts.filter { !isRendered($0) && !rendering.contains($0) }
-        guard !missing.isEmpty else { return }
-        missing.forEach { rendering.insert($0) }
-        let jobs = missing.map { ($0, fileURL(for: $0)) }
+    /// Checks each phrase's file off the main thread (decode included) and renders the missing or damaged ones,
+    /// one at a time. A phrase already being rendered is skipped. Returns the phrases this call took; `rendered`
+    /// fires on the main thread once for each of them, with whether it is now cached.
+    @discardableResult
+    func prepare(_ texts: [String], rendered: ((String, Bool) -> Void)? = nil) -> [String] {
+        let taken = Array(NSOrderedSet(array: texts.filter { !rendering.contains($0) })) as? [String] ?? []
+        guard !taken.isEmpty else { return [] }
+        taken.forEach { rendering.insert($0) }
+        let jobs = taken.map { ($0, fileURL(for: $0)) }
         let dir = cacheDir
         let voice = provider()
-        let socket = socketPath
+        let render = renderer
         renderQueue.async { [weak self] in
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             for (text, url) in jobs {
-                let ok = VoiceCuePlayer.render(text: text, to: url, provider: voice, socketPath: socket)
+                let ok = VoiceCuePlayer.isGood(url) || (render(text, url, voice) && VoiceCuePlayer.looksPresent(url))
                 DispatchQueue.main.async {
                     self?.rendering.remove(text)
                     rendered?(text, ok)
                 }
             }
         }
+        return taken
     }
 
-    /// The launch render, retried while the TTS daemon is not up yet (review MEDIUM 7). Stops once everything is
-    /// cached or after `attempts` tries. `onAttempt` is for tests.
+    /// The launch render, retried while the TTS daemon is not up yet (MEDIUM 7). Stops once everything is cached
+    /// or after `attempts` tries. A phrase already being rendered on demand does not stall it: that phrase is
+    /// simply looked at again on the next attempt (re-review LOW). `onAttempt` is for tests.
     func prepareUntilReady(_ texts: [String], retryEvery: TimeInterval = 60, attempts: Int = 10, onAttempt: ((Int, Int) -> Void)? = nil) {
-        func attempt(_ number: Int) {
-            let missing = texts.filter { !isRendered($0) }
-            onAttempt?(number, missing.count)
-            guard !missing.isEmpty, number <= attempts else { return }
-            var left = missing.count
-            var failed = 0
-            prepare(missing) { [weak self] _, ok in
-                left -= 1
-                if !ok { failed += 1 }
-                guard left == 0, failed > 0, self != nil else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + retryEvery) { attempt(number + 1) }
+        attemptRender(texts, number: 1, checkAll: true, retryEvery: retryEvery, attempts: attempts, onAttempt: onAttempt)
+    }
+
+    private func attemptRender(_ texts: [String], number: Int, checkAll: Bool, retryEvery: TimeInterval, attempts: Int,
+                               onAttempt: ((Int, Int) -> Void)?) {
+        let missing = texts.filter { !isRendered($0) }
+        onAttempt?(number, missing.count)
+        // The first pass checks every file (decode included, off main); later passes only what still looks missing.
+        let wanted = checkAll ? texts : missing
+        guard !wanted.isEmpty, number <= attempts else { return }
+        let next = { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + retryEvery) {
+                self?.attemptRender(texts, number: number + 1, checkAll: false, retryEvery: retryEvery, attempts: attempts, onAttempt: onAttempt)
             }
         }
-        attempt(1)
+        let round = RenderRound()
+        let taken = prepare(wanted) { text, ok in
+            if round.finish(text, ok: ok) { next() }
+        }
+        // Callbacks arrive on a later main-queue turn, so the round is set up before any of them.
+        if round.begin(taken: taken, wanted: wanted) { next() }
     }
 
     /// For an update or the handoff: play now if cached, else render it first and play it if it is still wanted
@@ -331,6 +374,7 @@ final class VoiceCuePlayer: NSObject, AVAudioPlayerDelegate {
         if player != nil { cut() }
         guard let next = try? AVAudioPlayer(contentsOf: url) else {
             try? FileManager.default.removeItem(at: url)
+            prepare([text])
             return false
         }
         next.delegate = self

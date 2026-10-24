@@ -2343,15 +2343,20 @@ final class AppState: ObservableObject {
     private func deliverHandedOff(_ result: Result<GatewayReply, Error>) {
         switch result {
         case .success(let reply):
-            // deliverReach saves to the chat itself when the dashboard is open; otherwise it is saved here.
-            if dashboardVisible?() != true { saveChat(.orion, text: reply.text, thinking: reply.thinking) }
-            deliverReach(reply.text, aloud: false, headphones: false, keepFor: 600)
             let home = FileManager.default.homeDirectoryForCurrentUser.path
-            if let command = VoiceHandoff.phoneCommand(answer: reply.text, node: home + "/.openclaw/tools/node-v24.15.0/bin/node",
-                                                       scriptsDir: home + "/.openclaw/orion-remote/scripts",
-                                                       exists: { FileManager.default.fileExists(atPath: $0) }) {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    if !PhaseHook.spawn(command) { OrionLog.write("[voice] handed-off answer could not reach the phone") }
+            let command = VoiceHandoff.phoneCommand(answer: reply.text, node: home + "/.openclaw/tools/node-v24.15.0/bin/node",
+                                                    scriptsDir: home + "/.openclaw/orion-remote/scripts",
+                                                    exists: { FileManager.default.fileExists(atPath: $0) })
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let outcome = command.map { VoiceHandoff.run($0) }.map { VoiceHandoff.outcome(exitCode: $0.0, stdout: $0.1) } ?? .notSent
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    // deliverReach (ours, or orion-reach's via orion://reach) saves to the chat itself only when the dashboard is open.
+                    if self.dashboardVisible?() != true { self.saveChat(.orion, text: reply.text, thinking: reply.thinking) }
+                    // Sent: orion-reach posts the same row to this bubble (orion://reach), so it lands once. Otherwise the app shows it.
+                    if outcome == .sent { return OrionLog.write("[voice] handed-off answer sent to the phone thread") }
+                    OrionLog.write("[voice] handed-off answer not sent to the phone (held or failed) — showing it here")
+                    self.deliverReach(reply.text, aloud: false, headphones: false, keepFor: 600)
                 }
             }
         case .failure(let error):

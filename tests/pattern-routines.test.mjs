@@ -252,3 +252,14 @@ test("an away run starting after 01:00 right after he was at the Mac is drift (W
   const asleep = learnFromEvidence({ fixes, isHome, sleeps: nights.map((d) => iso(d, "01:50", 1)) }, { now: new Date("2026-10-24T12:00:00") }).routines;
   assert.deepEqual(asleep, []);
 });
+
+test("different evenings on the same weekday are not averaged: a 17:30 dinner and a 23:00 club stay apart", () => {
+  const early = (date) => [fix(iso(date, "17:00"), HOME), ...["17:30", "18:30", "19:30", "20:30", "21:30"].map((t) => fix(iso(date, t), CLUB)), fix(iso(date, "22:00"), HOME)];
+  const rs = learn([...early("2026-10-02"), ...nightOut("2026-10-09"), ...nightOut("2026-10-16"), ...early("2026-10-23")]);
+  assert.equal(rs[0].status, "tentative");          // two of each: neither shape has 3
+  assert.equal(rs[0].occurrences, 2);
+  assert.ok([17 * 60 + 30, 23 * 60].includes(rs[0].start));
+  const three = learn([...early("2026-10-02"), ...FRIDAYS.slice(1).flatMap(nightOut)])[0];
+  assert.equal(three.start, 23 * 60);               // the club cluster, not a median with the dinner
+  assert.equal(three.occurrences, 3);
+});

@@ -55,14 +55,40 @@ function eveningOutcomes(dates, { evenings, said, corroborations, lateWake }) {
   });
 }
 
-function routineFrom({ id, kind, weekday, outcomes, today, wakes, placeName, fixedLabel = null }) {
+export const START_SPREAD = 120;
+
+/** The largest group of starts within START_SPREAD minutes of each other. */
+function bestCluster(list) {
+  const s = [...list].sort((a, b) => a.start - b.start);
+  let best = [];
+  for (let i = 0; i < s.length; i++) { const g = s.filter((x) => x.start >= s[i].start && x.start - s[i].start <= START_SPREAD); if (g.length > best.length) best = g; }
+  return best;
+}
+
+/**
+ * Only evenings of the same shape are one routine: timed hits whose starts fall outside the main cluster (a 17:30 dinner and
+ * a 23:00 club) become "unknown", never a median across both. A sparse hit (times are rough) only has to overlap the cluster.
+ */
+export function clusterHits(outcomes) {
+  const timed = outcomes.filter((o) => o.outcome === "hit" && Number.isFinite(o.start));
+  const firm = timed.filter((o) => !o.sparse);
+  const core = bestCluster(firm.length ? firm : timed);
+  if (!core.length) return outcomes;
+  const from = Math.min(...core.map((o) => o.start)) - 60, to = Math.max(...core.map((o) => o.end)) + 60;
+  const keep = (o) => core.includes(o) || (o.sparse && firm.length && o.start < to && o.end > from);
+  return outcomes.map((o) => (timed.includes(o) && !keep(o) ? { date: o.date, outcome: "unknown", via: ["other-shape"] } : o));
+}
+
+function routineFrom({ id, kind, weekday, outcomes: raw, today, wakes, placeName, fixedLabel = null }) {
+  const outcomes = clusterHits(raw);
+  const timedFirm = outcomes.some((o) => o.outcome === "hit" && Number.isFinite(o.start) && !o.sparse);
   const hits = outcomes.filter((o) => o.outcome === "hit"), misses = outcomes.filter((o) => o.outcome === "miss");
   const occurrences = hits.length;
   const confidence = confidenceOf(hits.map((o) => o.date), misses.map((o) => o.date), today);
   const lastHit = hits.map((o) => o.date).sort().at(-1) ?? null;
   const status = statusOf({ occurrences, confidence, lastHit, today });
   if (!status) return null;
-  const timed = hits.filter((o) => Number.isFinite(o.start));
+  const timed = hits.filter((o) => Number.isFinite(o.start) && (!timedFirm || !o.sparse));   // rough sparse times stay out of the medians
   const start = median(timed.map((o) => o.start)), end = median(timed.map((o) => o.end));
   const cells = timed.map((o) => o.cell).filter(Boolean);
   const cell = cells.length && cells.filter((c) => c === modeOf(cells)).length * 2 >= cells.length ? modeOf(cells) : null;

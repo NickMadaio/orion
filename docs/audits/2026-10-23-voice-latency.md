@@ -71,10 +71,32 @@ at 16:20:41 BST): a typed or abandoned turn. The 55 s hook budget, the 40 s hone
    for change requests. There was no point at which ORION said "this is taking too long, I'll text you".
 5. **When the ear is not listening (lid closed, wake not recognised) nothing tells him.** Out of scope for code here; noted below.
 
-## 4. What was changed (this branch)
+## 4. What was built (branch `feat/voice-fluid`)
 
-See section 5 (filled in as the work lands).
+| | Change | Where | Tests |
+|---|---|---|---|
+| 1 | **Instant cue.** 1.2 s after his last word, if the reply is not in, a canned phrase matched to the request plays: lookup "Let me look." / "Let me check.", change "On it.", needs thought "Hmm, let me think about that.", else "Mm, one sec." Four phrasings per kind, never the same one twice running. No model call. A reply inside 1.2 s is spoken bare. Never started while the mic hears him (0.6 s quiet), dropped after 4 s. Phrases are rendered once by the TTS daemon (file mode, his reply voice) into `~/Library/Caches/Orion/voice-cues/` 8 s after launch and played from disk (a few ms); an unrendered cue is skipped, never played late. | `VoiceCue.swift` | `VoiceFluidTests` (cue timing, kind, variety, cache names) |
+| 2 | **Real progress.** The plugin writes `orion-controlled/turn-progress/<session>.json`: `understanding` at `before_model_resolve`, code's reads (calendar, tomorrow, deadlines, notes, messages), each worker tool call (calendar read, to-dos, a calendar write with its target: "making the change to Gym"), `thinking` when the prompt is built, `double-checking` on a revise round, `done` at finalize/agent_end. Atomic writes, 0600, never throws. The app reads it during a voice turn: first update at 9 s, then every 13 s, at most 3, each the newest stage not yet said ("Still on it — checking your calendar."), never a repeat; with nothing new, one "Still working on it." Shown in the bubble too. Updates wait while he talks or something plays. | `turn-progress.ts`, `local-routing.ts`; `VoiceProgress.swift` | `turn-progress.test.ts` (14), `VoiceFluidTests` |
+| 3 | **45 s honest handoff.** "This is taking longer than it should — I'll text you the answer when it's done." The turn is left running (as `pauseThinking` does), the app goes back to listening, and the answer, when it lands, goes to the bubble and his phone thread (`orion-reach --kind update --channel phone`), not the speakers. A failure is shown in the bubble. Voice never sits silent past ~1.2 s, and never waits aloud past 45 s. | `AppState.swift` (`handOffVoiceTurn`, `deliverHandedOff`), `VoiceProgress.swift` | `VoiceFluidTests`, `VoiceHandoffTests` |
+| 4 | **Barge-in.** A cue or update playing during `.thinking` is judged like `.speaking` (route-gated, its own text is the echo reference), so ORION does not pause himself on his own "Let me look"; Nick speaking stops it (and pauses the turn as before); Escape stops it. A reply that lands while a cue plays waits for it (at most 2 s) instead of cutting it mid-word. | `AppState.swift` | — (wiring) |
+| 5 | **Speed: revise rounds.** A spoken turn gets one work-check revise round (was two); after it code says the honest line itself. Saves one 9B call (~1.5-2 s on battery) on exactly the turns that were slowest to speak. | `turn-budget.ts`, `local-routing.ts` | `voice-speed-2026-10-23.test.ts` |
 
-## 5. Fixes
+AppState edits are kept small (properties, closures, one call in `send`, three helpers); the logic is in `VoiceCue.swift` and `VoiceProgress.swift`.
 
-_In progress._
+## 5. Speed findings not changed here
+
+- **TTS** is not the bottleneck: 363 uncached ElevenLabs jobs, first chunk p50 344 ms, p90 756 ms. The daemon already streams the first
+  sentence (first chunk ≤ 90 chars) before the rest; the gateway returns the reply whole, so that is the earliest TTS can start.
+  The 3.2 s first chunk on the morning briefs is the first network call after a dark wake.
+- **CLI spawn (3-5.5 s per turn)** is the largest fixed cost left. Replacing `openclaw agent` with the gateway's WebSocket RPC (or a warm
+  helper) would remove most of it; it is a larger change to the gateway contract and was not attempted here.
+- **Desk on battery + Low Power Mode:** 4.2 s for a one-line "ignore" (8 s budget, 2.5 s while degraded). With the cue at 1.2 s this is
+  no longer silent. Keeping ORION on AC, or turning Low Power Mode off while he talks to it, roughly halves every model stage.
+- **The app's 300 s `agentTimeout`** still bounds the background run after a handoff; the voice no longer waits on it.
+- **Lid closed / wake word not recognised** (10-23): nothing in code can hear him with the lid shut. Worth a menu-bar hint when the wake
+  word has been suspended by sleep; not done.
+
+## 6. Not done / to deploy (Nick's call)
+
+- Nothing was built into the app bundle, installed, relaunched or deployed. The plugin `dist/` is rebuilt in the branch; installing it is
+  the deploy. The first launch after install renders about 50 phrases once through the daemon (ElevenLabs characters ≈ 1.6k).

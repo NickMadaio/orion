@@ -9,7 +9,7 @@
  * Writes are atomic (temp file + rename), mode 0600, and never throw into a hook: progress is a courtesy,
  * never a reason for a turn to fail.
  */
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const STAGE_LABELS = {
@@ -20,6 +20,7 @@ export const STAGE_LABELS = {
   "checking-deadlines": "checking what's due",
   "checking-notes": "looking through my notes",
   "checking-messages": "reading your messages",
+  "checking-focus": "checking your focus session",
   "changing-calendar": "making the change on your calendar",
   "thinking": "putting the answer together",
   "double-checking": "double-checking the answer",
@@ -39,6 +40,9 @@ export type ProgressDoc = {
   readonly stages: readonly ProgressEntry[];
   readonly done: boolean;
 };
+
+/** Progress files older than this are deleted when a new turn begins (one file per session otherwise lingers forever). */
+export const PRUNE_AFTER_MS = 24 * 60 * 60_000;
 
 /** Most stages a single turn keeps; a tool loop cannot grow the file without bound. */
 export const MAX_STAGES = 24;
@@ -75,7 +79,7 @@ export function stagesForReads(reads: readonly string[] | undefined): StageId[] 
   const map: Record<string, StageId> = {
     "day": "reading-calendar", "day-tomorrow": "reading-tomorrow", "deadlines": "checking-deadlines",
     "notes": "checking-notes", "learned": "checking-notes", "messages": "checking-messages", "gmail": "checking-messages",
-    "todos": "checking-todos", "focus": "reading-calendar",
+    "todos": "checking-todos", "focus": "checking-focus",
   };
   const out: StageId[] = [];
   for (const read of reads ?? []) {
@@ -120,7 +124,20 @@ export class TurnProgress {
 
   begin(sessionKey: string, runId: string | null): void {
     if (!sessionKey) return;
+    this.prune();
     this.put(beginDoc(sessionKey, runId, this.now()));
+  }
+
+  /** Deletes progress files (and stray temp files) not touched for a day. Never throws. */
+  prune(): void {
+    const cutoff = this.now().getTime() - PRUNE_AFTER_MS;
+    try {
+      for (const name of readdirSync(this.dir)) {
+        if (!name.endsWith(".json") && !name.endsWith(".tmp")) continue;
+        const file = join(this.dir, name);
+        try { if (statSync(file).mtimeMs < cutoff) unlinkSync(file); } catch { /* raced with a writer: leave it */ }
+      }
+    } catch { /* no directory yet */ }
   }
 
   stage(sessionKey: string | undefined, stage: StageId, detail?: string): void {

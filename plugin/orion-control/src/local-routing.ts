@@ -1292,7 +1292,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const toolName = pick(event, ctx, "toolName");
     if (!run?.sessionKey || !toolName) return undefined;
     const { stage, detail } = stageForTool(toolName, str((event.params as Record<string, unknown> | undefined)?.command) ?? "");
-    progress.stage(run.sessionKey, stage, detail);
+    // A write is said only once it worked (after_tool_call below): "making the change to Gym" over a refused write would be a lie.
+    if (stage !== "changing-calendar") progress.stage(run.sessionKey, stage, detail);
     return undefined;
   });
 
@@ -1300,6 +1301,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const run = runFor(event, ctx);
     const toolName = pick(event, ctx, "toolName");
     if (!run || !toolName) return;
+    {
+      const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
+      const { stage, detail } = stageForTool(toolName, command);
+      const outcome = outcomeOf({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });
+      if (stage === "changing-calendar" && (outcome === "success" || outcome === "partial")) progress.stage(run.sessionKey, stage, detail);
+    }
     if (toolName === "exec" && run.sessionKey) {
       const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
       if (RESCHEDULE_WRITE.test(command) && !NOTHING_CHANGED.test(resultText(event.result ?? event.output))) recordChange(run.sessionKey, []);

@@ -80,6 +80,14 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-24 — Routine learning, replies to proactive messages, bedtime guard, fluid voice (Claude, Opus workers)
+
+- **Routines** (`scripts/lib/patterns/`, `orion-patterns routines|learn`): weekday nights out are learned only from evidence: phone fixes, Mac sessions, his own words, how late he woke, and night-out calendar titles as corroboration only. A routine needs 3 same-weekday nights. A gap in the data is unknown, never a night in. During a routine only `bed-*` lines are held, the scheduler doesn't book into it, and the next morning gets wake grace. `orion-daily` runs `learn --calendar` nightly. Friday isn't learned yet because phone location stopped on 10-23.
+- **Replies to proactive messages:** the message he is answering is inserted into a live session (`chat.inject`). It is never inserted into a missing session or one idle past 45 min. The front desk sees it as the previous turn. Code answers only whole short replies (≤6 words, no request in them). Check-ins are changed by id (`orion-checkin find`), and "no/stop/shush" never cancel.
+- **Bedtime guard** (`lib/reach/bedtime-guard.mjs`): bedtime lines, including the 30-min wrap-up, stop on goodnight, an answered bedtime line, the phone charging at night (unless he's typing), the Mac locked or idle 15+ min, or a cap of 2 a night. Away from the Mac, they go to the phone only if it was unlocked in the last 5 min.
+- **Voice:** a canned cue after 1.2 s, spoken progress stages at 9 s then every 13 s (max 3), and a 50 s hard handoff to text (`--valid-until` +2 h). Barge-in or Escape cancels without speaking the answer. On spoken turns there is one honesty retry, then a code-written honest line, only for findings that make the reply false.
+- Audits: `docs/audits/2026-10-23-proactive-reply-and-bedtime.md`, `docs/audits/2026-10-23-voice-latency.md`.
+
 ### 2026-10-22 — Run-5 fixes: moves across days, "it", ownership ledger (Claude, Opus worker)
 
 - A move resolves to the block ORION last made, on any day. Times are read against that block's own time.

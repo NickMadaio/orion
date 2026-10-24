@@ -281,3 +281,21 @@ test("the morning-after grace needs the night to have happened: away fixes or hi
   writeFileSync(join(dir, "known-places.json"), JSON.stringify({ places: [{ id: "home", kind: "home", lat: HOME.lat, lon: HOME.lon, radiusM: 150 }] }));
   assert.equal(routineFacet({ dir, now: morning }).state, "none");
 });
+
+test("orion-daily runs the nightly learn quietly and briefly (stdio ignored, short timeout)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../scripts/orion-daily", import.meta.url), "utf8");
+  const call = src.split("\n").find((l) => l.includes('"orion-patterns"'));
+  assert.match(call, /stdio: "ignore"/);
+  const ms = Number(call.match(/timeout: ([\d_]+)/)[1].replace(/_/g, ""));
+  assert.ok(ms <= 60_000, `timeout ${ms}`);
+});
+
+test("the routine ask draws on the low-value budget, never the curiosity blank-ask budget or its spacing", async () => {
+  const { tierOf } = await import("../scripts/lib/reach/budget.mjs");
+  const { blankAllowed } = await import("../scripts/lib/curiosity/ledger.mjs");
+  assert.equal(tierOf({ why: "curiosity: routine-check-2026-10-30", askType: "routine-check", kind: "question" }), "low");
+  const now = Date.parse("2026-10-30T20:10:00");
+  const ledger = { asks: [{ type: "routine-check", key: "routine-check-2026-10-30", at: "2026-10-30T20:00:00", window: { date: "2026-10-30" } }], blankGapMinutes: 60, pausedUntil: null };
+  assert.equal(blankAllowed(ledger, { now }), true);
+});

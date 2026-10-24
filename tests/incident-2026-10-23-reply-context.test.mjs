@@ -31,13 +31,21 @@ test("10-19 23:03:03 'im doing work shush up' answers the 12:02 bedtime line; 10
   assert.equal(outreachKind(pickOutreach([PAST_BED], { now: Date.parse("2026-10-16T01:45:18Z") })), "bedtime");
 });
 
-test("a reply after he already said something since, or past the window, is not linked; a tapped id is, even late", () => {
+test("a reply after he already said something since, or past the window, is not linked; a tapped id only inside the ask window", () => {
   const now = Date.parse("2026-10-20T19:45:20Z");
   assert.equal(pickOutreach([GYM_30], { now, turns: [Date.parse("2026-10-20T19:45:15Z")] }), null);
   assert.equal(pickOutreach([BED_NOW], { now: Date.parse("2026-10-19T23:40:00Z") }), null);   // plain line, 37 min: no
   assert.equal(pickOutreach([GYM_30], { now: Date.parse("2026-10-20T21:00:00Z") })?.id, GYM_30.id);   // an ask, 75 min: still his answer
   assert.equal(pickOutreach([GYM_30], { now: Date.parse("2026-10-20T21:20:00Z") }), null);           // 95 min: no
-  assert.equal(pickOutreach([GYM_30], { now: Date.parse("2026-10-20T22:00:00Z"), replyTo: `${GYM_30.id}-orion` })?.id, GYM_30.id);   // the phone thread's id
+  assert.equal(pickOutreach([GYM_30], { now: Date.parse("2026-10-20T20:30:00Z"), replyTo: `${GYM_30.id}-orion` })?.id, GYM_30.id);   // the phone thread's id
+  // review 2026-10-23 (HIGH 4): a stale tap no longer answers hours later, a tapped line he spoke after is not the answer,
+  // and a newer bedtime line wins over the tapped one
+  assert.equal(pickOutreach([GYM_30], { now: Date.parse("2026-10-20T22:00:00Z"), replyTo: GYM_30.id }), null);
+  assert.equal(pickOutreach([GYM_30], { now: Date.parse("2026-10-20T19:50:00Z"), replyTo: GYM_30.id, turns: [Date.parse("2026-10-20T19:46:00Z")] }), null);
+  const bed = { ...BED_NOW, at: "2026-10-20T19:55:00Z" };
+  assert.equal(pickOutreach([GYM_30, bed], { now: Date.parse("2026-10-20T19:56:00Z"), replyTo: GYM_30.id })?.id, BED_NOW.id);
+  const mention = { id: "m", at: "2026-10-20T19:55:00Z", text: "What time is bedtime tonight?", why: "curiosity: blank", channel: "mac-bubble" };
+  assert.equal(pickOutreach([GYM_30, mention], { now: Date.parse("2026-10-20T19:56:00Z"), replyTo: GYM_30.id })?.id, GYM_30.id);
 });
 
 test("ORION's injected turn is his words plus when and that ORION started it; the label names the kind", () => {
@@ -55,7 +63,11 @@ function withFakeGateway(now) {
   const h = harness({ now: new Date(now), facts: { idleSeconds: 10, locked: false } });
   const bin = join(h.home, "fake-openclaw");
   writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$*" >> "${h.home}/openclaw.log"\necho '{"ok":true}'\n`); chmodSync(bin, 0o755);
-  return { h, env: { ORION_OPENCLAW_BIN: bin } };
+  // the gateway's own store: the reply's session, used 3 min ago, and the 45-min idle reset
+  writeFileSync(join(h.home, "sessions.json"), JSON.stringify({ "agent:main:orion-chat-9311fb49": { sessionId: "s1", updatedAt: Date.parse(now) - 3 * 60_000 },
+    "agent:main:orion-app-v2": { sessionId: "s2", updatedAt: Date.parse(now) - 5 * 3600_000 } }));
+  writeFileSync(join(h.home, "openclaw.json"), JSON.stringify({ session: { reset: { mode: "idle", idleMinutes: 45 } } }));
+  return { h, env: { ORION_OPENCLAW_BIN: bin, ORION_GATEWAY_SESSIONS: join(h.home, "sessions.json"), ORION_GATEWAY_CONFIG: join(h.home, "openclaw.json") } };
 }
 
 test("orion-inbound-turn --session: the Gym rung goes into the reply's session as ORION's turn, once", () => {
@@ -82,4 +94,31 @@ test("orion-inbound-turn with no outreach to answer, or no --session: no inject"
   h.run("orion-inbound-turn", ["--text", "whats the weather"], env);
   assert.equal(h.lines("openclaw.log").length, 0);
   assert.ok(readFileSync(join(h.dir, "inbound-turns.jsonl"), "utf8").trim().split("\n").length === 2);
+});
+
+// Review 2026-10-23 (HIGH 5): chat.inject refreshes updatedAt, so injecting into an idle session revived an old conversation.
+test("orion-inbound-turn: no inject into a session idle past the reset window (orion-app-v2, 5 h) or one that does not exist: the label carries it", () => {
+  const { h, env } = withFakeGateway("2026-10-20T19:45:20Z");
+  appendFileSync(join(h.dir, "outreach.jsonl"), `${JSON.stringify(GYM_30)}\n`);
+  const idle = h.run("orion-inbound-turn", ["--session", "orion-app-v2", "--text", "in 10"], env);
+  assert.match(idle.stdout, /not injected .*idle past the reset window/);
+  const none = withFakeGateway("2026-10-20T19:45:20Z");
+  appendFileSync(join(none.h.dir, "outreach.jsonl"), `${JSON.stringify(GYM_30)}\n`);
+  assert.match(none.h.run("orion-inbound-turn", ["--session", "orion-chat-new", "--text", "in 10"], none.env).stdout, /no such session yet/);
+  assert.equal(h.lines("openclaw.log").length + none.h.lines("openclaw.log").length, 0);
+});
+
+test("orion-inbound-turn: a deadline already past means no inject at all (it can never land after the turn started)", () => {
+  const { h, env } = withFakeGateway("2026-10-20T19:45:20Z");
+  appendFileSync(join(h.dir, "outreach.jsonl"), `${JSON.stringify(GYM_30)}\n`);
+  h.run("orion-inbound-turn", ["--session", "orion-chat-9311fb49", "--inject-by", String(Date.now() - 1000), "--text", "in 10"], env);
+  assert.equal(h.lines("openclaw.log").length, 0);
+});
+
+// Review 2026-10-23 (MEDIUM 8): the bedtime ack is written for a reply to a bedtime-family line only, by its key.
+test("orion-inbound-turn: a line that only mentions bedtime writes no bedtime ack", () => {
+  const { h, env } = withFakeGateway("2026-10-19T23:03:03Z");
+  appendFileSync(join(h.dir, "outreach.jsonl"), `${JSON.stringify({ id: "q", at: "2026-10-19T23:02:00Z", text: "Quick one: what time is bedtime tonight?", kind: "question", why: "curiosity: blank", channel: "mac-bubble" })}\n`);
+  h.run("orion-inbound-turn", ["--text", "midnight"], env);
+  assert.ok(!existsSync(join(h.dir, "bedtime-ack.json")));
 });

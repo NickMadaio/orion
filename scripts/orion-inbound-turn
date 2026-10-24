@@ -27,8 +27,8 @@ import { noteInboundText } from "./lib/awareness/declared.mjs";
 import { reviewNowOnGoodnight } from "./lib/reach/review-time.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { readFileSync } from "node:fs";
-import { readDelivered, pickOutreach, outreachKind, injectArgs } from "./lib/reach/reply-context.mjs";
-import { ackBedtime } from "./lib/reach/bedtime-guard.mjs";
+import { readDelivered, pickOutreach, injectArgs, sessionLive } from "./lib/reach/reply-context.mjs";
+import { ackBedtime, isBedtimeRow } from "./lib/reach/bedtime-guard.mjs";
 import { readJson, writeJsonAtomic } from "./lib/awareness/io.mjs";
 
 const args = process.argv.slice(2);
@@ -52,19 +52,27 @@ function sendReviewFirst() {
 try { noteInboundText({ dir: DIR, text: flag("--text"), now, bedtime: loadConfig().bedtime, afterDeclare: sendReviewFirst }); } catch { /* best effort */ }
 const sessionKey = /^[A-Za-z0-9._:-]{1,200}$/.test(flag("--session") ?? "") ? flag("--session") : null;
 const INJECTED = "outreach-injected.json";
+// The caller's deadline (epoch ms): it waits for this process until just after it, so an inject never lands after its turn has
+// started (review 2026-10-23: the Mac waited 6 s, the inject could take 8). Default: 4 s from now.
+const injectBy = Number(flag("--inject-by")) || Date.now() + 4000;   // wall clock: the caller waits in real time
 try {
   const turns = readTurns(DIR);
   const row = pickOutreach(readDelivered(DIR), { replyTo, turns, now: now.getTime() });
-  if (row && outreachKind(row) === "bedtime") ackBedtime(DIR, now);
+  // Only a reply to a bedtime-family line (by its key), never to a line that only mentions bedtime (review 2026-10-23).
+  if (row && isBedtimeRow(row)) ackBedtime(DIR, now);
   const key = row && sessionKey ? `${sessionKey}|${row.id}` : null;
   const done = readJson(join(DIR, INJECTED))?.keys ?? [];
-  if (key && !done.includes(key)) {
+  // Never into a session the gateway would reset (idle past its window, or none yet): chat.inject refreshes it and revived an old,
+  // unrelated conversation (review 2026-10-23). That turn starts fresh and the label carries the message instead.
+  const fresh = key ? sessionLive({ sessionKey, now: now.getTime() }) : { ok: false };
+  const budget = injectBy - Date.now();
+  if (key && !done.includes(key) && fresh.ok && budget >= 1000) {
     const bin = process.env.ORION_OPENCLAW_BIN || join(homedir(), ".openclaw/bin/openclaw");
-    const r = spawnSync(bin, injectArgs({ sessionKey, row }), { env: process.env, timeout: 8000, encoding: "utf8" });
+    const r = spawnSync(bin, injectArgs({ sessionKey: fresh.key, row, timeoutMs: Math.max(500, budget - 500) }), { env: process.env, timeout: budget, encoding: "utf8", killSignal: "SIGKILL" });
     if (r.status === 0) writeJsonAtomic(DIR, INJECTED, { keys: [...done, key].slice(-100) });
     // stdout says whether it is in the session: the caller keeps the label either way
     process.stdout.write(r.status === 0 ? `injected ${row.id}\n` : `not injected ${row.id}\n`);
-  }
+  } else if (key && !fresh.ok) process.stdout.write(`not injected ${row.id} (${fresh.reason})\n`);
 } catch { /* the label still carries it */ }
 try {
   const earlier = readTurns(DIR);   // before this message: "first message after the ask" needs the others only
@@ -72,6 +80,7 @@ try {
   appendTurn(DIR, now);
   if (ask) {
     const bin = process.env.ORION_PROACTIVE_BIN || join(import.meta.dirname, "orion-proactive");
+    // After the inject, which has its own deadline: a slow close can delay this process, never put the inject after the turn.
     spawnSync(process.execPath, [bin, "ask-outcome", ask.askId, outcomeFor(flag("--text"))], { env: process.env, timeout: 8000, stdio: "ignore" });
   }
 } catch { /* a chat turn never fails on this */ }

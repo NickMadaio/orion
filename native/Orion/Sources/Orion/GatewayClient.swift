@@ -99,16 +99,16 @@ enum GatewayClient {
     /// What ORION said to him first (orion-reach), only when it is plausibly what
     /// he is answering now (2026-10-16: was the last 3 from 6 hours on every turn).
     /// Call once per turn; see `OutreachTracker`.
-    static func recentOutreach(now: Date = Date()) -> String {
+    static func recentOutreach(now: Date = Date(), replyTo: String? = nil) -> String {
         let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/outreach.jsonl")
         let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-        return outreachTracker.prefix(rows: OutreachContext.parse(jsonl: text), now: now, replyTo: OutreachReplyTo.current)
+        return outreachTracker.prefix(rows: OutreachContext.parse(jsonl: text), now: now, replyTo: replyTo)
     }
 
     // MARK: One agent turn
 
     /// Blocking. Always call from a background queue.
-    static func ask(_ text: String, session: String = GatewayClient.sessionKey, model: String? = nil) throws -> GatewayReply {
+    static func ask(_ text: String, session: String = GatewayClient.sessionKey, model: String? = nil, replyTo: String? = nil) throws -> GatewayReply {
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
             throw GatewayError.missingBinary(binaryPath)
         }
@@ -118,7 +118,7 @@ enum GatewayClient {
         process.arguments = [
             "agent",
             "--session-key", session,
-            "--message", recentOutreach() + SchedulingMemory.context(for: text) + text,
+            "--message", recentOutreach(replyTo: replyTo) + SchedulingMemory.context(for: text) + text,
             "--json",
             "--timeout", String(Int(RunTimeouts.agentTimeout))
         ]

@@ -117,5 +117,7 @@ test("orion-remote logs the turn (via orion-inbound-turn) with the reply-to the 
   const env = { PATH: process.env.PATH, HOME: home, ORION_REMOTE_ALLOW: "phone", ORION_BRAIN_BIN: brain, ORION_INBOUND_BIN: fake };
   spawnSync(process.execPath, [join(SCRIPTS, "orion-remote"), "handle", "--from", "phone", "--mode", "chat", "--reply-to", "reach-9", "--", "at the gym"], { env, encoding: "utf8" });
   assert.ok(existsSync(record), "orion-inbound-turn was called");
-  assert.deepEqual(JSON.parse(readFileSync(record, "utf8").trim().split("\n")[0]), ["--reply-to", "reach-9", "--source", "phone", "--session", "orion-app-v2", "--text", "at the gym"]);
+  const args = JSON.parse(readFileSync(record, "utf8").trim().split("\n")[0]);
+  assert.deepEqual([...args.slice(0, 7), ...args.slice(8)], ["--reply-to", "reach-9", "--source", "phone", "--session", "orion-app-v2", "--inject-by", "--text", "at the gym"]);
+  assert.ok(Math.abs(Number(args[7]) - (Date.now() + 8000)) < 20_000, "the inject has a deadline inside the phone's 10 s wait");
 });

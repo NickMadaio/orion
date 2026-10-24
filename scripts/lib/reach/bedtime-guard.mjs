@@ -11,6 +11,9 @@ const MIN = 60_000;
 /** Keys of the bedtime lines (lib/reach/proactive.mjs) and the "why" orion-reach sees for them. */
 export const BED_KEYS = Object.freeze(["bed-wind", "bed-now", "bed-late"]);
 export const isBedtimeWhy = (why) => /^proactive: (?:bed-(?:wind|now|late)\b|session-done-)/.test(String(why ?? ""));
+/** A delivered row that IS a bedtime line, by its key: a bed-* rung, or the late session-done reminder. Never by its words. */
+export const isBedtimeRow = (row) => /^proactive: bed-(?:wind|now|late)\b/.test(String(row?.why ?? ""))
+  || (/^proactive: session-done-/.test(String(row?.why ?? "")) && row?.kind === "reminder");
 /** At most this many bedtime lines reach him a night, whatever the ladder wants. */
 export const NIGHTLY_CAP = 2;
 /** No Mac or phone interaction for this long after bedtime: he is in bed, not up. */

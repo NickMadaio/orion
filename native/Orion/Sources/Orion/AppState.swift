@@ -112,8 +112,8 @@ final class AppState: ObservableObject {
         return (process.terminationStatus == 0, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }
     func refreshChats() { chatSummaries = (try? chatStore?.list()) ?? []; if let id = chatConversation?.id { chatConversation = try? chatStore?.load(id) } }
-    func selectChat(_ id: String) { guard phase != .thinking else { return }; chatConversation = try? chatStore?.load(id); selectedChatModel = chatConversation?.model; chatMode = true }
-    func newChat() { guard phase != .thinking else { return }; chatConversation = try? chatStore?.create(model: selectedChatModel, now: Date()); chatMode = true; refreshChats() }
+    func selectChat(_ id: String) { guard phase != .thinking else { return }; OutreachReplyTo.clear(); chatConversation = try? chatStore?.load(id); selectedChatModel = chatConversation?.model; chatMode = true }
+    func newChat() { guard phase != .thinking else { return }; OutreachReplyTo.clear(); chatConversation = try? chatStore?.create(model: selectedChatModel, now: Date()); chatMode = true; refreshChats() }
     func renameChat(_ id: String, title: String) { try? chatStore?.rename(id, to: title); refreshChats() }
     func deleteChat(_ id: String) { guard phase != .thinking else { return }; try? chatStore?.delete(id); if chatConversation?.id == id { chatConversation = nil }; refreshChats() }
     private func saveChat(_ role: ChatRole, text: String, thinking: String? = nil) {
@@ -543,7 +543,7 @@ final class AppState: ObservableObject {
         // narrative is never re-spoken (10-19), even when it listens and ends in a courtesy "?".
         let isNarrativeKind = kind.map { SpokenQuestionFollowUp.narrativeKinds.contains($0.lowercased()) } ?? false
         if (aloud || listen), !isNarrativeKind, SpokenQuestionFollowUp.needsAnswer(text) || (listen && SpokenQuestionFollowUp.isQuestion(text) && !SpokenQuestionFollowUp.isNarrative(text)) {
-            OutreachReplyTo.current = reachID
+            OutreachReplyTo.set(reachID)
             questionFollowUp.arm(text: text, reachID: reachID, onPhone: deliveredToPhone)
         }
         guard aloud else { return }
@@ -1995,7 +1995,9 @@ final class AppState: ObservableObject {
     private func send(_ text: String, typed: Bool = false) {
         // Every message he sends is a turn for the curiosity loop, and closes the ask it answers (orion-inbound-turn).
         // With the session: the outreach he is answering goes into that conversation as ORION's own turn (2026-10-23).
-        InboundTurnLog.record(text: text, session: chatConversation.map { "orion-chat-" + $0.id } ?? GatewayClient.sessionKey)
+        // The tapped id is taken once, here: it never answers a later message (review 2026-10-23).
+        let tappedReply = OutreachReplyTo.take()
+        InboundTurnLog.record(text: text, replyTo: tappedReply, session: chatConversation.map { "orion-chat-" + $0.id } ?? GatewayClient.sessionKey)
         questionFollowUp.answered()
         repeatFollowUpGrace = nil
         let origin: ReplyOrigin = typed ? .typed : .voice
@@ -2051,7 +2053,7 @@ final class AppState: ObservableObject {
             let result: Result<GatewayReply, Error>
             InboundTurnLog.settle()   // the outreach inject lands before the turn reads the session
             do {
-                result = .success(try GatewayClient.ask(request, session: chatSession, model: chatModel))
+                result = .success(try GatewayClient.ask(request, session: chatSession, model: chatModel, replyTo: tappedReply))
             } catch {
                 result = .failure(error)
             }

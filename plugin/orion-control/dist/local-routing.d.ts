@@ -181,9 +181,15 @@ export declare const SPOKEN_STOP = "I couldn't finish that properly, so I won't 
  * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
  * never the model's reply, never a clean success line over a failed command.
  */
-export declare function spokenFinalLine(findings: readonly string[], ctx: {
+/** The findings that mean the reply would tell him something false about what happened. A wrong time or an "error"
+ *  somewhere in a tool's output beside a real success does not (re-review HIGH): those keep the model's reply. Overlap and
+ *  duplicate count only when the check actually had his calendar to look at. */
+export declare const SPOKEN_BLOCKING: readonly ["claims what the tools don't show", "promised but did not act", "failure not mentioned", "did not finish", "denies messages it shows", "claims a lookup it did not do"];
+export declare function spokenBlocking(findings: readonly string[], calendarChecked: boolean): string[];
+export declare function spokenFinalLine(allFindings: readonly string[], ctx: {
     calendar: boolean;
     wrote: boolean;
+    calendarChecked?: boolean;
 }): string | undefined;
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —

@@ -514,7 +514,15 @@ export const SPOKEN_STOP = "I couldn't finish that properly, so I won't say it's
  * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
  * never the model's reply, never a clean success line over a failed command.
  */
-export function spokenFinalLine(findings: readonly string[], ctx: { calendar: boolean; wrote: boolean }): string | undefined {
+/** The findings that mean the reply would tell him something false about what happened. A wrong time or an "error"
+ *  somewhere in a tool's output beside a real success does not (re-review HIGH): those keep the model's reply. Overlap and
+ *  duplicate count only when the check actually had his calendar to look at. */
+export const SPOKEN_BLOCKING = ["claims what the tools don't show", "promised but did not act", "failure not mentioned", "did not finish", "denies messages it shows", "claims a lookup it did not do"] as const;
+export function spokenBlocking(findings: readonly string[], calendarChecked: boolean): string[] {
+  return findings.filter((f) => (SPOKEN_BLOCKING as readonly string[]).includes(f) || (calendarChecked && (f === "overlap left" || f === "duplicate block")));
+}
+export function spokenFinalLine(allFindings: readonly string[], ctx: { calendar: boolean; wrote: boolean; calendarChecked?: boolean }): string | undefined {
+  const findings = spokenBlocking(allFindings, ctx.calendarChecked ?? false);
   if (!findings.length) return undefined;
   if (findings.some((f) => FALSE_CLAIM.test(f))) return honestLine(ctx.calendar);
   if (findings.some((f) => LOOKUP_CLAIM.test(f))) return LOOKUP_HONEST;
@@ -1429,7 +1437,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         remember([runId, sessionKeyNow], owed);
       }
       // A spoken turn out of its one retry with anything still open: code says the honest line (HIGH 3, review of feat/voice-fluid).
-      if (on && run.spoken && !flowActed && !run.reminder && (run.passes >= revisePasses(true) || hostDrops) && findings.length > 0) {
+      // Never over the scheduler's own honest line (honestNow), and only for a finding that makes the reply false (spokenBlocking):
+      // a real move with a mismatched time keeps its reply (re-review HIGH). This path never has calendar data (checkWork gets none).
+      if (on && run.spoken && !honestNow && !flowActed && !run.reminder && (run.passes >= revisePasses(true) || hostDrops) && spokenBlocking(findings, false).length > 0) {
         const line = spokenFinalLine(findings, { calendar: SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), wrote: wroteThisTurn(run.tools) });
         if (line) { owed = line; remember([runId, sessionKeyNow], owed); }
       }

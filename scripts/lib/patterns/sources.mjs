@@ -92,6 +92,7 @@ export function gatherEvidence({ dir, now = new Date(), env = process.env, calen
     fixes, isHome: homeTest(places, fixes), placeName: placeNamer(places), sessions,
     activities: logged.filter((a) => a.label), corroborations,
     wakes: wakesOf({ nights: readJson(join(dir, "sleep-actual.json"))?.nights ?? [], sleepLog: health.sleepLog ?? [] }),
+    sleeps: (readJson(join(dir, "sleep-actual.json"))?.nights ?? []).map((n) => n?.fellAsleep).filter((t) => !Number.isNaN(Date.parse(t))),
     messages, askReplies: answersToAsks(asks, messages), answers: readAnswers(dir),
     counts: { fixes: fixes.length, sessions: sessions.length, logged: logged.length, calendar: corroborations.length, messages: messages.length },
   };

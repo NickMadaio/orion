@@ -1,5 +1,5 @@
 // Evidence in, routines out (pure), and the plain-words listing `orion-patterns routines` prints.
-import { eveningEpisodes } from "./episodes.mjs";
+import { eveningEpisodes, habitualCells } from "./episodes.mjs";
 import { statementEvidence } from "./statements.mjs";
 import { answersAsStatements } from "./store.mjs";
 import { learnRoutines, MIN_OCCURRENCES, WINDOW_DAYS } from "./learn.mjs";
@@ -7,9 +7,13 @@ import { clock, WEEKDAYS } from "./time.mjs";
 
 /** @param ev gatherEvidence() output (or a fixture of the same shape) */
 export function learnFromEvidence(ev, { now = new Date() } = {}) {
-  const evenings = eveningEpisodes(ev.fixes ?? [], { isHome: ev.isHome ?? (() => false), sessions: ev.sessions ?? [] });
+  // where the phone spends most nights counts as home even when no home place is known (else every evening is "out")
+  const habitual = new Set(habitualCells(ev.fixes ?? []));
+  const known = ev.isHome ?? (() => false);
+  const isHome = (f) => known(f) || habitual.has(`${f.lat.toFixed(3)},${f.lon.toFixed(3)}`);
+  const evenings = eveningEpisodes(ev.fixes ?? [], { isHome, sessions: ev.sessions ?? [], sleeps: ev.sleeps ?? [] });
   const statements = [...statementEvidence([...(ev.messages ?? []), ...(ev.askReplies ?? [])]), ...answersAsStatements(ev.answers ?? [])];
-  const routines = learnRoutines({ evenings, statements, activities: ev.activities ?? [], wakes: ev.wakes ?? {}, now, placeName: ev.placeName ?? null });
+  const routines = learnRoutines({ evenings, statements, activities: ev.activities ?? [], corroborations: ev.corroborations ?? [], wakes: ev.wakes ?? {}, now, placeName: ev.placeName ?? null });
   return { routines, evenings, statements };
 }
 

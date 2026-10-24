@@ -36,13 +36,18 @@ function describe({ weekday, start, end, cell, placeName }) {
 }
 
 /** One weekday's evenings: the outcome of each date and why. */
-function eveningOutcomes(dates, { evenings, said }) {
+function eveningOutcomes(dates, { evenings, said, corroborations, lateWake }) {
   return dates.map((date) => {
     const ep = evenings[date];
     const words = said.filter((s) => s.date === date);
     const no = words.some((s) => s.polarity < 0), yes = words.some((s) => s.polarity > 0);
-    const labels = words.filter((s) => s.polarity > 0).map((s) => s.label);
-    if (ep?.status === "out") return { date, outcome: "hit", via: yes ? ["phone", "said"] : ["phone"], start: ep.start, end: ep.end, cell: ep.cell, returnedHome: ep.returnedHome, labels };
+    const event = corroborations.find((c) => c.date === date);
+    const labels = [...words.filter((s) => s.polarity > 0).map((s) => s.label), ...(event ? [event.label] : [])];
+    const phone = (e, extra) => ({ date, outcome: "hit", start: e.start, end: e.end, cell: e.cell, returnedHome: e.returnedHome, labels, ...(e.grade === "sparse" ? { sparse: true } : {}), ...extra });
+    if (ep?.status === "out" && !no) return phone(ep, { via: [ep.grade === "sparse" ? "phone-sparse" : "phone", ...(yes ? ["said"] : [])] });
+    // one away fix alone proves nothing; with his words, a night-out event or a late wake next morning it is a night out
+    const backing = [yes && "said", event && "calendar", lateWake(date) && "late-wake"].filter(Boolean);
+    if (ep?.weak && !no && backing.length) return phone(ep.weak, { via: ["phone-weak", ...backing], sparse: true });
     if (yes && !no) return { date, outcome: "hit", via: ["said"], labels };
     if (no) return { date, outcome: "miss", via: ["said-no"] };
     if (ep?.status === "home") return { date, outcome: "miss", via: [ep.via === "mac" ? "mac" : "phone-home"] };
@@ -81,14 +86,18 @@ function routineFrom({ id, kind, weekday, outcomes, today, wakes, placeName, fix
  * @param placeName  (cell) => a known place's name, or null
  * @returns routines, most confident first
  */
-export function learnRoutines({ evenings = {}, statements = [], activities = [], wakes = {}, now = new Date(), placeName = null }) {
+export const LATE_WAKE = 90;   // minutes later than his usual wake
+
+export function learnRoutines({ evenings = {}, statements = [], activities = [], corroborations = [], wakes = {}, now = new Date(), placeName = null }) {
   const today = eveningOf(now);
   const from = addDays(today, -WINDOW_DAYS + 1);
   // evenings learn only from statements about going out ("going out to the club"), never "I'm at the library"
+  const usual = median(Object.values(wakes));
+  const lateWake = (date) => usual !== null && Number.isFinite(wakes[addDays(date, 1)]) && wakes[addDays(date, 1)] >= usual + LATE_WAKE;
   const said = statements.filter((s) => s.date >= from && s.date <= today && s.goingOut === true);
   const routines = [];
   for (let weekday = 0; weekday < 7; weekday++) {
-    const outcomes = eveningOutcomes(datesOn(weekday, from, today), { evenings, said });
+    const outcomes = eveningOutcomes(datesOn(weekday, from, today), { evenings, said, corroborations, lateWake });
     const r = routineFrom({ id: `evening-out-${weekday}`, kind: "away-evening", weekday, outcomes, today, wakes, placeName });
     if (r) routines.push(r);
   }

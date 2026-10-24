@@ -21,7 +21,7 @@ const fix = (at, p, extra = {}) => ({ at, lat: p.lat, lon: p.lon, charging: fals
 
 /** A Friday out: home in the evening, at the club 23:00-03:00, home again 03:15. */
 const nightOut = (date) => [fix(iso(date, "20:00"), HOME), fix(iso(date, "21:30"), HOME),
-  ...["23:00", "23:30", "00:30", "01:30", "02:30"].map((t, i) => fix(iso(date, t, i ? 1 : 0), CLUB)), fix(iso(date, "03:15", 1), HOME)];
+  ...["23:00", "23:30", "00:30", "01:30", "02:30"].map((t, i) => fix(iso(date, t, i > 1 ? 1 : 0), CLUB)), fix(iso(date, "03:15", 1), HOME)];
 /** A night in: home all evening. */
 const nightIn = (date) => ["20:00", "22:15", "23:30", "00:45", "02:00"].map((t, i) => fix(iso(date, t, i > 2 ? 1 : 0), HOME, { charging: i > 2 }));
 
@@ -210,4 +210,45 @@ test("calendar classes never become routines; a calendar event only corroborates
   // three calendar "club" events and no phone/words: not a routine on their own
   const cal = ["2026-10-09", "2026-10-16", "2026-10-23"].map((date) => ({ date, label: "club", start: 1380, end: 1620 }));
   assert.deepEqual(learnFromEvidence({ fixes: [], isHome, corroborations: cal }, { now: new Date("2026-10-24T12:00:00") }).routines, []);
+});
+
+// The real shape of 9 Oct: away in the afternoon, nothing all evening, then two sparse away fixes at 01:31 and 01:49 Sat.
+const sparseNight = (date) => [fix(iso(date, "13:12"), CLUB), fix(iso(date, "16:16"), CLUB),
+  fix(iso(date, "01:31", 1), { lat: 51.518, lon: -0.08 }), fix(iso(date, "01:31", 1), { lat: 51.518, lon: -0.08 }), fix(iso(date, "01:49", 1), { lat: 51.518, lon: -0.08 })];
+
+test("sparse night fixes (01:31-01:49 away, nothing else) still count as a night out", () => {
+  const [r] = learn(["2026-10-09", "2026-10-16", "2026-10-23"].flatMap(sparseNight));
+  assert.equal(r?.status, "confident");
+  assert.equal(r.weekdayName, "Friday");
+  assert.deepEqual(r.evidence.map((e) => e.via[0]), ["phone-sparse", "phone-sparse", "phone-sparse"]);
+});
+
+test("one drifted fix per Friday between home fixes learns nothing (the reviewer's stray-drift probe)", () => {
+  const drift = { lat: 51.531, lon: -0.087 };
+  const fixes = ["2026-10-09", "2026-10-16", "2026-10-23"].flatMap((d) => [fix(iso(d, "20:00"), HOME), fix(iso(d, "21:30"), drift), fix(iso(d, "23:00"), HOME), fix(iso(d, "23:30"), HOME)]);
+  assert.deepEqual(learn(fixes), []);
+});
+
+test("one away fix counts only with corroboration: a late wake the next morning", () => {
+  const fixes = ["2026-10-09", "2026-10-16", "2026-10-23"].flatMap((d) => [fix(iso(d, "20:00"), HOME), fix(iso(d, "23:40"), CLUB)]);
+  assert.deepEqual(learn(fixes), []);
+  const wakes = { "2026-10-10": 780, "2026-10-17": 800, "2026-10-24": 790, "2026-10-12": 540, "2026-10-13": 520, "2026-10-14": 530, "2026-10-15": 545 };
+  const [r] = learnFromEvidence({ fixes, isHome, wakes }, { now: new Date("2026-10-24T12:00:00") }).routines;
+  assert.equal(r?.status, "confident");
+  assert.ok(r.evidence.every((e) => e.via.includes("late-wake")));
+});
+
+test("with no home known, a phone at the same place every night is home, not a routine (the no-home probe)", () => {
+  const days = Array.from({ length: 21 }, (_, i) => { const d = new Date("2026-10-24T12:00:00"); d.setDate(d.getDate() - i - 1); return d.toLocaleDateString("en-CA"); });
+  const fixes = days.flatMap((d) => ["19:00", "21:00", "23:00"].map((t) => fix(iso(d, t), HOME)));
+  assert.deepEqual(learnFromEvidence({ fixes, isHome: () => false }, { now: new Date("2026-10-24T12:00:00") }).routines, []);
+});
+
+test("an away run starting after 01:00 right after he was at the Mac is drift (Wed 14 Oct '02:32-06:50')", () => {
+  const nights = ["2026-10-07", "2026-10-14", "2026-10-21"];
+  const fixes = nights.flatMap((d) => [fix(iso(d, "18:30"), HOME), ...["02:32", "03:51", "04:45", "06:50"].map((t) => fix(iso(d, t, 1), CLUB))]);
+  const sessions = nights.map((d) => ({ start: iso(d, "21:23"), end: iso(d, "01:24", 1) }));
+  assert.deepEqual(learnFromEvidence({ fixes, isHome, sessions }, { now: new Date("2026-10-24T12:00:00") }).routines, []);
+  const asleep = learnFromEvidence({ fixes, isHome, sleeps: nights.map((d) => iso(d, "01:50", 1)) }, { now: new Date("2026-10-24T12:00:00") }).routines;
+  assert.deepEqual(asleep, []);
 });

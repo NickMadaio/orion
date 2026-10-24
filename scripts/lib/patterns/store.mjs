@@ -43,7 +43,7 @@ export function recordAnswer(dir, { ask, text, now = new Date() }) {
 export function noteStatement(dir, { text, now = new Date() }) {
   const s = parseStatement(text);
   const minute = now.getHours() * 60 + now.getMinutes();
-  if (!s || s.tense === "past" || !(minute >= 16 * 60 || minute < 5 * 60 || /\btonight\b/i.test(text))) return null;
+  if (!s || !s.goingOut || s.tense === "past" || !(minute >= 16 * 60 || minute < 5 * 60 || /\btonight\b/i.test(text))) return null;
   const row = { at: now.toISOString(), evening: eveningOf(now), routineId: null, verdict: s.polarity > 0 ? "confirm" : "refute", label: s.label, source: "said" };
   append(dir, row);
   return row;
@@ -51,4 +51,4 @@ export function noteStatement(dir, { text, now = new Date() }) {
 
 /** Answers as learner statements ({ date, polarity, label, source }). */
 export const answersAsStatements = (rows) => rows.filter((r) => r?.evening && ["confirm", "refute"].includes(r.verdict))
-  .map((r) => ({ date: r.evening, at: r.at, polarity: r.verdict === "confirm" ? 1 : -1, label: r.label ?? null, source: r.source === "ask" ? "ask" : "said" }));
+  .map((r) => ({ date: r.evening, at: r.at, polarity: r.verdict === "confirm" ? 1 : -1, label: r.label ?? null, goingOut: true, source: r.source === "ask" ? "ask" : "said" }));

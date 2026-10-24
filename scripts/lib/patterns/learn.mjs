@@ -84,7 +84,8 @@ function routineFrom({ id, kind, weekday, outcomes, today, wakes, placeName, fix
 export function learnRoutines({ evenings = {}, statements = [], activities = [], wakes = {}, now = new Date(), placeName = null }) {
   const today = eveningOf(now);
   const from = addDays(today, -WINDOW_DAYS + 1);
-  const said = statements.filter((s) => s.date >= from && s.date <= today && (s.source !== "answer" || !Number.isFinite(s.start) || s.start >= 17 * 60));
+  // evenings learn only from statements about going out ("going out to the club"), never "I'm at the library"
+  const said = statements.filter((s) => s.date >= from && s.date <= today && s.goingOut === true);
   const routines = [];
   for (let weekday = 0; weekday < 7; weekday++) {
     const outcomes = eveningOutcomes(datesOn(weekday, from, today), { evenings, said });

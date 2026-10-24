@@ -182,3 +182,17 @@ test("during the routine a leave reminder still goes out (and the protected leav
   assert.deepEqual(gate(aw, { kind: "reminder", why: "proactive: bed-wind", tier: "protected", now: t }).action, "deliver");
   assert.deepEqual(gate(aw, { kind: "checkin", why: "plan: gym", now: t }).action, "deliver");
 });
+
+test("only going-out statements count for evenings; 'home tonight after the club' is not a no", async () => {
+  const { parseStatement, verdictOf, statementEvidence } = await import("../scripts/lib/patterns/statements.mjs");
+  assert.equal(parseStatement("I'm at the library").goingOut, false);
+  assert.deepEqual(statementEvidence([{ at: iso("2026-10-16", "20:00"), text: "I'm at the library" }]), []);
+  // the reviewer's probe: two "library" evenings plus one real night out learn nothing
+  const msgs = ["2026-10-09", "2026-10-16"].map((d) => ({ at: iso(d, "20:00"), text: "I'm at the library" }));
+  assert.deepEqual(learn(nightOut("2026-10-23"), { messages: msgs }), []);
+  assert.notEqual(verdictOf("home tonight after the club"), "refute");
+  assert.notEqual(parseStatement("home tonight after the club")?.polarity, -1);
+  assert.equal(verdictOf("nah staying in"), "refute");
+  assert.equal(verdictOf("yeah"), "confirm");
+  assert.equal(verdictOf("going out, nah not tired"), "confirm");
+});

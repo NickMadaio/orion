@@ -69,6 +69,11 @@ if node --test "$REPO/tests/connect.test.mjs" "$REPO/tests/canvas-brain.test.mjs
 else
     bad "Canvas brain checks failed"; tail -25 "$LOGS"/orion-ci-canvas.log
 fi
+if node --test "$REPO"/tests/pattern-*.test.mjs "$REPO"/tests/awareness-*.test.mjs "$REPO"/tests/curiosity-*.test.mjs >"$LOGS"/orion-ci-patterns.log 2>&1; then
+    ok "learned routines, awareness and curiosity checks"
+else
+    bad "learned routine / awareness checks failed"; tail -25 "$LOGS"/orion-ci-patterns.log
+fi
 if (cd "$PLUGIN" && npm test >"$LOGS"/orion-ci-test.log 2>&1); then
     ok "$(grep -oE 'Tests  [0-9]+ passed' "$LOGS"/orion-ci-test.log | tail -1)"
 else

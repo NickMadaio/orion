@@ -299,3 +299,18 @@ test("the routine ask draws on the low-value budget, never the curiosity blank-a
   const ledger = { asks: [{ type: "routine-check", key: "routine-check-2026-10-30", at: "2026-10-30T20:00:00", window: { date: "2026-10-30" } }], blankGapMinutes: 60, pausedUntil: null };
   assert.equal(blankAllowed(ledger, { now }), true);
 });
+
+test("a gap in the data is not a night in: home 21:14 and 02:21 with nothing between is unknown (Fri 2 Oct)", async () => {
+  const { eveningEpisodes, homeAllNight } = await import("../scripts/lib/patterns/episodes.mjs");
+  const gap = eveningEpisodes([fix(iso("2026-10-02", "21:14"), HOME), fix(iso("2026-10-02", "02:21", 1), HOME)], { isHome });
+  assert.equal(gap["2026-10-02"].status, "unknown");
+  // the same night covered every 90 min is home; so is one covered by Mac use at home
+  const covered = eveningEpisodes(["22:30", "23:50", "01:15", "02:30"].map((t, i) => fix(iso("2026-10-02", t, i > 1 ? 1 : 0), HOME)), { isHome });
+  assert.equal(covered["2026-10-02"].status, "home");
+  const mac = eveningEpisodes([fix(iso("2026-10-02", "02:21", 1), HOME)], { isHome, sessions: [{ start: iso("2026-10-02", "21:30"), end: iso("2026-10-02", "01:30", 1) }] });
+  assert.equal(mac["2026-10-02"].status, "home");
+  assert.equal(homeAllNight([], [], "2026-10-02"), false);
+  // and a gap week does not break a learned Friday
+  const r = learn([...nightOut("2026-10-09"), ...nightOut("2026-10-16"), ...nightOut("2026-10-23"), fix(iso("2026-10-02", "21:14"), HOME), fix(iso("2026-10-02", "02:21", 1), HOME)])[0];
+  assert.equal(r.misses, 0);
+});

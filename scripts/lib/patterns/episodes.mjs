@@ -7,7 +7,7 @@ const MOVING = ["walking", "running", "cycling", "vehicle", "automotive"];
 export const EVENING = Object.freeze({ from: 17 * 60, to: 32 * 60 });       // 17:00 to 08:00 next morning
 export const NIGHT = Object.freeze({ from: 21 * 60, to: 28 * 60 });         // an episode must reach into 21:00-04:00
 export const CORE = Object.freeze({ from: 22 * 60, to: 27 * 60 });          // "home" needs fixes across 22:00-03:00
-export const MIN_AWAY = 60, HOME_SPREAD = 15;
+export const MIN_AWAY = 60;
 
 /** The coarse cell awareness already uses (2 decimals, ~1 km). Nothing finer is ever stored. */
 export const cellOf = (lat, lon) => `${Number(lat).toFixed(2)},${Number(lon).toFixed(2)}`;
@@ -71,6 +71,23 @@ function afterSleep(r, { date, rows, sessions, sleeps }) {
   return sleeps.some((t) => { const m = nightMinute(t, date); return m >= 21 * 60 && m <= r.start; });
 }
 
+export const MAX_HOME_GAP = 90;
+
+/**
+ * "Home" for the night only with evidence across 22:00-03:00: no away fix in it, at least one home fix or Mac session in
+ * it, and no stretch of the window (from 22:00, between them, to 03:00) longer than 90 min without a home fix or Mac use.
+ * A gap in the data is unknown, never a night in.
+ */
+export function homeAllNight(rows, sessions, date) {
+  if (rows.some((r) => !r.home && r.m >= CORE.from && r.m < CORE.to)) return false;
+  const macs = sessions.map((s) => ({ start: nightMinute(s.start, date), end: nightMinute(s.end, date) })).filter((s) => s.end > CORE.from && s.start < CORE.to);
+  const inside = [...rows.filter((r) => r.home && r.m >= CORE.from && r.m < CORE.to).map((r) => ({ start: r.m, end: r.m })), ...macs].sort((a, b) => a.start - b.start);
+  if (!inside.length) return false;
+  let cursor = CORE.from;
+  for (const e of inside) { if (e.start - cursor > MAX_HOME_GAP) return false; cursor = Math.max(cursor, e.end); }
+  return CORE.to - cursor <= MAX_HOME_GAP;
+}
+
 /**
  * @param fixes     fixesOf(phoneSignals)
  * @param isHome    (fix) => boolean
@@ -91,21 +108,14 @@ export function eveningEpisodes(fixes, { isHome, sessions = [], sleeps = [] }) {
   for (const [date, rows] of byEvening) {
     const runs = awayRuns(rows).map((r) => ({ ...r, grade: grade(r) })).filter((r) => r.grade && !afterSleep(r, { date, rows, sessions, sleeps }));
     const best = runs.sort((a, b) => rank[a.grade] - rank[b.grade] || (b.end - b.start) - (a.end - a.start))[0];
-    const homeCore = rows.filter((r) => r.home && r.m >= CORE.from && r.m < CORE.to).map((r) => r.m);
-    const atMac = sessions.some((s) => { const a = nightMinute(s.start, date), b = nightMinute(s.end, date); return a < CORE.to && b > CORE.from; });
-    const awayCore = rows.some((r) => !r.home && r.m >= CORE.from && r.m < CORE.to);
-    // home: seen at home across the core of the night, or home before 23:00 and again after 01:00 with nothing away between
-    const homes = rows.filter((r) => r.home);
-    const bracket = homes.some((a) => a.m <= 23 * 60 && homes.some((b) => b.m >= 25 * 60 && !rows.some((x) => !x.home && x.m > a.m && x.m < b.m)));
-    const seenHome = (homeCore.length >= 2 && Math.max(...homeCore) - Math.min(...homeCore) >= HOME_SPREAD) || bracket || (atMac && !awayCore);
+    const seenHome = homeAllNight(rows, sessions, date);
     if (best && best.grade !== "weak") { out[date] = { date, status: "out", ...best }; continue; }
     out[date] = { date, status: seenHome ? "home" : "unknown", fixes: rows.length, ...(best ? { weak: best } : {}) };
   }
   for (const s of sessions) {
     const date = eveningOf(s.start);
     if (out[date]) continue;
-    const a = nightMinute(s.start, date), b = nightMinute(s.end, date);
-    if (a < CORE.to && b > CORE.from) out[date] = { date, status: "home", fixes: 0, via: "mac" };
+    if (homeAllNight([], sessions, date)) out[date] = { date, status: "home", fixes: 0, via: "mac" };
   }
   return out;
 }

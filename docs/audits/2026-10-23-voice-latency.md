@@ -113,3 +113,15 @@ AppState edits are kept small (properties, closures, one call in `send`, three h
 | M6 | `--no-queue` let the reach gate drop "I'll text you" | No `--no-queue`, no `--urgent`: a hold is queued (sleep → morning); its why is outside the counted budgets | argument test |
 | M7 | Cue cache could not repair itself | Size + decode check, bad files deleted, `play` miss renders, launch render retried while the daemon is down (socket injectable for tests) | damaged-file and retry tests |
 | L | Old files, case, focus label, main-thread reads, 0.25 s doc, deinit, done flag, previous-turn file | Prune > 1 day on begin; names lowercased both sides; `checking-focus`; `VoiceProgressReader` (1 s, utility queue, static formatters); doc fixed; `deinit`; `done` starts no update; 0.5 s skew | each covered |
+
+## 8. Re-review fixes
+
+- HIGH: the spoken honest line now fires only for findings that make the reply false (false claim, promise not acted on,
+  failure not mentioned, did not finish, denied messages, invented lookup; overlap/duplicate only when calendar data was
+  checked, which this path never has), and never over the scheduler's own line (`honestNow`). A real move with a
+  mismatched time keeps the model's reply; a real failure with no retry still gets the honest line.
+- MEDIUM: a handed-off answer lands once on the Mac (the app shows its own bubble only when orion-reach did not send) and
+  carries `--valid-until` now + 2 h. Trade-off: an answer held through his sleep window expires instead of arriving
+  stale in the morning; it is still in the chat history.
+- LOW: the cue decode check runs on the render queue; the launch render retries a round that skipped a phrase being
+  rendered on demand.

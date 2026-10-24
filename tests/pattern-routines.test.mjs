@@ -136,9 +136,11 @@ test("fresh evidence of him at home an hour into it ends the hold", () => {
 test("the gate holds the bedtime nag during the routine (and only then)", () => {
   const routine = routineNow([confident()], { now: new Date("2026-10-30T23:45:00") });
   const aw = { sleep: { state: "awake" }, session: { state: "none" }, routine };
-  assert.equal(gate(aw, { kind: "reminder", now: Date.parse("2026-10-30T23:45:00") }).heldFor, "routine");
-  assert.equal(gate(aw, { kind: "reminder", urgentKind: "reminder", now: Date.parse("2026-10-30T23:45:00") }).action, "deliver");   // one he set
-  assert.equal(gate({ ...aw, routine: routineNow([confident()], { now: new Date("2026-10-29T23:45:00") }) }, { kind: "reminder" }).action, "deliver");
+  const t = Date.parse("2026-10-30T23:45:00");
+  assert.equal(gate(aw, { kind: "reminder", why: "proactive: bed-wind", now: t }).heldFor, "routine");
+  assert.equal(gate(aw, { kind: "reminder", why: "proactive: bed-late", now: t }).heldFor, "routine");
+  assert.equal(gate(aw, { kind: "reminder", why: "proactive: bed-wind", urgentKind: "reminder", now: t }).action, "deliver");   // one he set
+  assert.equal(gate({ ...aw, routine: routineNow([confident()], { now: new Date("2026-10-29T23:45:00") }) }, { kind: "reminder", why: "proactive: bed-wind" }).action, "deliver");
   // the bedtime line itself is still composed; the gate is what keeps it from him
   const lines = decide({ minute: 23 * 60 + 20, bed: "23:45", wake: "08:00", day: [], sent: {} });
   assert.ok(lines.some((l) => l.key === "bed-wind" && l.kind === "reminder"));
@@ -168,4 +170,15 @@ test("the scheduler walls off a confident routine window, unless something alrea
   assert.deepEqual(routineWalls({ dir, date: "2026-10-30" }), [{ start: 1140, end: 1380, title: "usual club" }]);
   assert.deepEqual(routineWalls({ dir, date: "2026-10-30", existing: [{ start: 1200, end: 1260 }] }), []);
   assert.deepEqual(routineWalls({ dir, date: "2026-10-29" }), []);
+});
+
+test("during the routine a leave reminder still goes out (and the protected leave-late one), nothing queued for the morning", () => {
+  const routine = routineNow([confident()], { now: new Date("2026-10-30T23:45:00") });
+  const aw = { sleep: { state: "awake" }, session: { state: "none" }, routine };
+  const t = Date.parse("2026-10-30T23:45:00");
+  assert.equal(routine.holdsBedtime, true);
+  assert.deepEqual(gate(aw, { kind: "reminder", why: "proactive: leave-1425", tier: "normal", now: t }).action, "deliver");
+  assert.deepEqual(gate(aw, { kind: "reminder", why: "proactive: leave-late-1425", tier: "protected", now: t }).action, "deliver");
+  assert.deepEqual(gate(aw, { kind: "reminder", why: "proactive: bed-wind", tier: "protected", now: t }).action, "deliver");
+  assert.deepEqual(gate(aw, { kind: "checkin", why: "plan: gym", now: t }).action, "deliver");
 });

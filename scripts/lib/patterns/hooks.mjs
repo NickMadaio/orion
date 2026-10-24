@@ -10,13 +10,15 @@ export function routineFacet({ dir, now = new Date(), location = null }) {
   catch { return { ...NONE }; }
 }
 
-/** gate: a non-urgent bedtime-type reminder during (or just before) his usual night out, or a nag/question while he is out. */
-export function routineHold(aw, { kind = null } = {}) {
+/** The bedtime family only (lib/reach/proactive.mjs: bed-wind, bed-now, bed-late). A leave reminder, a check-in or anything
+ *  protected is never held by a routine. */
+export const BEDTIME_WHY = /^proactive: bed-(?:wind|now|late)\b/;
+
+/** gate: hold a bedtime nag during (or just before) his usual night out. Returns the reason, or null. */
+export function routineHold(aw, { why = null, tier = null } = {}) {
   const r = aw?.routine;
-  if (!r || r.state !== "expected") return null;
-  if (kind === "reminder" && r.holdsBedtime) return `his usual ${r.weekdayName} (${r.label}) - no bedtime nag`;
-  if (["question", "checkin"].includes(kind) && r.holdsAsks) return `his usual ${r.weekdayName} (${r.label}) - not pestered while out`;
-  return null;
+  if (!r || r.state !== "expected" || !r.holdsBedtime || tier === "protected" || !BEDTIME_WHY.test(String(why ?? ""))) return null;
+  return `his usual ${r.weekdayName} (${r.label}) - no bedtime nag`;
 }
 
 /** day review / scheduler: the windows confident routines claim on `date` ({ start, end, label }). */

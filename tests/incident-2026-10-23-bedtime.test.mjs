@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { writeFileSync, appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { bedtimeVerdict, bedtimeSentTonight, minutesPastBed, NIGHTLY_CAP, nightOf } from "../scripts/lib/reach/bedtime-guard.mjs";
+import { bedtimeVerdict, bedtimeSentTonight, minutesPastBed, NIGHTLY_CAP, nightOf, readBedtimeEvidence } from "../scripts/lib/reach/bedtime-guard.mjs";
 import { harness } from "./delivery-helpers.mjs";
 
 const BED = 0;   // 00:00
@@ -24,10 +24,16 @@ test("10-19 23:43Z 'Still up at 12:43 AM' after he answered the 12:02 nag with '
   assert.match(v.reason, /answered a bedtime message/);
 });
 
-test("10-19 23:44Z: phone on the charger and still at night (health-log), Mac unlocked: held", () => {
-  const v = bedtimeVerdict({ now: at("2026-10-19T23:50:00Z"), bed: BED, mac: active, phone: { at: "2026-10-19T23:44:27Z", charging: true, motion: "still" }, sentTonight: 0 });
+test("10-19 23:44Z: phone on the charger and still at night (health-log), Mac unlocked but untouched for 6 min: held", () => {
+  const v = bedtimeVerdict({ now: at("2026-10-19T23:50:00Z"), bed: BED, mac: { locked: false, idleSeconds: 6 * 60 }, phone: { at: "2026-10-19T23:44:27Z", charging: true, motion: "still" }, sentTonight: 0 });
   assert.equal(v.ok, false);
   assert.match(v.reason, /charger and still/);
+});
+
+// Review 2026-10-23 (MEDIUM 7): a phone on its charger does not mean he is in bed while he is typing at the Mac.
+test("phone on the charger and still, but he is typing at the Mac (input 20 s ago): not held for the charger", () => {
+  const v = bedtimeVerdict({ now: at("2026-10-19T23:50:00Z"), bed: BED, mac: active, phone: { at: "2026-10-19T23:44:27Z", charging: true, motion: "still" }, sentTonight: 0 });
+  assert.equal(v.ok, true);
 });
 
 test("phone on the charger but in his hand (screen unlocked just now): not settled", () => {
@@ -122,7 +128,7 @@ test("orion-inbound-turn: 'im doing work shush up' 7 s after the 12:02 bedtime l
 // "Bed at 12:00 AM — … Start wrapping up." (bed-wind, 30 min before bed): held by the same in-bed signals.
 const WIND = at("2026-10-19T22:33:41Z");   // 23:33 London, 27 min before a 00:00 bed (the 10-19 phone push)
 test("wind-down line: held when the phone is on the charger and still, the Mac is locked, he said goodnight, or 15+ min idle", () => {
-  assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: active, phone: { at: "2026-10-19T22:30:00Z", charging: true, motion: "still" }, sentTonight: 0 }).ok, false);
+  assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: { locked: false, idleSeconds: 8 * 60 }, phone: { at: "2026-10-19T22:30:00Z", charging: true, motion: "still" }, sentTonight: 0 }).ok, false);
   assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: { locked: true, idleSeconds: 60 }, sentTonight: 0 }).ok, false);
   assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: active, declaredAt: "2026-10-19T22:20:00Z", sentTonight: 0 }).ok, false);
   const idle = bedtimeVerdict({ now: WIND, bed: BED, mac: { locked: false, idleSeconds: 16 * 60 }, sentTonight: 0 });
@@ -142,4 +148,38 @@ test("orion-reach: a 10-19 22:33-style wind-down line (variant: phone on the cha
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(h.read("outreach-outbox.jsonl"), []);
   assert.equal(h.read("outreach.jsonl").at(-1).reason, "in-bed");
+});
+
+// Review 2026-10-23 (MEDIUM 10): the 30-minute warning is never pushed to a phone he is not holding.
+test("orion-reach: the wind-down line with the Mac idle 8 min and no sign the phone is in his hand: not pushed (the 10-19 22:33 push)", () => {
+  const h = bedNight(WIND, { idleSeconds: 8 * 60, locked: false });
+  h.setAwareness({ sleep: { state: "awake", inWindow: false, bed: 1440, at: WIND.toISOString() } });
+  writeFileSync(join(h.dir, "health-log.json"), JSON.stringify({ phoneSignals: [{ at: "2026-10-19T22:28:18Z", charging: false, motion: "still" }] }));
+  const r = h.run("orion-reach", ["Bed at 12:00 AM — ECON1115 at 1:30 PM tomorrow. Start wrapping up.", "--kind", "reminder", "--why", "proactive: bed-wind", "--no-queue"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.read("outreach-outbox.jsonl"), []);
+  assert.match(r.stdout, /phone is not in his hand/);
+});
+test("orion-reach: the wind-down line with the phone in his hand (screen unlocked 1 min ago) still reaches the phone", () => {
+  const h = bedNight(WIND, { idleSeconds: 8 * 60, locked: false });
+  h.setAwareness({ sleep: { state: "awake", inWindow: false, bed: 1440, at: WIND.toISOString() } });
+  writeFileSync(join(h.dir, "health-log.json"), JSON.stringify({ phoneSignals: [], phoneScreen: { at: "2026-10-19T22:32:41Z", locked: false } }));
+  const r = h.run("orion-reach", ["Bed at 12:00 AM — ECON1115 at 1:30 PM tomorrow. Start wrapping up.", "--kind", "reminder", "--why", "proactive: bed-wind", "--no-queue"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(h.read("outreach-outbox.jsonl")[0]?.push, true);
+});
+
+// Review 2026-10-23 (LOW 11, 13): the night key by wall clock across the DST change; a malformed health log is "nothing known".
+test("nightOf is the wall-clock evening date, also on the night the clocks go back (London, 2026-10-25)", () => {
+  assert.equal(nightOf(new Date(2026, 9, 25, 1, 30)), "2026-10-24");
+  assert.equal(nightOf(new Date(2026, 9, 25, 5, 59)), "2026-10-24");
+  assert.equal(nightOf(new Date(2026, 9, 25, 6, 0)), "2026-10-25");
+  assert.equal(nightOf(new Date(2026, 2, 29, 5, 30)), "2026-03-28");   // spring forward
+});
+test("a health log whose phoneSignals is not an array reads as nothing known", () => {
+  const h = bedNight(at("2026-10-19T23:50:00Z"), { idleSeconds: 10, locked: false });
+  writeFileSync(join(h.dir, "health-log.json"), JSON.stringify({ phoneSignals: { at: "x" }, phoneScreen: "nope" }));
+  const e = readBedtimeEvidence({ dir: h.dir, now: at("2026-10-19T23:50:00Z"), bed: BED, mac: active });
+  assert.equal(e.phone, null);
+  assert.equal(e.screen, null);
 });

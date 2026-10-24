@@ -25,8 +25,12 @@ const PHONE_IN_USE_MS = 5 * MIN;
 const MOVING = ["walking", "running", "cycling", "vehicle", "automotive"];
 export const ACK_FILE = "bedtime-ack.json";
 
-/** The night a moment belongs to: the evening's date until 06:00. */
-export const nightOf = (now) => new Date(now.getTime() - 6 * 3600_000).toLocaleDateString("en-CA");
+/** The night a moment belongs to: the evening's date until 06:00, by the wall clock (a fixed 6-hour subtraction slips an hour
+ *  across a DST change, review 2026-10-23). */
+export function nightOf(now) {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (now.getHours() < 6 ? 1 : 0), 12);
+  return d.toLocaleDateString("en-CA");
+}
 const minuteOf = (d) => d.getHours() * 60 + d.getMinutes();
 const atNight = (minute) => minute >= 21 * 60 || minute < 6 * 60;
 /** Minutes since bedtime (negative before it), on a clock where a 00:30 bed is 1470 on the evening. */
@@ -52,8 +56,10 @@ export function bedtimeVerdict(e) {
   const phoneInUse = e.screen?.locked === false && Number.isFinite(screenAt) && t - screenAt <= PHONE_IN_USE_MS;
   const phoneAt = Date.parse(e.phone?.at);
   const phoneFresh = Number.isFinite(phoneAt) && t - phoneAt >= 0 && t - phoneAt <= PHONE_FRESH_MS;
-  // On the charger and not moving, at night, and not in his hand: he has settled (10-19 23:44, right after a "Still up" nag).
-  if (atNight(minute) && phoneFresh && e.phone.charging === true && !MOVING.includes(e.phone.motion) && !phoneInUse) return { ok: false, reason: "his phone is on the charger and still - he has settled" };
+  // On the charger and not moving, at night, not in his hand, and he is not typing at the Mac either: he has settled (10-19 23:44,
+  // right after a "Still up" nag). Typing at the Mac with the phone on its charger is up, not settled (review 2026-10-23).
+  const macActive = e.mac?.locked !== true && e.mac?.displayAsleep !== true && Number.isFinite(Number(e.mac?.idleSeconds)) && Number(e.mac.idleSeconds) < 300;
+  if (atNight(minute) && phoneFresh && e.phone.charging === true && !MOVING.includes(e.phone.motion) && !phoneInUse && !macActive) return { ok: false, reason: "his phone is on the charger and still - he has settled" };
   const past = minutesPastBed(minute, e.bed);
   const idle = Number(e.mac?.idleSeconds);
   const macAway = e.mac?.locked === true || e.mac?.displayAsleep === true;
@@ -78,15 +84,22 @@ export function bedtimeSentTonight(rows, now) {
 /** The evidence, read from the controlled dir. `mac`: the live Mac facts the caller already has. */
 export function readBedtimeEvidence({ dir, now, bed, mac }) {
   const log = readJson(join(dir, "health-log.json")) ?? {};
-  const screen = log.phoneScreen && !Array.isArray(log.phoneScreen) ? log.phoneScreen : (log.phoneScreen ?? []).at?.(-1) ?? null;
+  const screen = log.phoneScreen && typeof log.phoneScreen === "object" && !Array.isArray(log.phoneScreen) ? log.phoneScreen
+    : Array.isArray(log.phoneScreen) ? log.phoneScreen.at(-1) ?? null : null;
   return {
     now, bed, mac: mac ?? {},
     declaredAt: readJson(join(dir, "sleep-declared.json"))?.at ?? null,
     ack: readJson(join(dir, ACK_FILE)),
-    phone: (log.phoneSignals ?? []).at(-1) ?? null,
+    phone: Array.isArray(log.phoneSignals) ? log.phoneSignals.at(-1) ?? null : null,   // a malformed log is "nothing known"
     screen,
     sentTonight: bedtimeSentTonight(readLines(join(dir, "outreach.jsonl")), now),
   };
+}
+
+/** Whether his phone is in his hand right now (screen unlocked in the last 5 min). Unknown is "no". */
+export function phoneInHand(e) {
+  const at = Date.parse(e?.screen?.at);
+  return e?.screen?.locked === false && Number.isFinite(at) && e.now.getTime() - at <= PHONE_IN_USE_MS;
 }
 
 /** He answered a bedtime line (any words: "ok", "not yet", "shush"): no more bedtime lines this night. */

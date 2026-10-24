@@ -46,7 +46,7 @@ import { tierOf, budgetVerdict, dropGuard, COUNTED_WHY } from "./lib/reach/budge
 import { clearDeclared } from "./lib/awareness/declared.mjs";
 import { gate, resolveAwareness, audienceOf } from "./lib/reach/gate.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
-import { bedtimeVerdict, readBedtimeEvidence, isBedtimeWhy } from "./lib/reach/bedtime-guard.mjs";
+import { bedtimeVerdict, readBedtimeEvidence, isBedtimeWhy, phoneInHand } from "./lib/reach/bedtime-guard.mjs";
 import { localDate } from "./lib/life/live-day.mjs";
 import { presence } from "./lib/reach/presence.mjs";
 import { bypassesQuiet, isUrgentNotification, URGENT_KINDS } from "./lib/reach/quiet.mjs";
@@ -164,7 +164,13 @@ if (args.includes("--awake") && aw.sleep.state !== "awake") aw.sleep = { state: 
 // charger and still, the Mac locked or untouched after bedtime, or the nightly cap reached. Dropped, never queued or re-routed to the phone.
 if (isBedtimeWhy(reason) && (/^proactive: bed-/.test(reason) || kind === "reminder")) {
   const bed = Number.isFinite(aw.sleep?.bed) ? aw.sleep.bed % 1440 : toMinute(config.bedtime ?? "00:00");
-  const bedVerdict = bedtimeVerdict(readBedtimeEvidence({ dir: DIR, now, bed, mac: { locked: here.locked, displayAsleep: here.displayAsleep, idleSeconds: here.idleSeconds } }));
+  const bedEvidence = readBedtimeEvidence({ dir: DIR, now, bed, mac: { locked: here.locked, displayAsleep: here.displayAsleep, idleSeconds: here.idleSeconds } });
+  // Away from the Mac, a bedtime line would become a phone push. It goes only to a phone that is in his hand: an idle, unknown
+  // or put-down phone near bedtime is the in-bed case the signals cannot rule out (review 2026-10-23, finding 10).
+  const awayFromMac = here.locked || here.displayAsleep || !(Number(here.idleSeconds) < 300);
+  const checked = bedtimeVerdict(bedEvidence);
+  const bedVerdict = checked.ok && awayFromMac && !phoneInHand(bedEvidence)
+    ? { ok: false, reason: "he is away from the Mac and his phone is not in his hand" } : checked;
   if (!bedVerdict.ok) {
     logDropped("in-bed", { detail: bedVerdict.reason });
     console.log(`Held — not sent: ${bedVerdict.reason}.`);

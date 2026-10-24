@@ -20,9 +20,10 @@ const base = (r, date) => ({ routineId: r.id, label: r.label, weekdayName: r.wee
  * @param routines  learned-routines.json `routines`
  * @param answers   routine-answers.jsonl rows
  * @param location  the awareness location facet (fresh), or null
+ * @param nightHappened (date, routine) => true when last night's routine really happened (away fixes in its window)
  * @returns { state: "expected"|"refuted"|"home-instead"|"morning-after"|"none", phase?, holdsBedtime, holdsAsks, ... }
  */
-export function routineNow(routines, { now = new Date(), answers = [], location = null } = {}) {
+export function routineNow(routines, { now = new Date(), answers = [], location = null, nightHappened = () => null } = {}) {
   const date = eveningOf(now);
   const r = pick(routines, date);
   const m = nightMinute(now, date);
@@ -37,7 +38,8 @@ export function routineNow(routines, { now = new Date(), answers = [], location 
   // the morning after a routine night: a later wake is expected, nothing scolds him for it
   const prev = addDays(now.toLocaleDateString("en-CA"), -1);
   const pr = pick(routines, prev);
-  if (pr && verdictFor(answers, prev) !== "refute") {
+  // only after a night that happened: he said yes, or the phone was away in its window (not a night he stayed in)
+  if (pr && verdictFor(answers, prev) !== "refute" && (verdictFor(answers, prev) === "confirm" || nightHappened(prev, pr) === true)) {
     const wakeBy = (pr.nextWake ?? (Number.isFinite(pr.usualWake) ? pr.usualWake + 120 : 12 * 60)) + MORNING_GRACE;
     if (minuteOf(now) < wakeBy) return { ...base(pr, prev), state: "morning-after", phase: "after", wakeBy, holdsBedtime: false, holdsAsks: false };
   }

@@ -87,7 +87,8 @@ test("routineNow: before, in and the morning after a Friday; nothing on a Thursd
   assert.equal(at("2026-10-30T22:00:00").holdsBedtime, true);   // within 90 min of it
   assert.equal(at("2026-10-31T01:00:00").phase, "in");
   assert.equal(at("2026-10-31T01:00:00").holdsAsks, true);
-  assert.equal(at("2026-10-31T10:00:00").state, "morning-after");
+  assert.equal(at("2026-10-31T10:00:00").state, "none");   // no evidence the night happened: no morning grace
+  assert.equal(routineNow(r, { now: new Date("2026-10-31T10:00:00"), nightHappened: () => true }).state, "morning-after");
   assert.equal(at("2026-10-29T23:30:00").state, "none");
 });
 
@@ -262,4 +263,21 @@ test("different evenings on the same weekday are not averaged: a 17:30 dinner an
   const three = learn([...early("2026-10-02"), ...FRIDAYS.slice(1).flatMap(nightOut)])[0];
   assert.equal(three.start, 23 * 60);               // the club cluster, not a median with the dinner
   assert.equal(three.occurrences, 3);
+});
+
+test("the morning-after grace needs the night to have happened: away fixes or his yes; a night in gets none", async () => {
+  const { awayInWindow } = await import("../scripts/lib/patterns/hooks.mjs");
+  const r = confident();
+  const morning = new Date("2026-10-31T10:00:00");
+  const out = awayInWindow(nightOut("2026-10-30"), isHome), stayed = awayInWindow(nightIn("2026-10-30"), isHome);
+  assert.equal(routineNow([r], { now: morning, nightHappened: out }).state, "morning-after");
+  assert.equal(routineNow([r], { now: morning, nightHappened: stayed }).state, "none");
+  assert.equal(routineNow([r], { now: morning, answers: [{ evening: "2026-10-30", verdict: "confirm", at: "x" }] }).state, "morning-after");
+  // a hooked-up controlled dir: the stayed-in night gives no grace
+  const dir = mkdtempSync(join(tmpdir(), "routines-"));
+  writeRoutines(dir, { routines: [r], at: "x", sources: {} });
+  const signals = nightIn("2026-10-30").map((f) => ({ at: f.at, latitude: f.lat, longitude: f.lon, charging: f.charging, motion: f.motion }));
+  writeFileSync(join(dir, "health-log.json"), JSON.stringify({ phoneSignals: signals }));
+  writeFileSync(join(dir, "known-places.json"), JSON.stringify({ places: [{ id: "home", kind: "home", lat: HOME.lat, lon: HOME.lon, radiusM: 150 }] }));
+  assert.equal(routineFacet({ dir, now: morning }).state, "none");
 });

@@ -3,10 +3,25 @@
 import { readRoutines, readAnswers, recordAnswer, noteStatement } from "./store.mjs";
 import { routineNow, routineWindowsFor, NONE } from "./now.mjs";
 import { ASK_TYPE } from "./ask.mjs";
+import { join } from "node:path";
+import { readJson } from "../awareness/io.mjs";
+import { readKnownPlaces } from "../awareness/places.mjs";
+import { fixesOf } from "./episodes.mjs";
+import { homeTest } from "./sources.mjs";
+import { nightMinute } from "./time.mjs";
+
+/** Was he away from home in that night's routine window? Read only when a morning-after is in question. */
+export const awayInWindow = (fixes, isHome) => (date, r) =>
+  fixes.some((f) => { const m = nightMinute(f.at, date); return m >= r.start - 60 && m <= r.end + 60 && !isHome(f); });
+
+const nightHappenedFrom = (dir) => (date, r) => {
+  const fixes = fixesOf(readJson(join(dir, "health-log.json"))?.phoneSignals);
+  return awayInWindow(fixes, homeTest(readKnownPlaces(dir), fixes))(date, r);
+};
 
 /** awareness: the expected routine now (state, phase, holds), from learned-routines.json and his answers. */
 export function routineFacet({ dir, now = new Date(), location = null }) {
-  try { return routineNow(readRoutines(dir).routines, { now, answers: readAnswers(dir), location }); }
+  try { return routineNow(readRoutines(dir).routines, { now, answers: readAnswers(dir), location, nightHappened: nightHappenedFrom(dir) }); }
   catch { return { ...NONE }; }
 }
 

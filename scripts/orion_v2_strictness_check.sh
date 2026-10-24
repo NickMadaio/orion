@@ -138,7 +138,12 @@ echo "== 5. an approval cannot be granted by the local process =="
 # The live refusal, exercised end to end through the real script rather than
 # through the module. This is the hole that existed until 2026-09-02:
 # `orion-remote` is allowlisted, and a direct `handle` call presents "local".
-out="$("$REPO/scripts/orion-remote" handle -- approve A-7F3K 2>&1)"
+# Under a throwaway HOME (2026-10-23 audit): orion-remote writes its audit row and logs an inbound turn under
+# ~/.openclaw/orion-controlled, and this check promised to change nothing. 12 test turns (10-16 to 10-21) reached the live
+# inbound-turns.jsonl this way, where the curiosity loop reads them as Nick replying.
+scratch_home="$(mktemp -d)"
+out="$(HOME="$scratch_home" "$REPO/scripts/orion-remote" handle -- approve A-7F3K 2>&1)"
+rm -rf "$scratch_home"
 case "$out" in
     *"has to come from a person"*) ok "orion-remote refuses an approve from the local process" ;;
     *) bad "orion-remote did not refuse a local approve; it said: ${out:0:80}" ;;

@@ -1692,7 +1692,8 @@ async function handleUnlocked({ text, from, envelopeId, at: sentAt, to: target, 
   */
   const admission = await admitInbound({ sender, envelopeId, now, record });
   if (!admission.ok) return admission.result;
-  noteInboundTurn({ text, replyTo });
+  // Only a person's message is his turn: `local` is ORION's own process (or a check script), never Nick replying (2026-10-23).
+  if (sender !== "local") noteInboundTurn({ text, replyTo });
   if (parsed.error) {
     /*
      A bare verb word is CONVERSATION, not a command. This is the fix for the

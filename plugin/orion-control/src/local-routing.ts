@@ -46,7 +46,7 @@ import { runsFirst } from "./intent-run.js";
 import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne, type EditTarget } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
 import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
-import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
+import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -1378,7 +1378,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)))
         : undefined;
       if (honestNow) { owed = honestNow; remember([runId, sessionKeyNow], honestNow); }
-      if (on && findings.length > 0 && run.passes < 2 && !flowActed && !hostDrops && !honestNow) {
+      if (on && findings.length > 0 && run.passes < revisePasses(!!run.spoken) && !flowActed && !hostDrops && !honestNow) {
         run.passes += 1;
         await record({ revised: true });
         const calendar = SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical));

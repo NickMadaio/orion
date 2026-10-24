@@ -94,6 +94,8 @@ export type LocalRoutingOptions = {
     warm?: boolean;
     /** Append one line per hook stage to <logPath>.trace (diagnostics). */
     trace?: boolean;
+    /** Where the per-turn progress files for the app's spoken updates go (turn-progress.ts); default <logPath>/../../turn-progress. */
+    progressDir?: string;
 };
 export declare const trailsOff: (message: string) => boolean;
 export declare const GO_ON = "Go on.";

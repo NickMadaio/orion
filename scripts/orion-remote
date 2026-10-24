@@ -46,6 +46,7 @@ import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 
 import { sandbox, clockNow } from "./lib/life/bridge-path.mjs";
+import { readDelivered, outreachKind } from "./lib/reach/reply-context.mjs";
 const run = promisify(execFile);
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
@@ -597,19 +598,11 @@ const OUTREACH_PLAIN_MS = 25 * 60000;
 const OUTREACH_ASK_MS = 90 * 60000;
 const consumedFile = () => join(CONTROLLED, `${sandbox() ? "eval-" : ""}outreach-consumed.json`);
 
-// The newest row per id (orion-reach logs a row twice when it falls back to the phone), without held or failed ones.
-function deliveredRows() {
-  const byId = new Map();
-  for (const line of readFileSync(join(CONTROLLED, "outreach.jsonl"), "utf8").split("\n")) {
-    let row; try { row = JSON.parse(line); } catch { continue; }
-    if (!row || typeof row.text !== "string" || !Number.isFinite(Date.parse(row.at))) continue;
-    byId.set(row.id ?? `${row.at}`, row);
-  }
-  return [...byId.values()].filter((r) => r.channel !== "hold" && r.status !== "failed");
-}
+// The newest row per id, without held, dropped or failed ones (lib/reach/reply-context.mjs: one parser for every path).
+function deliveredRows() { return readDelivered(CONTROLLED); }
 
 function pickOutreach(rows, { replyTo, consumed, now }) {
-  const exact = replyTo ? rows.find((r) => r.id === replyTo || r.askId === replyTo) : null;
+  const exact = replyTo ? rows.find((r) => r.id === replyTo || r.askId === replyTo || `${r.id}-orion` === replyTo) : null;
   if (exact) return exact;
   const latest = rows.reduce((best, r) => (!best || Date.parse(r.at) > Date.parse(best.at) ? r : best), null);
   if (!latest) return null;
@@ -641,7 +634,7 @@ function recentOutreach({ replyTo = null, now = Date.now() } = {}) {
     if (!row) return null;
     const minutes = Math.max(0, Math.round((now - Date.parse(row.at)) / 60000));
     if (row.ask) return `- ${minutes} min ago you asked him "${row.text.slice(0, 200)}"${askDetail(row.ask)}. If he says what he did or is doing, log it.`;
-    return `- ${minutes} min ago you messaged him first: "${row.text.slice(0, 200)}" — this message may be his answer.`;
+    return `- ${minutes} min ago you messaged him first (${outreachKind(row)}): "${row.text.slice(0, 200)}" — his message is most likely his reply to it; read short answers ("yeah", "not yet", "in 10", "already did") against it.`;
   } catch { return null; }
 }
 
@@ -655,7 +648,8 @@ function noteInboundTurn({ text, replyTo = null }) {
   try {
     const bin = process.env.ORION_INBOUND_BIN || join(dirname(fileURLToPath(import.meta.url)), "orion-inbound-turn");
     if (!existsSync(bin)) return;
-    spawnSync(process.execPath, [bin, ...(replyTo ? ["--reply-to", replyTo] : []), "--source", "phone", "--text", String(text ?? "").slice(0, 200)],
+    // --session: the outreach he is answering is written into this session as ORION's own turn before the brain runs (2026-10-23).
+    spawnSync(process.execPath, [bin, ...(replyTo ? ["--reply-to", replyTo] : []), "--source", "phone", "--session", BRAIN_SESSION, "--text", String(text ?? "").slice(0, 200)],
       { timeout: 10000, stdio: "ignore", env: { ...process.env, ORION_CONTROLLED_DIR: CONTROLLED } });
   } catch { /* never blocks the turn */ }
 }

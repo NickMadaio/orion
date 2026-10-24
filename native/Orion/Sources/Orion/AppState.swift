@@ -1994,7 +1994,8 @@ final class AppState: ObservableObject {
 
     private func send(_ text: String, typed: Bool = false) {
         // Every message he sends is a turn for the curiosity loop, and closes the ask it answers (orion-inbound-turn).
-        InboundTurnLog.record(text: text)
+        // With the session: the outreach he is answering goes into that conversation as ORION's own turn (2026-10-23).
+        InboundTurnLog.record(text: text, session: chatConversation.map { "orion-chat-" + $0.id } ?? GatewayClient.sessionKey)
         questionFollowUp.answered()
         repeatFollowUpGrace = nil
         let origin: ReplyOrigin = typed ? .typed : .voice
@@ -2048,6 +2049,7 @@ final class AppState: ObservableObject {
 
         agentQueue.async { [weak self] in
             let result: Result<GatewayReply, Error>
+            InboundTurnLog.settle()   // the outreach inject lands before the turn reads the session
             do {
                 result = .success(try GatewayClient.ask(request, session: chatSession, model: chatModel))
             } catch {

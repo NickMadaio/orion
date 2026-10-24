@@ -93,6 +93,9 @@ final class InboundTurnLogTests: XCTestCase {
         XCTAssertEqual(command, PhaseCommand(executable: "/n/node", arguments: ["/s/orion-inbound-turn", "--reply-to", "reach-9", "--text", "was at the gym"]))
         let plain = InboundTurnLog.command(text: "hi", replyTo: nil, node: "/n/node", scriptsDir: "/s", exists: all)
         XCTAssertEqual(plain?.arguments, ["/s/orion-inbound-turn", "--text", "hi"])
+        let injected = InboundTurnLog.command(text: "im doing work shush up", replyTo: nil, session: "orion-chat-33E1581C", node: "/n/node", scriptsDir: "/s", exists: all)
+        XCTAssertEqual(injected?.arguments, ["/s/orion-inbound-turn", "--session", "orion-chat-33E1581C", "--text", "im doing work shush up"])
+        XCTAssertTrue(InboundTurnLog.settle(timeout: 2))
         XCTAssertNil(InboundTurnLog.command(text: "hi", replyTo: nil, node: "/n/node", scriptsDir: "/s", exists: { $0 != "/s/orion-inbound-turn" }))
         XCTAssertEqual(InboundTurnLog.command(text: String(repeating: "x", count: 500), replyTo: nil, node: "n", scriptsDir: "s", exists: all)?.arguments.last?.count, 200)
     }

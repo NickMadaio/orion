@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import Orion
 
@@ -234,6 +235,35 @@ final class VoiceFluidTests: XCTestCase {
 }
 
 final class VoiceHandoffTests: XCTestCase {
+    func testHandedOffAnswerExpiresAfterTwoHours() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let command = try XCTUnwrap(VoiceHandoff.phoneCommand(answer: "Done.", node: "/n", scriptsDir: "/s", now: now, exists: { _ in true }))
+        let value = command.arguments[try XCTUnwrap(command.arguments.firstIndex(of: "--valid-until")) + 1]
+        XCTAssertEqual(ISO8601DateFormatter().date(from: value), now.addingTimeInterval(2 * 60 * 60))
+    }
+
+    func testTheAppShowsItsOwnBubbleOnlyWhenThePhoneSendDidNotGoOut() {
+        XCTAssertEqual(VoiceHandoff.outcome(exitCode: 0, stdout: "Sent to phone — the answer…"), .sent)
+        XCTAssertEqual(VoiceHandoff.outcome(exitCode: 0, stdout: "Held — he is inside his sleep window"), .notSent)
+        XCTAssertEqual(VoiceHandoff.outcome(exitCode: 3, stdout: "NOT SENT: expired"), .notSent)
+        XCTAssertEqual(VoiceHandoff.outcome(exitCode: 4, stdout: "NOT SENT: delivery failed"), .notSent)
+        XCTAssertEqual(VoiceHandoff.outcome(exitCode: nil, stdout: ""), .notSent)
+    }
+
+    func testRunReadsAFakeReachScript() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("reach-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let script = dir.appendingPathComponent("orion-reach")
+        try "echo \"Held — quiet time\"\nexit 0\n".write(to: script, atomically: true, encoding: .utf8)
+        let command = try XCTUnwrap(VoiceHandoff.phoneCommand(answer: "Gym is at 6.", node: "/bin/sh", scriptsDir: dir.path, exists: { FileManager.default.fileExists(atPath: $0) }))
+        let (code, out) = VoiceHandoff.run(command)
+        XCTAssertEqual(code, 0)
+        XCTAssertEqual(VoiceHandoff.outcome(exitCode: code, stdout: out), .notSent, "held: the app shows the bubble itself")
+        try "echo \"Sent.\"\n".write(to: script, atomically: true, encoding: .utf8)
+        let (code2, out2) = VoiceHandoff.run(command)
+        XCTAssertEqual(VoiceHandoff.outcome(exitCode: code2, stdout: out2), .sent, "sent: orion://reach shows it, the app does not")
+    }
+
     func testHandedOffAnswerGoesToThePhoneThread() throws {
         let command = try XCTUnwrap(VoiceHandoff.phoneCommand(answer: " Done: Gym 6-7:30 PM. ", node: "/fake/node", scriptsDir: "/fake/scripts", exists: { _ in true }))
         XCTAssertEqual(command.executable, "/fake/node")
@@ -397,16 +427,34 @@ final class VoiceFluidReviewTests: XCTestCase {
     func testDamagedCachedPhraseIsDeletedAndNotPlayed() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cue-bad-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let player = VoiceCuePlayer(cacheDir: dir, socketPath: dir.appendingPathComponent("no.sock").path, provider: { "test" })
+        var renders = 0
+        let player = VoiceCuePlayer(cacheDir: dir, provider: { "test" }, renderer: { _, url, _ in
+            renders += 1
+            return (try? Self.silentWAV(seconds: 0.2).write(to: url)) != nil
+        })
         let url = player.fileURL(for: "On it.")
-        try Data("not a wav".utf8).write(to: url)
-        XCTAssertFalse(player.isRendered("On it."))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "a damaged file is removed so it is rendered again")
         try Data(repeating: 0, count: 2_000).write(to: url)          // right size, does not decode
-        XCTAssertFalse(player.play("On it."))
+        XCTAssertTrue(player.isRendered("On it."), "the main-thread check is only size: the decode check runs off main")
+        let repaired = expectation(description: "checked and re-rendered off main")
+        player.prepare(["On it."]) { _, ok in XCTAssertTrue(ok); repaired.fulfill() }
+        wait(for: [repaired], timeout: 5)
+        XCTAssertEqual(renders, 1, "the damaged file was deleted and rendered again")
+        XCTAssertNotNil(try? AVAudioFile(forReading: url))
+        // A good file is not rendered again.
+        let kept = expectation(description: "good file kept")
+        player.prepare(["On it."]) { _, ok in XCTAssertTrue(ok); kept.fulfill() }
+        wait(for: [kept], timeout: 5)
+        XCTAssertEqual(renders, 1)
+    }
+
+    func testPlayDeletesAFileThatWillNotOpen() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cue-open-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let player = VoiceCuePlayer(cacheDir: dir, provider: { "test" }, renderer: { _, _, _ in false })
+        let url = player.fileURL(for: "Let me look.")
+        try Data(repeating: 7, count: 2_000).write(to: url)
+        XCTAssertFalse(player.play("Let me look."))
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
-        try Self.silentWAV(seconds: 0.2).write(to: url)
-        XCTAssertTrue(player.isRendered("On it."))
     }
 
     func testLaunchRenderRetriesWhileTheDaemonIsDown() {
@@ -421,6 +469,33 @@ final class VoiceFluidReviewTests: XCTestCase {
         }
         wait(for: [finished], timeout: 5)
         XCTAssertEqual(attempts, [1, 2, 3, 4])
+    }
+
+    func testLaunchRenderDoesNotStallBehindAnOnDemandRender() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cue-stall-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let gate = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var callsForA = 0
+        let player = VoiceCuePlayer(cacheDir: dir, provider: { "test" }, renderer: { text, url, _ in
+            if text == "A" {
+                lock.lock(); callsForA += 1; let first = callsForA == 1; lock.unlock()
+                if first { gate.wait(); return false }      // the on-demand render of A is slow, then fails
+            }
+            return (try? Self.silentWAV(seconds: 0.1).write(to: url)) != nil
+        })
+        player.prepare(["A"])                                // on demand: A is now "being rendered"
+        var attempts: [Int] = []
+        player.prepareUntilReady(["A", "B"], retryEvery: 0.05, attempts: 5) { number, _ in attempts.append(number) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { gate.signal() }
+        let deadline = Date().addingTimeInterval(5)
+        while !(player.isRendered("A") && player.isRendered("B")) && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertGreaterThanOrEqual(attempts.count, 2, "skipping A (busy) led to another attempt, which rendered it")
+        XCTAssertEqual(callsForA, 2)
+        XCTAssertTrue(player.isRendered("A"))
+        XCTAssertTrue(player.isRendered("B"))
     }
 
     // MARK: LOW

@@ -293,20 +293,65 @@ final class VoiceTurnCompanion {
     }
 }
 
-/// Where a handed-off answer goes: the bubble (AppState) and his phone thread, via orion-reach.
+/// Where a handed-off answer goes: his phone thread via orion-reach, and the Mac bubble exactly once.
 ///
-/// Review MEDIUM 6: "I'll text you" is a promise, so the text is never dropped. No `--no-queue`: when the reach gate
-/// holds it (his sleep window, a quiet time), orion-reach queues it and sends it when the hold ends — in the morning
-/// after sleep, never a ping at night. Not `--urgent`: an answer is not an emergency. Its why is not a proactive,
-/// plan or curiosity one, so no daily budget can drop it.
+/// "I'll text you" is a promise, so the text is never dropped by the gate: no `--no-queue` (a hold is queued and
+/// released when the hold ends) and no `--urgent` (an answer never pings through his sleep). `--valid-until` is two
+/// hours out, so an answer held overnight is not released stale in the morning (re-review MEDIUM b).
+///
+/// A phone delivery also opens `orion://reach` on the Mac, which shows the bubble; so the app shows its own bubble only
+/// when the phone send did not go out (held, refused, failed, or orion-reach missing) — re-review MEDIUM a.
 enum VoiceHandoff {
-    static func phoneCommand(answer: String, node: String, scriptsDir: String, exists: (String) -> Bool) -> PhaseCommand? {
+    static let validFor: TimeInterval = 2 * 60 * 60
+
+    static func phoneCommand(answer: String, node: String, scriptsDir: String, now: Date = Date(), exists: (String) -> Bool) -> PhaseCommand? {
         let reach = scriptsDir + "/orion-reach"
         let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, exists(node), exists(reach) else { return nil }
+        let formatter = ISO8601DateFormatter()
         return PhaseCommand(executable: node, arguments: [
             reach, text, "--kind", "update", "--channel", "phone",
+            "--valid-until", formatter.string(from: now.addingTimeInterval(validFor)),
             "--why", "the answer to a spoken question that ran long",
         ])
+    }
+
+    enum PhoneOutcome: Equatable {
+        /// Sent: orion-reach also posts it to the Mac bubble, so the app must not.
+        case sent
+        /// Held, refused or failed: the app shows the bubble itself.
+        case notSent
+    }
+
+    /// orion-reach's own verdict: exit 0 with "Held — …" is queued, not sent; exit 3/4 is not sent.
+    static func outcome(exitCode: Int32?, stdout: String) -> PhoneOutcome {
+        guard exitCode == 0 else { return .notSent }
+        let said = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if said.hasPrefix("Held") || said.hasPrefix("Still held") || said.hasPrefix("NOT SENT") || said.hasPrefix("Already said") { return .notSent }
+        return .sent
+    }
+
+    /// Runs the command and returns its exit code and output (nil exit when it could not start or ran past `timeout`).
+    static func run(_ command: PhaseCommand, timeout: TimeInterval = 20) -> (Int32?, String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: command.executable)
+        process.arguments = command.arguments
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do { try process.run() } catch { return (nil, "") }
+        let box = DataBox()
+        let drained = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            box.data = out.fileHandleForReading.readDataToEndOfFile()
+            drained.signal()
+        }
+        guard drained.wait(timeout: .now() + timeout) == .success else {
+            process.terminate()
+            return (nil, "")
+        }
+        process.waitUntilExit()
+        return (process.terminationStatus, String(data: box.data, encoding: .utf8) ?? "")
     }
 }

@@ -7,8 +7,8 @@ import { clock, WEEKDAYS } from "./time.mjs";
 
 /** @param ev gatherEvidence() output (or a fixture of the same shape) */
 export function learnFromEvidence(ev, { now = new Date() } = {}) {
-  // where the phone spends most nights counts as home even when no home place is known (else every evening is "out")
-  const habitual = new Set(habitualCells(ev.fixes ?? []));
+  // where the phone spends most nights counts as home, but only when no home place is known (never on top of a known home)
+  const habitual = new Set(ev.homeKnown === true ? [] : habitualCells(ev.fixes ?? []));
   const known = ev.isHome ?? (() => false);
   const isHome = (f) => known(f) || habitual.has(`${f.lat.toFixed(3)},${f.lon.toFixed(3)}`);
   const evenings = eveningEpisodes(ev.fixes ?? [], { isHome, sessions: ev.sessions ?? [], sleeps: ev.sleeps ?? [] });

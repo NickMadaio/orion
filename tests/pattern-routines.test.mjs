@@ -330,3 +330,18 @@ test("late departures count: home 23:30 then away 01:10, or Mac until 23:30 then
   const asleep = eveningEpisodes([fix(iso(d, "01:10", 1), CLUB), fix(iso(d, "01:40", 1), CLUB)], { isHome, sleeps: [iso(d, "00:40", 1)] });
   assert.notEqual(asleep[d].status, "out");
 });
+
+test("the habitual-cell home guess is used only when no home place is known, never on top of one", async () => {
+  const { homeTest } = await import("../scripts/lib/patterns/sources.mjs");
+  // a partner's flat: the phone sits there most nights across the week, and he goes there from home
+  const FLAT = { lat: 51.518, lon: -0.08 };
+  const days = Array.from({ length: 21 }, (_, i) => { const d = new Date("2026-10-24T12:00:00"); d.setDate(d.getDate() - i - 1); return d.toLocaleDateString("en-CA"); });
+  const fixes = days.flatMap((d) => [fix(iso(d, "20:00"), HOME), ...["22:15", "23:30", "00:45", "02:00"].map((t, i) => fix(iso(d, t, i > 1 ? 1 : 0), FLAT, { charging: i > 1 }))]);
+  const now = new Date("2026-10-24T12:00:00");
+  const withHome = learnFromEvidence({ fixes, isHome, homeKnown: true }, { now }).routines;
+  assert.ok(withHome.length >= 1 && withHome.every((r) => r.status === "confident"));   // known home: the flat is away, every night
+  assert.deepEqual(learnFromEvidence({ fixes, isHome: () => false }, { now }).routines, []);   // no home known: the flat is home
+  const places = [{ id: "home", kind: "home", lat: HOME.lat, lon: HOME.lon, radiusM: 150 }];
+  assert.equal(homeTest(places, fixes)({ lat: FLAT.lat, lon: FLAT.lon }), false);           // overnight charging there adds nothing
+  assert.equal(homeTest([], fixes)({ lat: FLAT.lat, lon: FLAT.lon }), true);
+});

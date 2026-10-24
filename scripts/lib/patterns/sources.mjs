@@ -17,10 +17,14 @@ const ANSWER_WINDOW_MS = 90 * 60_000;
 
 const jsonl = (path) => { try { return readFileSync(path, "utf8").split("\n").flatMap((l) => { try { return l.trim() ? [JSON.parse(l)] : []; } catch { return []; } }); } catch { return []; } };
 
-/** Home test: the known home place, or a cell where the phone charges overnight on 3+ nights. */
+export const homeKnownIn = (places) => (places ?? []).some((p) => p.id === "home" || p.kind === "home");
+
+/** Home test: the known home place only; a learned guess (where the phone charges overnight) only when no home is known. */
 export function homeTest(places, fixes) {
+  const atHome = (f) => { const p = matchPlace({ lat: f.lat, lon: f.lon }, places); return !!p && (p.id === "home" || p.kind === "home"); };
+  if (homeKnownIn(places)) return atHome;
   const cells = new Set(sleepCells(fixes));
-  return (f) => { const p = matchPlace({ lat: f.lat, lon: f.lon }, places); return p ? p.id === "home" || p.kind === "home" : cells.has(`${f.lat.toFixed(3)},${f.lon.toFixed(3)}`); };
+  return (f) => atHome(f) || cells.has(`${f.lat.toFixed(3)},${f.lon.toFixed(3)}`);
 }
 
 /** A known place's name for a coarse cell (only when one place sits in it), else null. */
@@ -89,7 +93,7 @@ export function gatherEvidence({ dir, now = new Date(), env = process.env, calen
   const messages = readMessages(sessionsDir(env), { now });
   const asks = readLedger(dir).asks;
   return {
-    fixes, isHome: homeTest(places, fixes), placeName: placeNamer(places), sessions,
+    fixes, isHome: homeTest(places, fixes), homeKnown: homeKnownIn(places), placeName: placeNamer(places), sessions,
     activities: logged.filter((a) => a.label), corroborations,
     wakes: wakesOf({ nights: readJson(join(dir, "sleep-actual.json"))?.nights ?? [], sleepLog: health.sleepLog ?? [] }),
     sleeps: (readJson(join(dir, "sleep-actual.json"))?.nights ?? []).map((n) => n?.fellAsleep).filter((t) => !Number.isNaN(Date.parse(t))),

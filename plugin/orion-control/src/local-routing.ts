@@ -507,6 +507,21 @@ const LOOKUP_UNCHECKED = "I didn't actually check that.";
 export const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
 export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
 const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
+/** Spoken turns get one revise round (turn-budget.ts). What HONEST_STOP would have had the model say, said by code instead. */
+export const SPOKEN_STOP_WROTE = "Something went wrong partway through that, so I won't say it's done. Check your calendar, and say \"undo\" if it looks wrong.";
+export const SPOKEN_STOP = "I couldn't finish that properly, so I won't say it's done. Can you say it again?";
+/**
+ * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
+ * never the model's reply, never a clean success line over a failed command.
+ */
+export function spokenFinalLine(findings: readonly string[], ctx: { calendar: boolean; wrote: boolean }): string | undefined {
+  if (!findings.length) return undefined;
+  if (findings.some((f) => FALSE_CLAIM.test(f))) return honestLine(ctx.calendar);
+  if (findings.some((f) => LOOKUP_CLAIM.test(f))) return LOOKUP_HONEST;
+  if (findings.includes("denies messages it shows")) return MESSAGES_UNSURE;
+  if (ctx.wrote) return SPOKEN_STOP_WROTE;
+  return ctx.calendar ? honestLine(true) : SPOKEN_STOP;
+}
 /** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
 const wroteThisTurn = (tools: ToolResult[]): boolean =>
   tools.some((t) => /orion-reschedule|orion-tasks|orion_task_run|orion-session|orion-remember/.test(t.canonical) && !/\b(show|day|list|status)\b/.test(t.canonical));
@@ -1405,6 +1420,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // q065 (2026-10-16): still "no one texted you" beside his messages after both retries.
         owed = MESSAGES_UNSURE;
         remember([runId, sessionKeyNow], owed);
+      }
+      // A spoken turn out of its one retry with anything still open: code says the honest line (HIGH 3, review of feat/voice-fluid).
+      if (on && run.spoken && !flowActed && !run.reminder && (run.passes >= revisePasses(true) || hostDrops) && findings.length > 0) {
+        const line = spokenFinalLine(findings, { calendar: SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), wrote: wroteThisTurn(run.tools) });
+        if (line) { owed = line; remember([runId, sessionKeyNow], owed); }
       }
       // Out of retries and the call was never made: say so (not "I checked the weather…", q007).
       // Merge of r2-front-desk-tools (tool-move fail line) with 9a3a25a (LOOKUP_HONEST): a missed tool move whose

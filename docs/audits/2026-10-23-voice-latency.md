@@ -100,3 +100,16 @@ AppState edits are kept small (properties, closures, one call in `send`, three h
 
 - Nothing was built into the app bundle, installed, relaunched or deployed. The plugin `dist/` is rebuilt in the branch; installing it is
   the deploy. The first launch after install renders about 50 phrases once through the daemon (ElevenLabs characters ≈ 1.6k).
+
+## 7. Review fixes (independent review of feat/voice-fluid)
+
+| | Finding | Fix | Regression test |
+|---|---|---|---|
+| H1 | Stopping a cue fired the waiting callback, so the answer started over Nick's barge-in or Escape; an update rendered on demand could start after the reply | `CueWaiters`: natural end fires, `stop()` cancels. `VoiceReplyHold`: an interrupted held answer stays in the bubble (kept for "continue"). Updates gated on `hasLanded(generation)` | `VoiceFluidReviewTests` (waiters, hold, real player with a WAV fixture) |
+| H2 | A second handoff overwrote the first; answer A fell through | `HandoffLedger` (a set); each answer claimed once | back-to-back ledger test |
+| H3 | Spoken turns lost the second honesty check | After the single retry, any open finding ends in code's honest line (`spokenFinalLine`: honestLine / LOOKUP_HONEST / MESSAGES_UNSURE / SPOKEN_STOP_WROTE / SPOKEN_STOP); also when the host drops the revise | final reply text per finding type, `voice-speed-2026-10-23.test.ts` (fails without the fix) |
+| H4 | Raw level ≥ 0.14 counted as speech; kitchen noise held back the cue, updates and handoff | Speech = `BargeInMonitor` recognised words only (`VoiceActivity`, ORION's own phrase excluded); handoff hard limit 50 s | kitchen noise 0.40-0.87, talking-through-50 s |
+| M5 | Write stage recorded before the write | `changing-calendar` from `after_tool_call`, only on success/partial | failed vs successful write |
+| M6 | `--no-queue` let the reach gate drop "I'll text you" | No `--no-queue`, no `--urgent`: a hold is queued (sleep → morning); its why is outside the counted budgets | argument test |
+| M7 | Cue cache could not repair itself | Size + decode check, bad files deleted, `play` miss renders, launch render retried while the daemon is down (socket injectable for tests) | damaged-file and retry tests |
+| L | Old files, case, focus label, main-thread reads, 0.25 s doc, deinit, done flag, previous-turn file | Prune > 1 day on begin; names lowercased both sides; `checking-focus`; `VoiceProgressReader` (1 s, utility queue, static formatters); doc fixed; `deinit`; `done` starts no update; 0.5 s skew | each covered |

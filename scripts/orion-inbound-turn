@@ -21,6 +21,7 @@ import { noteInboundText } from "./lib/awareness/declared.mjs";
 import { reviewNowOnGoodnight } from "./lib/reach/review-time.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { readFileSync } from "node:fs";
+import { noteInbound } from "./lib/patterns/hooks.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
@@ -45,6 +46,7 @@ try {
   const earlier = readTurns(DIR);   // before this message: "first message after the ask" needs the others only
   const ask = askAnswered({ asks: readLedger(DIR).asks, replyTo, turns: earlier, now: now.getTime() });
   appendTurn(DIR, now);
+  noteInbound({ dir: DIR, ask, text: flag("--text"), now });   // routine evidence: his yes/no to "Out tonight like usual?", or "staying in"
   if (ask) {
     const bin = process.env.ORION_PROACTIVE_BIN || join(import.meta.dirname, "orion-proactive");
     spawnSync(process.execPath, [bin, "ask-outcome", ask.askId, outcomeFor(flag("--text"))], { env: process.env, timeout: 8000, stdio: "ignore" });

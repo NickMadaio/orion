@@ -46,6 +46,8 @@ function localDay(offsetDays = 0) {
 }
 
 const argument = process.argv[2];
+// The nightly run also re-learns his weekly routines from history (code only, no model; a failure never stops the summary).
+if (!argument) { try { (await import("node:child_process")).spawnSync(process.execPath, [join(import.meta.dirname, "orion-patterns"), "learn", "--calendar"], { stdio: "inherit", timeout: 120_000 }); } catch {} }
 const today = argument === "--today";
 const day = argument && !today ? argument : localDay(today ? 0 : 1);
 

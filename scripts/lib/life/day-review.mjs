@@ -196,10 +196,11 @@ function sessionsOf(history, date) {
  * @param slips        slips.jsonl rows for the day (C10)
  * @param early        logged.jsonl rows with `early: true` ("Done early"): those blocks read "done early"
  * @param asks         curiosity ledger asks
+ * @param routines     windows a confident learned routine claims today ([{ start, end, label }], lib/patterns): known, never blank
  * @param now          { date, minute }
  * @returns { done: [{ title, start, end, how }], slipped: [{ title, why }], free: [{ start, end }], blank: [{ start, end }], focusMinutes }
  */
-export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {}, slips = [], asks = [], early = [], now }) {
+export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {}, slips = [], asks = [], early = [], routines = [], now }) {
   // `logged` comes from WP6's live-day (tags / logged); accept either spelling of the marker
   const blocks = rawBlocks.map((b) => (b.logged || !b.tags?.includes("logged") ? b : { ...b, logged: true }));
   const sessions = sessionsOf(focusHistory, now.date);
@@ -211,6 +212,7 @@ export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {
     ...blocks.filter((b) => b.logged && upto(b)).map((b) => ({ title: b.title, start: b.start, end: Math.min(b.end, now.minute), how: "logged",
       ...(early.some((r) => (r.identifier && r.identifier === b.calendarId) || (r.title === b.title && r.start === b.start)) ? { early: true } : {}) })),
     ...blocks.filter((b) => !b.logged && b.source !== "orion" && attendance[b.id] === "attended").map((b) => ({ title: b.title, start: b.start, end: b.end, how: "attended" })),
+    ...routines.filter((r) => r.start < now.minute).map((r) => ({ title: r.label, start: r.start, end: Math.min(r.end, now.minute), how: "routine" })),
   ];
   const evidenced = (b) => sessions.some((s) => s.start < b.end && s.end > b.start && (!s.task || titlesShare(b.title, s.task) || b.kind === "study"));
   // He did the planned thing itself (the planned "CS Lab" replaced by his logged "cs lab"): that is not a slip, whatever an older `log` wrote (2026-10-19).
@@ -221,7 +223,7 @@ export function actualDay({ blocks: rawBlocks, focusHistory = [], attendance = {
   const stillPlanned = blocks.filter((b) => b.source === "orion" && !b.fixed && !b.logged && b.end <= now.minute && !["rest", "sleep", "commute"].includes(b.kind)
     && !/^(wind down|break)$/i.test(b.title) && !evidenced(b) && !slipRows.some((s) => titlesShare(b.title, s.title) || s.title === b.title))
     .map((b) => ({ title: b.title, why: "no-evidence", replacedBy: null, missedMinutes: b.end - b.start }));
-  const covering = blocks.map((b) => ({ start: b.start, end: b.end }));
+  const covering = [...blocks, ...routines].map((b) => ({ start: b.start, end: b.end }));
   return {
     done,
     slipped: [...slipRows, ...stillPlanned],
@@ -240,6 +242,7 @@ const minutesText = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? String(m
 export function actualText(actual, { tomorrowFirst } = {}) {
   const items = actual.done.map((d) => {
     const slip = d.how === "logged" ? actual.slipped.find((s) => s.why === "reality" && s.replacedBy && (titlesShare(s.replacedBy, d.title) || s.replacedBy === d.title)) : null;
+    if (d.how === "routine") return `${d.title} ${range(d.start, d.end)} (as usual)`;
     return d.how === "logged" ? `${d.title.toLowerCase()} ${range(d.start, d.end)}${slip ? ` (instead of ${slip.title.toLowerCase()})` : ""}${d.early ? " (done early)" : ""}` : lower(d.title);
   });
   if (actual.focusMinutes >= 5) items.push(`${minutesText(actual.focusMinutes)} focus`);

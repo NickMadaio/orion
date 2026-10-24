@@ -56,6 +56,7 @@ import { codeDayAnswer, dayRead, isAfterThat, noBlockReply } from "./day-read-an
 import { asksDeadlines, deadlineReply } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes } from "./schedule-pending.js";
+import { parseOutreach, planOutreachReply, outreachHistory, outreachNote } from "./outreach-reply.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
 const markRead = (run, name) => { if (!(run.reads ?? []).includes(name))
@@ -358,6 +359,8 @@ function exactReply(flow) {
     return "";
 }
 const ampm12 = (t) => { const [h, m] = t.split(":").map(Number); return `${((h ?? 0) + 11) % 12 + 1}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
+/** orion-checkin with fixed arguments (no shell): a reply to ORION's start line sets or closes its check-in (2026-10-23). Wired in by index.ts only. */
+export const liveCheckinRun = (args) => new Promise((resolve) => execFile(RESCHEDULE.replace(/orion-reschedule$/, "orion-checkin"), args, { timeout: 15000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 })));
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export const liveExtractReminder = async (message, clock) => {
     try {
@@ -793,15 +796,17 @@ export function registerLocalRouting(api, options) {
         const reminderAt = lastReminder.get(sessionKey)?.set ?? 0;
         const editing = on && !cutOff && isEdit(message) && (made ? made.at > reminderAt : Date.now() - reminderAt > CORRECTION_WINDOW_MS);
         const codeFirst = intentFirst || editing;
+        // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
+        const outreach = parseOutreach(raw);
         const decision = cutOff
             ? Promise.resolve({ move: "ask", answer: GO_ON })
             : codeFirst ? Promise.resolve({ move: "escalate", fallback: "code-first", ms: 0 })
                 : Promise.resolve(deskHealth.begin()).then((call) => Promise.resolve()
-                    .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs }))
+                    .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs, ...(outreach ? { history: outreachHistory(outreach) } : {}) }))
                     .then((d) => { deskHealth.record(d, call); return d; })
                     .catch((error) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
         const askContext = parseAskContext(raw);
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (runId)
             runs.set(runId, run);
@@ -904,6 +909,19 @@ export function registerLocalRouting(api, options) {
             // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
             if (run.cutOff && !run.flow)
                 run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
+            // 2026-10-23: a short answer to ORION's own bedtime or start line is read against that line by code: "shush" after a bedtime
+            // reminder is not a log entry, "I'm meal prepping" after "Gym, now" is not a calendar change with no time.
+            if (!run.flow && !run.cutOff && run.outreach && !isCrisis(run.message)) {
+                const plan = planOutreachReply(run.outreach, run.message);
+                if (plan && !plan.checkin)
+                    run.flow = { outcome: "say", kind: "plain", text: plan.text };
+                else if (plan?.checkin && options.checkinRun) {
+                    const ran = await options.checkinRun(plan.checkin).catch(() => ({ stdout: "", code: 1 }));
+                    run.tools.push({ canonical: `exec orion-checkin ${plan.checkin.join(" ")}`, stdout: ran.stdout, exit: ran.code });
+                    if (ran.code === 0)
+                        run.flow = { outcome: "say", kind: "plain", text: plan.text };
+                }
+            }
             // A bare "cancel that" / "undo" with no change made in THIS chat has nothing to take back: ask, fixed text,
             // no tools (q092, 2026-10-16). A reminder just set, or one being asked about, owns the word instead.
             if (!run.flow && !run.cutOff && isBareUndo(run.message) && !changedRecently(run.sessionKey)
@@ -1260,7 +1278,8 @@ export function registerLocalRouting(api, options) {
             const ignoreNote = run.settled.move === "ignore" ? `\n\n${IGNORE_NOTE}` : "";
             // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
             const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
-            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}) };
+            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
+                ...(run.outreach ? { prependContext: outreachNote(run.outreach) } : {}) };
         }), { timeoutMs: HOOK_TIMEOUT_MS });
     }
     // The text that must reach Nick for a run (the scheduler's own reply, or an honest stop), applied at

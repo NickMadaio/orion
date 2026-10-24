@@ -26,7 +26,16 @@ export type LocalRoutingOptions = {
         message: string;
         clock: string;
         timeoutMs?: number;
+        history?: Array<{
+            role: "user" | "assistant";
+            content: string;
+        }>;
     }) => Promise<Decision>;
+    /** Runs orion-checkin with these arguments (index.ts wires the real script); a reply to a start line sets its check-in through it (2026-10-23). */
+    checkinRun?: (args: string[]) => Promise<{
+        stdout: string;
+        code: number;
+    }>;
     clock?: () => string;
     finalizeWaitMs?: number;
     workerProvider?: string;
@@ -151,6 +160,11 @@ export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     };
 }) => Promise<FlowResult>;
 export declare const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so nothing was changed. Tell me the block, the day and the start and end times, and I'll do it.";
+/** orion-checkin with fixed arguments (no shell): a reply to ORION's start line sets or closes its check-in (2026-10-23). Wired in by index.ts only. */
+export declare const liveCheckinRun: (args: string[]) => Promise<{
+    stdout: string;
+    code: number;
+}>;
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export declare const liveExtractReminder: (message: string, clock?: string) => Promise<{
     time: string | null;

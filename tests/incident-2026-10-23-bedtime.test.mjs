@@ -118,3 +118,28 @@ test("orion-inbound-turn: 'im doing work shush up' 7 s after the 12:02 bedtime l
   const ack = JSON.parse(readFileSync(join(h.dir, "bedtime-ack.json"), "utf8"));
   assert.equal(ack.night, "2026-10-19");
 });
+
+// "Bed at 12:00 AM — … Start wrapping up." (bed-wind, 30 min before bed): held by the same in-bed signals.
+const WIND = at("2026-10-19T22:33:41Z");   // 23:33 London, 27 min before a 00:00 bed (the 10-19 phone push)
+test("wind-down line: held when the phone is on the charger and still, the Mac is locked, he said goodnight, or 15+ min idle", () => {
+  assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: active, phone: { at: "2026-10-19T22:30:00Z", charging: true, motion: "still" }, sentTonight: 0 }).ok, false);
+  assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: { locked: true, idleSeconds: 60 }, sentTonight: 0 }).ok, false);
+  assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: active, declaredAt: "2026-10-19T22:20:00Z", sentTonight: 0 }).ok, false);
+  const idle = bedtimeVerdict({ now: WIND, bed: BED, mac: { locked: false, idleSeconds: 16 * 60 }, sentTonight: 0 });
+  assert.equal(idle.ok, false);
+  assert.match(idle.reason, /wind-down/);
+});
+test("wind-down line: still goes when he is up (at the Mac, or the phone in his hand), and earlier than 30 min before bed nothing is held for idling", () => {
+  assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: active, sentTonight: 0 }).ok, true);
+  assert.equal(bedtimeVerdict({ now: WIND, bed: BED, mac: { locked: false, idleSeconds: 16 * 60 }, screen: { at: "2026-10-19T22:32:00Z", locked: false }, sentTonight: 0 }).ok, true);
+  assert.equal(bedtimeVerdict({ now: at("2026-10-19T22:00:00Z"), bed: BED, mac: { locked: false, idleSeconds: 16 * 60 }, sentTonight: 0 }).ok, true);
+});
+test("orion-reach: a 10-19 22:33-style wind-down line (variant: phone on the charger, Mac idle 16 min) is dropped", () => {
+  const h = bedNight(WIND, { idleSeconds: 16 * 60, locked: false });
+  h.setAwareness({ sleep: { state: "awake", inWindow: false, bed: 1440, at: WIND.toISOString() } });
+  writeFileSync(join(h.dir, "health-log.json"), JSON.stringify({ phoneSignals: [{ at: "2026-10-19T22:28:18Z", charging: true, motion: "still" }] }));
+  const r = h.run("orion-reach", ["Bed at 12:00 AM — ECON1115 at 1:30 PM tomorrow. Start wrapping up.", "--kind", "reminder", "--why", "proactive: bed-wind", "--no-queue"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(h.read("outreach-outbox.jsonl"), []);
+  assert.equal(h.read("outreach.jsonl").at(-1).reason, "in-bed");
+});

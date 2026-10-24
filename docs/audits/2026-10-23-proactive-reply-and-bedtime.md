@@ -77,14 +77,14 @@ Commits on `fix/outreach-context-bed`: `5be0bd1`, `17ffc8b`, `a44da3f` and this 
   - Locked or inactive after bedtime: held.
   - End to end through `orion-reach` and `orion-inbound-turn`.
 
-### Not fixed here
+### Follow-up fixes (commits `1c93228` and the next)
 
-- `bed-wind` (before bedtime) still goes when he is idle but not in bed (10-19 22:33: phone off the charger, Mac idle 11 min). The evidence then did not say "in bed".
-- `inbound-turns.jsonl` in the live directory holds test-run turns (`from: local`, "approve A-7F3K"). Some test writes to the live directory. Worth a separate look.
-- The phone's own reply thread path (OrionLink/OrionMobile `replyTo`) worked and was unchanged; no phone reply since 10-16 went through it.
+- **Wind-down line** (`bed-wind`, "Bed at … Start wrapping up"): it now goes through the same checks as the other bedtime lines. It is held for goodnight, a bedtime line already answered, the phone charging and still at night, the Mac locked, or 15+ min with no Mac or phone use. The inactivity check now starts 30 min before bed instead of at bedtime. It still goes when he is at the Mac or has the phone in hand. The real 10-19 22:33 push would still go: the phone was off the charger and the Mac idle 11 min, so nothing said he was in bed. Tests: 3 more in `tests/incident-2026-10-23-bedtime.test.mjs`.
+- **Test turns in the live directory:** `scripts/orion_v2_strictness_check.sh` ran `orion-remote handle -- approve A-7F3K` with the real HOME. orion-remote always writes under `~/.openclaw/orion-controlled`, and `noteInboundTurn` logged each run as a turn from Nick. The check now runs that call under a throwaway HOME, and orion-remote never logs a `local` command as his turn. Test: `tests/incident-2026-10-23-local-turns.test.mjs`. The live `inbound-turns.jsonl` has 25 lines. 12 of them match a local "approve A-7F3K" row in `remote-audit.jsonl` to within 2 s: 10-16 17:47:13, 10-19 09:41:02, 10-19 21:44:55, 10-20 15:05:46, 10-20 19:51:21, 10-20 20:28:41, 10-20 23:07:29, 10-21 02:43:06, 10-21 03:23:36, 10-21 21:40:06, 10-21 21:57:16 and 10-21 23:15:58 (UTC). None were added on or after 10-23. They were left in place.
+- The phone's own reply-thread path (OrionLink/OrionMobile `replyTo`) worked and was not changed. No phone reply has gone through it since 10-16.
 
 ### Runs
 
-- `node --test tests/*.test.mjs`: 1745 tests. 1742–1745 pass. Three timing tests in `agentic-halts` and `awareness-cli` fail only under full-suite load and pass alone; they are untouched by this change.
+- `node --test tests/*.test.mjs`: 1750/1750 after the follow-up fixes. Earlier runs had three timing tests in `agentic-halts` and `awareness-cli` fail only under full-suite load; they pass alone.
 - `plugin/orion-control npm test`: 1870/1870, including the 29 new.
 - `swift test` (native/Orion, filtered): passes.

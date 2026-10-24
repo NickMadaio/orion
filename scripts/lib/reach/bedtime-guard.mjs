@@ -55,9 +55,10 @@ export function bedtimeVerdict(e) {
   const idle = Number(e.mac?.idleSeconds);
   const macAway = e.mac?.locked === true || e.mac?.displayAsleep === true;
   if (past >= -30 && macAway && !phoneInUse) return { ok: false, reason: "the Mac is locked or asleep at bedtime" };
-  // No interaction at all since a while before now: inactive in his sleep window is asleep or trying to be, never a push.
+  // No interaction at all for a while: inactive in his sleep window is asleep or trying to be, never a push. From the wind-down
+  // on (30 min before bed), so "Bed at 12:00 — start wrapping up" is not pushed to a phone he has put down either (2026-10-23).
   const macIdle = !Number.isFinite(idle) || idle >= INACTIVE_MINUTES * 60;
-  if (past >= 0 && macIdle && !phoneInUse) return { ok: false, reason: `no Mac or phone use for ${INACTIVE_MINUTES}+ min after bedtime` };
+  if (past >= -30 && macIdle && !phoneInUse) return { ok: false, reason: past >= 0 ? `no Mac or phone use for ${INACTIVE_MINUTES}+ min after bedtime` : `no Mac or phone use for ${INACTIVE_MINUTES}+ min at wind-down` };
   return { ok: true };
 }
 

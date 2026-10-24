@@ -227,3 +227,19 @@ final class VoiceFluidTests: XCTestCase {
         XCTAssertEqual(VoiceProgressPhrases.knownLabels.count, 11)
     }
 }
+
+final class VoiceHandoffTests: XCTestCase {
+    func testHandedOffAnswerGoesToThePhoneThread() throws {
+        let command = try XCTUnwrap(VoiceHandoff.phoneCommand(answer: " Done: Gym 6-7:30 PM. ", node: "/fake/node", scriptsDir: "/fake/scripts", exists: { _ in true }))
+        XCTAssertEqual(command.executable, "/fake/node")
+        XCTAssertEqual(command.arguments.prefix(2), ["/fake/scripts/orion-reach", "Done: Gym 6-7:30 PM."])
+        XCTAssertTrue(command.arguments.contains("--channel"))
+        XCTAssertEqual(command.arguments[command.arguments.firstIndex(of: "--channel")! + 1], "phone")
+        XCTAssertEqual(command.arguments[command.arguments.firstIndex(of: "--kind")! + 1], "update")
+    }
+
+    func testNoPhoneCommandWithoutReachOrText() {
+        XCTAssertNil(VoiceHandoff.phoneCommand(answer: "hi", node: "/n", scriptsDir: "/s", exists: { _ in false }))
+        XCTAssertNil(VoiceHandoff.phoneCommand(answer: "  ", node: "/n", scriptsDir: "/s", exists: { _ in true }))
+    }
+}

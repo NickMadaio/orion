@@ -430,6 +430,12 @@ final class AppState: ObservableObject {
     /// returns, its answer is kept — see `send(_:)`'s completion handler —
     /// instead of thrown away the way `cancelThinking` throws its answer away.
     private var pausedGeneration: Int?
+    /// Voice turns (2026-10-23): the instant cue, spoken progress and the 45 s handoff — see VoiceCue.swift, VoiceProgress.swift.
+    private let voiceCue = VoiceCuePlayer()
+    private var voiceCompanion: VoiceTurnCompanion?
+    private var lastHeardSpeechAt = Date.distantPast
+    /// The turn ORION said he would text the answer to; its answer goes to the bubble and the phone, not the speakers.
+    private var handedOffGeneration: Int?
     /// The paused turn's answer, once it has arrived, waiting for "continue".
     private var pausedReplacementText: String?
 
@@ -1168,11 +1174,22 @@ final class AppState: ObservableObject {
             self.retainForVerification(buffer)
             self.wakeWord.observe(buffer, level: level)
             self.bargeInMonitor.observe(buffer, level: level)
+            if level >= VoiceCuePolicy.speechLevel, !self.voiceCue.isPlaying, !self.speechOutput.isSpeaking { self.lastHeardSpeechAt = Date() }
         }
         wakeWord.tolerance = wakeSensitivity.tolerance
-        bargeInMonitor.currentlySpoken = { [weak self] in self?.speechOutput.currentText ?? "" }
+        bargeInMonitor.currentlySpoken = { [weak self] in
+            guard let self else { return "" }
+            return self.speechOutput.currentText.isEmpty ? self.voiceCue.currentText : self.speechOutput.currentText
+        }
         bargeInMonitor.currentRoute = { AppState.currentOutputRouteKind() }
-        bargeInMonitor.currentPhase = { [weak self] in self?.turnPhaseForBargeIn() ?? .idle }
+        // A cue or update playing during .thinking is ORION's voice in the room: judged like .speaking, so its echo is not Nick.
+        bargeInMonitor.currentPhase = { [weak self] in
+            guard let self else { return .idle }
+            return self.voiceCue.isPlaying && self.phase == .thinking ? .speaking(.playing) : self.turnPhaseForBargeIn()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            self?.voiceCue.prepare(VoiceCuePolicy.allPhrases + VoiceProgressPhrases.renderable)
+        }
         bargeInMonitor.onBargeIn = { [weak self] text in self?.handleSpokenBargeIn(text) }
         wakeWord.onUnavailable = { [weak self] message in
             guard let self else { return }
@@ -1275,9 +1292,11 @@ final class AppState: ObservableObject {
         guard activeReplyOrigin.allowsSpeech else { return }
         // His own voice through the speakers is not Nick interrupting (2026-09-29:
         // he cut himself off mid-sentence and started listening to himself).
-        let echo = phase == .speaking
+        let cueEcho = Date().timeIntervalSince(voiceCue.lastEndedAt) < 2.5 || voiceCue.isPlaying
+        let echo = (phase == .speaking
             ? SelfEcho.isEchoWhileSpeaking(heard: heardText, spoken: speechOutput.lastSpokenText)
-            : SelfEcho.isEcho(heard: heardText, spoken: speechOutput.lastSpokenText)
+            : SelfEcho.isEcho(heard: heardText, spoken: speechOutput.lastSpokenText))
+            || (cueEcho && SelfEcho.isEcho(heard: heardText, spoken: voiceCue.lastText))
         if echo {
             OrionLog.write("[bargein] ignored — that was ORION's own voice")
             return
@@ -1297,6 +1316,7 @@ final class AppState: ObservableObject {
             preservedTranscript = heardText
         case .thinking:
             OrionLog.write("[bargein] confident speech during .thinking — pausing, not cancelling")
+            voiceCue.stop()
             pauseThinking(reason: "user spoke during thinking", heardSeed: heardText)
         default:
             break
@@ -1342,6 +1362,7 @@ final class AppState: ObservableObject {
 
     private func setPhase(_ next: OrionPhase) {
         phase = next
+        if next != .thinking { voiceCompanion?.stop(); voiceCompanion = nil }
         hologram.setState(next.hologramState)
         onSpeakingChanged?(next == .speaking)
         // Every phase that can strand the whole app gets a guaranteed exit.
@@ -1932,6 +1953,7 @@ final class AppState: ObservableObject {
     /// Escape, or the user starting to talk over a reply.
     func bargeIn() {
         speechOutput.stop(reason: "barge-in (escape, or you started talking)")
+        voiceCue.stop()
         hologram.setLevel(0)
         // Escape means "stop", and that includes not reopening the ear for a
         // follow-up. Without this, cutting Orion off would be answered by Orion
@@ -1970,6 +1992,7 @@ final class AppState: ObservableObject {
         stopProgressPolling()
         askGeneration += 1
         OrionLog.write("[think] cancelled by user — \(reason)")
+        voiceCue.stop()
         setPhase(.idle)
         statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
         append(.system, "Cancelled — stopped waiting for that one. (Anything it already started may still finish in the background.)")
@@ -2045,6 +2068,7 @@ final class AppState: ObservableObject {
             session: chatSession,
             sinceMillis: Int(turnStartedAt.timeIntervalSince1970 * 1000)
         )
+        if !typed { startVoiceCompanion(message: text, session: chatSession, generation: generation, startedAt: turnStartedAt) }
 
         agentQueue.async { [weak self] in
             let result: Result<GatewayReply, Error>
@@ -2055,6 +2079,12 @@ final class AppState: ObservableObject {
             }
             DispatchQueue.main.async {
                 guard let self else { return }
+                if self.askGeneration == generation { self.voiceCompanion?.stop() }
+                if self.handedOffGeneration == generation {
+                    self.handedOffGeneration = nil
+                    self.deliverHandedOff(result)
+                    return
+                }
                 guard self.askGeneration == generation else {
                     // Not the live turn any more. If it was PAUSED rather than
                     // cancelled, the answer is still worth keeping instead of
@@ -2218,7 +2248,67 @@ final class AppState: ObservableObject {
         chatThinking = reply.thinking
         saveChat(.orion, text: reply.text, thinking: reply.thinking)
         append(.orion, reply.text)
-        speak(reply.text, origin: origin)
+        guard voiceCue.isPlaying else { return speak(reply.text, origin: origin) }
+        voiceCue.whenQuiet(atMost: 2.0) { [weak self] in self?.speak(reply.text, origin: origin) }
+    }
+
+    // MARK: Voice turn companion (2026-10-23)
+
+    private func startVoiceCompanion(message: String, session: String, generation: Int, startedAt: Date) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let companion = VoiceTurnCompanion(message: message, startedAt: startedAt, hooks: .init(
+            stages: { VoiceProgressFile.read(home: home, session: session, notBefore: startedAt)?.stages ?? [] },
+            heardSpeechAgo: { [weak self] in
+                guard let self else { return nil }
+                let ago = Date().timeIntervalSince(self.lastHeardSpeechAt)
+                return ago < 5 ? ago : nil
+            },
+            isPlaying: { [weak self] in self?.voiceCue.isPlaying ?? false },
+            playCue: { [weak self] phrase in self?.voiceCue.play(phrase) ?? false },
+            sayUpdate: { [weak self] line in
+                self?.voiceCue.playSoon(line, within: 2.5) { [weak self] in self?.askGeneration == generation && self?.phase == .thinking }
+            },
+            show: { [weak self] line in self?.append(.system, line) },
+            handOff: { [weak self] line in self?.handOffVoiceTurn(line, generation: generation) }
+        ))
+        voiceCompanion = companion
+        companion.start()
+    }
+
+    /// 45 s and no answer: say so, stop waiting aloud, and let the turn finish in the background (its answer goes
+    /// to the bubble and the phone thread). The subprocess is left running, as in `pauseThinking`.
+    private func handOffVoiceTurn(_ line: String, generation: Int) {
+        guard phase == .thinking, askGeneration == generation else { return }
+        OrionLog.write("[voice] 45 s without an answer — handing off to the bubble and phone")
+        disarmWatchdog()
+        stopProgressPolling()
+        handedOffGeneration = generation
+        askGeneration += 1
+        append(.orion, line)
+        voiceCue.playSoon(line, within: 5) { true }
+        conversationOpen = false
+        setPhase(.idle)
+        statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
+    }
+
+    private func deliverHandedOff(_ result: Result<GatewayReply, Error>) {
+        switch result {
+        case .success(let reply):
+            // deliverReach saves to the chat itself when the dashboard is open; otherwise it is saved here.
+            if dashboardVisible?() != true { saveChat(.orion, text: reply.text, thinking: reply.thinking) }
+            deliverReach(reply.text, aloud: false, headphones: false, keepFor: 600)
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            if let command = VoiceHandoff.phoneCommand(answer: reply.text, node: home + "/.openclaw/tools/node-v24.15.0/bin/node",
+                                                       scriptsDir: home + "/.openclaw/orion-remote/scripts",
+                                                       exists: { FileManager.default.fileExists(atPath: $0) }) {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    if !PhaseHook.spawn(command) { OrionLog.write("[voice] handed-off answer could not reach the phone") }
+                }
+            }
+        case .failure(let error):
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            append(.system, "The answer I said I'd text you didn't finish: \(message)")
+        }
     }
 
     // MARK: Status and permissions

@@ -238,3 +238,16 @@ final class VoiceTurnCompanion {
         }
     }
 }
+
+/// Where a handed-off answer goes: the bubble (AppState) and his phone thread, via orion-reach.
+enum VoiceHandoff {
+    static func phoneCommand(answer: String, node: String, scriptsDir: String, exists: (String) -> Bool) -> PhaseCommand? {
+        let reach = scriptsDir + "/orion-reach"
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, exists(node), exists(reach) else { return nil }
+        return PhaseCommand(executable: node, arguments: [
+            reach, text, "--kind", "update", "--channel", "phone", "--no-queue",
+            "--why", "the answer to a spoken question that ran long",
+        ])
+    }
+}

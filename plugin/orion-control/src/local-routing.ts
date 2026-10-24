@@ -45,6 +45,7 @@ import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
 import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne, type EditTarget } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
+import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
@@ -112,6 +113,8 @@ export type LocalRoutingOptions = {
   warm?: boolean;
   /** Append one line per hook stage to <logPath>.trace (diagnostics). */
   trace?: boolean;
+  /** Where the per-turn progress files for the app's spoken updates go (turn-progress.ts); default <logPath>/../../turn-progress. */
+  progressDir?: string;
 };
 
 type Run = {
@@ -593,7 +596,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const r = building.getStore();
       const context = recentReplan(r?.sessionKey);
       const made = recentMade(r?.sessionKey);
-      return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(made?.kind === "block" ? { lastTarget: { title: made.title, ...(made.start ? { start: made.start } : {}), dateArgs: made.dateArgs } } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : {}) });
+      return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(made?.kind === "block" ? { lastTarget: { title: made.title, ...(made.start ? { start: made.start } : {}), dateArgs: made.dateArgs } } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; progress.stage(r.sessionKey, "changing-calendar"); } } : {}) });
     } } : {}),
     ...(options.lateFlow ? { lateFlow: marked(options.lateFlow)! } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow)! } : {}),
     ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow)! } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow)! } : {}) };
@@ -620,6 +623,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!options.trace) return;
     try { appendFileSync(`${logPath}.trace`, `${JSON.stringify({ at: new Date().toISOString(), stage, runId: pick(event, ctx, "runId") ?? null, sessionKey: pick(event, ctx, "sessionKey") ?? null, ...extra })}\n`, { mode: 0o600 }); } catch { /* diagnostics only */ }
   };
+  // 2026-10-23 (voice): real stages per session, for the app's "still on it — checking your calendar" (turn-progress.ts).
+  const progress = new TurnProgress(options.progressDir ?? join(dirname(dirname(logPath)), "turn-progress"));
   const runs = new Map<string, Run>();
   /** Per session: his last message (stitched) and the scheduler changes it made. */
   const lastTurn = new Map<string, { text: string; at: number; marks: string[] }>();
@@ -768,6 +773,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         return fixedReply(line, run.writeStarted ? "a change is being made and is not stopped" : "nothing was changed");
       }
       const now = runFor(event, ctx) ?? run;
+      for (const stage of stagesForReads(now.reads)) progress.stage(now.sessionKey, stage);
+      progress.stage(now.sessionKey, "thinking");
       const stillWorker = !now.flow || now.flow.outcome === "fallback";
       if (stillWorker && !now.directive && !now.reminder && !now.noTools && !now.provided && Date.now() - now.started > SLOW_TURN_MS
         && CHANGE_REQUEST.test(now.message) && SCHEDULING.test(now.message) && !isQuestion(now.message)) {
@@ -788,6 +795,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const raw = str(event.prompt);
     traceLine("before_model_resolve", event, ctx, { hasPrompt: !!raw });
     if (!raw || INTERNAL.test(sessionKey)) return undefined;
+    if (sessionKey) progress.begin(sessionKey, runId ?? null);
     // The rest of a cut-off spoken request is read together with its first half, as one request.
     const said = userText(raw);
     const before = sessionKey ? lastTurn.get(sessionKey) : undefined;
@@ -1263,6 +1271,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     return undefined;
   });
 
+  // 2026-10-23: each tool the worker calls is a real stage he can be told about ("still on it — checking your calendar").
+  api.on("before_tool_call", (event, ctx) => {
+    const run = runFor(event, ctx);
+    const toolName = pick(event, ctx, "toolName");
+    if (!run?.sessionKey || !toolName) return undefined;
+    const { stage, detail } = stageForTool(toolName, str((event.params as Record<string, unknown> | undefined)?.command) ?? "");
+    progress.stage(run.sessionKey, stage, detail);
+    return undefined;
+  });
+
   api.on("after_tool_call", (event, ctx) => {
     const run = runFor(event, ctx);
     const toolName = pick(event, ctx, "toolName");
@@ -1287,7 +1305,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const run = runFor(event, ctx);
     traceLine("before_agent_finalize", event, ctx, { found: !!run });
     if (!run) return undefined;
-    const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
+    if (run.passes > 0) progress.stage(run.sessionKey, "double-checking");
+    const done = () => { progress.finish(run.sessionKey); runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
     // What this run must deliver: kept for reply_payload_sending (channel routes) and put in place for the agent CLI.
     let owed: string | undefined;
     // OpenClaw ignores a "revise" once any tool has run in the turn and sends the original reply (live sweep
@@ -1433,6 +1452,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     log({ stage: "agent_end", runId, message: run.message, decision: run.settled ?? { move: "escalate", fallback: "unsettled" },
       flow: flow ? { outcome: flow.outcome, ..."reason" in flow ? { reason: flow.reason } : {} } : null, success: event.success !== false, error: str(event.error) ?? null,
       tools: run.tools.length, cloud: run.cloud ?? false, turnMs: typeof event.durationMs === "number" ? event.durationMs : Date.now() - run.started });
+    progress.finish(run.sessionKey);
     runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? run.sessionKey ?? ""}`);
     return undefined;
   });

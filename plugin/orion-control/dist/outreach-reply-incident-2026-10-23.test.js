@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { registerLocalRouting } from "./local-routing.js";
-import { parseOutreach, planOutreachReply, readShortReply, outreachNote } from "./outreach-reply.js";
+import { parseOutreach, planOutreachReply, readShortReply, outreachNote, loopArgs } from "./outreach-reply.js";
 const APP = `[Orion app context — factual state supplied by the native app]
 Focus session: inactive.
 Firm enforcement: not active.
@@ -49,17 +49,21 @@ describe("short answers", () => {
         expect(readShortReply("can you move gym to tomorrow morning and put the resume block after my lecture please, thanks orion")).toBeUndefined();
     });
 });
-describe("code's answer to a reply to a start line", () => {
+describe("code's answer to a reply to a start line: the loop it belongs to, by id", () => {
     const gym = parseOutreach(GYM);
-    it("10-20 'I'm meal prepping. That's why. Sorry.': meal prep first, Gym check-in in 25 min, no calendar change, no 'what time'", () => {
+    it("10-20 'I'm meal prepping. That's why. Sorry.': defer the Gym loop 25 min, no calendar change, no 'what time'", () => {
         expect(planOutreachReply(gym, "I'm meal prepping. That's why. Sorry.")).toEqual({ text: "Okay, meal prepping first. I'll check back about Gym in 25 min.",
-            checkin: ["add", "25", "Gym", "--because", "I'm meal prepping. That's why. Sorry."] });
+            act: { verb: "defer", minutes: 25, because: "I'm meal prepping. That's why. Sorry." }, find: { what: "Gym" } });
     });
-    it("'in 10' / 'not yet' / 'already did' / 'yeah'", () => {
-        expect(planOutreachReply(gym, "in 10")?.checkin).toEqual(["add", "10", "Gym", "--because", "in 10"]);
-        expect(planOutreachReply(gym, "not yet")?.checkin?.slice(0, 2)).toEqual(["add", "15"]);
-        expect(planOutreachReply(gym, "already did")?.checkin).toEqual(["close", "Gym"]);
-        expect(planOutreachReply(gym, "yeah")?.checkin).toEqual(["started", "Gym"]);
+    it("'in 10' / 'not yet' / 'already did' / 'yeah' act on the loop's id (yeah updates it, never opens a new one)", () => {
+        expect(loopArgs(planOutreachReply(gym, "in 10").act, "ci-7")).toEqual(["defer", "10", "ci-7", "--because", "in 10"]);
+        expect(loopArgs(planOutreachReply(gym, "not yet").act, "ci-7").slice(0, 3)).toEqual(["defer", "15", "ci-7"]);
+        expect(loopArgs(planOutreachReply(gym, "already did").act, "ci-7")).toEqual(["done", "ci-7"]);
+        expect(loopArgs(planOutreachReply(gym, "yeah").act, "ci-7")).toEqual(["started", "ci-7"]);
+    });
+    it("'nah' / 'stop' / 'shush' to a start line: nothing destructive in code (no cancel, no calendar change)", () => {
+        for (const said of ["nah", "stop", "shush"])
+            expect(planOutreachReply(gym, said), said).toBeUndefined();
     });
     it("a real question goes to the worker with the context", () => {
         expect(planOutreachReply(gym, "can i do gym tomorrow instead?")).toBeUndefined();
@@ -78,16 +82,21 @@ describe("code's answer to a reply to a bedtime line: never 'since when', never 
         expect(planOutreachReply(parseOutreach(PHONE_OLD), "Yea yea yea I know, just wrapping up my work now. Then sleep. Push my alarm to 12")).toBeUndefined();
     });
 });
-function harness() {
+function harness({ found = true, deskMove = {} } = {}) {
     const handlers = new Map();
     const desk = [];
     const checkins = [];
     const flows = [];
     registerLocalRouting({ on: (name, fn) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) }, {
         warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Tue 20:45", now: () => new Date(2026, 9, 20, 20, 45),
-        decideImpl: async (input) => { desk.push({ message: input.message, history: input.history }); return { move: "escalate", tier: "standard" }; },
+        decideImpl: async (input) => { desk.push({ message: input.message, history: input.history }); return deskMove[input.message] ?? { move: "escalate", tier: "standard" }; },
         scheduleFlow: async (message) => { flows.push(message); return { outcome: "say", kind: "ask", text: "What time or how long do you mean? I haven't changed anything." }; },
-        checkinRun: async (args) => { checkins.push(args); return { stdout: "ok", code: 0 }; }
+        checkinRun: async (args) => {
+            checkins.push(args);
+            if (args[0] === "find")
+                return found ? { stdout: '{"open":true,"id":"ci-gym","what":"Gym","block":"cal-4-897c"}', code: 0 } : { stdout: '{"open":false,"matches":0}', code: 1 };
+            return { stdout: args[0] === "defer" ? "Fair — back in 25 min about Gym." : "ok", code: 0 };
+        }
     });
     const fire = async (name, event, ctx) => {
         const out = [];
@@ -110,7 +119,7 @@ describe("the turns, through the routing hooks", () => {
         const h = harness();
         const t = await h.turn(`${GYM}\n${APP}I'm meal prepping. That's why. Sorry.`);
         expect(h.desk[0]).toEqual({ message: "I'm meal prepping. That's why. Sorry.", history: [{ role: "assistant", content: "It's been 30 min. Gym, now. Phone down." }] });
-        expect(h.checkins).toEqual([["add", "25", "Gym", "--because", "I'm meal prepping. That's why. Sorry."]]);
+        expect(h.checkins).toEqual([["find", "--what", "Gym"], ["defer", "25", "ci-gym", "--because", "I'm meal prepping. That's why. Sorry."]]);
         expect(h.flows).toEqual([]);
         expect(t.all).toMatch(/meal prepping first\. I'll check back about Gym in 25 min/);
         expect(t.all).not.toMatch(/What time or how long/);
@@ -126,5 +135,42 @@ describe("the turns, through the routing hooks", () => {
         const h = harness();
         const t = await h.turn(`${BED}\n${APP}honestly i think i need to finish this essay, how much sleep do i get if i stop at 1`);
         expect(t.all).toMatch(/YOU \(ORION\) messaged him first: "It's 12:02 AM, bedtime/);
+    });
+});
+// Review 2026-10-23 (CRITICAL 1, HIGH 2): code answers only a WHOLE short reply; a request that also contains one goes to the turn.
+describe("requests after a proactive line are never taken by the short-answer path", () => {
+    it.each(["set an alarm for 8 am", "remind me in 10 min to call mom", "i am working for an hour", "whats my first class tomorrow", "play some music",
+        "log 2 hours of essay work", "remind me when the laundry is done", "already did the reading, add gym tomorrow at 7", "not yet, but can you move gym to 8",
+        "stop the focus session"])("'%s' is not a short answer", (said) => {
+        expect(readShortReply(said)).toBeUndefined();
+        expect(planOutreachReply(parseOutreach(BED), said)).toBeUndefined();
+        expect(planOutreachReply(parseOutreach(GYM), said)).toBeUndefined();
+    });
+    it("'8 am' is never minutes", () => expect(readShortReply("8 am")).toBeUndefined());
+    it.each([
+        [BED, "set an alarm for 8 am"], [BED, "whats my first class tomorrow"], [BED, "play some music"], [BED, "log 2 hours of essay work"],
+        [GYM, "remind me in 10 min to call mom"], [GYM, "i am working for an hour"], [GYM, "already did the reading, add gym tomorrow at 7"],
+        [GYM, "not yet, but can you move gym to 8"], [GYM, "stop the focus session"], [BED, "remind me when the laundry is done"],
+    ])("through the hooks: %#: no code reply, no check-in call, the turn keeps the context", async (label, said) => {
+        const h = harness();
+        const t = await h.turn(`${label}\n${APP}${said}`);
+        expect(h.checkins).toEqual([]);
+        expect(t.all).not.toMatch(/No more bedtime reminders|more minutes, then sleep|I'll check (?:in|back)/);
+    });
+    it("a desk tool pick ('play some music' as media) is never answered by the short-answer path, even for 'yeah'", async () => {
+        const h = harness({ deskMove: { yeah: { move: "tool", tool: "media", args: {} } } });
+        const t = await h.turn(`${BED}\n${APP}yeah`);
+        expect(t.all).not.toMatch(/Night, Nick/);
+    });
+    it("'already did the reading, add gym tomorrow at 7': the add still reaches the schedule flow", async () => {
+        const h = harness();
+        await h.turn(`${GYM}\n${APP}already did the reading, add gym tomorrow at 7`);
+        expect(h.flows).toEqual(["already did the reading, add gym tomorrow at 7"]);
+    });
+    it("no loop for the start line (or several): code does nothing, never the newest check-in", async () => {
+        const h = harness({ found: false });
+        const t = await h.turn(`${GYM}\n${APP}in 10`);
+        expect(h.checkins).toEqual([["find", "--what", "Gym"]]);
+        expect(t.all).not.toMatch(/I'll check in then/);
     });
 });

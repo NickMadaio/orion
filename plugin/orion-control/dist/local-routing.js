@@ -56,7 +56,7 @@ import { codeDayAnswer, dayRead, isAfterThat, noBlockReply } from "./day-read-an
 import { asksDeadlines, deadlineReply } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes } from "./schedule-pending.js";
-import { parseOutreach, planOutreachReply, outreachHistory, outreachNote } from "./outreach-reply.js";
+import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
 const markRead = (run, name) => { if (!(run.reads ?? []).includes(name))
@@ -911,15 +911,32 @@ export function registerLocalRouting(api, options) {
                 run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
             // 2026-10-23: a short answer to ORION's own bedtime or start line is read against that line by code: "shush" after a bedtime
             // reminder is not a log entry, "I'm meal prepping" after "Gym, now" is not a calendar change with no time.
-            if (!run.flow && !run.cutOff && run.outreach && !isCrisis(run.message)) {
+            // Only a WHOLE short answer ("in 10", "yeah", "shush"), never a request that also says one (review 2026-10-23: "set an alarm for
+            // 8 am", "remind me in 10 min to call mom", "play some music" were all taken): those go to the normal turn, with the context.
+            if (!run.flow && !run.cutOff && run.outreach && !isCrisis(run.message) && run.settled.move !== "tool" && !CHANGE_REQUEST.test(run.message)
+                && !REMINDER.test(run.message) && !LIVE_DATA.test(run.message) && !isSessionStart(run.message)) {
                 const plan = planOutreachReply(run.outreach, run.message);
-                if (plan && !plan.checkin)
+                if (plan && !plan.act)
                     run.flow = { outcome: "say", kind: "plain", text: plan.text };
-                else if (plan?.checkin && options.checkinRun) {
-                    const ran = await options.checkinRun(plan.checkin).catch(() => ({ stdout: "", code: 1 }));
-                    run.tools.push({ canonical: `exec orion-checkin ${plan.checkin.join(" ")}`, stdout: ran.stdout, exit: ran.code });
-                    if (ran.code === 0)
-                        run.flow = { outcome: "say", kind: "plain", text: plan.text };
+                else if (plan?.act && plan.find && options.checkinRun) {
+                    // The one loop this start line belongs to, by id; none or several and code does nothing (the turn goes on as usual).
+                    const found = await options.checkinRun(["find", "--what", plan.find.what]).catch(() => ({ stdout: "", code: 1 }));
+                    let id;
+                    try {
+                        const f = JSON.parse(found.stdout.trim().split("\n").at(-1) ?? "");
+                        if (found.code === 0 && f.open && typeof f.id === "string")
+                            id = f.id;
+                    }
+                    catch { /* not found */ }
+                    if (id) {
+                        const args = loopArgs(plan.act, id);
+                        const ran = await options.checkinRun(args).catch(() => ({ stdout: "", code: 1 }));
+                        run.tools.push({ canonical: `exec orion-checkin ${args.join(" ")}`, stdout: ran.stdout, exit: ran.code });
+                        // A defer orion-checkin refuses ("That reads as putting it off") is said as it said it, never as done.
+                        const refused = plan.act.verb === "defer" && !/^Fair\b/.test(ran.stdout.trim());
+                        if (ran.code === 0)
+                            run.flow = { outcome: "say", kind: "plain", text: refused ? ran.stdout.trim().split("\n")[0] : plan.text };
+                    }
                 }
             }
             // A bare "cancel that" / "undo" with no change made in THIS chat has nothing to take back: ask, fixed text,

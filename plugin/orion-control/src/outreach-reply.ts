@@ -16,7 +16,6 @@ export type Outreach = { text: string; minutes: number; kind: OutreachKind; titl
 export type ShortReply =
   | { kind: "yes" } | { kind: "no" } | { kind: "not-yet" } | { kind: "later"; minutes: number } | { kind: "done" }
   | { kind: "stop" } | { kind: "other"; activity: string };
-export type OutreachPlan = { text: string; checkin?: string[] };
 
 const BEDTIME = /\b(?:bedtime|past bedtime|bed at \d|still up at|sleep now|go to (?:bed|sleep))\b/i;
 const START = /^(?:time to start: |.+ — still not started|it'?s been \d+ min\. .+, now\.|you'?ve been avoiding .+ for \d+ min)/i;
@@ -59,43 +58,59 @@ export function parseOutreach(prompt: string): Outreach | undefined {
   return { text, minutes, kind: kindOf(text, c ? b : undefined), ...(title ? { title } : {}) };
 }
 
-const WORDS: Record<string, number> = { a: 1, one: 1, two: 2, three: 3, four: 4, five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30, "a few": 5, few: 5, couple: 2, "a couple": 2, half: 30 };
-const minutesOf = (n: string, unit: string): number => {
-  const v = /^\d+$/.test(n) ? Number(n) : (WORDS[n.toLowerCase()] ?? NaN);
-  return /^h/i.test(unit) ? v * 60 : v;
-};
+const NUM: Record<string, number> = { "a few": 5, "a couple": 2, five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30 };
+const num = (n: string): number => (/^\d+$/.test(n) ? Number(n) : (NUM[n] ?? NaN));
+/** At most this many words: a short answer is the WHOLE reply (review 2026-10-23: "set an alarm for 8 am" read "am" as a+m). */
+export const SHORT_MAX_WORDS = 6;
+const N = "(\\d{1,3}|a few|a couple|five|ten|fifteen|twenty|thirty)";
+const MINS = "(?:min|mins|minute|minutes)";
+const LATER = [
+  new RegExp(`^(?:ok(?:ay)? )?(?:in|give me|another|maybe|about) ${N}(?: more)?(?: ${MINS})?(?: more)?$`),
+  new RegExp(`^${N} (?:more )?${MINS}(?: more)?$`),
+];
+const HOUR = /^(?:ok(?:ay)? )?(?:in |give me |another )?(an|one|half an) (?:hour|hr)(?: more)?$/;
+const YES = /^(?:ya|yea|yeah|yes|yep|yup|ok|okay|k|sure|on it|going|going now|omw|alright|will do|aight|night|goodnight|good night|gn|heading to bed|going to bed)(?: (?:orion|now|ok|okay|nick))?$/;
+const DONE = /^(?:already (?:did(?: it)?|done|in bed|asleep|there|finished)|i already did(?: it)?|did it|done|done already|finished|just finished|i'?m (?:already )?(?:in bed|at the gym|there))$/;
+const NOT_YET = /^(?:not yet|nah not yet|no not yet|in a (?:bit|sec|minute|min)|soon|later|one sec)$/;
+const STOP = /^(?:shush|shush up|shut up|leave me alone|i know|go away|not now|enough|stop nagging|stop it|stop)$|^(?:i'?m|im|i am) (?:doing|finishing|working on) [a-z]+(?: [a-z]+)? (?:shush|shush up|shut up)$/;
+const NO = /^(?:no|nope|nah|not today)$/;
+const OTHER = /^(?:i'?m|im|i am) (?:just |still )?((?:[a-z]+ )?[a-z]+ing)(?: (?:rn|right now|now))?(?: that'?s why)?(?: sorry)?$/;
 
-/** Short answers, read on their own; undefined for anything longer or unclear (the worker reads those, with the context). */
+/** A short answer, only when it is the WHOLE reply (anchored, six words or fewer, nothing else in it); undefined otherwise. */
 export function readShortReply(message: string): ShortReply | undefined {
-  const m = message.trim().toLowerCase().replace(/[“”]/g, "\"").replace(/\s+/g, " ");
-  if (!m || m.split(" ").length > 14 || /\?\s*$/.test(m)) return undefined;
-  const later = m.match(/\b(?:in|give me|another|like|about|after|need|for)?\s*(\d+|a|one|two|three|four|five|ten|fifteen|twenty|thirty|a few|a couple|half)\s*(?:more\s*)?(min(?:ute)?s?|mins?|m|h(?:ou)?rs?|hours?|an hour)\b/);
-  if (later && /\b(?:in|give me|another|more|need|after|like|about|for|first)\b|^\s*\d+\s*(?:min|m)\b/.test(m)) {
-    const unit = later[2] === "an hour" ? "h" : later[2]!;
-    const minutes = later[1] === "half" ? 30 : minutesOf(later[1]!, unit);
-    if (Number.isFinite(minutes) && minutes > 0 && minutes <= 240) return { kind: "later", minutes };
+  const m = message.trim().toLowerCase().replace(/[‘’]/g, "'").replace(/[.!,…]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!m || m.split(" ").length > SHORT_MAX_WORDS || /\?/.test(message)) return undefined;
+  for (const re of LATER) {
+    const x = m.match(re);
+    if (x) { const v = num(x[1]!); if (v > 0 && v <= 240) return { kind: "later", minutes: v }; }
   }
-  const bare = m.match(/^(?:in|give me|another|like)\s+(\d{1,3})\s*[.!]*$/);
-  if (bare && Number(bare[1]) > 0 && Number(bare[1]) <= 240) return { kind: "later", minutes: Number(bare[1]) };
-  if (/^(?:ya|yea|yeah|yes|yep|yup|ok(?:ay)?|k|sure|on it|going(?: now)?|omw|fine|alright|will do|aight|night|good ?night|gn|heading (?:there|to bed)|going to bed)\b[\s.!]*$/.test(m)) return { kind: "yes" };
-  if (/\b(?:already (?:did|done|in bed|asleep|went|finished|there)|did it|done(?: it)?|finished(?: it)?|just got back|i(?:'m| am) (?:in bed|at the gym|there)|was there)\b/.test(m)) return { kind: "done" };
-  if (/^(?:not yet|nah not yet|in a (?:bit|sec|minute|min)|soon|later|after this|one sec|gimme a sec|in a moment)\b/.test(m)) return { kind: "not-yet" };
-  if (/\b(?:shush|shut up|stop(?: it)?|leave me alone|i know|go away|not now|stop nagging|enough)\b/.test(m)) return { kind: "stop" };
-  if (/^(?:no|nope|nah|not today|skip(?:ping)? it|not going)\b/.test(m)) return { kind: "no" };
-  const doing = m.match(/^(?:i'?m|im|i am|i'?ve been|just)\s+(?:just\s+|still\s+)?((?:[a-z]+\s+)?[a-z]+ing\b(?:\s+(?!that|sorry|rn|now|right)[a-z']+){0,2})/);
-  if (doing) return { kind: "other", activity: doing[1]!.trim() };
+  const hour = m.match(HOUR);
+  if (hour) return { kind: "later", minutes: hour[1] === "half an" ? 30 : 60 };
+  if (YES.test(m)) return { kind: "yes" };
+  if (DONE.test(m)) return { kind: "done" };
+  if (NOT_YET.test(m)) return { kind: "not-yet" };
+  if (STOP.test(m)) return { kind: "stop" };
+  if (NO.test(m)) return { kind: "no" };
+  const other = m.match(OTHER);
+  if (other && !/^(?:going|doing|nothing)$/.test(other[1]!)) return { kind: "other", activity: other[1]! };
   return undefined;
 }
 
 const q = (s: string) => `"${s.replace(/["\\$`]/g, "").slice(0, 80)}"`;
 
-/** Code's whole answer to a short reply to a bedtime or start line, and the check-in it sets; undefined → the worker, with the context. */
+/** What to do with the ONE plan loop the start line belongs to (found by `orion-checkin find`, never "the newest"). */
+export type LoopAct = { verb: "defer"; minutes: number; because: string } | { verb: "started" } | { verb: "done" };
+export type OutreachPlan = { text: string; act?: LoopAct; find?: { what: string } };
+
+/**
+ * Code's whole answer to a short reply to a bedtime or start line; undefined → the normal turn, which has the context.
+ * A start line's loop is acted on by its id only (the caller finds it); a "no" or "stop" to a start line is never acted on by
+ * code (it cancelled the newest check-in and removed a calendar block, review 2026-10-23).
+ */
 export function planOutreachReply(o: Outreach, message: string): OutreachPlan | undefined {
   const r = readShortReply(message);
+  if (!r) return undefined;
   if (o.kind === "bedtime") {
-    // Whatever he says, the bedtime ladder is over for tonight (orion-inbound-turn wrote the ack): say so, never ask "since when".
-    if (!r) return message.trim().split(/\s+/).length <= 14 && !/\?\s*$/.test(message) && !/\b(?:remind|alarm|wake|push|move|add|cancel|set)\b/i.test(message)
-      ? { text: "Got it. No more bedtime reminders from me tonight." } : undefined;
     switch (r.kind) {
       case "yes": return { text: "Night, Nick." };
       case "done": return { text: "Good. Night, Nick." };
@@ -104,24 +119,28 @@ export function planOutreachReply(o: Outreach, message: string): OutreachPlan | 
       default: return { text: "Got it, I'll leave you to it. No more bedtime reminders tonight." };
     }
   }
-  if (o.kind === "start" && o.title && r) {
-    const t = o.title;
+  if (o.kind === "start" && o.title) {
+    const t = o.title, find = { what: t };
     switch (r.kind) {
-      case "later": return { text: `Okay, ${t} in ${r.minutes} min. I'll check in then.`, checkin: ["add", String(r.minutes), t, "--because", message.slice(0, 120)] };
-      case "not-yet": return { text: `Okay, not yet. I'll check on ${t} in 15 min.`, checkin: ["add", "15", t, "--because", message.slice(0, 120)] };
-      case "other": return { text: `Okay, ${r.activity} first. I'll check back about ${t} in 25 min.`, checkin: ["add", "25", t, "--because", message.slice(0, 120)] };
-      case "done": return { text: `Nice, ${t} done. I'll stop pinging about it.`, checkin: ["close", t] };
-      case "yes": return { text: `Good. Go, I'll stop pinging about ${t}.`, checkin: ["started", t] };
-      case "no": case "stop": return { text: `Okay, no ${t} for now. I'll stop pinging about it.`, checkin: ["cancel", "--because", message.slice(0, 120)] };
+      case "later": return { text: `Okay, ${t} in ${r.minutes} min. I'll check in then.`, act: { verb: "defer", minutes: r.minutes, because: message.slice(0, 120) }, find };
+      case "not-yet": return { text: `Okay, not yet. I'll check on ${t} in 15 min.`, act: { verb: "defer", minutes: 15, because: message.slice(0, 120) }, find };
+      case "other": return { text: `Okay, ${r.activity} first. I'll check back about ${t} in 25 min.`, act: { verb: "defer", minutes: 25, because: message.slice(0, 120) }, find };
+      case "done": return { text: `Nice, ${t} done. I'll stop pinging about it.`, act: { verb: "done" }, find };
+      case "yes": return { text: `Good. Go, I'll check in later that ${t}'s still going.`, act: { verb: "started" }, find };
+      default: return undefined;
     }
   }
   return undefined;
 }
 
+/** argv for orion-checkin acting on loop `id`. */
+export const loopArgs = (act: LoopAct, id: string): string[] =>
+  act.verb === "defer" ? ["defer", String(act.minutes), id, "--because", act.because] : [act.verb, id];
+
 /** For the worker when code does not answer: ORION's own message, as the conversation it is, and how to read his answer. */
 export function outreachNote(o: Outreach): string {
   const meaning = o.kind === "bedtime" ? "it was a bedtime reminder: whatever he says, no more bedtime reminders tonight; never ask when he started something"
-    : o.kind === "start" ? `it was about starting ${o.title ? q(o.title) : "a planned block"}: "not yet"/"in 10" means later (orion-checkin add <min> with his reason), "already did" means done (orion-checkin close), something else he is doing means it waits (a check-in, never a calendar change)`
+    : o.kind === "start" ? `it was about starting ${o.title ? q(o.title) : "a planned block"}: "not yet"/"in 10" means later (defer the open check-in about it, with his reason), "already did" means done, something else he is doing means it waits; never a calendar change and never a cancel unless he asks for one`
     : o.kind === "question" ? "\"yeah\" accepts what you offered, \"no\" declines it" : "read his message as an answer to it";
   return `[Conversation so far: ${o.minutes} min ago YOU (ORION) messaged him first: "${o.text.slice(0, 300)}". His message below is his reply to that; ${meaning}.]`;
 }

@@ -22,8 +22,10 @@ export function fixesOf(phoneSignals) {
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
-const modeOf = (xs) => {
-  const counts = xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map());
+/** The cell he spent longest in: each still fix stands for the time until the next one (at most an hour). */
+const dwellCell = (rows) => {
+  const still = rows.map((r, i) => ({ r, w: Math.min(60, Math.max(1, (rows[i + 1]?.m ?? r.m + 1) - r.m)) })).filter(({ r }) => !MOVING.includes(r.motion));
+  const counts = (still.length ? still : rows.map((r) => ({ r, w: 1 }))).reduce((m, { r, w }) => m.set(cellOf(r.lat, r.lon), (m.get(cellOf(r.lat, r.lon)) ?? 0) + w), new Map());
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 };
 
@@ -36,11 +38,7 @@ function awayRuns(rows) {
     if (run) { runs.push({ ...run, homeAt: r.m }); run = null; }
   }
   if (run) runs.push({ ...run, homeAt: null });
-  return runs.map((x) => {
-    const still = x.rows.filter((r) => !MOVING.includes(r.motion));
-    return { start: x.rows[0].m, end: x.homeAt ?? x.rows.at(-1).m, returnedHome: x.homeAt !== null,
-      cell: modeOf((still.length ? still : x.rows).map((r) => cellOf(r.lat, r.lon))), fixes: x.rows.length };
-  });
+  return runs.map((x) => ({ start: x.rows[0].m, end: x.homeAt ?? x.rows.at(-1).m, returnedHome: x.homeAt !== null, cell: dwellCell(x.rows), fixes: x.rows.length }));
 }
 
 const overlaps = (a, b) => a.start < b.to && a.end > b.from;

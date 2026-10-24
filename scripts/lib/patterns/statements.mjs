@@ -2,14 +2,15 @@
 // A label is always his own word; nothing here names an activity he did not name.
 import { eveningOf, minuteOf, addDays } from "./time.mjs";
 
-const NEG = /\b(?:nah|nope|not (?:going|gonna|heading) out|not tonight|staying (?:in|home)|stay(?:ing)? in tonight|night in|in tonight|home tonight|not out tonight|not going anywhere)\b/i;
+const NEG = /\b(?:not (?:going|gonna|heading) out|not tonight|staying (?:in|home)|stay(?:ing)? in tonight|night in|in tonight|home tonight|not out tonight|not going anywhere)\b/i;
 const GENERIC_OUT = /\b(?:going out|gonna go out|go out|went out|heading out|headed out|night out|out tonight|out out|not (?:at )?home|i'?m out|im out)\b/i;
-const AT_PLACE = /\b(?:i'?m|im|i am|i was|was|were|been|going|gonna go|go|went|heading|headed|off)\s+(?:out\s+)?(?:to|at)\s+(?:the|a|my)?\s*([a-z][a-z'-]{2,20})/i;
+// "to" needs an article ("going to the club"; "going to die" is not a place); "at" does not ("was at uni")
+const AT_PLACE = /\b(?:i'?m|im|i am|i was|was|were|been|going|gonna go|go|went|heading|headed|off)\s+(?:out\s+)?(?:to\s+(?:the|a|my)|at(?:\s+(?:the|a|my))?)\s+([a-z][a-z'-]{2,20})/i;
 const NOT_A_LABEL = new Set(["bed", "sleep", "home", "the", "be", "do", "get", "see", "make", "try", "me", "you", "it", "this", "that", "least", "some", "work"]);
 const PLAN = /\b(?:going|gonna|heading|about to|will|tonight|later|soon)\b/i;
 const PAST = /\b(?:was|went|been|were|had|last night)\b/i;
 const YES = /^\s*(?:y|ya|ye|yes|yeah|yea|yep|yup|sure|ofc|of course|probably|defo|definitely|you know it|always)\b/i;
-const NO = /^\s*(?:n|no|nah|nope|not tonight|not this week)\b/i;
+const NO = /^\s*(?:n|no|nah|nope|not tonight|not this week)\b|\bnah\b/i;
 
 /** A word as a label: lowercase, trimmed. */
 const tidy = (w) => String(w).toLowerCase().replace(/[^a-z'-]/g, "");
@@ -19,7 +20,7 @@ const tidy = (w) => String(w).toLowerCase().replace(/[^a-z'-]/g, "");
  */
 export function parseStatement(text) {
   const t = String(text ?? "").replace(/\s+/g, " ").trim();
-  if (!t || t.length > 400) return null;
+  if (!t || t.length > 400 || t.includes("?")) return null;   // a question is not a statement of what he did
   const tense = PLAN.test(t) ? "plan" : PAST.test(t) ? "past" : null;
   if (NEG.test(t)) return { label: "out", polarity: -1, tense: tense ?? "plan" };
   const at = t.match(AT_PLACE);

@@ -9,6 +9,10 @@ import { homedir } from "node:os";
 import { learnPatterns } from "./lib/life/patterns.mjs";
 import { HISTORY_FILE } from "./lib/life/history.mjs";
 import { lateness } from "./lib/life/lateness.mjs";
+import { routinesCommand } from "./lib/patterns/cli.mjs";
+
+// `orion-patterns routines|learn ...`: learned weekly routines (lib/patterns). Without a subcommand, the summary below.
+if (["routines", "learn"].includes(process.argv[2])) process.exit(await routinesCommand(process.argv.slice(2)));
 
 const log = (() => { try { return JSON.parse(readFileSync(join(homedir(), ".openclaw/orion-controlled/health-log.json"), "utf8")); } catch { return {}; } })();
 const minuteOf = (iso) => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };

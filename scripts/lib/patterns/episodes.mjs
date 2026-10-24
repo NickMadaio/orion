@@ -62,13 +62,19 @@ function grade(r) {
   return "weak";   // a lone fix (or a short pair) in the night
 }
 
-/** A run starting after 01:00 just after he was home or asleep (a home fix, the Mac in use, WHOOP asleep) is drift, not a night out. */
+/**
+ * A run starting after 01:00 is drift, not a night out, when he had fallen asleep (WHOOP) before it, or when home evidence
+ * (a home fix, the Mac in use) sits in the 2 h before it AND either that evidence is after midnight or the run is a single
+ * fix. Two or more away fixes after 01:00 with home last seen before midnight is a late departure: a night out.
+ */
 function afterSleep(r, { date, rows, sessions, sleeps }) {
   if (r.start < LATE_START) return false;
+  if (sleeps.some((t) => { const m = nightMinute(t, date); return m >= 21 * 60 && m <= r.start; })) return true;
   const from = r.start - ASLEEP_LOOKBACK;
-  if (rows.some((x) => x.home && x.m >= from && x.m < r.start)) return true;
-  if (sessions.some((s) => { const b = nightMinute(s.end, date), a = nightMinute(s.start, date); return a < r.start && b >= from; })) return true;
-  return sleeps.some((t) => { const m = nightMinute(t, date); return m >= 21 * 60 && m <= r.start; });
+  const evidence = [...rows.filter((x) => x.home && x.m >= from && x.m < r.start).map((x) => x.m),
+    ...sessions.map((s) => ({ a: nightMinute(s.start, date), b: nightMinute(s.end, date) })).filter((s) => s.a < r.start && s.b >= from).map((s) => Math.min(s.b, r.start))];
+  if (!evidence.length) return false;
+  return r.distinct < 2 || Math.max(...evidence) >= 24 * 60;
 }
 
 export const MAX_HOME_GAP = 90;

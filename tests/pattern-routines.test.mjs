@@ -314,3 +314,19 @@ test("a gap in the data is not a night in: home 21:14 and 02:21 with nothing bet
   const r = learn([...nightOut("2026-10-09"), ...nightOut("2026-10-16"), ...nightOut("2026-10-23"), fix(iso("2026-10-02", "21:14"), HOME), fix(iso("2026-10-02", "02:21", 1), HOME)])[0];
   assert.equal(r.misses, 0);
 });
+
+test("late departures count: home 23:30 then away 01:10, or Mac until 23:30 then away 01:20; a lone fix near home still drops", async () => {
+  const { eveningEpisodes } = await import("../scripts/lib/patterns/episodes.mjs");
+  const d = "2026-10-16";
+  const afterHome = eveningEpisodes([fix(iso(d, "23:30"), HOME), fix(iso(d, "01:10", 1), CLUB), fix(iso(d, "01:40", 1), CLUB)], { isHome });
+  assert.equal(afterHome[d].status, "out");
+  const afterMac = eveningEpisodes([fix(iso(d, "01:20", 1), CLUB), fix(iso(d, "02:05", 1), CLUB)], { isHome, sessions: [{ start: iso(d, "20:00"), end: iso(d, "23:30") }] });
+  assert.equal(afterMac[d].status, "out");
+  // still drift: home evidence after midnight (the 14 Oct case), a single fix next to home evidence, or he was asleep
+  const macPastMidnight = eveningEpisodes(["02:32", "03:51"].map((t) => fix(iso(d, t, 1), CLUB)), { isHome, sessions: [{ start: iso(d, "21:23"), end: iso(d, "01:24", 1) }] });
+  assert.notEqual(macPastMidnight[d].status, "out");
+  const lone = eveningEpisodes([fix(iso(d, "23:30"), HOME), fix(iso(d, "01:10", 1), CLUB)], { isHome });
+  assert.notEqual(lone[d].status, "out");
+  const asleep = eveningEpisodes([fix(iso(d, "01:10", 1), CLUB), fix(iso(d, "01:40", 1), CLUB)], { isHome, sleeps: [iso(d, "00:40", 1)] });
+  assert.notEqual(asleep[d].status, "out");
+});

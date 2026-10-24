@@ -45,7 +45,8 @@ import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
 import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne, type EditTarget } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
-import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline } from "./turn-budget.js";
+import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
+import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -115,6 +116,8 @@ export type LocalRoutingOptions = {
   warm?: boolean;
   /** Append one line per hook stage to <logPath>.trace (diagnostics). */
   trace?: boolean;
+  /** Where the per-turn progress files for the app's spoken updates go (turn-progress.ts); default <logPath>/../../turn-progress. */
+  progressDir?: string;
 };
 
 type Run = {
@@ -513,6 +516,21 @@ const LOOKUP_UNCHECKED = "I didn't actually check that.";
 export const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
 export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
 const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
+/** Spoken turns get one revise round (turn-budget.ts). What HONEST_STOP would have had the model say, said by code instead. */
+export const SPOKEN_STOP_WROTE = "Something went wrong partway through that, so I won't say it's done. Check your calendar, and say \"undo\" if it looks wrong.";
+export const SPOKEN_STOP = "I couldn't finish that properly, so I won't say it's done. Can you say it again?";
+/**
+ * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
+ * never the model's reply, never a clean success line over a failed command.
+ */
+export function spokenFinalLine(findings: readonly string[], ctx: { calendar: boolean; wrote: boolean }): string | undefined {
+  if (!findings.length) return undefined;
+  if (findings.some((f) => FALSE_CLAIM.test(f))) return honestLine(ctx.calendar);
+  if (findings.some((f) => LOOKUP_CLAIM.test(f))) return LOOKUP_HONEST;
+  if (findings.includes("denies messages it shows")) return MESSAGES_UNSURE;
+  if (ctx.wrote) return SPOKEN_STOP_WROTE;
+  return ctx.calendar ? honestLine(true) : SPOKEN_STOP;
+}
 /** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
 const wroteThisTurn = (tools: ToolResult[]): boolean =>
   tools.some((t) => /orion-reschedule|orion-tasks|orion_task_run|orion-session|orion-remember/.test(t.canonical) && !/\b(show|day|list|status)\b/.test(t.canonical));
@@ -602,7 +620,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const r = building.getStore();
       const context = recentReplan(r?.sessionKey);
       const made = recentMade(r?.sessionKey);
-      return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(made?.kind === "block" ? { lastTarget: { title: made.title, ...(made.start ? { start: made.start } : {}), dateArgs: made.dateArgs } } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; } } : {}) });
+      return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(made?.kind === "block" ? { lastTarget: { title: made.title, ...(made.start ? { start: made.start } : {}), dateArgs: made.dateArgs } } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; progress.stage(r.sessionKey, "changing-calendar"); } } : {}) });
     } } : {}),
     ...(options.lateFlow ? { lateFlow: marked(options.lateFlow)! } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow)! } : {}),
     ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow)! } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow)! } : {}) };
@@ -629,6 +647,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!options.trace) return;
     try { appendFileSync(`${logPath}.trace`, `${JSON.stringify({ at: new Date().toISOString(), stage, runId: pick(event, ctx, "runId") ?? null, sessionKey: pick(event, ctx, "sessionKey") ?? null, ...extra })}\n`, { mode: 0o600 }); } catch { /* diagnostics only */ }
   };
+  // 2026-10-23 (voice): real stages per session, for the app's "still on it — checking your calendar" (turn-progress.ts).
+  const progress = new TurnProgress(options.progressDir ?? join(dirname(dirname(logPath)), "turn-progress"));
   const runs = new Map<string, Run>();
   /** Per session: his last message (stitched) and the scheduler changes it made. */
   const lastTurn = new Map<string, { text: string; at: number; marks: string[] }>();
@@ -777,6 +797,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         return fixedReply(line, run.writeStarted ? "a change is being made and is not stopped" : "nothing was changed");
       }
       const now = runFor(event, ctx) ?? run;
+      for (const stage of stagesForReads(now.reads)) progress.stage(now.sessionKey, stage);
+      progress.stage(now.sessionKey, "thinking");
       const stillWorker = !now.flow || now.flow.outcome === "fallback";
       if (stillWorker && !now.directive && !now.reminder && !now.noTools && !now.provided && Date.now() - now.started > SLOW_TURN_MS
         && CHANGE_REQUEST.test(now.message) && SCHEDULING.test(now.message) && !isQuestion(now.message)) {
@@ -797,6 +819,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const raw = str(event.prompt);
     traceLine("before_model_resolve", event, ctx, { hasPrompt: !!raw });
     if (!raw || INTERNAL.test(sessionKey)) return undefined;
+    if (sessionKey) progress.begin(sessionKey, runId ?? null);
     // The rest of a cut-off spoken request is read together with its first half, as one request.
     const said = userText(raw);
     const before = sessionKey ? lastTurn.get(sessionKey) : undefined;
@@ -1298,10 +1321,27 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     return undefined;
   });
 
+  // 2026-10-23: each tool the worker calls is a real stage he can be told about ("still on it — checking your calendar").
+  api.on("before_tool_call", (event, ctx) => {
+    const run = runFor(event, ctx);
+    const toolName = pick(event, ctx, "toolName");
+    if (!run?.sessionKey || !toolName) return undefined;
+    const { stage, detail } = stageForTool(toolName, str((event.params as Record<string, unknown> | undefined)?.command) ?? "");
+    // A write is said only once it worked (after_tool_call below): "making the change to Gym" over a refused write would be a lie.
+    if (stage !== "changing-calendar") progress.stage(run.sessionKey, stage, detail);
+    return undefined;
+  });
+
   api.on("after_tool_call", (event, ctx) => {
     const run = runFor(event, ctx);
     const toolName = pick(event, ctx, "toolName");
     if (!run || !toolName) return;
+    {
+      const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
+      const { stage, detail } = stageForTool(toolName, command);
+      const outcome = outcomeOf({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });
+      if (stage === "changing-calendar" && (outcome === "success" || outcome === "partial")) progress.stage(run.sessionKey, stage, detail);
+    }
     if (toolName === "exec" && run.sessionKey) {
       const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
       if (RESCHEDULE_WRITE.test(command) && !NOTHING_CHANGED.test(resultText(event.result ?? event.output))) recordChange(run.sessionKey, []);
@@ -1322,7 +1362,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const run = runFor(event, ctx);
     traceLine("before_agent_finalize", event, ctx, { found: !!run });
     if (!run) return undefined;
-    const done = () => { runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
+    if (run.passes > 0) progress.stage(run.sessionKey, "double-checking");
+    const done = () => { progress.finish(run.sessionKey); runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? ""}`); };
     // What this run must deliver: kept for reply_payload_sending (channel routes) and put in place for the agent CLI.
     let owed: string | undefined;
     // OpenClaw ignores a "revise" once any tool has run in the turn and sends the original reply (live sweep
@@ -1394,7 +1435,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)))
         : undefined;
       if (honestNow) { owed = honestNow; remember([runId, sessionKeyNow], honestNow); }
-      if (on && findings.length > 0 && run.passes < 2 && !flowActed && !hostDrops && !honestNow) {
+      if (on && findings.length > 0 && run.passes < revisePasses(!!run.spoken) && !flowActed && !hostDrops && !honestNow) {
         run.passes += 1;
         await record({ revised: true });
         const calendar = SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical));
@@ -1421,6 +1462,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // q065 (2026-10-16): still "no one texted you" beside his messages after both retries.
         owed = MESSAGES_UNSURE;
         remember([runId, sessionKeyNow], owed);
+      }
+      // A spoken turn out of its one retry with anything still open: code says the honest line (HIGH 3, review of feat/voice-fluid).
+      if (on && run.spoken && !flowActed && !run.reminder && (run.passes >= revisePasses(true) || hostDrops) && findings.length > 0) {
+        const line = spokenFinalLine(findings, { calendar: SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), wrote: wroteThisTurn(run.tools) });
+        if (line) { owed = line; remember([runId, sessionKeyNow], owed); }
       }
       // Out of retries and the call was never made: say so (not "I checked the weather…", q007).
       // Merge of r2-front-desk-tools (tool-move fail line) with 9a3a25a (LOOKUP_HONEST): a missed tool move whose
@@ -1468,6 +1514,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     log({ stage: "agent_end", runId, message: run.message, decision: run.settled ?? { move: "escalate", fallback: "unsettled" },
       flow: flow ? { outcome: flow.outcome, ..."reason" in flow ? { reason: flow.reason } : {} } : null, success: event.success !== false, error: str(event.error) ?? null,
       tools: run.tools.length, cloud: run.cloud ?? false, turnMs: typeof event.durationMs === "number" ? event.durationMs : Date.now() - run.started });
+    progress.finish(run.sessionKey);
     runs.delete(runId); runs.delete(`session:${pick(event, ctx, "sessionKey") ?? run.sessionKey ?? ""}`);
     return undefined;
   });

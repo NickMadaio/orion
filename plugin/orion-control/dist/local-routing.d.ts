@@ -103,6 +103,8 @@ export type LocalRoutingOptions = {
     warm?: boolean;
     /** Append one line per hook stage to <logPath>.trace (diagnostics). */
     trace?: boolean;
+    /** Where the per-turn progress files for the app's spoken updates go (turn-progress.ts); default <logPath>/../../turn-progress. */
+    progressDir?: string;
 };
 export declare const trailsOff: (message: string) => boolean;
 export declare const GO_ON = "Go on.";
@@ -186,6 +188,17 @@ export declare const PRODUCTION_NOTES: string;
 export declare const honestLine: (calendar: boolean) => string;
 export declare const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
 export declare const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
+/** Spoken turns get one revise round (turn-budget.ts). What HONEST_STOP would have had the model say, said by code instead. */
+export declare const SPOKEN_STOP_WROTE = "Something went wrong partway through that, so I won't say it's done. Check your calendar, and say \"undo\" if it looks wrong.";
+export declare const SPOKEN_STOP = "I couldn't finish that properly, so I won't say it's done. Can you say it again?";
+/**
+ * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
+ * never the model's reply, never a clean success line over a failed command.
+ */
+export declare function spokenFinalLine(findings: readonly string[], ctx: {
+    calendar: boolean;
+    wrote: boolean;
+}): string | undefined;
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —
  *  the Mac chat and phone — reply_payload_sending never runs, before_agent_finalize can only revise, and

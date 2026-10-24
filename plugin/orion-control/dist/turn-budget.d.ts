@@ -10,6 +10,11 @@ export declare const FORM_RETRY_MIN_MS = 12000;
 export declare const HOOK_TIMEOUT_MS = 55000;
 /** A change request that has taken this long before the worker starts is not given a multi-minute tool loop. */
 export declare const SLOW_TURN_MS = 40000;
+/** Work-check revise rounds (one 9B call each, ~1.5-2 s on battery). A spoken turn gets one: after it, code delivers the honest line
+ * itself instead of asking the model a second time (2026-10-23 voice audit: 3 finalize passes = ~5 s of an 18 s silence). */
+export declare const REVISE_PASSES = 2;
+export declare const SPOKEN_REVISE_PASSES = 1;
+export declare const revisePasses: (spoken: boolean) => number;
 export declare const SLOW_TURN_LINE = "I'm running slowly right now, so I didn't get to that and nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
 export declare const SLOW_FLOW_LINE = "That took longer than I can wait on right now, so nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
 /** The hook gave up after a write had started: the write is NOT stopped (a half-applied day is worse than a late one); he hears how it ended with his next message. */

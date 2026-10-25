@@ -59,7 +59,7 @@ import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
-import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type FlowResult } from "./schedule-flow.js";
+import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -104,6 +104,8 @@ export type LocalRoutingOptions = {
   now?: () => Date;
   /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
   readDay?: (tomorrow: boolean) => Promise<string>;
+  /** Reads a day as `show --json` gives it (--date args), for the time backstop on the worker's own writes (tests pass a stub; wired from index.ts). */
+  readDayJson?: (dateArgs: string[]) => Promise<Day | undefined>;
   /** Reads the calendar's deadlines and dated to-dos for "whats due this week"; null when it fails (tests pass a stub; wired from index.ts) (q041, 2026-10-16 r8). */
   readDeadlines?: () => Promise<DeadlineRead | null>;
   /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
@@ -402,6 +404,10 @@ export const isQuestion = (message: string): boolean => !isPoliteRequest(message
 const DAY_QUESTION_NOTE = "Morning means before 12:00, afternoon 12:00 to 17:00, evening after 17:00: list only what falls in the window he names. \"Next\" means the first block that has not already happened. For \"how long until\", count from Now. If nothing in the list matches, say so and name what is there.";
 
 /** His day as a numbered list, read from the scheduler (wired in by index.ts). */
+/** The day as data (`show --json`, read-only), or undefined when it cannot be read. */
+export const liveReadDayJson = (dateArgs: string[]): Promise<Day | undefined> => new Promise((resolve) => execFile(RESCHEDULE, ["show", "--json", ...dateArgs], { timeout: 30000 }, (_e, stdout) => {
+  try { resolve(JSON.parse(String(stdout)) as Day); } catch { resolve(undefined); }
+}));
 export const liveReadDay = (tomorrow: boolean): Promise<string> => new Promise((resolve) => execFile(RESCHEDULE, ["show", "--json", ...(tomorrow ? ["--date", "tomorrow"] : [])], { timeout: 30000 }, (_e, stdout) => {
   try { resolve(dayRead(JSON.parse(String(stdout)))); } catch { resolve(""); }
 }));
@@ -1304,18 +1310,26 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   });
 
   // Live run 3 (2026-10-21) backstop: the worker's own scheduler write must start at a time Nick said (time-backstop.ts), or it does not run.
-  if (on) api.on("before_tool_call", (event, ctx) => {
+  // 2026-10-25 review: the day is read first, so a `resize … 300` is checked against the block's real start (it was checked with no day,
+  // and the incident's exact write passed). A day that cannot be read leaves an end it cannot work out, and that write is refused.
+  if (on) api.on("before_tool_call", async (event, ctx) => {
     if (pick(event, ctx, "toolName") !== "exec") return undefined;
     const run = runFor(event, ctx);
     const writes = writesIn(str((event.params as Record<string, unknown> | undefined)?.command) ?? "");
     if (!run || !writes.length) return undefined;
     const now = (options.now ?? (() => new Date()))();
     const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const off = writes.map((args) => {
+    // Wired to the live read in index.ts; without one (tests) there is no day, and an end that cannot be worked out is refused.
+    const readJson = options.readDayJson;
+    const days = new Map<string, Promise<Day | undefined>>();
+    const dayFor = (dateArgs: string[]) => { const k = dateArgs.join(" "); if (!days.has(k)) days.set(k, readJson ? readJson(dateArgs).catch(() => undefined) : Promise.resolve(undefined)); return days.get(k)!; };
+    const checks = await Promise.all(writes.map(async (args) => {
       const date = args.includes("--date") ? args[args.indexOf("--date") + 1] : undefined;
       const other = !!date && date !== "today" && date !== iso;
-      return timeMismatch(run.message, [args], { day: other ? "tomorrow" : "today", now: other ? null : now.getHours() * 60 + now.getMinutes() });
-    }).find(Boolean);
+      const blocks = await dayFor(date ? ["--date", date] : []);
+      return timeMismatch(run.message, [args], { day: other ? "tomorrow" : "today", now: other ? null : now.getHours() * 60 + now.getMinutes(), ...(blocks ? { blocks } : {}) });
+    }));
+    const off = checks.find(Boolean);
     return off ? { block: true, blockReason: `Orion time check: ${off} Do not run another command; tell Nick exactly this.` } : undefined;
   });
 

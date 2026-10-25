@@ -39,7 +39,13 @@ const SUBJECT = String.raw`(?:(?:ok(?:ay)?|so|yeah|alright|right|orion|hey)[,\s]
 const COUNT = String.raw`(?:two|2|three|3|four|4)`;
 const WHOLE_DAY = new RegExp(String.raw`(?:^|[.!;:,]\s*)${SUBJECT}(?:only|just)\s+(?:(?:doing|gonna\s+do|going\s+to\s+do|do|have)\s+)?(?:${COUNT}\s+things|these\s+(?:${COUNT}\s+)?(?:things\s+)?)\s*(?:today|for\s+today)\b|(?:^|[.!;:,]\s*)${SUBJECT}(?:only|just)\s+(?:(?:doing|gonna\s+do|going\s+to\s+do|do|have)\s+)?${COUNT}\s+things\b|\bthat'?s\s+it\s+for\s+today\b`, "i");
 // Someone else's day, a negation, or what he would/could do: never his plan.
-const NOT_HIS = /\b(?:he|she|they|we|you|he'?s|she'?s|they'?re|hes|shes|theyre|someone|somebody|friend|mom|mum|dad|brother|sister|roommate|bf|gf|boyfriend|girlfriend|his|her|their)\b|\b(?:not|never|no)\b|n'?t\b|\b(?:i'?d|id|would|wouldn'?t)\b/i;
+const NOT_HIS = /\b(?:he|she|they|we|you|he'?s|she'?s|they'?re|hes|shes|theyre|someone|somebody|friend|mom|mum|dad|brother|sister|roommate|bf|gf|boyfriend|girlfriend|his|her|their)\b|\b(?:i'?d|id|would|wouldn'?t)\b/i;
+// A negation blocks only when it negates the plan itself ("not only doing…", "I'm not doing two things today") or one of the things in it
+// ("not study until 6pm", checked per item below). Re-review (2026-10-25): "no gym" and "dont add anything else" confirm the plan.
+const NEG_PLAN = /\bnot\s+(?:only|just)\b|\b(?:i'?m|im|i\s+am)\s+not\b|\b(?:not|don'?t|dont|won'?t|wont|never)\s+(?:be\s+)?(?:doing|do|gonna|going)\b|\bnever\b/i;
+const NEGATED = /\b(?:not|never|no|don'?t|dont|won'?t|wont|can'?t|cant)\b/i;
+// What confirms "only these" rather than negating it: "no gym", "no X", "dont add anything else", "nothing else". Taken out before the gate.
+const CONFIRMS = /(?:^|[,.;!?—–]\s*|\s-\s|\s)(?:and\s+)?(?:no\s+[a-z]+(?:\s+[a-z]+)?(?=\s*(?:[,.;!?—–]|\s-\s|$))|(?:please\s+)?(?:don'?t|dont|do\s+not)\s+(?:add|book|put|schedule|plan)\s+anything\s+else|nothing\s+else)/gi;
 /** A title never starts with a pronoun, a negation or "only" ("She's only doing study" was booked as one). */
 const BAD_TITLE_START = /^(?:i|i'?m|im|i'?d|id|he|she|they|we|you|it|he'?s|she'?s|they'?re|hes|shes|theyre|not|only|just|my\s+friend)\b/i;
 // A statement of plan may use "gonna"/"going to" (the strict gate refuses those): these are what still make it not an order.
@@ -53,12 +59,13 @@ const LEAD_WORDS = /^(?:(?:then|and|so|after\s+that|afterwards|also|plus|first|i
 const TAIL_WORDS = /(?:\s+(?:at\s+home|today|tonight|from\s+(?:right\s+)?now|right\s+now|now|then))+$/i;
 const NOT_A_NAME = /\b(?:things?|stuff|day|home|until|till|til|from|nothing|everything|something|it|that|this)\b|\d{1,2}\s*(?:am|pm)\b/i;
 // What may follow the last thing: nothing, or a close ("and that's it", "then bed").
-const CLOSE = /^[\s.!…,]*(?:(?:and\s+)?that'?s\s+it(?:\s+for\s+today)?|then\s+(?:bed|sleep)|and\s+then\s+(?:bed|sleep))?[\s.!…]*$/i;
+const CLOSE = /^[\s.!…,—–-]*(?:(?:and\s+)?that'?s\s+it(?:\s+for\s+today)?|then\s+(?:bed|sleep)|and\s+then\s+(?:bed|sleep))?[\s.!…—–-]*$/i;
 
 /** The thing's name out of its stretch of his words: the last clause, without the lead-in ("once im home i work on") or a tail ("at home"). */
 function nameOf(stretch: string): string | undefined {
-  const clauses = stretch.split(/[.;:!…]|,|\bthen\b|\band then\b|\band\b/i).map((c) => c.trim()).filter(Boolean);
+  const clauses = stretch.split(/[.;:!…—–]|\s-\s|,|\bthen\b|\band then\b|\band\b/i).map((c) => c.trim()).filter(Boolean);
   for (const c of [...clauses].reverse()) {
+    if (NEGATED.test(c)) return undefined;   // "not study until 6pm": a thing he is NOT doing is never booked
     const name = c.replace(LEAD_WORDS, "").replace(TAIL_WORDS, "").replace(/^(?:a|an|the|my|some)\s+/i, "").trim();
     if (!name) continue;
     if (name.split(/\s+/).length > 5 || !/^[a-z0-9][a-z0-9' &-]*$/i.test(name) || NOT_A_NAME.test(name) || BAD_TITLE_START.test(name)) return undefined;
@@ -69,12 +76,16 @@ function nameOf(stretch: string): string | undefined {
 
 /** "only doing two things today. X from now until 6pm. then home. once home Y until 12 am" as items, or undefined (not this shape). */
 export function parseDayPlan(message: string): DayPlanAsk | undefined {
-  const raw = spokenTimesToDigits(message.replace(/\s+/g, " ").trim());
-  const text = fixTypos(raw);
-  if (!raw || !WHOLE_DAY.test(text) || NOT_HIS.test(text) || OTHER_DAY.test(text) || HEDGE.test(text) || PAST_REPORT.test(text)) return undefined;   // a report of what he did is not a plan
+  // A plan split across lines is one plan, a line each: each line break is a sentence break.
+  const lined = message.replace(/\s*[\r\n]+\s*/g, ". ").replace(/\.\s*\./g, ".");
+  const raw = spokenTimesToDigits(lined.replace(/\s+/g, " ").trim());
+  // "no gym", "dont add anything else" confirm the plan; read without them (they are not things to book, and not a negated plan).
+  const plain = raw.replace(CONFIRMS, ".").replace(/\s+/g, " ").trim();
+  const text = fixTypos(plain);
+  if (!raw || !WHOLE_DAY.test(text) || NOT_HIS.test(text) || NEG_PLAN.test(text) || OTHER_DAY.test(text) || HEDGE.test(text) || PAST_REPORT.test(text)) return undefined;   // a report of what he did is not a plan
   // The gate (intent-gate.ts), lenient: a statement of plan ("gonna", "i go back home") is fine; a question, doubt, a take-back, hearsay
   // or "don't/maybe/what if/unless" never is.
-  if (refusalOf(raw, { lenient: true })) return undefined;
+  if (refusalOf(plain, { lenient: true })) return undefined;
   if (ADD_LEAD.test(text.replace(COURTESY, "").replace(/^(?:just|only)\s+/i, ""))) return undefined;
   const spans = [...text.matchAll(SPAN)];
   if (spans.length < 2 || spans.length > 4) return undefined;

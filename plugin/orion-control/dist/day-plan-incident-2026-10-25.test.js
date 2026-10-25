@@ -17,7 +17,7 @@ import { runScheduleFlow } from "./schedule-flow.js";
 import { endMismatch, statedEnds, timeMismatch, writtenEnds } from "./time-backstop.js";
 const SENTENCE = "only doing two things today. Study for CS Midterm from now until 6pm. then i go back home. once im home i work on marketing presentation until 12 am.";
 const VARIANTS = [
-    "just gonna study till 6 then head home and do marketing till midnight",
+    "im only doing two things today: study till 6 then head home and do marketing till midnight",
     "only 2 things today: cs midterm til 6, then marketing at home till 12",
     "Only doing 2 things today, study for cs midterm from now till 6pm, then go home and work on marketing presentation till midnight",
 ];
@@ -94,7 +94,8 @@ describe("1. his whole-day plan is read by code (intent-time + day-plan), never 
         });
     }
     it("a calendar that does not read back as he asked is never 'Done': what he asked, what is there, and undo", async () => {
-        const wrong = { ...before("2026-10-25"), blocks: [b("Study for CS Midterm", "14:00", "19:00"), b("AE1 Marketing Presentation", "13:10", "13:55")] };
+        const wrong = { ...before("2026-10-25"), blocks: before("2026-10-25").blocks.filter((x) => !["Go over Orion learning plan", "DS Lab 05", "Gym"].includes(x.title))
+                .map((x) => (x.title === "Study for CS Midterm" ? { ...x, end: "19:00" } : x)) };
         const { result } = await flow(SENTENCE, { now: DAYS[0][1], day: before("2026-10-25"), afterDay: wrong });
         const reply = result.reply;
         expect(reply).not.toMatch(/\bDone\b/);
@@ -279,5 +280,126 @@ describe("routing: the incident turn (typed, with ORION's outreach line in front
         expect(desk).toBe(0);
         expect(flows).toEqual([SENTENCE]);
         expect(JSON.stringify(finalized)).toContain(JSON.stringify(flowResult.reply).slice(1, 60));
+    });
+});
+// ---- independent review of the branch (2026-10-25): each phrase exactly as the review gave it ----
+describe("review CRITICAL 1: only HIS explicit whole-day plan clears anything; nothing odd is booked", () => {
+    const now = DAYS[0][1];
+    it.each([
+        "my friend is only doing two things today. study from now until 6pm. then home, marketing until 12 am",
+        "he is only doing two things today. study from now until 6pm. then home, marketing until 12 am",
+        "she's only doing study until 6pm then marketing until 12 am",
+        "only study until 6, then marketing until midnight",
+        "only study until 6 then gym till 8",
+        "the lab only runs until 4 and then section until 6",
+        "only doing two things today. not study until 6pm. then marketing until 12 am",
+        "I'd only be doing two things today: study until 6pm then marketing until 12 am",
+        "just gonna study till 6 then head home and do marketing till midnight",
+    ])("%j: not a whole-day plan, nothing written by code", async (m) => {
+        expect(parseDayPlan(m)).toBeUndefined();
+        const read = readIntent(m, { now });
+        expect("intent" in read && read.intent.verb === "dayplan").toBe(false);
+        // Whatever else reads it, nothing is cleared (no --only) and nothing is titled after a pronoun, "not" or "only".
+        const { writes } = await flow(m, { now, day: before("2026-10-25"), steps: [] });
+        expect(writes.flat().join(" ")).not.toMatch(/--only/);
+        expect(writes.map((w) => w[1] ?? "").join("|")).not.toMatch(/^(?:she'?s|he|i'?d|not|only)\b|\|(?:she'?s|he|i'?d|not|only)\b/i);
+    });
+    it.each([
+        "im only doing two things today: study till 6 then marketing till midnight",
+        "just these two today: study till 6, then marketing till midnight",
+        "study till 6, then marketing till midnight. thats it for today",
+    ])("%j: his explicit whole-day phrasing is still read", (m) => {
+        expect(parseDayPlan(m)?.items).toHaveLength(2);
+    });
+});
+describe("review HIGH 2: the worker's own exec of the incident write is refused (the day is read first)", () => {
+    const PROMPT = `User message:\n${SENTENCE}`;
+    async function workerExec(command, readDayJson) {
+        const handlers = new Map();
+        registerLocalRouting({ on: (n, f) => handlers.set(n, [...(handlers.get(n) ?? []), f]) }, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "dayplan-exec-")), "r.jsonl"),
+            brainSearch: async () => "", clock: () => "Sun 13:05", now: () => DAYS[0][1], decideImpl: async () => ({ move: "escalate" }),
+            // The flow falls back, as it did live (the worker then wrote the change itself).
+            scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), ...(readDayJson ? { readDayJson } : {}) });
+        const c = { runId: "w1", sessionKey: "agent:main:orion-chat-exec" };
+        for (const f of handlers.get("before_model_resolve") ?? [])
+            await f({ prompt: PROMPT }, c);
+        for (const f of handlers.get("before_prompt_build") ?? [])
+            await f({ prompt: PROMPT, messages: [] }, c);
+        const results = [];
+        for (const f of handlers.get("before_tool_call") ?? [])
+            results.push(await f({ toolName: "exec", params: { command } }, c));
+        return results.find((r) => r && r.block);
+    }
+    // The incident's exact write, as the worker's exec line would carry it.
+    const RESIZE = '~/Desktop/ORION/scripts/orion-reschedule resize "Study for CS Midterm" 300';
+    it("with his day read: blocked, and the reason names 7:00 PM against his 6:00 PM", async () => {
+        const r = await workerExec(RESIZE, async () => before("2026-10-25"));
+        expect(r?.block).toBe(true);
+        expect(r?.blockReason).toMatch(/You said Study for CS Midterm until 6:00 PM, but the change I worked out would have ended it at 7:00 PM/);
+    });
+    it("without a day to read: the end cannot be worked out, so it is blocked too", async () => {
+        const r = await workerExec(RESIZE);
+        expect(r?.block).toBe(true);
+        expect(r?.blockReason).toMatch(/couldn't work out when the change would end it/);
+    });
+    it("the right write is not blocked", async () => {
+        const r = await workerExec(`orion-reschedule day --plan "Study for CS Midterm, 295, 13:05" --plan "AE1 Marketing Presentation, 315, 18:45" --only`, async () => before("2026-10-25"));
+        expect(r).toBeUndefined();
+    });
+});
+describe("review MEDIUM 6: a single call that only partly fits never opens with 'Done'", () => {
+    it("not-done first, then what changed", async () => {
+        const { spokenReply } = await import("./schedule-reply.js");
+        const out = "Changed Sunday 2026-10-25:\n  planned Study: 13:05–14:05\n  NOT BOOKED: Laundry (60 min) did not fit on Sunday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)";
+        expect(spokenReply([out])).toBe("Partly done. Not done: Laundry didn't fit. What did change: Study 1:05 PM–2:05 PM.");
+    });
+});
+describe("review MEDIUM 7: the end check matches the block exactly, not a shared word", () => {
+    const day = { date: "2026-10-25", now: "13:05", blocks: [b("Study", "14:00", "15:00"), b("Study Lab", "16:00", "17:00")] };
+    it("'make study go until 6 and move study lab to 7' does not hold the Study Lab move to 6", () => {
+        expect(timeMismatch("make study go until 6 and move study lab to 7", [["move", "Study Lab", "--to", "19:00"]], { day: "today", now: 785, blocks: day })).toBeUndefined();
+    });
+    it("…but the Study write it names is still checked", () => {
+        expect(endMismatch("make study go until 6 and move study lab to 7", [["resize", "Study", "300"]], day)).toMatch(/until 6:00 AM or 6:00 PM/);
+        expect(endMismatch("make study go until 6 and move study lab to 7", [["resize", "Study", "240"]], day)).toBeUndefined();
+    });
+});
+describe("review LOW 8: a named block already under way keeps its start", () => {
+    it("Study 12:00–13:30, under way at 13:05: planned 12:00–18:00, not restarted at 13:05", () => {
+        const d = { ...before("2026-10-25"), blocks: [b("Study for CS Midterm", "12:00", "13:30"), b("AE1 Marketing Presentation", "14:00", "15:00")] };
+        const plan = planDayPlan(parseDayPlan(SENTENCE), d);
+        expect(plan.args).toEqual(["day", "--plan", "Study for CS Midterm, 360, 12:00", "--plan", "AE1 Marketing Presentation, 315, 18:45", "--only"]);
+    });
+});
+describe("review LOW 9: the clause an end belongs to starts after the whole boundary word", () => {
+    it("'… then marketing until midnight' is 'marketing', not 'hen marketing'", () => {
+        expect(statedEnds("study till 6 then marketing until midnight").map((e) => e.words)).toEqual([["study"], ["marketing"]]);
+    });
+});
+describe("review LOW 10: a single block over 12 hours is asked about, never booked", () => {
+    it("'study from now until 12 am' at 09:05: the form's add of 895 minutes is not run", async () => {
+        const d = { date: "2026-10-25", now: "09:05", blocks: [] };
+        const writes = [];
+        const r = await runScheduleFlow({ message: "study from now until 12 am", clock: "Sun 09:05", now: new Date(2026, 9, 25, 9, 5), ask: async () => ({ steps: [{ do: "add", what: "study", to: "09:05", until: "24:00" }] }),
+            exec: async (a) => { if (a[0] !== "show")
+                writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify(d) : "Changed:", code: 0 }; } });
+        expect(writes).toEqual([]);
+        expect(JSON.stringify(r)).toMatch(/over 12 hours\. Is that right\?/);
+    });
+});
+describe("review LOW 11: 'Done' only when every cleared block is gone, every plan exact and nothing else moved", () => {
+    const plan = () => planDayPlan(parseDayPlan(SENTENCE), before("2026-10-25"));
+    it("a cleared block still on: not Done", () => {
+        const a = after(before("2026-10-25"));
+        const still = { ...a, blocks: [...a.blocks, b("Gym", "17:00", "18:30", "gym")] };
+        expect(dayPlanReply(still, plan(), undefined, before("2026-10-25"))).toMatch(/^Not done as you asked: Gym should have come off but is still on/);
+    });
+    it("another block moved: not Done", () => {
+        const a = after(before("2026-10-25"));
+        const moved = { ...a, blocks: a.blocks.map((x) => (x.title === "finish resume" ? { ...x, start: "11:40", end: "13:10" } : x)) };
+        expect(dayPlanReply(moved, plan(), undefined, before("2026-10-25"))).toMatch(/^Not done as you asked: .*finish resume moved from 11:35 AM–1:05 PM to 11:40 AM–1:10 PM, which you didn't ask for/);
+    });
+    it("all three hold: Done", () => {
+        expect(dayPlanReply(after(before("2026-10-25")), plan(), undefined, before("2026-10-25"))).toMatch(/^Done: /);
     });
 });

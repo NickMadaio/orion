@@ -719,7 +719,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
             if (planned.dayplan && ran.outcome === "done") {
                 const after = await reread();
                 const failed = ran.outputs.flatMap((o) => o.split("\n")).find((l) => FAILED.test(l));
-                return { ...ran, reply: dayPlanReply(after, planned.dayplan, failed ? spokenFailure(failed) : undefined) };
+                return { ...ran, reply: dayPlanReply(after, planned.dayplan, failed ? spokenFailure(failed) : undefined, day) };
             }
             if (planned.replan) {
                 if (ran.outcome !== "done")

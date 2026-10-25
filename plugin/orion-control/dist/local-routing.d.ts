@@ -7,7 +7,7 @@ import { type StoredReminder } from "./reminder-flow.js";
 import { type DeadlineRead } from "./deadline-read.js";
 import { type FocusRow } from "./focus-status.js";
 import { type PendingRun } from "./schedule-pending.js";
-import { type AskContext, type FlowResult } from "./schedule-flow.js";
+import { type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
 type HookApi = {
@@ -91,6 +91,8 @@ export type LocalRoutingOptions = {
     now?: () => Date;
     /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
     readDay?: (tomorrow: boolean) => Promise<string>;
+    /** Reads a day as `show --json` gives it (--date args), for the time backstop on the worker's own writes (tests pass a stub; wired from index.ts). */
+    readDayJson?: (dateArgs: string[]) => Promise<Day | undefined>;
     /** Reads the calendar's deadlines and dated to-dos for "whats due this week"; null when it fails (tests pass a stub; wired from index.ts) (q041, 2026-10-16 r8). */
     readDeadlines?: () => Promise<DeadlineRead | null>;
     /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
@@ -136,6 +138,8 @@ export declare function brainSnippets(output: string, maxChars?: number): string
 export declare const isPoliteRequest: (message: string) => boolean;
 export declare const isQuestion: (message: string) => boolean;
 /** His day as a numbered list, read from the scheduler (wired in by index.ts). */
+/** The day as data (`show --json`, read-only), or undefined when it cannot be read. */
+export declare const liveReadDayJson: (dateArgs: string[]) => Promise<Day | undefined>;
 export declare const liveReadDay: (tomorrow: boolean) => Promise<string>;
 /** The stamp of the newest change in the scheduler's undo journal (the entry "orion-reschedule undo"
  *  reverts; same file and same skipping of empty entries as scripts/lib/life/calendar-write.mjs). */

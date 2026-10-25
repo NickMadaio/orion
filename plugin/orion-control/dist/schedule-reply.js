@@ -102,6 +102,9 @@ export function spokenReply(outputs, when) {
     const rest = followed.length > 3 ? [`${followed.length} other blocks moved to follow it`] : followed;
     const all = said.length ? [...said, ...cut, ...rest] : [];
     // when: the day it was for ("Done: resume work 5:50 PM" for tomorrow sounded like today, q020).
+    // A run that only partly fits never opens with "Done" (2026-10-25 review): what did not happen first, then what did.
+    if (failed && all.length && !logged)
+        return `Partly done${when ? ` for ${when}` : ""}. Not done: ${spokenFailure(failed)}. What did change: ${all.slice(0, 6).join("; ")}.`;
     const parts = [all.length ? `Done${when ? ` for ${when}` : ""}: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean);
     // A log carries its own one-line summary (what was logged, what moved, what is off today).
     if (logged)

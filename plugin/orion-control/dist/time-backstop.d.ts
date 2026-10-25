@@ -32,11 +32,22 @@ export declare function statedEnds(message: string): Array<{
     words: string[];
     said: string;
 }>;
-/** The end each write would give its block, when it can be known: add --at + length, move --until (or --to + its length), resize (its
- *  start + the new length), extend --until, each timed day --plan. */
-export declare function writtenEnds(argv: string[], day?: Day): Array<{
+type Written = {
+    title: string;
+    start?: number;
+    end?: number;
+};
+/** What each write does to its block: its title, and its start and end when they can be known (add --at + length, move --until or --to +
+ *  its length, resize: its start + the new length, extend --until, each timed day --plan). A write whose end cannot be known has none. */
+export declare function writtenBlocks(argv: string[], day?: Day): Written[];
+/** The ends that can be known (kept for callers and tests). */
+export declare const writtenEnds: (argv: string[], day?: Day) => Array<{
     title: string;
     end: number;
 }>;
-/** A write of a thing he gave an end for that would end somewhere else: what to say instead, or undefined. */
+/**
+ * A write of a thing he gave an end for that would end somewhere else, or whose end cannot be worked out (the worker's own
+ * `resize … 300` read without his day: review, 2026-10-25), or any block over 12 hours: what to say instead, or undefined.
+ */
 export declare function endMismatch(message: string, argvs: string[][], day?: Day): string | undefined;
+export {};

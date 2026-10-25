@@ -33,4 +33,4 @@ export declare function planDayPlan(ask: DayPlanAsk, day: Day): DayPlanResult | 
  * What he is told, written by code from the day as it now reads (never from the model): each thing he asked for against what is on
  * his calendar. "Done" only when every one of them is exactly as he asked; otherwise what he asked, what is there, and how to undo it.
  */
-export declare function dayPlanReply(after: Day | undefined, plan: DayPlanned, failure?: string): string;
+export declare function dayPlanReply(after: Day | undefined, plan: DayPlanned, failure?: string, before?: Day): string;

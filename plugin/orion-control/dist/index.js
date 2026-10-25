@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
-import { liveCheckinRun, liveExtractReminder, liveReadDay, liveScheduleFlow, registerLocalRouting, undoJournalTop } from "./local-routing.js";
+import { liveCheckinRun, liveExtractReminder, liveReadDay, liveReadDayJson, liveScheduleFlow, registerLocalRouting, undoJournalTop } from "./local-routing.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
@@ -1382,6 +1382,7 @@ export function installProvenanceHooks(api) {
             trace: api.pluginConfig?.localRoutingTrace === true,
             scheduleFlow: liveScheduleFlow,
             readDay: liveReadDay,
+            readDayJson: liveReadDayJson,
             readDeadlines: liveReadDeadlines,
             extractReminder: liveExtractReminder,
             // Read-only: listing and finding the id to cancel; every change still goes through orion_task_run.

@@ -93,6 +93,8 @@ export type LocalRoutingOptions = {
     readDay?: (tomorrow: boolean) => Promise<string>;
     /** Reads a day as `show --json` gives it (--date args), for the time backstop on the worker's own writes (tests pass a stub; wired from index.ts). */
     readDayJson?: (dateArgs: string[]) => Promise<Day | undefined>;
+    /** How long that read may take before the write is refused as unreadable (default DAY_READ_MS; tests shorten it). */
+    dayReadMs?: number;
     /** Reads the calendar's deadlines and dated to-dos for "whats due this week"; null when it fails (tests pass a stub; wired from index.ts) (q041, 2026-10-16 r8). */
     readDeadlines?: () => Promise<DeadlineRead | null>;
     /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
@@ -138,6 +140,8 @@ export declare function brainSnippets(output: string, maxChars?: number): string
 export declare const isPoliteRequest: (message: string) => boolean;
 export declare const isQuestion: (message: string) => boolean;
 /** His day as a numbered list, read from the scheduler (wired in by index.ts). */
+/** The cap on reading his day before a worker write (re-review: never a long stall in a tool call). */
+export declare const DAY_READ_MS = 5000;
 /** The day as data (`show --json`, read-only), or undefined when it cannot be read. */
 export declare const liveReadDayJson: (dateArgs: string[]) => Promise<Day | undefined>;
 export declare const liveReadDay: (tomorrow: boolean) => Promise<string>;

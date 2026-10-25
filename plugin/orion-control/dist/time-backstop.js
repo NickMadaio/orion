@@ -88,8 +88,9 @@ export function repairStart(message, argvs, ctx) {
     return argvs.map((a) => (a === w ? fixed : a));
 }
 /** What to say instead of running these writes, or undefined when every time he said is a start one of them uses. */
+/** dayUnread: his day could not be read just now (the worker path reads it first), so an end that needs it is said as that, plainly. */
 export function timeMismatch(message, argvs, ctx) {
-    return startMismatch(message, argvs, ctx) ?? endMismatch(message, argvs, ctx.blocks);
+    return startMismatch(message, argvs, ctx) ?? endMismatch(message, argvs, ctx.blocks, { dayUnread: ctx.dayUnread === true });
 }
 function startMismatch(message, argvs, ctx) {
     const writes = argvs.filter((a) => STARTS.has(a[0] ?? ""));
@@ -252,7 +253,7 @@ export const writtenEnds = (argv, day) => writtenBlocks(argv, day).flatMap((w) =
  * A write of a thing he gave an end for that would end somewhere else, or whose end cannot be worked out (the worker's own
  * `resize … 300` read without his day: review, 2026-10-25), or any block over 12 hours: what to say instead, or undefined.
  */
-export function endMismatch(message, argvs, day) {
+export function endMismatch(message, argvs, day, opts = {}) {
     const stated = statedEnds(message);
     for (const w of argvs.flatMap((a) => writtenBlocks(a, day))) {
         if (w.start !== undefined && w.end !== undefined && w.end - w.start > MAX_BLOCK) {
@@ -264,7 +265,9 @@ export function endMismatch(message, argvs, day) {
         const want = mine[0];
         const said = want.options.length === 1 ? ampm(want.options[0]) : want.options.map(ampm).join(" or ");
         if (w.end === undefined)
-            return `You said ${w.title} until ${said}, but I couldn't work out when the change would end it, so I haven't changed anything. Say it again with the time.`;
+            return opts.dayUnread
+                ? `I couldn't read your calendar just now, so I couldn't check that ${w.title} would end at ${said}, and I haven't changed anything. Try again in a moment.`
+                : `You said ${w.title} until ${said}, but I couldn't work out when the change would end it, so I haven't changed anything. Say it again with the time.`;
         if (!mine.some((s) => s.options.includes(w.end))) {
             return `You said ${w.title} until ${said}, but the change I worked out would have ended it at ${ampm(w.end)}, so I haven't changed anything. Say it again and I'll end it at ${said}.`;
         }

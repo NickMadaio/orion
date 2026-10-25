@@ -264,7 +264,7 @@ export function readIntent(message, ctx) {
     }
     const dayWord = dayOf(fixed, ctx.now);
     // A whole-day plan for today (2026-10-25): read before the "put X until T" shape, whose single add would leave the rest of his day as it was.
-    const plan = dayWord === "today" ? parseDayPlan(raw) : undefined;
+    const plan = dayWord === "today" ? parseDayPlan(message) : undefined; // his own lines: a plan split across lines is read line by line
     if (plan)
         return { intent: { verb: "dayplan", items: plan.items.map((i) => ({ name: i.name })), day: "today", anchor: { kind: "now" }, dayplan: plan } };
     const until = readUntil(raw, dayWord === "other" ? "today" : dayWord, dayWord === "today" ? nowMin : null, ctx.ask);

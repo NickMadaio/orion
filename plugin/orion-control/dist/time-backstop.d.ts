@@ -17,10 +17,12 @@ export declare function repairStart(message: string, argvs: string[][], ctx: {
     now: number | null;
 }): string[][] | undefined;
 /** What to say instead of running these writes, or undefined when every time he said is a start one of them uses. */
+/** dayUnread: his day could not be read just now (the worker path reads it first), so an end that needs it is said as that, plainly. */
 export declare function timeMismatch(message: string, argvs: string[][], ctx: {
     day: DayWord;
     now: number | null;
     blocks?: Day;
+    dayUnread?: boolean;
 }): string | undefined;
 /** A shell command line's words, quotes kept together. */
 export declare function commandArgs(command: string): string[];
@@ -49,5 +51,7 @@ export declare const writtenEnds: (argv: string[], day?: Day) => Array<{
  * A write of a thing he gave an end for that would end somewhere else, or whose end cannot be worked out (the worker's own
  * `resize … 300` read without his day: review, 2026-10-25), or any block over 12 hours: what to say instead, or undefined.
  */
-export declare function endMismatch(message: string, argvs: string[][], day?: Day): string | undefined;
+export declare function endMismatch(message: string, argvs: string[][], day?: Day, opts?: {
+    dayUnread?: boolean;
+}): string | undefined;
 export {};

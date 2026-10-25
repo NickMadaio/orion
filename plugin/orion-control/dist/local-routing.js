@@ -300,8 +300,12 @@ export const isQuestion = (message) => !isPoliteRequest(message) && (/\?\s*$/.te
 // The day read has no window rule of its own: "tomorrow morning" listed afternoon classes (q014).
 const DAY_QUESTION_NOTE = "Morning means before 12:00, afternoon 12:00 to 17:00, evening after 17:00: list only what falls in the window he names. \"Next\" means the first block that has not already happened. For \"how long until\", count from Now. If nothing in the list matches, say so and name what is there.";
 /** His day as a numbered list, read from the scheduler (wired in by index.ts). */
+/** The cap on reading his day before a worker write (re-review: never a long stall in a tool call). */
+export const DAY_READ_MS = 5000;
+/** The promise's value, or undefined once `ms` have passed. */
+const withTimeout = (p, ms) => new Promise((resolve) => { const t = setTimeout(() => resolve(undefined), ms); p.then((v) => { clearTimeout(t); resolve(v); }, () => { clearTimeout(t); resolve(undefined); }); });
 /** The day as data (`show --json`, read-only), or undefined when it cannot be read. */
-export const liveReadDayJson = (dateArgs) => new Promise((resolve) => execFile(RESCHEDULE, ["show", "--json", ...dateArgs], { timeout: 30000 }, (_e, stdout) => {
+export const liveReadDayJson = (dateArgs) => new Promise((resolve) => execFile(RESCHEDULE, ["show", "--json", ...dateArgs], { timeout: DAY_READ_MS }, (_e, stdout) => {
     try {
         resolve(JSON.parse(String(stdout)));
     }
@@ -1404,15 +1408,20 @@ export function registerLocalRouting(api, options) {
             const now = (options.now ?? (() => new Date()))();
             const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
             // Wired to the live read in index.ts; without one (tests) there is no day, and an end that cannot be worked out is refused.
+            // Re-review: the read is capped (DAY_READ_MS) and kept for the turn, so a worker that writes three times reads his day once.
             const readJson = options.readDayJson;
-            const days = new Map();
-            const dayFor = (dateArgs) => { const k = dateArgs.join(" "); if (!days.has(k))
-                days.set(k, readJson ? readJson(dateArgs).catch(() => undefined) : Promise.resolve(undefined)); return days.get(k); };
+            const days = (run.dayReads ??= new Map());
+            const dayFor = (dateArgs) => {
+                const k = dateArgs.join(" ");
+                if (!days.has(k))
+                    days.set(k, readJson ? withTimeout(readJson(dateArgs).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) : Promise.resolve(undefined));
+                return days.get(k);
+            };
             const checks = await Promise.all(writes.map(async (args) => {
                 const date = args.includes("--date") ? args[args.indexOf("--date") + 1] : undefined;
                 const other = !!date && date !== "today" && date !== iso;
                 const blocks = await dayFor(date ? ["--date", date] : []);
-                return timeMismatch(run.message, [args], { day: other ? "tomorrow" : "today", now: other ? null : now.getHours() * 60 + now.getMinutes(), ...(blocks ? { blocks } : {}) });
+                return timeMismatch(run.message, [args], { day: other ? "tomorrow" : "today", now: other ? null : now.getHours() * 60 + now.getMinutes(), ...(blocks ? { blocks } : { dayUnread: true }) });
             }));
             const off = checks.find(Boolean);
             return off ? { block: true, blockReason: `Orion time check: ${off} Do not run another command; tell Nick exactly this.` } : undefined;

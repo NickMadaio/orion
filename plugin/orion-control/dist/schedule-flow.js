@@ -580,7 +580,7 @@ async function execute(argvs, { exec, undoTop, when, undone, before, reread }) {
     // 2026-10-25 (day-plan incident): a later call failed after an earlier one wrote. That is never "Done": the reply was "Done: Study … is now
     // 300 minutes …; Not done: I couldn't make that change" for a request that was not carried out. What he hears is what his calendar now
     // reads against before, what did not go through, and how to put it back.
-    if (marks.length && argvs.length > 1 && outputs.slice(1).some((o) => FAILED.test(o))) {
+    if (marks.length && argvs.length > 1 && outputs.some((o) => FAILED.test(o))) {
         const now = reread ? await reread().catch(() => undefined) : undefined;
         return { outcome: "done", calls, outputs, marks, undone, partial: true, reply: partialReply(before, now, outputs, when) };
     }

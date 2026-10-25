@@ -151,7 +151,10 @@ export function writesIn(command) {
 // ---- ends (2026-10-25) ----
 const ENDED = new RegExp(String.raw `\b(?:until|till|til|up\s+to)\s+(?<t>${CLOCK})(?![\w:])|\bfrom\s+(?:(?:right\s+)?now|${CLOCK})\s+to\s+(?<t2>${CLOCK})(?![\w:])`, "gi");
 const END_CLAUSE = /(?:[,.;!?:]|\b(?:and|but|then|so|because|cause|cuz)\b)(?![\s\S]*(?:[,.;!?:]|\b(?:and|but|then|so|because|cause|cuz)\b))/i;
-const END_STOP = new Set(["from", "now", "right", "until", "till", "til", "then", "today", "tonight", "home", "once", "back", "work", "working", "gonna", "going", "just", "only", "doing", "things", "thing", "the", "and", "for", "with", "get", "head", "will", "ill", "im"]);
+const END_STOP = new Set(["from", "now", "right", "until", "till", "til", "then", "today", "tonight", "home", "once", "back", "work", "working", "gonna", "going", "just", "only", "doing", "things", "thing", "the", "and", "for", "with", "get", "head", "will", "ill", "im",
+    "have", "has", "had", "got", "class", "lecture", "busy", "stuck"]);
+// "I have lab until 4", "I'm in class till 5", "stuck at work until 6": an end of something he is busy with, not of the thing being written.
+const BUSY = /\b(?:have|has|had|got|i'?m in|im in|i'?m at|im at|i am (?:in|at)|in class|at work|busy|stuck|out)\b/i;
 const titleWords = (t) => t.toLowerCase().replace(/[’']/g, "").split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !END_STOP.has(w));
 const sharesWord = (a, b) => a.some((x) => b.some((y) => x === y || (Math.min(x.length, y.length) >= 4 && (x.startsWith(y) || y.startsWith(x)))));
 /** The minutes an end he said could be: "6pm" [1080], "6" [360, 1080], "12 am"/"midnight" [1440] (the end of today), "12" [720, 1440]. */
@@ -177,11 +180,14 @@ export function statedEnds(message) {
         const t = (h.groups.t ?? h.groups.t2);
         const before = text.slice(0, h.index);
         const clause = before.slice((before.match(END_CLAUSE)?.index ?? -1) + 1);
+        if (BUSY.test(clause))
+            return [];
         const options = endOptions(t);
         const words = titleWords(clause);
         return options.length && words.length ? [{ options, words, said: t.replace(/\.$/, "").trim() }] : [];
     });
 }
+const blockEnd = (b) => (b.end === "00:00" && b.start !== "00:00" ? MIDNIGHT_END : toMin(b.end));
 const endOpt = (t) => (t === "24:00" ? MIDNIGHT_END : t && /^\d{1,2}:\d{2}$/.test(t) ? toMin(t) : undefined);
 /** The end each write would give its block, when it can be known: add --at + length, move --until (or --to + its length), resize (its
  *  start + the new length), extend --until, each timed day --plan. */
@@ -201,7 +207,7 @@ export function writtenEnds(argv, day) {
                 return [{ title, end: until }];
             const to = endOpt(opt("--to"));
             const b = block(title);
-            return to !== undefined && b ? [{ title, end: to + toMin(b.end) - toMin(b.start) }] : [];
+            return to !== undefined && b ? [{ title, end: to + blockEnd(b) - toMin(b.start) }] : [];
         }
         case "resize": {
             const b = block(title);

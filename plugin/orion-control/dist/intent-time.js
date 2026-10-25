@@ -116,7 +116,8 @@ export function resolveEnd(said, start, ctx) {
         if (said.exact && min === 0 && start < 1440)
             return { at: MIDNIGHT_END };
         // A bare "till 12" from the afternoon on is midnight ("marketing at home till 12" at 18:45), never "12 PM has passed".
-        if (!said.exact && start >= 720)
+        // Only once noon (or 12:xx) is already behind the start: "essay till 12:45" at 12:10 is 12:45 PM (review of this fix).
+        if (!said.exact && start >= 720 + said.m)
             return said.m === 0 ? { at: MIDNIGHT_END } : { pastMidnight: 1440 + said.m };
         // "from now until 2am" at 23:00 is 2 AM tonight, after midnight: not "2:00 AM has already passed".
         if (min < start && start >= 18 * 60 && min < 6 * 60)

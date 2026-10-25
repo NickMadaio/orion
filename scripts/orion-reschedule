@@ -14,6 +14,8 @@
 //        future non-class/deadline block is replaced in the same reversible transaction
 //        add --rebuild to keep the tasks but lay the remaining day out again, must-haves first;
 //        day also falls back to this automatically when an incremental change cannot fit
+//   orion-reschedule day --plan "<title>, <min>, HH:MM" [--plan …] --only   "only doing X and Y today": his plans go in and every
+//        other ORION-planned block not yet started comes off today (his own events, classes and plans with people stay)
 //   orion-reschedule day --todos [--date YYYY-MM-DD] [--until HH:MM] [--fill]   (--until: "until around 8 PM")          plan the day from his to-do list (the Orion
 //        Reminders list): one movable block per to-do, real titles, estimates from todo-parse
 //   orion-reschedule tidy [--date YYYY-MM-DD]                         "fix my schedule": separate overlaps, space blocks out
@@ -102,7 +104,7 @@ const [command, ...restRaw] = positional;
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
 const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--minutes", "--no-replan", "--notify", "--now", "--plan",
-  "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
+  "--only", "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
   console.error(`NOTHING WAS CHANGED: orion-reschedule has no ${unknown.join(", ")} option. Options: ${[...KNOWN].join(" ")}. See the header for which command takes which.`);
@@ -149,6 +151,9 @@ const evaluating = () => evalMode() || sandbox() !== null;
 const fail = (m, code = 2) => { console.error(m); process.exit(code); };
 const hhmm = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const minute = (t) => { const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(t ?? ""); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+// An END may be 24:00: "until 12 am" / "till midnight" ends at the end of today, never a booking across midnight (2026-10-25 incident:
+// `move … --until 24:00` was refused as "--until must be HH:MM"). A start is never 24:00.
+const endMinute = (t) => (/^24:00$/.test(String(t ?? "").trim()) ? 1440 : minute(t));
 
 /*
  The day as it will be once this change is written, checked against the day
@@ -307,7 +312,7 @@ const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wak
 // "Plan things until around 8 PM": --until HH:MM ends the planning window there
 // (for extend, --until is the block's new end instead).
 // extend and move read --until as the END of the block they change, not the day's window.
-const untilMinute = ["extend", "move"].includes(command) ? null : minute(flag("--until"));
+const untilMinute = ["extend", "move"].includes(command) ? null : endMinute(flag("--until"));
 if (flag("--until") !== undefined && !["extend", "move"].includes(command) && untilMinute === null) fail("--until must be HH:MM (24-hour), e.g. --until 20:00", 2);
 // A time he states for `add` is his, even before the planning window opens (an hour before his usual wake):
 // "a stretch block tomorrow at 7:30 am" was booked 9:32 as "already past" and reported Done (smoke test, 2026-10-16).
@@ -514,7 +519,7 @@ if (command === "late") {
   if (!dry) console.log('Written to his calendar. "orion-reschedule undo" puts it back.');
   process.exit(0);
 } else if (command === "extend") {
-  const name = rest[0]; const until = minute(flag("--until")); const more = Number(rest[1]);
+  const name = rest[0]; const until = endMinute(flag("--until")); const more = Number(rest[1]);
   if (!name || (until === null && !(Number.isInteger(more) && more >= 5 && more <= 480))) fail('usage: orion-reschedule extend "<title>" --until HH:MM | <minutes>');
   const found = findBlock(name) ?? notFound(name);
   if (!nameableBy(found)) fail(`"${found.title}" is a class: use overrun <minutes> --what "${found.title}"`, 2);
@@ -559,7 +564,7 @@ if (command === "late") {
   const by = flag("--by");
   const after = flag("--after") !== undefined ? anchor(flag("--after")) : null;
   const before = flag("--before") !== undefined ? anchor(flag("--before")) : null;
-  const untilEnd = flag("--until") !== undefined ? minute(flag("--until")) : undefined;
+  const untilEnd = flag("--until") !== undefined ? endMinute(flag("--until")) : undefined;
   if (untilEnd === null) fail("--until must be HH:MM (24-hour), e.g. --until 14:40");
   const end0 = untilEnd ?? (before ? before.start - gap : null);
   const start = by !== undefined ? (/^-?\d+$/.test(by) ? target.start + Number(by) : null)
@@ -1118,11 +1123,22 @@ const restated = (command === "day" || command === "add")
   // An item he names in this request may be one of his own events ("reschedule … gym first" with his own Gym): named, so it may move.
   ? blocks.filter((block) => nameableBy(block) && block.end > nowMinute && add.some((item) => sameThing(item.title, block.title) && sameThing(block.title, item.title)))
   : [];
+/*
+ "Only doing two things today" (2026-10-25 incident): day --plan … --only. The plans he named go in, and every OTHER block ORION
+ itself planned (its ledger or its marker, source "orion") that has not started yet comes off today, in the same undo step.
+ His own events, classes and plans with people are never touched; nothing is filled back in (no --fill).
+*/
+const onlyDay = command === "day" && args.includes("--only");
+if (onlyDay && !planArgs.length) fail('usage: orion-reschedule day --plan "<title>, <min>, HH:MM" [--plan …] --only', 2);
+const onlyCleared = onlyDay
+  ? blocks.filter((block) => block.source === "orion" && (!today || block.start >= nowMinute) && !restated.includes(block)
+      && !add.some((item) => sameThing(item.title, block.title) && sameThing(block.title, item.title)))
+  : [];
 let removed = replaceDay || clearMovable
   ? blocks.filter((block) => block.end > nowMinute
       && block.kind !== "class" && block.kind !== "deadline" && !keptIds.has(block.id)
       && (replaceDay || !block.fixed))
-  : [...dropped, ...restated];
+  : [...dropped, ...restated, ...onlyCleared];
 const removedIds = new Set(removed.map((block) => block.id));
 const planningBlocks = blocks.filter((block) => !removedIds.has(block.id));
 
@@ -1229,6 +1245,7 @@ const lines = [
   ...(removed.length ? [`cleared ${removed.length} prior schedule block${removed.length === 1 ? "" : "s"}: ${removed.map((b) => b.title).join(", ")}`] : []),
   ...(replaceDay ? (() => { const gone = removed.filter((b) => !add.some((a) => sameThing(a.title, b.title) || sameThing(b.title, a.title)));
     return gone.length ? [`DROPPED (he did not mention them, so they are gone — tell him by name): ${gone.map((b) => b.title).join(", ")}`] : []; })() : []),
+  ...(onlyCleared.length ? [`DROPPED (he said only what he named today): ${onlyCleared.map((b) => b.title).join(", ")}`] : []),
   ...shrunkLines, ...raised,
   ...result.moves.filter((m) => m.clipped).map((m) => `${m.title} now ends at ${hhmm(m.toEnd)}`),
   ...result.moves.filter((m) => m.to !== m.from).map((m) => `moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`),

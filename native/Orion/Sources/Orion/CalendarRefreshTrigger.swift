@@ -38,7 +38,7 @@ final class CalendarRefreshTrigger {
 
     /// `delay` is the quiet period: a batch of writes is one refetch, after the
     /// last of them. `maxWait` bounds how long a steady stream can postpone it.
-    init(delay: TimeInterval = 1.0, maxWait: TimeInterval = 3.0,
+    init(delay: TimeInterval = 1.0, maxWait: TimeInterval = 1.5,
          queue: DispatchQueue = .main, center: NotificationCenter = .default,
          storeChanged: Notification.Name = .EKEventStoreChanged,
          turnFinished: Notification.Name = .orionTurnFinished,

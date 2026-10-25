@@ -84,8 +84,9 @@ export function repairStart(message: string, argvs: string[][], ctx: { day: DayW
 }
 
 /** What to say instead of running these writes, or undefined when every time he said is a start one of them uses. */
-export function timeMismatch(message: string, argvs: string[][], ctx: { day: DayWord; now: number | null; blocks?: Day }): string | undefined {
-  return startMismatch(message, argvs, ctx) ?? endMismatch(message, argvs, ctx.blocks);
+/** dayUnread: his day could not be read just now (the worker path reads it first), so an end that needs it is said as that, plainly. */
+export function timeMismatch(message: string, argvs: string[][], ctx: { day: DayWord; now: number | null; blocks?: Day; dayUnread?: boolean }): string | undefined {
+  return startMismatch(message, argvs, ctx) ?? endMismatch(message, argvs, ctx.blocks, { dayUnread: ctx.dayUnread === true });
 }
 
 function startMismatch(message: string, argvs: string[][], ctx: { day: DayWord; now: number | null }): string | undefined {
@@ -232,7 +233,7 @@ export const writtenEnds = (argv: string[], day?: Day): Array<{ title: string; e
  * A write of a thing he gave an end for that would end somewhere else, or whose end cannot be worked out (the worker's own
  * `resize … 300` read without his day: review, 2026-10-25), or any block over 12 hours: what to say instead, or undefined.
  */
-export function endMismatch(message: string, argvs: string[][], day?: Day): string | undefined {
+export function endMismatch(message: string, argvs: string[][], day?: Day, opts: { dayUnread?: boolean } = {}): string | undefined {
   const stated = statedEnds(message);
   for (const w of argvs.flatMap((a) => writtenBlocks(a, day))) {
     if (w.start !== undefined && w.end !== undefined && w.end - w.start > MAX_BLOCK) {
@@ -242,7 +243,9 @@ export function endMismatch(message: string, argvs: string[][], day?: Day): stri
     if (!mine.length) continue;
     const want = mine[0]!;
     const said = want.options.length === 1 ? ampm(want.options[0]!) : want.options.map(ampm).join(" or ");
-    if (w.end === undefined) return `You said ${w.title} until ${said}, but I couldn't work out when the change would end it, so I haven't changed anything. Say it again with the time.`;
+    if (w.end === undefined) return opts.dayUnread
+      ? `I couldn't read your calendar just now, so I couldn't check that ${w.title} would end at ${said}, and I haven't changed anything. Try again in a moment.`
+      : `You said ${w.title} until ${said}, but I couldn't work out when the change would end it, so I haven't changed anything. Say it again with the time.`;
     if (!mine.some((s) => s.options.includes(w.end!))) {
       return `You said ${w.title} until ${said}, but the change I worked out would have ended it at ${ampm(w.end)}, so I haven't changed anything. Say it again and I'll end it at ${said}.`;
     }

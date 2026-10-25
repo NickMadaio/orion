@@ -80,6 +80,15 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-10-25 — Whole-day plans, end-time backstop, honest partial replies, day view refresh (Claude, Opus worker)
+
+- **Incident (13:05):** "only doing two things today. Study … from now until 6pm … marketing … until 12 am". The 9B worker resized Study to 14:00–19:00, cascaded the rest, failed a `--to 24:00`, and replied "Done … Not done". Audit: `docs/audits/2026-10-25-day-plan-false-positive.md`.
+- **Whole-day plans:** `day-plan.ts` plans them in code as one `orion-reschedule day --plan … --only`. It needs his own explicit phrasing ("only doing N things today", "just these two today", "that's it for today"). Someone else's plans, negations and "only" used to limit a single block never trigger it. `--only` is all-or-nothing, today only, clears ORION-owned blocks not yet started, and records skipped anchors so the wake fill won't re-add gym.
+- **Midnight:** "12 am", "midnight" and "till 12" after noon mean 24:00 today. `--until 24:00` is accepted. Blocks over 12 h are asked about.
+- **Backstop:** end times are checked on every write path, including the worker's resize and move. The day is read once per turn, capped at 5 s.
+- **Replies:** "Done" only when every plan is exact, cleared blocks are gone and nothing else moved. Otherwise "Partly done …" with undo.
+- **Mac day view:** `CalendarModel` refreshes in place on EKEventStoreChanged or `.orionTurnFinished` (debounce 1 s, max 1.5 s), guarded by a generation counter.
+
 ### 2026-10-24 — Routine learning, replies to proactive messages, bedtime guard, fluid voice (Claude, Opus workers)
 
 - **Routines** (`scripts/lib/patterns/`, `orion-patterns routines|learn`): weekday nights out are learned only from evidence: phone fixes, Mac sessions, his own words, how late he woke, and night-out calendar titles as corroboration only. A routine needs 3 same-weekday nights. A gap in the data is unknown, never a night in. During a routine only `bed-*` lines are held, the scheduler doesn't book into it, and the next morning gets wake grace. `orion-daily` runs `learn --calendar` nightly. Friday isn't learned yet because phone location stopped on 10-23.

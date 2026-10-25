@@ -11,13 +11,14 @@
  negation or second thoughts is refused, on the raw and the typo-fixed text. Anything that is not one of the shapes below, or names
  another day, returns a refusal and goes the normal way: this layer never guesses.
 */
+import { parseDayPlan, type DayPlanAsk } from "./day-plan.js";
 import { parseReorder, parseReplanRequest, type ReplanAsk } from "./day-replan.js";
 import { readUntilShape } from "./direct-add.js";
 import { COURTESY, fixTypos, refusalOf, TAKEN_BACK, type Refusal } from "./intent-gate.js";
 import { ceil5, CLOCK, hhmm, parseClock, resolveEnd, resolveStart, spokenTimesToDigits, takeLength, toMin, type ClockContext, type DayWord } from "./intent-time.js";
 import type { AskContext } from "./schedule-flow.js";
 
-export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend";
+export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend" | "dayplan";
 /** A clock that cannot be used as said: already behind him today, or 9 tomorrow with no am/pm. */
 export type TimeIssue = { kind: "passed"; at: string; field: "start" | "end" } | { kind: "past-midnight"; at: string } | { kind: "ambiguous"; choices: [string, string] } | { kind: "from-now-not-today" };
 /** endSaid: an extend's end as he said it ("9"), read against the block's own start when the day is known. */
@@ -38,6 +39,8 @@ export type CalendarIntent = {
   all?: true;
   /** the remembered request's date, when a follow-up acts on it */
   date?: string;
+  /** dayplan: "only doing two things today. X from now until 6pm, then home, Y until 12 am" (day-plan.ts) */
+  dayplan?: DayPlanAsk;
 };
 export type IntentRead = { intent: CalendarIntent } | { refused: Refusal | "unparsed" | "other-day"; tookBack?: true };
 /** What a follow-up needs from the request before it: the request, and the date it was for. */
@@ -259,6 +262,9 @@ export function readIntent(message: string, ctx: { now: Date; last?: IntentMemor
   const nowMin = ctx.now.getHours() * 60 + ctx.now.getMinutes();
   if (ctx.last) { const f = readFollowUp(raw, ctx.last, ctx.now); if (f) return { intent: f }; }
   const dayWord = dayOf(fixed, ctx.now);
+  // A whole-day plan for today (2026-10-25): read before the "put X until T" shape, whose single add would leave the rest of his day as it was.
+  const plan = dayWord === "today" ? parseDayPlan(raw) : undefined;
+  if (plan) return { intent: { verb: "dayplan", items: plan.items.map((i) => ({ name: i.name })), day: "today", anchor: { kind: "now" }, dayplan: plan } };
   const until = readUntil(raw, dayWord === "other" ? "today" : dayWord, dayWord === "today" ? nowMin : null, ctx.ask);
   if (until) {
     if ("refused" in until) return until;

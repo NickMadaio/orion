@@ -311,17 +311,17 @@ describe("review CRITICAL 1: only HIS explicit whole-day plan clears anything; n
 
 describe("review HIGH 2: the worker's own exec of the incident write is refused (the day is read first)", () => {
   const PROMPT = `User message:\n${SENTENCE}`;
-  async function workerExec(command: string, readDayJson?: (args: string[]) => Promise<Day | undefined>) {
+  async function workerExec(command: string | string[], readDayJson?: (args: string[]) => Promise<Day | undefined>, dayReadMs?: number) {
     const handlers = new Map<string, Array<(e: unknown, c: unknown) => unknown>>();
     registerLocalRouting({ on: (n: string, f: (e: unknown, c: unknown) => unknown) => handlers.set(n, [...(handlers.get(n) ?? []), f]) } as never, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "dayplan-exec-")), "r.jsonl"),
       brainSearch: async () => "", clock: () => "Sun 13:05", now: () => DAYS[0]![1], decideImpl: async () => ({ move: "escalate" }),
       // The flow falls back, as it did live (the worker then wrote the change itself).
-      scheduleFlow: async (): Promise<FlowResult> => ({ outcome: "fallback", reason: "test" }), ...(readDayJson ? { readDayJson } : {}) } as never);
+      scheduleFlow: async (): Promise<FlowResult> => ({ outcome: "fallback", reason: "test" }), ...(readDayJson ? { readDayJson } : {}), ...(dayReadMs ? { dayReadMs } : {}) } as never);
     const c = { runId: "w1", sessionKey: "agent:main:orion-chat-exec" };
     for (const f of handlers.get("before_model_resolve") ?? []) await f({ prompt: PROMPT }, c);
     for (const f of handlers.get("before_prompt_build") ?? []) await f({ prompt: PROMPT, messages: [] }, c);
     const results = [];
-    for (const f of handlers.get("before_tool_call") ?? []) results.push(await f({ toolName: "exec", params: { command } }, c));
+    for (const cmd of Array.isArray(command) ? command : [command]) for (const f of handlers.get("before_tool_call") ?? []) results.push(await f({ toolName: "exec", params: { command: cmd } }, c));
     return results.find((r) => r && (r as { block?: boolean }).block) as { block: boolean; blockReason: string } | undefined;
   }
   // The incident's exact write, as the worker's exec line would carry it.
@@ -331,10 +331,23 @@ describe("review HIGH 2: the worker's own exec of the incident write is refused 
     expect(r?.block).toBe(true);
     expect(r?.blockReason).toMatch(/You said Study for CS Midterm until 6:00 PM, but the change I worked out would have ended it at 7:00 PM/);
   });
-  it("without a day to read: the end cannot be worked out, so it is blocked too", async () => {
+  it("without a day to read: blocked, and it says the calendar couldn't be read (never 'say it again with the time')", async () => {
     const r = await workerExec(RESIZE);
     expect(r?.block).toBe(true);
-    expect(r?.blockReason).toMatch(/couldn't work out when the change would end it/);
+    expect(r?.blockReason).toMatch(/I couldn't read your calendar just now/);
+    expect(r?.blockReason).not.toMatch(/Say it again with the time/);
+  });
+  it("a read that hangs is capped (5 s live; 50 ms here) and refused the same way", async () => {
+    const started = Date.now();
+    const r = await workerExec(RESIZE, () => new Promise(() => {}), 50);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(r?.blockReason).toMatch(/I couldn't read your calendar just now/);
+  });
+  it("the day is read once per turn, however many writes the worker makes", async () => {
+    let reads = 0;
+    const ok = 'orion-reschedule day --plan "Study for CS Midterm, 295, 13:05" --plan "AE1 Marketing Presentation, 315, 18:45" --only';
+    await workerExec([ok, ok, ok], async () => { reads += 1; return before("2026-10-25"); });
+    expect(reads).toBe(1);
   });
   it("the right write is not blocked", async () => {
     const r = await workerExec(`orion-reschedule day --plan "Study for CS Midterm, 295, 13:05" --plan "AE1 Marketing Presentation, 315, 18:45" --only`, async () => before("2026-10-25"));
@@ -400,5 +413,28 @@ describe("review LOW 11: 'Done' only when every cleared block is gone, every pla
   });
   it("all three hold: Done", () => {
     expect(dayPlanReply(after(before("2026-10-25")), plan(), undefined, before("2026-10-25"))).toMatch(/^Done: /);
+  });
+});
+
+// ---- re-review (2026-10-25): a negation blocks only when it negates the plan itself ----
+describe("re-review MEDIUM 1: 'no gym', 'dont add anything else', an em dash and line breaks are still his whole-day plan", () => {
+  const now = DAYS[0]![1];
+  it.each([
+    "only doing two things today, no gym. study from now till 6 then home, marketing till 12",
+    "only doing two things today. study from now till 6 then home, marketing till 12, dont add anything else",
+    "only doing two things today — study from now till 6, then home, marketing till 12",
+    "only doing two things today\nstudy from now till 6\nthen home\nmarketing till 12",
+  ])("%j writes the plan", async (m) => {
+    const { writes, result } = await flow(m, { now, day: before("2026-10-25") });
+    expect(writes).toEqual([PLAN]);
+    expect((result as { reply: string }).reply).toMatch(/Gym is skipped today, since you said only these two things\.$/);
+  });
+  it.each([
+    "not only doing two things today. study till 6 then marketing till 12",
+    "I'm not doing two things today: study till 6 then marketing till 12",
+    "only doing two things today. not study until 6pm. then marketing until 12 am",
+    "only doing two things today. study till 6, no marketing till 12",
+  ])("%j: a negated plan, or a negated thing in it, is not read", (m) => {
+    expect(parseDayPlan(m)).toBeUndefined();
   });
 });

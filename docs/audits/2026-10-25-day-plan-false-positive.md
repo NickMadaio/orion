@@ -49,6 +49,28 @@ origin/main 2eced76. The evidence files were only read, and every test uses fixt
 | c71ed4e | Fixes from the review: a bare "just" counts as a whole-day signal only when the message includes a trip home. Plans with people that ORION booked are never cleared. The backstop skips the end of something he says he is busy with ("I have lab until 4"). "till 12:45" at 12:10 means 12:45 PM. A block ending at "00:00" ends at midnight. |
 | 0de93f3, script tests | Regressions: his exact sentence and three variants, on the DST day and on a normal day; 18 negatives; the backstop on the incident writes; the routing path with the outreach prefix; ownership; midnight. |
 
+An independent review then blocked the branch. Its findings were fixed in 93b48e6, 48e2728, e518a6d, befc1eb and 5fea66f:
+
+- **CRITICAL (whole-day signal):** a bare "only" or "just" no longer counts. Neither does someone else's day ("my friend / he / she is
+  only doing…"), a negation ("not study"), or "I'd only be". Only his own explicit whole-day phrasing counts: "only doing N things
+  (today)", "just these two today", "that's it for today". A title never starts with a pronoun, "not" or "only". The earlier variant
+  "just gonna study till 6 then head home…" now goes to the normal path, and the backstop guards it there.
+- **HIGH (worker exec path):** the worker's own exec is now checked against the day, read first through `readDayJson`. If he stated an
+  end and the written end cannot be worked out, the write is refused. The incident's exact `resize "Study for CS Midterm" 300` is now
+  blocked on that path.
+- **HIGH (`--only`):** it is all or nothing. Any plan that cannot be booked exactly as stated gives `NOTHING WAS CHANGED` and nothing is
+  cleared. An end he stated ("until 12 am") is booked even past the computed bedtime.
+- **MEDIUM:**
+  - An anchor that `--only` cleared is skipped for that day (`anchor-skips.json`); `fill --anchors` and `--fill` respect the skip.
+  - `--only` is refused on any day but today.
+  - A call that only partly fits opens with "Partly done", not-done part first.
+  - The end check matches the block exactly (Study vs Study Lab).
+- **LOW:**
+  - A named block already under way keeps its start, and only its end is set.
+  - The END_CLAUSE off-by-one ("hen") is fixed.
+  - Any block over 12 hours is asked about, not booked.
+  - "Done" is said only when every cleared block is gone, every plan is exact and no other block moved.
+
 On his sentence, the change is now one call: `day --plan "Study for CS Midterm, 295, 13:05" --plan "AE1 Marketing Presentation, 315, 18:45" --only`.
 The reply reads: "Done: Study for CS Midterm 1:05–6:00 PM, then home, then AE1 Marketing Presentation 6:45 PM–12:00 AM. I took Go over Orion
 learning plan, DS Lab 05 off the rest of today. Gym is skipped today, since you said only these two things." Gym follows the decision he
@@ -56,13 +78,7 @@ confirmed: "only X and Y" skips it for that day, and he is told in one line rath
 
 ## Left as is
 
-- If a named block is already under way, `day --plan` restates the whole block, so the part he has already done is replaced from now on.
-  This edge case did not occur in the incident.
-- If his bedtime window ends before 24:00, the scheduler can shorten the evening block or leave it unbooked after the other blocks have been
-  cleared. The reply reports this accurately, but the clearing is not rolled back automatically. He can say "undo".
-- A single scheduler call that partly fits still reads "Done: …; Not done: X didn't fit". That line is accurate. Only the multi-call case
-  that caused this incident was changed.
+- `undo` of an `--only` change brings the cleared blocks back, but the day's anchor skip stays. After an undo, the gym is not auto-filled
+  that day; he can still add it by name.
 - `local-routing` still treats a flow's reply as final when `flowActed`. The fix makes that reply honest at its source rather than adding a
   second override in routing.
-- `orion-proactive`'s daily anchor fill runs once, when he wakes. If an "only" plan is made before that fill, the gym could be re-added
-  that day.

@@ -6,7 +6,9 @@
    - an evening "until 10:30" is 22:30; a time with am/pm, or a 24-hour time, is exactly that;
    - a time that has already passed TODAY is said to have passed. It is never rolled over to tomorrow morning
      (2026-10-20 re-run: "until ten thirty" at 22:42 became "10:30 AM is past midnight");
-   - 7-11 tomorrow with no am/pm and no morning/evening word is asked about, never guessed.
+   - 7-11 tomorrow with no am/pm and no morning/evening word is asked about, never guessed;
+   - an END at "12 am", "00:00" or "midnight" is the end of TODAY (24:00, minute 1440): never a booking across midnight
+     (2026-10-25: "marketing presentation until 12 am" became `move … --to 24:00`, which failed).
 */
 
 const HOUR_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
@@ -63,7 +65,7 @@ export const CLOCK = String.raw`(?:\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?|n
 export function parseClock(text: string): Said | null {
   const t = text.trim().toLowerCase();
   if (t === "noon" || t === "midday") return { h: 12, m: 0, ap: "p", exact: true };
-  if (t === "midnight") return null;   // a block that ends at midnight is said with a time; "until midnight" is left to the normal path
+  if (t === "midnight") return { h: 12, m: 0, ap: "a", exact: true };   // the same clock as "12 am": as an end, the end of today
   const m = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?$/);
   if (!m) return null;
   const h = Number(m[1]); const min = Number(m[2] ?? 0); const ap = m[3]?.[0] as "a" | "p" | undefined;
@@ -74,6 +76,8 @@ export function parseClock(text: string): Said | null {
 const exactMinute = (s: Said): number => (s.ap ? (s.h % 12) * 60 + (s.ap === "p" ? 720 : 0) + s.m : s.h * 60 + s.m);
 
 export type DayWord = "today" | "tomorrow";
+/** The end of today: a block "until midnight" ends at 24:00 (the scheduler takes `24:00` as an end, never as a start). */
+export const MIDNIGHT_END = 1440;
 /** part: "morning" / "evening" when he said so ("tomorrow morning", "tonight"). */
 export type ClockContext = { day: DayWord; now: number | null; part?: "morning" | "evening" };
 export type Resolved = { at: number } | { passed: number } | { ambiguous: [number, number] };
@@ -103,6 +107,10 @@ export function resolveEnd(said: Said, start: number, ctx: ClockContext): EndRes
   const today = ctx.day === "today" && ctx.now !== null;
   if (said.exact || said.h === 12) {
     const min = said.exact ? exactMinute(said) : 720 + said.m;
+    // "until 12 am" / "till midnight": the end of today, whatever the start.
+    if (said.exact && min === 0 && start < 1440) return { at: MIDNIGHT_END };
+    // A bare "till 12" from the afternoon on is midnight ("marketing at home till 12" at 18:45), never "12 PM has passed".
+    if (!said.exact && start >= 720) return said.m === 0 ? { at: MIDNIGHT_END } : { pastMidnight: 1440 + said.m };
     // "from now until 2am" at 23:00 is 2 AM tonight, after midnight: not "2:00 AM has already passed".
     if (min < start && start >= 18 * 60 && min < 6 * 60) return { pastMidnight: min + 1440 };
     if (today && min <= ctx.now!) return { passed: min };

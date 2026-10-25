@@ -32,11 +32,16 @@ const norm = (t: string): string => t.toLowerCase().replace(/[’']/g, "").repla
 const hhmm = (n: number): string => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 const cap = (t: string): string => t.replace(/^./, (c) => c.toUpperCase());
 
-// "only doing two things today", "only 2 things today:", "that's it": he is saying what the WHOLE rest of the day is. A bare "just" is not
-// ("I'm just gonna study until 5 then do laundry until 7" is two blocks, not his whole day: review of this fix); "just … then head home and
-// … till midnight" is, because going home and on to the end of the evening lays out the day.
-const ONLY = /\bonly\b|\b(?:two|2|three|3)\s+things\b|\bthat'?s it\b/i;
-const JUST = /\bjust\b/i;
+// He says what the WHOLE rest of his day is, in so many words, as himself (independent review, 2026-10-25): "only doing two things today",
+// "I'm only doing 2 things today:", "just these two today", "that's it for today". A bare "only" or "just" is not that ("only study until 6",
+// "the lab only runs until 4"), nor anyone else's day ("my friend is only doing two things today"). When unsure, nothing is cleared.
+const SUBJECT = String.raw`(?:(?:ok(?:ay)?|so|yeah|alright|right|orion|hey)[,\s]+)*(?:(?:i'?m|im|i\s+am|i'?ll\s+be|ill\s+be|i'?m\s+gonna\s+be|i\s+will\s+be)\s+)?`;
+const COUNT = String.raw`(?:two|2|three|3|four|4)`;
+const WHOLE_DAY = new RegExp(String.raw`(?:^|[.!;:,]\s*)${SUBJECT}(?:only|just)\s+(?:(?:doing|gonna\s+do|going\s+to\s+do|do|have)\s+)?(?:${COUNT}\s+things|these\s+(?:${COUNT}\s+)?(?:things\s+)?)\s*(?:today|for\s+today)\b|(?:^|[.!;:,]\s*)${SUBJECT}(?:only|just)\s+(?:(?:doing|gonna\s+do|going\s+to\s+do|do|have)\s+)?${COUNT}\s+things\b|\bthat'?s\s+it\s+for\s+today\b`, "i");
+// Someone else's day, a negation, or what he would/could do: never his plan.
+const NOT_HIS = /\b(?:he|she|they|we|you|he'?s|she'?s|they'?re|hes|shes|theyre|someone|somebody|friend|mom|mum|dad|brother|sister|roommate|bf|gf|boyfriend|girlfriend|his|her|their)\b|\b(?:not|never|no)\b|n'?t\b|\b(?:i'?d|id|would|wouldn'?t)\b/i;
+/** A title never starts with a pronoun, a negation or "only" ("She's only doing study" was booked as one). */
+const BAD_TITLE_START = /^(?:i|i'?m|im|i'?d|id|he|she|they|we|you|it|he'?s|she'?s|they'?re|hes|shes|theyre|not|only|just|my\s+friend)\b/i;
 // A statement of plan may use "gonna"/"going to" (the strict gate refuses those): these are what still make it not an order.
 const HEDGE = /\b(?:might|may be|could|thinking|wondering|whether|if i|if we|probably|prob|prolly|planning to maybe|not sure|supposed to|should)\b/i;
 const ADD_LEAD = /^(?:put|add|schedule|book|pencil|slot|block|move|push|shift|bump|extend|drop|remove|cancel|re-?schedule|re-?plan|re-?arrange)\b/i;
@@ -48,7 +53,7 @@ const LEAD_WORDS = /^(?:(?:then|and|so|after\s+that|afterwards|also|plus|first|i
 const TAIL_WORDS = /(?:\s+(?:at\s+home|today|tonight|from\s+(?:right\s+)?now|right\s+now|now|then))+$/i;
 const NOT_A_NAME = /\b(?:things?|stuff|day|home|until|till|til|from|nothing|everything|something|it|that|this)\b|\d{1,2}\s*(?:am|pm)\b/i;
 // What may follow the last thing: nothing, or a close ("and that's it", "then bed").
-const CLOSE = /^[\s.!…,]*(?:(?:and\s+)?that'?s\s+it|then\s+(?:bed|sleep)|and\s+then\s+(?:bed|sleep))?[\s.!…]*$/i;
+const CLOSE = /^[\s.!…,]*(?:(?:and\s+)?that'?s\s+it(?:\s+for\s+today)?|then\s+(?:bed|sleep)|and\s+then\s+(?:bed|sleep))?[\s.!…]*$/i;
 
 /** The thing's name out of its stretch of his words: the last clause, without the lead-in ("once im home i work on") or a tail ("at home"). */
 function nameOf(stretch: string): string | undefined {
@@ -56,7 +61,7 @@ function nameOf(stretch: string): string | undefined {
   for (const c of [...clauses].reverse()) {
     const name = c.replace(LEAD_WORDS, "").replace(TAIL_WORDS, "").replace(/^(?:a|an|the|my|some)\s+/i, "").trim();
     if (!name) continue;
-    if (name.split(/\s+/).length > 5 || !/^[a-z0-9][a-z0-9' &-]*$/i.test(name) || NOT_A_NAME.test(name)) return undefined;
+    if (name.split(/\s+/).length > 5 || !/^[a-z0-9][a-z0-9' &-]*$/i.test(name) || NOT_A_NAME.test(name) || BAD_TITLE_START.test(name)) return undefined;
     return name;
   }
   return undefined;
@@ -66,7 +71,7 @@ function nameOf(stretch: string): string | undefined {
 export function parseDayPlan(message: string): DayPlanAsk | undefined {
   const raw = spokenTimesToDigits(message.replace(/\s+/g, " ").trim());
   const text = fixTypos(raw);
-  if (!raw || !(ONLY.test(text) || (JUST.test(text) && HOME.test(text))) || OTHER_DAY.test(text) || HEDGE.test(text) || PAST_REPORT.test(text)) return undefined;   // a report of what he did is not a plan
+  if (!raw || !WHOLE_DAY.test(text) || NOT_HIS.test(text) || OTHER_DAY.test(text) || HEDGE.test(text) || PAST_REPORT.test(text)) return undefined;   // a report of what he did is not a plan
   // The gate (intent-gate.ts), lenient: a statement of plan ("gonna", "i go back home") is fine; a question, doubt, a take-back, hearsay
   // or "don't/maybe/what if/unless" never is.
   if (refusalOf(raw, { lenient: true })) return undefined;
@@ -129,7 +134,8 @@ export function planDayPlan(ask: DayPlanAsk, day: Day): DayPlanResult | undefine
       const r = resolveStart(fromSaid, { day: "today", now: now - 60 });
       if (!("at" in r)) return { say: "ask", text: `When should ${title} start? I haven't changed anything.` };
       start = Math.max(r.at, ceil5(now));
-    } else if (prevEnd === undefined) start = ceil5(now);
+    } else if (block && toMin(block.start) < now && endOf(block) > now && prevEnd === undefined) start = toMin(block.start);   // under way: what is done stays (review)
+    else if (prevEnd === undefined) start = ceil5(now);
     else start = prevEnd + (item.home ? facts.commuteMinutes : facts.bufferMinutes);
     const endSaid = parseClock(item.endSaid);
     const end = endSaid ? resolveEnd(endSaid, start, { day: "today", now }) : undefined;
@@ -160,28 +166,33 @@ const NUMBER = ["", "one", "two", "three", "four"];
  * What he is told, written by code from the day as it now reads (never from the model): each thing he asked for against what is on
  * his calendar. "Done" only when every one of them is exactly as he asked; otherwise what he asked, what is there, and how to undo it.
  */
-export function dayPlanReply(after: Day | undefined, plan: DayPlanned, failure?: string): string {
+export function dayPlanReply(after: Day | undefined, plan: DayPlanned, failure?: string, before?: Day): string {
   if (!after) return `I made the change but couldn't read your calendar back to check it, so I won't say it's done. Check it, and say "undo" if it looks wrong.`;
   const onDay = (title: string) => after.blocks.filter((b) => norm(b.title) === norm(title));
   const wrong: string[] = []; const right: string[] = [];
   for (const p of plan.items) {
     const asked = `${p.title} ${span(p.start, p.end)}`;
     const there = onDay(p.title);
-    const exact = there.find((b) => toMin(b.start) === p.start && (toMin(b.end) === p.end || (p.end === 1440 && toMin(b.end) === 0)));
+    const exact = there.find((b) => toMin(b.start) === p.start && endOf(b) === p.end);
     if (exact) right.push(`${p.home ? "home, then " : ""}${asked}`);
-    else wrong.push(there.length ? `you asked for ${asked}, but your calendar has ${p.title} ${there.map((b) => span(toMin(b.start), toMin(b.end) || 1440)).join(" and ")}` : `you asked for ${asked}, but it isn't on your calendar`);
+    else wrong.push(there.length ? `you asked for ${asked}, but your calendar has ${p.title} ${there.map((b) => span(toMin(b.start), endOf(b))).join(" and ")}` : `you asked for ${asked}, but it isn't on your calendar`);
   }
   const stillThere = plan.cleared.filter((b) => onDay(b.title).some((x) => x.start === b.start));
   const gone = plan.cleared.filter((b) => !stillThere.includes(b)).map((b) => b.title);
-  if (wrong.length || failure) {
-    return `Not done as you asked: ${[...wrong, ...(failure ? [failure] : [])].join("; ")}.${right.length ? ` What is right: ${right.join(", ")}.` : ""} Say "undo" to put your day back.`;
+  // Review (2026-10-25): "Done" only when nothing ELSE on his day changed either — every other block reads as it did before.
+  const named = (t: string) => plan.items.some((p) => norm(p.title) === norm(t)) || plan.cleared.some((c) => norm(c.title) === norm(t));
+  const moved = (before?.blocks ?? []).filter((b) => !named(b.title) && !after.blocks.some((x) => x.title === b.title && x.start === b.start && x.end === b.end))
+    .map((b) => { const now = onDay(b.title)[0]; return now ? `${b.title} moved from ${span(toMin(b.start), endOf(b))} to ${span(toMin(now.start), endOf(now))}` : `${b.title} (${span(toMin(b.start), endOf(b))}) came off your day`; });
+  if (wrong.length || failure || stillThere.length || moved.length) {
+    const problems = [...wrong, ...(failure ? [failure] : []), ...stillThere.map((b) => `${b.title} should have come off but is still on`), ...moved.map((m) => `${m}, which you didn't ask for`)];
+    return `Not done as you asked: ${problems.join("; ")}.${right.length ? ` What is right: ${right.join(", ")}.` : ""} Say "undo" to put your day back.`;
   }
   const count = plan.items.length <= 4 ? NUMBER[plan.items.length] : String(plan.items.length);
-  const gym = plan.anchorsCleared.filter((a) => gone.some((g) => norm(g) === norm(a) || blocksNamed(a, { ...after, blocks: [{ title: g, start: "00:00", end: "00:00", fixed: false }] }).length > 0));
-  const others = gone.filter((g) => !gym.some((a) => blocksNamed(a, { ...after, blocks: [{ title: g, start: "00:00", end: "00:00", fixed: false }] }).length > 0));
+  const isAnchor = (a: string, g: string) => norm(g) === norm(a) || blocksNamed(a, { ...after, blocks: [{ title: g, start: "00:00", end: "00:00", fixed: false }] }).length > 0;
+  const gym = plan.anchorsCleared.filter((a) => gone.some((g) => isAnchor(a, g)));
+  const others = gone.filter((g) => !gym.some((a) => isAnchor(a, g)));
   const parts = [`Done: ${right.join(", then ")}.`];
   if (others.length) parts.push(`I took ${others.join(", ")} off the rest of today.`);
   if (gym.length) parts.push(`${gym.join(" and ")} is skipped today, since you said only these ${count} things.`);
-  if (stillThere.length) parts.push(`${stillThere.map((b) => b.title).join(", ")} is still on your day.`);
   return parts.join(" ");
 }

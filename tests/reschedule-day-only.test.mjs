@@ -82,12 +82,13 @@ test("--only never touches a class, his own event or a plan with people", (t) =>
     { title: "Dentist", start: [21, 0], end: [21, 30] },
     { title: "Reading", start: [16, 30], end: [17, 0], orion: "study" },
     { title: "Study", start: [14, 0], end: [14, 45], orion: "study" },
+    { title: "Lunch with Maya", start: [22, 0], end: [22, 30], orion: "meal" },   // a plan with people ORION booked: never cleared
   ];
   const { run, day } = world(t, { events });
   const r = run("day", "--plan", "Study, 100, 13:10", "--only");
   assert.equal(r.code, 0, r.out);
   const d = day();
-  for (const kept of ["CS2100 Lecture", "Dinner with Sam", "Dentist"]) assert.ok(d.some((b) => b.title === kept), `${kept} was removed: ${r.out}`);
+  for (const kept of ["CS2100 Lecture", "Dinner with Sam", "Dentist", "Lunch with Maya"]) assert.ok(d.some((b) => b.title === kept), `${kept} was removed: ${r.out}`);
   assert.ok(!d.some((b) => b.title === "Reading"), r.out);
 });
 

@@ -124,6 +124,10 @@ describe("1b. negatives: a question, a hedge, a take-back, hearsay, a past repor
     "don't only study till 6 then marketing till midnight",
     "just put cs lab until 10:30",                            // one add: the "put X until T" shape, not a whole-day plan
     "study till 6 then marketing till midnight",               // no "only/just": not a statement about the WHOLE day
+    // review of this fix: a bare "just" is not "only these today" (it would clear the rest of his day)
+    "I'm just gonna study until 5 then do laundry until 7",
+    "studying until 5, then just reading until 7",
+    "just study until 5 and essay until 7",
   ])("%j", async (m) => {
     expect(parseDayPlan(m)).toBeUndefined();
     const read = readIntent(m, { now: DAYS[0]![1] });
@@ -160,8 +164,15 @@ describe("2. the stated-time backstop checks ENDS on every write path, resize in
     expect(result).toMatchObject({ outcome: "say", kind: "ask" });
     expect((result as { text: string }).text).toMatch(/^You said Study for CS Midterm until 6:00 PM/);
   });
-  it("other ends in the sentence are not the written block's ('my class runs until 5, add gym at 6')", () => {
-    expect(endMismatch("my class runs until 5, add gym at 6", [["add", "Gym", "90", "--at", "18:00"]], day)).toBeUndefined();
+  it.each([
+    ["my class runs until 5, add gym at 6", ["add", "Gym", "90", "--at", "18:00"]],
+    ["I have lab until 4, then add lab report", ["add", "Lab report", "60", "--at", "16:05"]],
+    ["I'm in class till 5, put reading after", ["add", "Reading", "30", "--at", "17:05"]],
+  ])("an end of something else he is busy with is not the written block's: %j", (m, argv) => {
+    expect(endMismatch(m, [argv as string[]], day)).toBeUndefined();
+  });
+  it("a block that ends at midnight (show prints 00:00) has its real length", () => {
+    expect(writtenEnds(["move", "Late", "--to", "22:00"], { ...day, blocks: [b("Late", "23:00", "00:00")] })).toEqual([{ title: "Late", end: 1380 }]);
   });
 });
 
@@ -171,6 +182,9 @@ describe("3. 'until 12 am' / 'till midnight' is the end of today, never a bookin
   });
   it("a bare 'till 12' from the afternoon is midnight too", () => {
     expect(resolveEnd(parseClock("12")!, 18 * 60 + 45, { day: "today", now: 785 })).toEqual({ at: 1440 });
+  });
+  it("but 'till 12:45' at 12:10 is 12:45 PM (noon is not behind the start)", () => {
+    expect(resolveEnd(parseClock("12:45")!, 12 * 60 + 10, { day: "today", now: 730 })).toEqual({ at: 765 });
   });
   it("'put cs lab from now until 12am' at 23:00 books until midnight", async () => {
     const day: Day = { date: "2026-10-25", now: "23:00", blocks: [] };
@@ -212,6 +226,14 @@ describe("5. ownership: only ORION's blocks come off; a class or a plan with peo
     const extra = [b("CS2100 Lecture", "08:00", "09:00", "class", true), { ...b("Dentist", "09:30", "10:00", "other", true), nameable: true }, b("Dinner with Sam", "07:00", "07:30", "social", true)];
     const plan = planDayPlan(parseDayPlan(SENTENCE)!, before("2026-10-25", extra)) as DayPlanned;
     expect(plan.cleared.map((x) => x.title)).toEqual(["Go over Orion learning plan", "DS Lab 05", "Gym"]);
+  });
+  it("a plan with people ORION booked itself (it reads fixed:false) never comes off, and is in the way like any other", async () => {
+    const dinner = b("Dinner with Maya", "20:00", "21:00", "meal");
+    const plan = planDayPlan(parseDayPlan("only doing two things today: study till 6 then marketing till 7:30pm")!, before("2026-10-25", [dinner])) as DayPlanned;
+    expect(plan.cleared.map((x) => x.title)).not.toContain("Dinner with Maya");
+    const { writes, result } = await flow(SENTENCE, { now, day: before("2026-10-25", [dinner]) });
+    expect(writes).toEqual([]);
+    expect(result).toMatchObject({ outcome: "say", text: "Dinner with Maya is 8:00–9:00 PM, so AE1 Marketing Presentation can't run 6:45 PM–12:00 AM. I haven't changed anything." });
   });
   it("a class in the way of what he asked: nothing is written, he is told", async () => {
     const day = before("2026-10-25", [b("CS2100 Lecture", "15:00", "16:00", "class", true)]);

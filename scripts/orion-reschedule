@@ -1132,6 +1132,7 @@ const onlyDay = command === "day" && args.includes("--only");
 if (onlyDay && !planArgs.length) fail('usage: orion-reschedule day --plan "<title>, <min>, HH:MM" [--plan …] --only', 2);
 const onlyCleared = onlyDay
   ? blocks.filter((block) => block.source === "orion" && (!today || block.start >= nowMinute) && !restated.includes(block)
+      && !isSocial(block.title) && !["class", "deadline"].includes(block.kind)
       && !add.some((item) => sameThing(item.title, block.title) && sameThing(block.title, item.title)))
   : [];
 let removed = replaceDay || clearMovable

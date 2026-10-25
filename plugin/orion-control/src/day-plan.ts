@@ -32,8 +32,11 @@ const norm = (t: string): string => t.toLowerCase().replace(/[’']/g, "").repla
 const hhmm = (n: number): string => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 const cap = (t: string): string => t.replace(/^./, (c) => c.toUpperCase());
 
-// "only doing two things today", "just gonna", "only 2 things today:", "that's it": he is saying what the WHOLE rest of the day is.
-const ONLY = /\b(?:only|just)\b|\b(?:two|2|three|3)\s+things\b|\bthat'?s it\b/i;
+// "only doing two things today", "only 2 things today:", "that's it": he is saying what the WHOLE rest of the day is. A bare "just" is not
+// ("I'm just gonna study until 5 then do laundry until 7" is two blocks, not his whole day: review of this fix); "just … then head home and
+// … till midnight" is, because going home and on to the end of the evening lays out the day.
+const ONLY = /\bonly\b|\b(?:two|2|three|3)\s+things\b|\bthat'?s it\b/i;
+const JUST = /\bjust\b/i;
 // A statement of plan may use "gonna"/"going to" (the strict gate refuses those): these are what still make it not an order.
 const HEDGE = /\b(?:might|may be|could|thinking|wondering|whether|if i|if we|probably|prob|prolly|planning to maybe|not sure|supposed to|should)\b/i;
 const ADD_LEAD = /^(?:put|add|schedule|book|pencil|slot|block|move|push|shift|bump|extend|drop|remove|cancel|re-?schedule|re-?plan|re-?arrange)\b/i;
@@ -63,7 +66,7 @@ function nameOf(stretch: string): string | undefined {
 export function parseDayPlan(message: string): DayPlanAsk | undefined {
   const raw = spokenTimesToDigits(message.replace(/\s+/g, " ").trim());
   const text = fixTypos(raw);
-  if (!raw || !ONLY.test(text) || OTHER_DAY.test(text) || HEDGE.test(text) || PAST_REPORT.test(text)) return undefined;   // a report of what he did is not a plan
+  if (!raw || !(ONLY.test(text) || (JUST.test(text) && HOME.test(text))) || OTHER_DAY.test(text) || HEDGE.test(text) || PAST_REPORT.test(text)) return undefined;   // a report of what he did is not a plan
   // The gate (intent-gate.ts), lenient: a statement of plan ("gonna", "i go back home") is fine; a question, doubt, a take-back, hearsay
   // or "don't/maybe/what if/unless" never is.
   if (refusalOf(raw, { lenient: true })) return undefined;
@@ -86,13 +89,18 @@ export function parseDayPlan(message: string): DayPlanAsk | undefined {
 }
 
 const isClass = (b: DayBlock): boolean => b.kind === "class";
+/** `show --json` prints a block that ends at midnight as "00:00": that is the end of the day, not its start. */
+const endOf = (b: DayBlock): number => (b.end === "00:00" && b.start !== "00:00" ? 1440 : toMin(b.end));
+// A plan with people or a class, even one ORION booked (it reads fixed:false), never moves and never comes off (review of this fix).
+const PEOPLE = /\bwith\b/i;
+const social = (b: DayBlock): boolean => isClass(b) || b.kind === "deadline" || b.kind === "social" || PEOPLE.test(b.title);
 /** A block he names may move unless it is a class or a plan with people (one of his own events that he names moves: review of 6fc2b13). */
-const locked = (b: DayBlock): boolean => (b.fixed || isClass(b)) && !(b.nameable && !isClass(b));
+const locked = (b: DayBlock): boolean => social(b) || ((b.fixed || isClass(b)) && !(b.nameable && !isClass(b)));
 
 /** The block his name means today: ORION's or his own, still ahead or under way first. Two different titles: undefined + ambiguous. */
 function blockOf(name: string, day: Day, now: number): { block?: DayBlock; ambiguous?: string[] } {
   const found = blocksNamed(name, day);
-  const live = found.filter((b) => toMin(b.end) > now);
+  const live = found.filter((b) => endOf(b) > now);
   const pool = live.length ? live : found;
   let titles = [...new Set(pool.map((b) => b.title))];
   // "marketing lecture" with AE1 Marketing Presentation and Marketing Lecture on the day: the one that has every word he said.
@@ -134,14 +142,14 @@ export function planDayPlan(ask: DayPlanAsk, day: Day): DayPlanResult | undefine
     if (end.at - start < 5) return { say: "cannot", text: `${title} would only have ${Math.max(0, end.at - start)} minutes (${span(start, Math.max(start, end.at))}), so I haven't changed anything.` };
     if (end.at - start > 720) return { say: "ask", text: `${title} ${span(start, end.at)} is over 12 hours. Is that right? I haven't changed anything.` };
     // A class or a plan with people in the way is never moved for it: he is told, nothing is written.
-    const wall = day.blocks.find((b) => locked(b) && b !== block && toMin(b.start) < end.at && toMin(b.end) > start);
-    if (wall) return { say: "cannot", text: `${wall.title.replace(/\s+—.*$/, "")} is ${span(toMin(wall.start), toMin(wall.end))}, so ${title} can't run ${span(start, end.at)}. I haven't changed anything.` };
+    const wall = day.blocks.find((b) => locked(b) && b !== block && toMin(b.start) < end.at && endOf(b) > start);
+    if (wall) return { say: "cannot", text: `${wall.title.replace(/\s+—.*$/, "")} is ${span(toMin(wall.start), endOf(wall))}, so ${title} can't run ${span(start, end.at)}. I haven't changed anything.` };
     if (block) named.push(block);
     planned.push({ title, start, end: end.at, home: item.home });
     prevEnd = end.at;
   }
   // "Only these today": every other block ORION planned that has not started comes off (the scheduler's --only picks the same ones).
-  const cleared = day.blocks.filter((b) => !b.fixed && toMin(b.start) >= now && !named.includes(b) && !planned.some((p) => norm(p.title) === norm(b.title)));
+  const cleared = day.blocks.filter((b) => !b.fixed && !social(b) && toMin(b.start) >= now && !named.includes(b) && !planned.some((p) => norm(p.title) === norm(b.title)));
   const anchorsCleared = facts.anchors.filter((a) => cleared.some((b) => blocksNamed(a.title, { ...day, blocks: [b] }).length > 0)).map((a) => a.title);
   const args = ["day", ...planned.flatMap((p) => ["--plan", `${p.title}, ${p.end - p.start}, ${hhmm(p.start)}`]), "--only"];
   return { args, items: planned, cleared, anchorsCleared };

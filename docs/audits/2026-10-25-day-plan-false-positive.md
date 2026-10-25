@@ -71,6 +71,14 @@ An independent review then blocked the branch. Its findings were fixed in 93b48e
   - Any block over 12 hours is asked about, not booked.
   - "Done" is said only when every cleared block is gone, every plan is exact and no other block moved.
 
+The re-review approved the branch with two MEDIUM fixes, made in 17d3b1c, 497eac0 and f4bc6c8:
+
+- **Negations:** a negation now stops a whole-day plan only when it negates the plan itself ("not only doing…", "I'm not doing two
+  things today") or one of its items ("not study until 6pm"). "no gym" and "dont add anything else" confirm the plan instead. An em
+  dash after "today" works, and so does a plan split across lines.
+- **Day read before a worker write:** capped at 5 s and read once per turn. If the day can't be read, the refusal says "I couldn't read
+  your calendar just now".
+
 On his sentence, the change is now one call: `day --plan "Study for CS Midterm, 295, 13:05" --plan "AE1 Marketing Presentation, 315, 18:45" --only`.
 The reply reads: "Done: Study for CS Midterm 1:05–6:00 PM, then home, then AE1 Marketing Presentation 6:45 PM–12:00 AM. I took Go over Orion
 learning plan, DS Lab 05 off the rest of today. Gym is skipped today, since you said only these two things." Gym follows the decision he

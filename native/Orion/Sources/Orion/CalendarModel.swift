@@ -83,6 +83,12 @@ final class CalendarModel: ObservableObject {
 
     private let dayFormatter: DateFormatter
 
+    /// Refetches when EventKit changes or an ORION turn ends. Held so it lives
+    /// as long as the model.
+    private var refreshTrigger: CalendarRefreshTrigger?
+    /// Only the newest fetch may publish; a slow older one must not overwrite it.
+    private var fetchGeneration = 0
+
     init(agenda: AppleCalendarSync, reminders: AppleRemindersSync,
          history: SessionHistory, health: HealthLog, calendar: Calendar = .current) {
         self.agenda = agenda
@@ -119,6 +125,8 @@ final class CalendarModel: ObservableObject {
             .store(in: &cancellables)
 
         reload(force: true)
+
+        refreshTrigger = CalendarRefreshTrigger { [weak self] _ in self?.refreshInPlace() }
     }
 
     // MARK: Navigation
@@ -187,7 +195,14 @@ final class CalendarModel: ObservableObject {
     /// This is what makes paging feel instant: the padded fetch already contains
     /// the neighbouring pages, so a step is pure redraw. Two steps is a fetch,
     /// and that is a stated bound rather than a hole in the grid.
-    func reload(force: Bool) {
+    /// Refetch the interval already on screen after the calendar changed under
+    /// us. Keeps `focusDate` and `selectedDay`, and does not raise `isLoading`,
+    /// so the view redraws in place instead of flickering to a loading state.
+    func refreshInPlace() {
+        reload(force: true, silent: true)
+    }
+
+    func reload(force: Bool, silent: Bool = false) {
         let interval = visible
         if !force, let fetched, fetched.start <= interval.visible.start,
            fetched.end >= interval.visible.end {
@@ -195,11 +210,13 @@ final class CalendarModel: ObservableObject {
             return
         }
 
-        isLoading = true
+        if !silent { isLoading = true }
         let wanted = interval.fetch
+        fetchGeneration += 1
+        let generation = fetchGeneration
 
         agenda.fetch(interval: wanted) { [weak self] events, failure in
-            guard let self else { return }
+            guard let self, generation == self.fetchGeneration else { return }
             self.fetched = wanted
             self.isLoading = false
 

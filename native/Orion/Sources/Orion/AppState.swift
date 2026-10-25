@@ -2266,6 +2266,8 @@ final class AppState: ObservableObject {
     }
 
     private func deliver(_ reply: GatewayReply, origin: ReplyOrigin) {
+        // The turn may have written to the calendar; open calendar views refetch.
+        NotificationCenter.default.post(name: .orionTurnFinished, object: nil)
         // A genuinely new reply retires whatever an earlier interruption was
         // keeping around -- "continue what you were saying" should never
         // resurrect a stale answer once a new one has actually arrived.
@@ -2341,6 +2343,7 @@ final class AppState: ObservableObject {
     }
 
     private func deliverHandedOff(_ result: Result<GatewayReply, Error>) {
+        NotificationCenter.default.post(name: .orionTurnFinished, object: nil)
         switch result {
         case .success(let reply):
             let home = FileManager.default.homeDirectoryForCurrentUser.path

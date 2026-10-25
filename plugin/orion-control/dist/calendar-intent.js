@@ -11,6 +11,7 @@
  negation or second thoughts is refused, on the raw and the typo-fixed text. Anything that is not one of the shapes below, or names
  another day, returns a refusal and goes the normal way: this layer never guesses.
 */
+import { parseDayPlan } from "./day-plan.js";
 import { parseReorder, parseReplanRequest } from "./day-replan.js";
 import { readUntilShape } from "./direct-add.js";
 import { COURTESY, fixTypos, refusalOf, TAKEN_BACK } from "./intent-gate.js";
@@ -262,6 +263,10 @@ export function readIntent(message, ctx) {
             return { intent: f };
     }
     const dayWord = dayOf(fixed, ctx.now);
+    // A whole-day plan for today (2026-10-25): read before the "put X until T" shape, whose single add would leave the rest of his day as it was.
+    const plan = dayWord === "today" ? parseDayPlan(raw) : undefined;
+    if (plan)
+        return { intent: { verb: "dayplan", items: plan.items.map((i) => ({ name: i.name })), day: "today", anchor: { kind: "now" }, dayplan: plan } };
     const until = readUntil(raw, dayWord === "other" ? "today" : dayWord, dayWord === "today" ? nowMin : null, ctx.ask);
     if (until) {
         if ("refused" in until)

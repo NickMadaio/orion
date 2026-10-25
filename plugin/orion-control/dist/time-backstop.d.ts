@@ -1,4 +1,5 @@
 import { type DayWord } from "./intent-time.js";
+import type { Day } from "./schedule-flow.js";
 /** Every start he says for the thing being written, as the minutes each could be: "tonight at 7" -> [[1140]], "at 9" tomorrow -> [[540, 1260]]. */
 export declare function statedStarts(message: string, ctx: {
     day: DayWord;
@@ -19,8 +20,23 @@ export declare function repairStart(message: string, argvs: string[][], ctx: {
 export declare function timeMismatch(message: string, argvs: string[][], ctx: {
     day: DayWord;
     now: number | null;
+    blocks?: Day;
 }): string | undefined;
 /** A shell command line's words, quotes kept together. */
 export declare function commandArgs(command: string): string[];
 /** Each calendar write a command line would run, as the scheduler argv the backstop reads (orion-agenda-change add is mapped to add --at). */
 export declare function writesIn(command: string): string[][];
+/** Every end he says, with the words of the thing it belongs to (its own clause): "study till 6, then marketing till midnight". */
+export declare function statedEnds(message: string): Array<{
+    options: number[];
+    words: string[];
+    said: string;
+}>;
+/** The end each write would give its block, when it can be known: add --at + length, move --until (or --to + its length), resize (its
+ *  start + the new length), extend --until, each timed day --plan. */
+export declare function writtenEnds(argv: string[], day?: Day): Array<{
+    title: string;
+    end: number;
+}>;
+/** A write of a thing he gave an end for that would end somewhere else: what to say instead, or undefined. */
+export declare function endMismatch(message: string, argvs: string[][], day?: Day): string | undefined;

@@ -22,6 +22,8 @@ export type Said = {
 export declare const CLOCK: string;
 export declare function parseClock(text: string): Said | null;
 export type DayWord = "today" | "tomorrow";
+/** The end of today: a block "until midnight" ends at 24:00 (the scheduler takes `24:00` as an end, never as a start). */
+export declare const MIDNIGHT_END = 1440;
 /** part: "morning" / "evening" when he said so ("tomorrow morning", "tonight"). */
 export type ClockContext = {
     day: DayWord;

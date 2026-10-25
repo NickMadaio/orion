@@ -1,8 +1,9 @@
+import { type DayPlanAsk } from "./day-plan.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { type Refusal } from "./intent-gate.js";
 import { type ClockContext, type DayWord } from "./intent-time.js";
 import type { AskContext } from "./schedule-flow.js";
-export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend";
+export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend" | "dayplan";
 /** A clock that cannot be used as said: already behind him today, or 9 tomorrow with no am/pm. */
 export type TimeIssue = {
     kind: "passed";
@@ -62,6 +63,8 @@ export type CalendarIntent = {
     all?: true;
     /** the remembered request's date, when a follow-up acts on it */
     date?: string;
+    /** dayplan: "only doing two things today. X from now until 6pm, then home, Y until 12 am" (day-plan.ts) */
+    dayplan?: DayPlanAsk;
 };
 export type IntentRead = {
     intent: CalendarIntent;

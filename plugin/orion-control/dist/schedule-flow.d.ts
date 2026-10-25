@@ -246,7 +246,8 @@ export type FlowResult =
     outputs: string[];
     marks?: string[];
     undone?: number;
-    reply?: string; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */
+    reply?: string; /** a later call failed after an earlier one wrote */
+    partial?: true; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */
     uncertain?: true; /** the reschedule request this change carried out, remembered for a follow-up reorder */
     replan?: ReplanAsk;
 }
@@ -264,6 +265,8 @@ export type FlowResult =
     outcome: "fallback";
     reason: string;
 };
+/** Part of a request went through and part did not: what changed (read back from his calendar), what did not, and "undo". No "Done". */
+export declare function partialReply(before: Day | undefined, after: Day | undefined, outputs: string[], when?: string): string;
 /** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell).
  *  undo: stamps of changes an earlier, cut-off half of this request made — reverted first, newest first,
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.

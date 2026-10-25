@@ -1,6 +1,7 @@
 import type { CalendarIntent } from "./calendar-intent.js";
 import { type DayReplan } from "./day-replan.js";
 import { type DirectAdd } from "./direct-add.js";
+import { type DayPlanned } from "./day-plan.js";
 import type { AskContext, Day } from "./schedule-flow.js";
 export type IntentPlan = {
     kind: "run";
@@ -11,6 +12,7 @@ export type IntentPlan = {
     direct?: Extract<DirectAdd, {
         args: string[];
     }>;
+    dayplan?: DayPlanned;
     title: string;
 } | {
     kind: "say";

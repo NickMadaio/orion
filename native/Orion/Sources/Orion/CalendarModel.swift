@@ -83,9 +83,27 @@ final class CalendarModel: ObservableObject {
 
     private let dayFormatter: DateFormatter
 
+    /// Refetches when EventKit changes or an ORION turn ends. Held so it lives
+    /// as long as the model.
+    private var refreshTrigger: CalendarRefreshTrigger?
+    /// Only the newest fetch may publish; a slow older one must not overwrite it.
+    private var fetchGeneration = 0
+    /// A fetch has been started and has not yet published (or been superseded).
+    private var fetchInFlight = false
+
+    /// How the model asks for events. Defaults to EventKit through `agenda`;
+    /// tests pass their own so no real calendar is needed.
+    typealias Fetch = (DateInterval, @escaping ([AgendaEvent], String?) -> Void) -> Void
+    private let fetchEvents: Fetch
+
     init(agenda: AppleCalendarSync, reminders: AppleRemindersSync,
-         history: SessionHistory, health: HealthLog, calendar: Calendar = .current) {
+         history: SessionHistory, health: HealthLog, calendar: Calendar = .current,
+         fetch: Fetch? = nil, notificationCenter: NotificationCenter = .default,
+         refreshDelay: TimeInterval = 1.0) {
         self.agenda = agenda
+        self.fetchEvents = fetch ?? { interval, completion in
+            agenda.fetch(interval: interval, completion: completion)
+        }
         self.reminders = reminders
         self.history = history
         self.health = health
@@ -119,6 +137,10 @@ final class CalendarModel: ObservableObject {
             .store(in: &cancellables)
 
         reload(force: true)
+
+        refreshTrigger = CalendarRefreshTrigger(delay: refreshDelay, center: notificationCenter) { [weak self] _ in
+            self?.refreshInPlace()
+        }
     }
 
     // MARK: Navigation
@@ -182,25 +204,42 @@ final class CalendarModel: ObservableObject {
 
     // MARK: Loading
 
+    /// Refetch the interval already on screen after the calendar changed under
+    /// us. Keeps `focusDate` and `selectedDay`, and does not raise `isLoading`,
+    /// so the view redraws in place instead of flickering to a loading state.
+    func refreshInPlace() {
+        reload(force: true, silent: true)
+    }
+
     /// Refetch only when the visible interval leaves what is already in hand.
     ///
     /// This is what makes paging feel instant: the padded fetch already contains
     /// the neighbouring pages, so a step is pure redraw. Two steps is a fetch,
     /// and that is a stated bound rather than a hole in the grid.
-    func reload(force: Bool) {
+    ///
+    /// Every call supersedes any fetch still running: only the newest may
+    /// publish, so a silent refresh that started on one page can never put its
+    /// window on screen after he has navigated. A cache hit is only taken when
+    /// nothing is in flight; otherwise the superseded fetch's data would be lost
+    /// and the cache left stale, so it fetches again.
+    func reload(force: Bool, silent: Bool = false) {
         let interval = visible
-        if !force, let fetched, fetched.start <= interval.visible.start,
+        fetchGeneration += 1
+        let generation = fetchGeneration
+        if !force, !fetchInFlight, let fetched, fetched.start <= interval.visible.start,
            fetched.end >= interval.visible.end {
             rebuildLocalSources(interval.fetch)
             return
         }
 
-        isLoading = true
+        if !silent { isLoading = true }
         let wanted = interval.fetch
+        fetchInFlight = true
 
-        agenda.fetch(interval: wanted) { [weak self] events, failure in
-            guard let self else { return }
+        fetchEvents(wanted) { [weak self] events, failure in
+            guard let self, generation == self.fetchGeneration else { return }
             self.fetched = wanted
+            self.fetchInFlight = false
             self.isLoading = false
 
             var byDay: [String: [CalendarEntry]] = [:]

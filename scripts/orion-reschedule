@@ -63,9 +63,10 @@ import { freeGaps } from "./lib/life/gaps.mjs";
 import { routineWalls } from "./lib/patterns/hooks.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
-import { loadConfig, toMinute } from "./lib/life/config.mjs";
+import { anchorsFrom, loadConfig, toMinute } from "./lib/life/config.mjs";
 import { applyPlan, undoLast, bridge, clean, iso, recordUndo, appendUndoSteps, UNDO_FILE } from "./lib/life/calendar-write.mjs";
 import { addSkip } from "./lib/life/skips.mjs";
+import { anchorSkipsOn, skipAnchors } from "./lib/life/anchor-skips.mjs";
 import { ramp } from "./lib/life/deadline-ramp.mjs";
 import { parsePlans } from "./lib/life/plan-parse.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
@@ -254,6 +255,8 @@ function studyPlanFor(deadlines) {
 }
 const today = date === localDate(nowDate);
 const nowMinute = today ? nowDate.getHours() * 60 + nowDate.getMinutes() : 0;
+// day … --only clears the rest of TODAY: on any other day nothing he said is being "only" (2026-10-25 review).
+if (command === "day" && args.includes("--only") && !today) fail(`NOTHING WAS CHANGED: --only is for today only (${date} is not today); nothing was cleared.`, 2);
 // Plan from when he actually gets up, once his history says so (3+ mornings).
 const patterns = loadPatterns();
 const wakeMinute = patterns?.wake?.median != null ? patterns.wake.median : toMinute(config.usualWake);
@@ -322,7 +325,7 @@ if (flag("--until") !== undefined && !["extend", "move"].includes(command) && un
 // stated 07:30 TOMORROW was "already past" (replan reads anything before the window as past, on any day). The cap is now an
 // absolute 05:00: a time on another day, or still ahead today, is never past; only a stated 03:00 stays out.
 const statedStart = command === "add" ? minute(flag("--at")) : null;
-const window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), Math.max(statedStart, 300)) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
+let window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), Math.max(statedStart, 300)) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
 // ORION's own planning (fill, tidy, his to-do list) does not book work into a confident learned routine (his usual night out);
 // anything he places himself, or that is already there, is left alone (lib/patterns).
@@ -743,8 +746,10 @@ if (command === "late") {
   const soon = deadlines.filter((e) => /quiz|exam|test|due|submission/i.test(e.title))
     .map((e) => ({ title: e.title.replace(/^DUE \d\d:\d\d — /, ""), daysAway: Math.floor((new Date(e.start).getTime() - base) / dayMs) }));
   const weekday = ((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1;
-  add.push(...sensible(args.includes("--anchors") ? dueAnchors(blocks, config.anchors ?? [], weekday)
-    : fillDay(blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) })));
+  // An anchor he gave up today ("only these two things today", anchor-skips.mjs) is not due: the wake fill never books it back or bumps his plan.
+  const skippedToday = anchorSkipsOn(date).map((t) => t.toLowerCase());
+  add.push(...sensible(args.includes("--anchors") ? dueAnchors(blocks, config.anchors ?? [], weekday).filter((a) => !skippedToday.includes(a.title.trim().toLowerCase()))
+    : fillDay(blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines), skippedAnchors: anchorSkipsOn(date) })));
   if (!add.length) { console.log("Nothing to add: the day already has what it needs, and the rest stays free."); process.exit(0); }
 } else if (command === "early") {
   /*
@@ -1008,6 +1013,29 @@ if (command === "day") {
   }
 }
 
+/*
+ day … --only (2026-10-25 review):
+   - a time he STATED for a plan ("until 12 am") is booked even past the computed bedtime: the window stretches to it (never past 24:00);
+   - a named ORION block already under way keeps its start: the part already done stays, only its end is set (it is pinned to that span,
+     not restated, so nothing he did this morning is rewritten).
+*/
+const onlyStated = command === "day" && args.includes("--only");
+const keptUnderWay = [];
+if (onlyStated) {
+  const statedEnd = Math.max(0, ...add.filter((a) => Number.isInteger(a.at)).map((a) => a.at + a.minutes));
+  if (statedEnd > window.end) window = { ...window, end: Math.min(1440, statedEnd) };
+  if (today) for (const item of [...add]) {
+    const b = Number.isInteger(item.at) && item.at < nowMinute
+      ? blocks.find((x) => x.source === "orion" && x.start === item.at && x.start < nowMinute && x.end > nowMinute && sameThingEarly(item.title, x.title) && sameThingEarly(x.title, item.title))
+      : undefined;
+    if (!b) continue;
+    keptUnderWay.push({ block: b, end: item.at + item.minutes });
+    add = add.filter((a) => a !== item);
+  }
+  // Pinned to its new span for the planner: other blocks avoid it; the move below writes the new end.
+  const pinnedEnd = new Map(keptUnderWay.map((k) => [k.block.id, k.end]));
+  if (pinnedEnd.size) blocks = blocks.map((b) => (pinnedEnd.has(b.id) ? { ...b, end: pinnedEnd.get(b.id), fixed: true } : b));
+}
 // A time already over today is never booked: it almost always means he was
 // talking about another day, and ORION forgot --date.
 /*
@@ -1227,7 +1255,7 @@ if (command === "day" && args.includes("--fill")) {
     .map((e) => ({ title: e.title.replace(/^DUE \d\d:\d\d — /, ""), daysAway: Math.floor((new Date(e.start).getTime() - base) / 86400000) }));
   const weekday = ((new Date(`${date}T12:00:00`).getDay() + 6) % 7) + 1;
   // Today's share of the study each deadline still needs (deadline-ramp).
-  const asks = sensible(fillDay(result.blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines) }));
+  const asks = sensible(fillDay(result.blocks, { now: nowMinute, window, weekday, config, deadlines: soon, studyPlan: studyPlanFor(deadlines), skippedAnchors: anchorSkipsOn(date) }));
   // Must asks (the daily anchors) are no longer frozen out: they go through the rebuild replan, so they can bump lower ranks.
   const mustAsks = asks.filter((a) => a.anchor);
   if (mustAsks.length) {
@@ -1239,7 +1267,23 @@ if (command === "day" && args.includes("--fill")) {
   const second = replan(result.blocks.map((b) => ({ ...b, id: `kept-${b.id}`, fixed: true })), { now: nowMinute, window, soft, add: asks.filter((a) => !a.anchor), buffer: config.bufferMinutes, keepFree: config.freeMinutesKept, config });
   result = { ...result, created: [...result.created, ...second.created], unplaced: [...result.unplaced, ...second.unplaced] };
 }
+/*
+ day … --only is all or nothing (2026-10-25 review): every plan he named is booked exactly as he said, or NOTHING is written and nothing
+ is cleared. A plan the bedtime, a class or a lack of room would move, shrink or leave out is said, never half-done over a cleared day.
+*/
+if (onlyStated) {
+  const exact = (a) => result.created.some((c) => normalizedTitle(c.title) === normalizedTitle(a.title) && c.start === a.at && c.end === a.at + a.minutes);
+  const off = add.filter((a) => Number.isInteger(a.at) && !exact(a));
+  if (off.length || result.unplaced.length || shrunkLines.length) {
+    const what = off.length ? off.map((a) => `${a.title} ${hhmm(a.at)}–${hhmm(a.at + a.minutes)}`).join(", ") : [...result.unplaced.map((u) => u.title), ...shrunkLines].join(", ");
+    console.log(`NOTHING WAS CHANGED: ${what} could not be booked exactly as he said (no room, a class or plan in the way, or past his bedtime), so nothing was booked or cleared.`);
+    process.exit(1);
+  }
+  result = { ...result, moves: [...result.moves, ...keptUnderWay.map((k) => ({ id: k.block.id, title: k.block.title, from: k.block.start, to: k.block.start, toEnd: k.end }))] };
+}
 const byId = new Map(blocks.map((b) => [b.id, b]));
+// A block kept from before now has its real span in the undo journal, not the span it was pinned to for planning.
+for (const k of keptUnderWay) byId.set(k.block.id, k.block);
 const lines = [
   ...(rebuilt ? ["rebuilt the remaining day from fixed commitments and must-haves first"] : []),
   ...(alreadyFixed.length ? [`kept already-scheduled fixed plan${alreadyFixed.length === 1 ? "" : "s"}: ${alreadyFixed.join(", ")}`] : []),
@@ -1247,6 +1291,7 @@ const lines = [
   ...(replaceDay ? (() => { const gone = removed.filter((b) => !add.some((a) => sameThing(a.title, b.title) || sameThing(b.title, a.title)));
     return gone.length ? [`DROPPED (he did not mention them, so they are gone — tell him by name): ${gone.map((b) => b.title).join(", ")}`] : []; })() : []),
   ...(onlyCleared.length ? [`DROPPED (he said only what he named today): ${onlyCleared.map((b) => b.title).join(", ")}`] : []),
+  ...keptUnderWay.map((k) => `${k.block.title} now ends at ${hhmm(k.end)}`),
   ...shrunkLines, ...raised,
   ...result.moves.filter((m) => m.clipped).map((m) => `${m.title} now ends at ${hhmm(m.toEnd)}`),
   ...result.moves.filter((m) => m.to !== m.from).map((m) => `moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`),
@@ -1270,6 +1315,8 @@ if (missingMustHaves.length) {
 refuseIfBroken(projectDay(blocks, { moves: result.moves, created: result.created, removed }), nowMinute, "this change");
 if (!dry) await applyPlan({ date, moves: result.moves, created: result.created, removed, blocksById: byId, config, pinCreated: result.created.filter(c => add.some(a => a.title === c.title && Number.isInteger(a.at))).map(c => c.id) }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 if (!dry) await verifyWritten(date, nowMinute);
+// An anchor "only these today" took off is skipped for the day: the wake fill never books it back or bumps his plan for it (review).
+if (!dry && onlyStated) skipAnchors(date, anchorsFrom(config).filter((a) => onlyCleared.some((b) => b.kind === a.kind || sameThing(a.title, b.title))).map((a) => a.title));
 // What this write took out of his day (it did not fit) is a slip for the nightly review, and he is told in plain words, once.
 if (!dry && (command === "fill" || args.includes("--fill")) && (squeezed.length || result.moves.some((m) => m.to !== m.from))) {
   const made = result.created.map((c) => c.title).join(", ") || "the new block";

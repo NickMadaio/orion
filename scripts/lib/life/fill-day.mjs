@@ -9,7 +9,7 @@ import { anchorsFrom } from "./config.mjs";
 /**
  * @returns [{ title, kind, minutes, at?, before?, anchor?, rank?, tags? }] — asks for the planner, most important first.
  */
-export function fillDay(blocks, { now, window, weekday, config, deadlines = [], studyPlan = null }) {
+export function fillDay(blocks, { now, window, weekday, config, deadlines = [], studyPlan = null, skippedAnchors = [] }) {
   const has = (kind, from = 0, to = 1440) => blocks.some((b) => b.kind === kind && b.end > from && b.start < to);
   const minutesOf = (kind) => blocks.filter((b) => b.kind === kind).reduce((a, b) => a + b.end - b.start, 0);
   const asks = [];
@@ -28,8 +28,10 @@ export function fillDay(blocks, { now, window, weekday, config, deadlines = [], 
     if (soon && !has("study")) asks.push({ title: `Study for ${soon.title}`.slice(0, 80), kind: "study", minutes: config.studyMinutes });
   }
   // Daily anchors (the gym): must-haves, tagged so the weight survives the calendar, and exempt from freeMinutesKept.
+  // An anchor he gave up for the day ("only these two things today": anchor-skips.mjs) is never booked back.
+  const skipped = new Set(skippedAnchors.map((t) => String(t).trim().toLowerCase()));
   for (const a of anchorsFrom(config)) {
-    if (a.days.includes(weekday) && !has(a.kind)) asks.push({ title: a.title, kind: a.kind, minutes: a.minutes, rank: a.rank ?? "must", tags: ["anchor"], anchor: true });
+    if (a.days.includes(weekday) && !has(a.kind) && !skipped.has(a.title.trim().toLowerCase())) asks.push({ title: a.title, kind: a.kind, minutes: a.minutes, rank: a.rank ?? "must", tags: ["anchor"], anchor: true });
   }
   const side = config.sideProjectMinutes - minutesOf("side_project");
   if (side >= 15) asks.push({ title: config.sideProjectLabel, kind: "side_project", minutes: side });

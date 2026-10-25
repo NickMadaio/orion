@@ -3,9 +3,14 @@
  no --at, and landed 1:20 PM). On EVERY write path (the intent layer, the form, a stored "go ahead?", the worker's restatement and the
  worker's own exec), a start time Nick said is checked against the start the write would use, after the same evening/AM-PM rules the
  intent layer uses (intent-time.ts). A write that would not start at a time he said is refused and he is asked; it never runs.
+
+ 2026-10-25 (day-plan incident): an END he says is checked too, on every write whose end can be known — resize included. "Study for CS
+ Midterm from now until 6pm" was written as `resize "Study for CS Midterm" 300` (14:00–19:00) and nothing checked it: only starts were
+ read, and resize was not a checked command. An end belongs to the thing named in its own clause; a write of that thing must end there.
 */
 import { PART } from "./calendar-intent.js";
-import { ampm, CLOCK, parseClock, resolveStart, spokenTimesToDigits, toMin, type DayWord } from "./intent-time.js";
+import { ampm, CLOCK, MIDNIGHT_END, parseClock, resolveStart, spokenTimesToDigits, toMin, type DayWord } from "./intent-time.js";
+import type { Day } from "./schedule-flow.js";
 
 /** The commands whose start a stated time decides. Others (extend, late, resize, drop, log, undo …) are not checked. */
 const STARTS = new Set(["add", "move", "day", "now"]);
@@ -79,7 +84,11 @@ export function repairStart(message: string, argvs: string[][], ctx: { day: DayW
 }
 
 /** What to say instead of running these writes, or undefined when every time he said is a start one of them uses. */
-export function timeMismatch(message: string, argvs: string[][], ctx: { day: DayWord; now: number | null }): string | undefined {
+export function timeMismatch(message: string, argvs: string[][], ctx: { day: DayWord; now: number | null; blocks?: Day }): string | undefined {
+  return startMismatch(message, argvs, ctx) ?? endMismatch(message, argvs, ctx.blocks);
+}
+
+function startMismatch(message: string, argvs: string[][], ctx: { day: DayWord; now: number | null }): string | undefined {
   const writes = argvs.filter((a) => STARTS.has(a[0] ?? ""));
   if (!writes.length) return undefined;
   const stated = statedStarts(message, ctx);
@@ -132,4 +141,78 @@ export function writesIn(command: string): string[][] {
     // orion-plan-study picks its own slots: it never starts at a time he said.
     return args.includes("--book") ? [["add", args.filter((a) => a !== "--book").join(" "), "60"]] : [];
   });
+}
+
+// ---- ends (2026-10-25) ----
+const ENDED = new RegExp(String.raw`\b(?:until|till|til|up\s+to)\s+(?<t>${CLOCK})(?![\w:])|\bfrom\s+(?:(?:right\s+)?now|${CLOCK})\s+to\s+(?<t2>${CLOCK})(?![\w:])`, "gi");
+const END_CLAUSE = /(?:[,.;!?:]|\b(?:and|but|then|so|because|cause|cuz)\b)(?![\s\S]*(?:[,.;!?:]|\b(?:and|but|then|so|because|cause|cuz)\b))/i;
+const END_STOP = new Set(["from", "now", "right", "until", "till", "til", "then", "today", "tonight", "home", "once", "back", "work", "working", "gonna", "going", "just", "only", "doing", "things", "thing", "the", "and", "for", "with", "get", "head", "will", "ill", "im"]);
+const titleWords = (t: string): string[] => t.toLowerCase().replace(/[’']/g, "").split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !END_STOP.has(w));
+const sharesWord = (a: string[], b: string[]): boolean => a.some((x) => b.some((y) => x === y || (Math.min(x.length, y.length) >= 4 && (x.startsWith(y) || y.startsWith(x)))));
+
+/** The minutes an end he said could be: "6pm" [1080], "6" [360, 1080], "12 am"/"midnight" [1440] (the end of today), "12" [720, 1440]. */
+function endOptions(text: string): number[] {
+  const said = parseClock(text.replace(/\.$/, ""));
+  if (!said) return [];
+  if (said.exact) { const m = said.ap ? (said.h % 12) * 60 + (said.ap === "p" ? 720 : 0) + said.m : said.h * 60 + said.m; return [m === 0 ? MIDNIGHT_END : m]; }
+  const am = (said.h % 12) * 60 + said.m;
+  return [am === 0 ? MIDNIGHT_END : am, am + 720];   // a bare "till 12" is noon or the end of today
+}
+
+/** Every end he says, with the words of the thing it belongs to (its own clause): "study till 6, then marketing till midnight". */
+export function statedEnds(message: string): Array<{ options: number[]; words: string[]; said: string }> {
+  const text = spokenTimesToDigits(message);
+  // A move's "from 7 to 8" is where the block is and where it goes, not a span: only "until/till" are ends there.
+  const move = MOVE_VERB.test(text);
+  return [...text.matchAll(ENDED)].flatMap((h) => {
+    if (move && !h.groups!.t) return [];
+    const t = (h.groups!.t ?? h.groups!.t2)!;
+    const before = text.slice(0, h.index);
+    const clause = before.slice((before.match(END_CLAUSE)?.index ?? -1) + 1);
+    const options = endOptions(t);
+    const words = titleWords(clause);
+    return options.length && words.length ? [{ options, words, said: t.replace(/\.$/, "").trim() }] : [];
+  });
+}
+
+const endOpt = (t?: string): number | undefined => (t === "24:00" ? MIDNIGHT_END : t && /^\d{1,2}:\d{2}$/.test(t) ? toMin(t) : undefined);
+/** The end each write would give its block, when it can be known: add --at + length, move --until (or --to + its length), resize (its
+ *  start + the new length), extend --until, each timed day --plan. */
+export function writtenEnds(argv: string[], day?: Day): Array<{ title: string; end: number }> {
+  const opt = (name: string): string | undefined => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+  const block = (title?: string) => day?.blocks.find((b) => b.title.toLowerCase() === String(title ?? "").toLowerCase());
+  const title = argv[1] ?? "";
+  switch (argv[0]) {
+    case "add": { const at = endOpt(opt("--at")); const n = Number(argv[2]); return at !== undefined && Number.isFinite(n) ? [{ title, end: at + n }] : []; }
+    case "move": {
+      const until = endOpt(opt("--until"));
+      if (until !== undefined) return [{ title, end: until }];
+      const to = endOpt(opt("--to")); const b = block(title);
+      return to !== undefined && b ? [{ title, end: to + toMin(b.end) - toMin(b.start) }] : [];
+    }
+    case "resize": { const b = block(title); const n = Number(argv[2]); return b && Number.isFinite(n) ? [{ title, end: toMin(b.start) + n }] : []; }
+    case "extend": { const until = endOpt(opt("--until")); return until !== undefined ? [{ title, end: until }] : []; }
+    case "day": return argv.flatMap((a, i) => {
+      if (argv[i - 1] !== "--plan") return [];
+      const [t, n, at] = a.split(",").map((x) => x.trim());
+      const start = endOpt(at); const len = Number(n);
+      return t && start !== undefined && Number.isFinite(len) ? [{ title: t, end: start + len }] : [];
+    });
+    default: return [];
+  }
+}
+
+/** A write of a thing he gave an end for that would end somewhere else: what to say instead, or undefined. */
+export function endMismatch(message: string, argvs: string[][], day?: Day): string | undefined {
+  const stated = statedEnds(message);
+  if (!stated.length) return undefined;
+  for (const w of argvs.flatMap((a) => writtenEnds(a, day))) {
+    const mine = stated.filter((s) => sharesWord(titleWords(w.title), s.words));
+    if (mine.length && !mine.some((s) => s.options.includes(w.end))) {
+      const want = mine[0]!;
+      const said = want.options.length === 1 ? ampm(want.options[0]!) : want.options.map(ampm).join(" or ");
+      return `You said ${w.title} until ${said}, but the change I worked out would have ended it at ${ampm(w.end)}, so I haven't changed anything. Say it again and I'll end it at ${said}.`;
+    }
+  }
+  return undefined;
 }

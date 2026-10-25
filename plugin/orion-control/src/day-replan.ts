@@ -263,5 +263,10 @@ export function replanReply(day: Day, plan: Extract<DayReplan, { args: string[] 
     ...(placed && !plan.pushed && toMin(placed.start) !== from ? [`${first} didn't land first at ${clockWords(plan.start)}, it's at ${ampm(toMin(placed.start))}`] : []),
     ...notesFrom(outputs, day, plan).filter((n) => !(plan.pushed && n.startsWith(`${first} couldn't go`))),
   ];
-  return `Done${when ? ` for ${when}` : ""}${plan.pushed ? ", but not as asked" : ""}, ${plan.via}: ${parts.join(", ")}.${notes.length ? ` ${notes.map((n) => n.replace(/^./, (c) => c.toUpperCase())).join(". ")}.` : ""}`;
+  // Something he asked for that is not booked: "Partly done", that first (2026-10-25 review: a partial fit never opens with "Done").
+  const missing = notes.filter((n) => /didn't fit and is not booked/.test(n));
+  const rest = notes.filter((n) => !missing.includes(n));
+  const say = (list: string[]) => list.map((n) => n.replace(/^./, (c) => c.toUpperCase())).join(". ");
+  if (missing.length) return `Partly done${when ? ` for ${when}` : ""}. ${say(missing)}. What is booked, ${plan.via}: ${parts.join(", ")}.${rest.length ? ` ${say(rest)}.` : ""}`;
+  return `Done${when ? ` for ${when}` : ""}${plan.pushed ? ", but not as asked" : ""}, ${plan.via}: ${parts.join(", ")}.${notes.length ? ` ${say(notes)}.` : ""}`;
 }

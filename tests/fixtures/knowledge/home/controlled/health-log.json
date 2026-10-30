@@ -1,0 +1,8 @@
+{ "schema": "orion.health.v3", "updatedAt": "2026-10-30T10:46:45Z",
+  "days": {
+    "2026-10-27": { "recovery": 40, "sleepHours": 6.0, "hrv": 100, "restingHeartRate": 50, "strain": 10.1 },
+    "2026-10-28": { "recovery": 50, "sleepHours": 7.0, "hrv": 110, "restingHeartRate": 49 },
+    "2026-10-29": { "recovery": 60, "sleepHours": 8.0, "hrv": 120, "restingHeartRate": 48 }
+  },
+  "supplements": [ { "id": "S1", "name": "Magnesium", "dose": "200mg", "timeOfDay": "evening" } ],
+  "workouts": [] }

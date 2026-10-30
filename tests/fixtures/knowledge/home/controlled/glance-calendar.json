@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "source": "mac-calendar",
+  "generatedAt": "2026-10-30T10:31:48Z",
+  "blocks": [
+    { "id": "E1", "kind": "class", "title": "MKTG2201 Introduction to Marketing — Lecture", "location": "Devon House 122",
+      "start": "2026-10-30T13:30:00Z", "end": "2026-10-30T15:00:00Z", "fixed": true },
+    { "id": "E2", "kind": "class", "title": "CS2100 Program Design and Implementation 1", "location": "Devon House 210",
+      "start": "2026-10-30T09:00:00Z", "end": "2026-10-30T10:40:00Z", "fixed": true }
+  ],
+  "deadlines": [ { "id": "D1", "title": "AE1 Marketing Presentation", "at": "2026-10-30T19:25:00Z" } ],
+  "todos": [
+    { "id": "T1", "title": "finish resume", "done": false, "priority": 2, "due": "2026-10-24T22:59:00Z" },
+    { "id": "T2", "title": "old thing", "done": true, "priority": 1 }
+  ],
+  "tomorrow": [ { "id": "B1", "kind": "orion", "title": "practice leetcode", "start": "2026-10-31T10:33:00Z", "end": "2026-10-31T11:33:00Z", "fixed": false } ]
+}

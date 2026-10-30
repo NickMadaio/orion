@@ -1,0 +1,28 @@
+{
+  "schema": "orion.knowledge-graph.v1",
+  "generatedAt": "2026-10-30T14:00:00.000Z",
+  "nodes": [
+    { "id": "course:cs2100", "type": "course", "label": "CS2100", "subtitle": "Program Design", "facts": [], "sources": [{ "file": "workspace/USER.md", "line": 16 }],
+      "hidden": true },
+    { "id": "habit:gym", "type": "habit", "label": "Lifting",
+      "facts": [{ "text": "A must, 90 min daily.", "source": { "file": "orion-controlled/life-config.json" } }],
+      "sources": [{ "file": "orion-controlled/life-config.json" }],
+      "note": "Mornings only." },
+    { "id": "person:priya", "type": "person", "label": "Priya", "aliases": ["Pri"],
+      "facts": [
+        { "text": "Studies with him on Thursdays.", "source": { "file": "workspace/USER.md", "line": 24 } },
+        { "text": "Coffee before class.", "source": { "file": "workspace/memory/2026-10-21.md", "line": 7, "date": "2026-10-21" } }
+      ],
+      "sources": [{ "file": "workspace/USER.md", "line": 24 }, { "file": "workspace/memory/2026-10-21.md", "line": 7, "date": "2026-10-21" }] },
+    { "id": "person:self", "type": "person", "label": "Sam", "facts": [], "sources": [{ "file": "workspace/USER.md", "line": 3 }] }
+  ],
+  "edges": [
+    { "id": "course:cs2100>person:priya:said-together", "from": "course:cs2100", "to": "person:priya", "kind": "said-together",
+      "reason": "Said together: \"study cs2100 with priya\"", "source": { "file": "workspace/memory/2026-10-20.md", "line": 5, "date": "2026-10-20" },
+      "hidden": true },
+    { "id": "person:self>habit:gym:keeps", "from": "person:self", "to": "habit:gym", "kind": "keeps",
+      "reason": "Every day, before class", "source": { "file": "orion-controlled/life-config.json" },
+      "note": "He said so twice." }
+  ],
+  "sources": []
+}

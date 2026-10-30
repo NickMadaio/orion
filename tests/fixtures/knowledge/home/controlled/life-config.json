@@ -1,0 +1,5 @@
+{
+  "commuteMinutes": 45,
+  "ranks": { "gym": "must" },
+  "anchors": [ { "title": "Gym", "kind": "gym", "minutes": 90, "days": [0, 1, 2, 3, 4, 5, 6], "rank": "must" } ]
+}

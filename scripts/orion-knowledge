@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+/*
+ orion-knowledge — what ORION knows about Nick and his Mac, as a graph (2026-10-30). Read-only over its sources;
+ the only file it writes is its own output. Deterministic: pattern rules over files, no model.
+
+   orion-knowledge             build, write ~/.openclaw/orion-controlled/knowledge-graph.json, print counts
+   orion-knowledge --json      build and print the graph to stdout; writes nothing
+   orion-knowledge counts      build and print node/edge counts per type; writes nothing
+
+ Sources: workspace/USER.md, MEMORY.md, memory/*.md; orion-controlled/places.json, known-places.json, location.json,
+ learned-routines.json, patterns.json, life-config.json, projects.json, focus-activity.json, focus-history.jsonl,
+ sleep-actual.json, health-log.json; the calendar via `orion-reschedule show --json` (glance-calendar.json when
+ Calendar access is missing). Nick's edits live in knowledge-overrides.json (written by the app) and always win.
+
+ Seams (tests): ORION_WORKSPACE_DIR, ORION_CONTROLLED_DIR, ORION_KNOWLEDGE_NOW, ORION_KNOWLEDGE_NO_CALENDAR=1.
+*/
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { buildGraph } from "./lib/knowledge/build.mjs";
+import { rescheduleProbe } from "./lib/knowledge/sources.mjs";
+import { TYPES } from "./lib/knowledge/graph.mjs";
+import { writeJsonAtomic } from "./lib/awareness/io.mjs";
+
+const args = process.argv.slice(2);
+const workspaceDir = process.env.ORION_WORKSPACE_DIR || join(homedir(), ".openclaw/workspace");
+const controlledDir = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+const now = process.env.ORION_KNOWLEDGE_NOW ? new Date(process.env.ORION_KNOWLEDGE_NOW) : new Date();
+const calendarProbe = process.env.ORION_KNOWLEDGE_NO_CALENDAR === "1"
+  ? () => ({ ok: false, note: "calendar probe disabled" })
+  : rescheduleProbe(join(import.meta.dirname, "orion-reschedule"));
+
+const unknown = args.find((a) => !["--json", "counts"].includes(a));
+if (unknown) { console.error(`orion-knowledge: unknown argument ${unknown}`); process.exit(2); }
+
+let graph;
+try {
+  graph = buildGraph({ workspaceDir, controlledDir, now, calendarProbe });
+} catch (error) {
+  console.error(`orion-knowledge: could not build the graph — ${error?.message ?? error}`);
+  process.exit(1);
+}
+
+function counts(g) {
+  const row = (type) => {
+    const nodes = g.nodes.filter((n) => n.type === type).length;
+    const edges = g.edges.filter((e) => e.from.startsWith(`${type}:`) || e.to.startsWith(`${type}:`)).length;
+    return `  ${type.padEnd(11)} ${String(nodes).padStart(4)} nodes  ${String(edges).padStart(4)} edges touching`;
+  };
+  const kinds = [...new Set(g.edges.map((e) => e.kind))].sort()
+    .map((k) => `  ${k.padEnd(15)} ${g.edges.filter((e) => e.kind === k).length}`);
+  return [`${g.nodes.length} nodes, ${g.edges.length} edges (${g.overrides.applied} of his edits applied)`, ...TYPES.map(row), "edge kinds:", ...kinds].join("\n");
+}
+
+if (args.includes("--json")) {
+  process.stdout.write(`${JSON.stringify(graph, null, 2)}\n`);
+} else if (args.includes("counts")) {
+  console.log(counts(graph));
+} else {
+  try {
+    writeJsonAtomic(controlledDir, "knowledge-graph.json", graph);
+  } catch (error) {
+    console.error(`orion-knowledge: could not write knowledge-graph.json — ${error?.message ?? error}`);
+    process.exit(1);
+  }
+  console.log(`Wrote knowledge-graph.json — ${counts(graph)}`);
+}

@@ -1,0 +1,10 @@
+{
+  "updatedAt": "2026-10-30T13:57:33.098Z",
+  "samples": 16,
+  "byKind": {
+    "class": { "planned": 3, "happened": 1, "rate": 0.33, "medianDelay": -30 },
+    "gym": { "planned": 6, "happened": 0, "rate": 0, "medianDelay": null }
+  },
+  "wake": { "median": 631, "samples": 137 },
+  "sleep": { "median": null, "samples": 2 }
+}

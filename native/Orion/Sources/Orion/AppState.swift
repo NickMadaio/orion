@@ -471,6 +471,18 @@ final class AppState: ObservableObject {
     /// voice-initiated turns: push-to-talk already has a key that says when the
     /// user is finished, and should not start listening on its own.
     private var conversationOpen = false
+    /// What opened the microphone for the turn being heard now — the address
+    /// gate's first question (AddressGate.swift, 2026-10-30).
+    private var turnOpening: VoiceTurnOpening = .pushToTalk
+    /// "Don't reply unless I say Orion" / "I'm rehearsing" (VoiceQuiet.swift).
+    private var quietWindow = QuietWindow.off
+    /// Failures already said aloud in the last ten minutes (VoiceQuiet.swift).
+    private var spokenFailures = SpokenFailureMemory.empty
+    /// Short follow-ups admitted in a row on length alone; the gate refuses the second.
+    private var weakAdmitsInARow = 0
+    /// The paused turn's barge-in turned out to be the room, not Nick: the next
+    /// real turn is a new question, not "the rest of" the paused one.
+    private var pausedSeedWasRoom = false
     /// The listening window currently open is a follow-up, so nothing has been
     /// said in it yet and the ordinary hangover must not close it immediately.
     private var awaitingFollowUp = false
@@ -621,13 +633,16 @@ final class AppState: ObservableObject {
 
         onWantsSummon?()
         hologram.ping()
+        // His name is what ends a quiet window, and what resets the gate.
+        quietWindow = quietWindow.cleared()
+        weakAdmitsInARow = 0
 
         if let command = trailing?.trimmingCharacters(in: .whitespacesAndNewlines),
            command.count >= 2 {
             // "Orion, what's on my calendar" — the whole request arrived in one
             // breath. Don't make him say the second half again.
             heard = command
-            send(command)
+            if QuietWindow.isRequest(command) { startQuietWindow(heard: command) } else { send(command) }
         } else {
             // Just the name. Open a hands-free turn and let silence close it.
             beginListening(handsFree: true)
@@ -817,6 +832,17 @@ final class AppState: ObservableObject {
             statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
             return
         }
+        // The same failure twice in ten minutes is said once (2026-10-26: 30 x
+        // "Not done: 6:00 AM–6:00 AM…"). It is already in the bubble.
+        let spokenAt = Date()
+        if spokenFailures.shouldSuppress(text, at: spokenAt) {
+            OrionLog.write("[speech] same failure within 10 min — left in the bubble, not said again")
+            conversationOpen = false
+            setPhase(.idle)
+            statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
+            return
+        }
+        spokenFailures = spokenFailures.recording(text, at: spokenAt)
         // Only a question whose answer is needed is asked twice; a chatty or rhetorical "?" in a reply is not (review 8).
         if SpokenQuestionFollowUp.needsAnswer(text) { questionFollowUp.arm(text: text) }
         setPhase(.speaking)
@@ -1030,7 +1056,7 @@ final class AppState: ObservableObject {
                 self.composer = text
                 self.submitTyped()
             },
-            listen: { [weak self] in self?.beginListening(handsFree: true, followUp: true) },
+            listen: { [weak self] in self?.beginListening(handsFree: true, followUp: true, opening: .pushToTalk) },
             openChat: { [weak self] in
                 self?.chatMode = true
                 NSWorkspace.shared.open(URL(string: "orion://show/home")!)
@@ -1298,6 +1324,11 @@ final class AppState: ObservableObject {
     /// this — nothing here re-checks the route or the energy.
     private func handleSpokenBargeIn(_ heardText: String) {
         guard activeReplyOrigin.allowsSpeech else { return }
+        // Quiet: the room talking over a reply is not a reason to stop it or to listen.
+        guard quietWindow.admits(heardText, opening: .bargeIn, at: Date()) else {
+            OrionLog.write("[bargein] ignored — quiet until he says Orion")
+            return
+        }
         // His own voice through the speakers is not Nick interrupting (2026-09-29:
         // he cut himself off mid-sentence and started listening to himself).
         let cueEcho = Date().timeIntervalSince(voiceCue.lastEndedAt) < 2.5 || voiceCue.isPlaying
@@ -1318,6 +1349,7 @@ final class AppState: ObservableObject {
             conversationOpen = true
             setPhase(.idle)
             beginListening(handsFree: true)
+            turnOpening = .bargeIn
             // Set AFTER beginListening returns: a fresh, non-follow-up press
             // clears `preservedTranscript` at its own top, and this is the one
             // path that has to survive that clear — see `beginListening`.
@@ -1330,6 +1362,7 @@ final class AppState: ObservableObject {
                 conversationOpen = true
                 setPhase(.idle)
                 beginListening(handsFree: true)
+                turnOpening = .bargeIn
                 preservedTranscript = heardText
                 return
             }
@@ -1370,6 +1403,7 @@ final class AppState: ObservableObject {
         conversationOpen = true
         setPhase(.idle)
         beginListening(handsFree: true)
+        turnOpening = .bargeIn
         // He is finishing his own sentence (2026-10-08: "after class, I want to"
         // was cut by the endpoint and he kept talking).
         preservedTranscript = heardSeed
@@ -1638,7 +1672,8 @@ final class AppState: ObservableObject {
     /// release to say "I have finished"; a spoken summon has nothing, so
     /// silence has to end it. That is the only difference between the two.
     func beginListening(handsFree wantsHandsFree: Bool = false,
-                        followUp: Bool = false) {
+                        followUp: Bool = false,
+                        opening explicitOpening: VoiceTurnOpening? = nil) {
         guard !summonMicMuted else { return }
         // No permission guard here on purpose: without Accessibility the global
         // monitor never fires at all, so reaching this point means the press did
@@ -1667,6 +1702,11 @@ final class AppState: ObservableObject {
         // fragment across THIS call — `handleSpokenBargeIn`, `pauseThinking`
         // — set `preservedTranscript` AFTER this function returns, which runs
         // after this clear since `beginListening` is synchronous.
+        // The rest of a cut-off sentence keeps the opening of its first half;
+        // barge-in callers overwrite this after the call returns.
+        turnOpening = explicitOpening ?? (followUp
+            ? (preservedTranscript.isEmpty ? .followUp(afterQuestion: lastReplyAskedSomething) : turnOpening)
+            : (wantsHandsFree ? .wake : .pushToTalk))
         if !followUp {
             preservedTranscript = ""
             continuationChainRemaining = AppState.maxContinuationChain
@@ -1887,11 +1927,65 @@ final class AppState: ObservableObject {
         sendHeard(combined)
     }
 
-    /// What he said goes to ORION. The local "was that said to ORION?" check
-    /// (AddressGate, 2026-10-07) was removed on 2026-10-08: it dropped five real
-    /// follow-ups in one morning and pushed him back to push-to-talk.
+    /// What he said goes to ORION — if it was said to ORION.
+    ///
+    /// The first gate here (an LLM check, 2026-10-07) was removed on 2026-10-08
+    /// for dropping real follow-ups, and nothing replaced it: on 2026-10-25/26
+    /// one wake word was followed by 53 turns of room speech, every one opened
+    /// by a barge-in during `.thinking`. `AddressGate` is deterministic and its
+    /// fixtures are those transcripts, on both sides of the line.
     private func sendHeard(_ text: String) {
+        let opening = turnOpening
+        if QuietWindow.isRequest(text) {
+            startQuietWindow(heard: text)
+            return
+        }
+        guard quietWindow.admits(text, opening: opening, at: Date()) else {
+            dropUnaddressed(text, reason: "quiet until he says Orion")
+            return
+        }
+        quietWindow = quietWindow.after(text, opening: opening)
+        let decision = AddressGate.classify(text, opening: opening, weakAdmitsInARow: weakAdmitsInARow)
+        guard decision.addressed else {
+            dropUnaddressed(text, reason: decision.reason)
+            return
+        }
+        weakAdmitsInARow = decision.isWeak ? weakAdmitsInARow + 1 : 0
         send(text)
+    }
+
+    /// Not said to ORION: nothing is sent, nothing is said, and the exchange
+    /// closes so the room's next sentence cannot open another turn. A paused
+    /// answer that already arrived goes to the bubble (he did ask it).
+    private func dropUnaddressed(_ text: String, reason: String) {
+        OrionLog.write("[gate] not said to ORION — not sent (\(reason), \(text.count) chars)")
+        if pausedGeneration != nil { pausedSeedWasRoom = true }
+        if let paused = pausedReplacementText {
+            pausedReplacementText = nil
+            pausedGeneration = nil
+            pausedSeedWasRoom = false
+            append(.orion, paused)
+        }
+        weakAdmitsInARow = 0
+        endConversation()
+    }
+
+    /// "Don't reply unless I say Orion", "I'm rehearsing": acknowledged once,
+    /// then nothing opens a turn until his name, the key, or the timeout.
+    private func startQuietWindow(heard text: String) {
+        OrionLog.write("[quiet] on for \(Int(QuietWindow.defaultDuration / 60)) min — until he says Orion")
+        quietWindow = quietWindow.started(at: Date())
+        weakAdmitsInARow = 0
+        conversationOpen = false
+        append(.you, text)
+        append(.orion, QuietWindow.acknowledgement)
+        activeReplyOrigin = .voice
+        speak(QuietWindow.acknowledgement, origin: .voice)
+    }
+
+    /// The reply he is answering asked him something.
+    private var lastReplyAskedSomething: Bool {
+        speechOutput.lastSpokenText.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?")
     }
 
     /// Whatever was preserved is sent now rather than lost — used when the
@@ -2070,9 +2164,13 @@ final class AppState: ObservableObject {
         // fragment is stale, and ORION is told this finishes his last message.
         var userText = text
         if pausedGeneration != nil, !typed {
+            let seedWasRoom = pausedSeedWasRoom
             pausedGeneration = nil
             pausedReplacementText = nil
-            userText = "(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) " + text
+            pausedSeedWasRoom = false
+            if !seedWasRoom {
+                userText = "(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) " + text
+            }
         }
 
         askGeneration += 1

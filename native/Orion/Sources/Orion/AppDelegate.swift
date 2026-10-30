@@ -207,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // As a follow-up: a tap is not speech, so wait (up to the follow-up
                 // grace) for him to start before timing pauses. Started as an ordinary
                 // hands-free turn it ended 1.8 s in if he had not begun talking yet.
-                state.beginListening(handsFree: true, followUp: true)
+                state.beginListening(handsFree: true, followUp: true, opening: .pushToTalk)
                 continue
             }
             guard url.scheme == "orion", url.host == "show",

@@ -1708,6 +1708,9 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
     registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
       mode: localRouting,
       trace: api.pluginConfig?.localRoutingTrace === true,
+      // 2026-10-30: the state card's sources (state-card.ts), the same state dir every script uses (scripts/lib/clock.mjs).
+      stateDir: process.env.ORION_CONTROLLED_DIR || path.join(os.homedir(), ".openclaw", "orion-controlled"),
+      userMdPath: path.join(os.homedir(), ".openclaw", "workspace", "USER.md"),
       scheduleFlow: liveScheduleFlow,
       readDay: liveReadDay,
       readDayJson: liveReadDayJson,

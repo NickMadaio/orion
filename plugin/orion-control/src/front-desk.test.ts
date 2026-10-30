@@ -16,6 +16,12 @@ describe("front desk", () => {
     expect(body.stream).toBe(false);
   });
 
+  it("2026-10-30: a one-line context (his state, heard by the microphone) goes after the clock, the frozen system prompt is unchanged", () => {
+    const body = frontDeskRequest({ message: "no class today btw", clock: "Fri 13:20", context: "Nick now: should be MKTG2201; next ECON1115 at 3:30 PM." });
+    expect(body.messages[0]).toEqual({ role: "system", content: FRONT_DESK_SYSTEM });
+    expect(body.messages[1]?.content).toBe("Now: Fri 13:20.\n\nContext: Nick now: should be MKTG2201; next ECON1115 at 3:30 PM.\n\nMessage:\nNick: no class today btw");
+  });
+
   it("returns the model's move when it is valid", async () => {
     const d = await decide({ message: "lights off", clock: "Fri 21:40" }, { fetchImpl: reply('{"move":"tool","tool":"lights","args":{"do":"off"},"tier":"quick","think":"off","say":"Turning them off.","answer":""}') });
     expect(d).toMatchObject({ move: "tool", tool: "lights", args: { do: "off" }, say: "Turning them off." });

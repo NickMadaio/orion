@@ -59,6 +59,7 @@ import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
+import { TONE_NOTE, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -68,7 +69,12 @@ type HookApi = { on: (name: string, fn: Handler, opts?: { priority?: number; tim
 export type LocalRoutingOptions = {
   mode: LocalRoutingMode;
   logPath: string;
-  decideImpl?: (input: { message: string; clock: string; timeoutMs?: number; history?: Array<{ role: "user" | "assistant"; content: string }> }) => Promise<Decision>;
+  decideImpl?: (input: { message: string; clock: string; timeoutMs?: number; history?: Array<{ role: "user" | "assistant"; content: string }>; context?: string }) => Promise<Decision>;
+  /** ORION's state directory (now.json, declared facts, slips, routines, outreach): the state card's source (state-card.ts).
+   *  Unset (tests that do not name one): no card, and nothing is read from or written to any state dir. index.ts wires the live one. */
+  stateDir?: string;
+  /** USER.md, for the card's few essentials about him. */
+  userMdPath?: string;
   /** Runs orion-checkin with these arguments (index.ts wires the real script); a reply to a start line sets its check-in through it (2026-10-23). */
   checkinRun?: (args: string[]) => Promise<{ stdout: string; code: number }>;
   clock?: () => string;
@@ -185,6 +191,8 @@ type Run = {
   /** A write may have started (the schedule flow says exactly; the other flows count from the moment they are called). */
   writeStarted?: boolean;
   late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm"; last: { minutes: number; changed: boolean; reply: string; asked?: boolean } };
+  /** 2026-10-30: what code read of his state for this turn (state-card.ts); the worker's prompt carries it as the card. */
+  card?: CardInputs;
 };
 
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
@@ -872,15 +880,18 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const codeFirst = intentFirst || editing;
     // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
     const outreach = parseOutreach(raw);
+    // 2026-10-30: his state, read once per turn by code (state-card.ts). The desk gets one line of it; the worker gets the card.
+    const card = on && options.stateDir ? loadCardInputs({ stateDir: options.stateDir, ...(options.userMdPath ? { userMdPath: options.userMdPath } : {}), now: (options.now ?? (() => new Date()))() }) : undefined;
+    const deskContext = card ? deskLine(card) : undefined;
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
       : codeFirst ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })
       : Promise.resolve(deskHealth.begin()).then((call) => Promise.resolve()
-        .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs, ...(outreach ? { history: outreachHistory(outreach) } : {}) }))
+        .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs, ...(outreach ? { history: outreachHistory(outreach) } : {}), ...(deskContext ? { context: deskContext } : {}) }))
         .then((d) => { deskHealth.record(d, call); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -940,6 +951,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // facts, LAST. At the top it changed the prefix each minute and Ollama re-read the whole prompt (7.25 s against 0.05 s
       // on a 6.7k prompt; 3.67 s against 1.09 s on a 3.8k one). The wording of each part is unchanged, only its place.
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
+      // 2026-10-30: the state card and the tone note, just before the clock (both change far less often than it does).
+      const card = run.card ? `${stateCard(run.card)}\n\n${TONE_NOTE}\n\n` : "";
       // Distress comes before every flow: "i literally cant do this anymore" got a canned "Want to take a
       // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
       // Only in "on" mode: in shadow, or once the testing window closes, the configured (cloud) model answers
@@ -952,7 +965,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         && !LIVE_DATA.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.settled.move !== "tool") {
         run.provided = true;
         run.noTools = true;
-        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${OVERWHELMED_NOTE}\n\n${now}` };
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${OVERWHELMED_NOTE}\n\n${card}${now}` };
       }
       // Half a spoken sentence: nothing is acted on; the rest arrives as a continuation.
       if (run.cutOff && !run.flow) run.flow = { outcome: "say", text: GO_ON, kind: "ask" };
@@ -1125,7 +1138,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         if (!fact) run.recall = { learned };
         if (learned.length) { run.provided = true; markRead(run, "learned"); }
         const told = learned.length ? `\n\nWhat he told you (saved in his "Nick" note; only these are "you told me"):\n${learned.map((l) => `- ${l}`).join("\n")}` : "";
-        return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${told}${fetched ? `\n\nFrom his notes and documents, matched to this message (NOT things he said; q056 2026-10-16: never "you told me" for these, say "your notes say"):\n${fetched}` : ""}\n\n${now}`,
+        return { systemPrompt: `${BRAIN_INSTRUCTIONS}\n\n${PRODUCTION_NOTES}\n\n${fact ? FACT_NOTE : RECALL_NOTE}${told}${fetched ? `\n\nFrom his notes and documents, matched to this message (NOT things he said; q056 2026-10-16: never "you told me" for these, say "your notes say"):\n${fetched}` : ""}\n\n${card}${now}`,
           appendContext: fact ? FACT_NOW : RECALL_NOW };
       }
       // q042 (2026-10-16 r8): "mark the oats one done" became supplement_take "oats" and "Done."; ticking a to-do off
@@ -1273,7 +1286,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const ignoreNote = run.settled.move === "ignore" ? `\n\n${IGNORE_NOTE}` : "";
       // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
       const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
-      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
+      return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${brainFetched}${askNote}\n\n${card}${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
         ...(run.outreach ? { prependContext: outreachNote(run.outreach) } : {}) };
     }), { timeoutMs: HOOK_TIMEOUT_MS });
   }

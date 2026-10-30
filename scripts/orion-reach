@@ -49,7 +49,7 @@ import { loadConfig, toMinute } from "./lib/life/config.mjs";
 import { bedtimeVerdict, readBedtimeEvidence, isBedtimeWhy, phoneInHand } from "./lib/reach/bedtime-guard.mjs";
 import { localDate } from "./lib/life/live-day.mjs";
 import { presence } from "./lib/reach/presence.mjs";
-import { bypassesQuiet, isUrgentNotification, URGENT_KINDS } from "./lib/reach/quiet.mjs";
+import { bypassesQuiet, isUrgentNotification, TIME_SENSITIVE_KINDS } from "./lib/reach/quiet.mjs";
 import { appendHeld, readHeld, clearHeld, mergeHeld, releaseHeldAlerts } from "./lib/reach/held.mjs";
 import { withKind } from "./lib/curiosity/ask.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
@@ -100,7 +100,7 @@ if (!["reminder", "warning", "update", "question", "info", "morning", "checkin"]
 // The app's reminder service calls `--kind reminder --urgent` (AppState.swift) without --urgent-kind: that IS a reminder he set
 // (review H2), so it is urgent kind "reminder". Any other bare --urgent is still not a bypass.
 const urgentKind = flag("--urgent-kind") ?? (kind === "reminder" && args.includes("--urgent") ? "reminder" : null);
-if (urgentKind && !URGENT_KINDS.includes(urgentKind)) fail(`--urgent-kind must be one of ${URGENT_KINDS.join(", ")}`);
+if (urgentKind && !TIME_SENSITIVE_KINDS.includes(urgentKind)) fail(`--urgent-kind must be one of ${TIME_SENSITIVE_KINDS.join(", ")}`);
 let ask = null;
 if (flag("--ask") !== undefined) {
   try { ask = JSON.parse(flag("--ask")); } catch { /* checked below */ }

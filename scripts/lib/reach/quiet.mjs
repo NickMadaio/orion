@@ -8,11 +8,14 @@ import { actualWake } from "../life/night.mjs";
 /** Only these may bypass quiet hours. Bedtime nags, check-ins and nudges never do. */
 export const URGENT_KINDS = Object.freeze(["reminder", "class"]);
 
+/** Time-sensitive on the phone without any bypass: a plan ladder's L2 (2026-10-30). Quiet hours, focus and class still hold it. */
+export const TIME_SENSITIVE_KINDS = Object.freeze([...URGENT_KINDS, "plan"]);
+
 /** What may get through quiet hours (and a focus session): a reminder he set, or a class he is about to miss. */
 export const bypassesQuiet = ({ urgentKind = null } = {}) => URGENT_KINDS.includes(urgentKind);
 
 /** Whether the phone should show it as urgent (time-sensitive): the --urgent flag AND a genuine kind. A bare --urgent is not enough. */
-export const isUrgentNotification = ({ urgent = false, urgentKind = null } = {}) => urgent === true && bypassesQuiet({ urgentKind });
+export const isUrgentNotification = ({ urgent = false, urgentKind = null } = {}) => urgent === true && TIME_SENSITIVE_KINDS.includes(urgentKind);
 
 /**
  * @param minute  now, minutes after midnight

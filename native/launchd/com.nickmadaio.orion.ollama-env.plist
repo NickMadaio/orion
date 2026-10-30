@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Ollama supervision, part 1: the environment. Ollama.app is a GUI app and reads the launchd user environment when it
+  starts, so every relaunch (by the watchdog or by hand) gets OLLAMA_MAX_LOADED_MODELS=2 (NICK-TODO) with no second
+  server competing for port 11434. This job only sets the variable at login and exits; it does not run Ollama.
+  keep_alive is NOT set here: ORION passes keep_alive "24h" per request, and that behaviour stays unchanged.
+  Part 2 (relaunching the app when it dies) is com.nickmadaio.orion.watchdog.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.nickmadaio.orion.ollama-env</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/launchctl</string>
+      <string>setenv</string>
+      <string>OLLAMA_MAX_LOADED_MODELS</string>
+      <string>2</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+  </dict>
+</plist>

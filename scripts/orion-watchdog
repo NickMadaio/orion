@@ -1,0 +1,79 @@
+#!/usr/bin/env node
+/*
+ Model-free watchdog for ORION's local stack. One pass per invocation (launchd StartInterval 60).
+
+   orion-watchdog             probe, relaunch what is down, warm models after an Ollama relaunch, alert once
+   orion-watchdog --dry-run   probe and report what it WOULD do; changes nothing, writes nothing
+   orion-watchdog --json      machine-readable result
+   orion-watchdog status      what is up, what is down, and since when (from the persisted state)
+
+ Watches Ollama, the Orion app, the phone link (a child of the app) and the gateway. The gateway is only watched:
+ launchd already keeps it alive and restarting it would cut a running focus session.
+ Alerts go through scripts/orion-notify (mission "watchdog"); state lives in ~/.openclaw/orion-controlled/watchdog.json.
+*/
+import { execFile } from "node:child_process";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomBytes } from "node:crypto";
+import { runPass } from "./lib/watchdog/run.mjs";
+import { formatStatus } from "./lib/watchdog/format.mjs";
+import { normalise } from "./lib/watchdog/machine.mjs";
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+const STATE = process.env.ORION_WATCHDOG_STATE || join(homedir(), ".openclaw/orion-controlled/watchdog.json");
+const NOTIFY = process.env.ORION_NOTIFY_BIN || join(ROOT, "scripts/orion-notify");
+
+const args = process.argv.slice(2);
+const flag = (f) => args.includes(f);
+const dryRun = flag("--dry-run");
+const json = flag("--json");
+const command = args.find((a) => !a.startsWith("--"));
+
+const run = (cmd, argv) => new Promise((resolve) => {
+  execFile(cmd, argv, { timeout: 30_000 }, (error, stdout) => {
+    resolve({ code: error ? (typeof error.code === "number" ? error.code : 1) : 0, stdout: String(stdout ?? "") });
+  });
+});
+
+const readState = async () => {
+  try { return JSON.parse(await readFile(STATE, "utf8")); } catch { return null; }
+};
+
+const writeState = async (state) => {
+  await mkdir(dirname(STATE), { recursive: true });
+  const tmp = `${STATE}.tmp-${randomBytes(4).toString("hex")}`;
+  await writeFile(tmp, JSON.stringify(state, null, 2));
+  await rename(tmp, STATE);
+};
+
+const notify = async (event, text) => {
+  const res = await run(process.execPath, [NOTIFY, event, "watchdog", text]);
+  if (res.code !== 0) throw new Error(`orion-notify exited ${res.code}`);
+};
+
+if (command === "status") {
+  const state = normalise(await readState());
+  if (json) console.log(JSON.stringify(state, null, 2));
+  else console.log(formatStatus(state, Date.now()));
+  process.exit(0);
+}
+if (command) {
+  console.error(`orion-watchdog: unknown command "${command}". Use: (none) | status [--json] [--dry-run]`);
+  process.exit(2);
+}
+
+const result = await runPass(
+  { fetch, run, readState, writeState, notify, now: () => Date.now(), uid: process.getuid() },
+  { dryRun },
+);
+if (json) {
+  console.log(JSON.stringify(result, null, 2));
+} else {
+  const down = Object.entries(result.probes).filter(([, up]) => !up).map(([name]) => name);
+  console.log(`${result.dryRun ? "[dry-run] " : ""}${down.length ? `down: ${down.join(", ")}` : "all healthy"}`);
+  for (const a of result.actions) console.log(`  ${dryRun ? "would " : ""}${a.type}${a.component ? ` ${a.component}` : ""}`);
+  for (const e of result.errors) console.error(`  error: ${e}`);
+}
+process.exit(result.errors.length ? 1 : 0);

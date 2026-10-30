@@ -1,0 +1,16 @@
+{
+  "schema": "orion.knowledge-overrides.v1",
+  "updatedAt": "2026-10-30T15:00:00.000Z",
+  "nodes": {
+    "habit:gym": { "label": "Lifting", "note": "Mornings only." },
+    "person:pri": { "mergeInto": "person:priya" },
+    "place:club": { "deleted": true },
+    "course:cs2100": { "hidden": true },
+    "goal:not-in-graph": { "label": "ignored" }
+  },
+  "edges": {
+    "person:self>habit:gym:keeps": { "reason": "Every day, before class", "note": "He said so twice." },
+    "course:cs2100>person:priya:said-together": { "hidden": true },
+    "person:self>course:cs2100:takes": { "deleted": true }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schema": "orion.knowledge-graph.v1",
+  "generatedAt": "2026-10-30T14:00:00.000Z",
+  "nodes": [
+    { "id": "course:cs2100", "type": "course", "label": "CS2100", "subtitle": "Program Design", "facts": [], "sources": [{ "file": "workspace/USER.md", "line": 16 }] },
+    { "id": "habit:gym", "type": "habit", "label": "Gym",
+      "facts": [{ "text": "A must, 90 min daily.", "source": { "file": "orion-controlled/life-config.json" } }],
+      "sources": [{ "file": "orion-controlled/life-config.json" }] },
+    { "id": "person:pri", "type": "person", "label": "Pri",
+      "facts": [{ "text": "Coffee before class.", "source": { "file": "workspace/memory/2026-10-21.md", "line": 7, "date": "2026-10-21" } }],
+      "sources": [{ "file": "workspace/memory/2026-10-21.md", "line": 7, "date": "2026-10-21" }] },
+    { "id": "person:priya", "type": "person", "label": "Priya",
+      "facts": [{ "text": "Studies with him on Thursdays.", "source": { "file": "workspace/USER.md", "line": 24 } }],
+      "sources": [{ "file": "workspace/USER.md", "line": 24 }] },
+    { "id": "person:self", "type": "person", "label": "Sam", "facts": [], "sources": [{ "file": "workspace/USER.md", "line": 3 }] },
+    { "id": "place:club", "type": "place", "label": "club", "facts": [], "sources": [{ "file": "orion-controlled/learned-routines.json" }] }
+  ],
+  "edges": [
+    { "id": "course:cs2100>person:pri:said-together", "from": "course:cs2100", "to": "person:pri", "kind": "said-together",
+      "reason": "Said together: \"coffee with pri before cs2100\"", "source": { "file": "workspace/memory/2026-10-21.md", "line": 7, "date": "2026-10-21" } },
+    { "id": "course:cs2100>person:priya:said-together", "from": "course:cs2100", "to": "person:priya", "kind": "said-together",
+      "reason": "Said together: \"study cs2100 with priya\"", "source": { "file": "workspace/memory/2026-10-20.md", "line": 5, "date": "2026-10-20" } },
+    { "id": "person:pri>person:priya:said-together", "from": "person:pri", "to": "person:priya", "kind": "said-together",
+      "reason": "Said together: \"pri aka priya\"", "source": { "file": "workspace/memory/2026-10-22.md", "line": 5, "date": "2026-10-22" } },
+    { "id": "person:self>course:cs2100:takes", "from": "person:self", "to": "course:cs2100", "kind": "takes",
+      "reason": "Takes CS2100", "source": { "file": "workspace/USER.md", "line": 16 } },
+    { "id": "person:self>habit:gym:keeps", "from": "person:self", "to": "habit:gym", "kind": "keeps",
+      "reason": "Daily anchor", "source": { "file": "orion-controlled/life-config.json" } },
+    { "id": "person:self>place:club:goes-to", "from": "person:self", "to": "place:club", "kind": "goes-to",
+      "reason": "Tuesday evenings", "source": { "file": "orion-controlled/learned-routines.json" } }
+  ],
+  "sources": []
+}

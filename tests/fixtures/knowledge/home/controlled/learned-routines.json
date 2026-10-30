@@ -1,0 +1,9 @@
+{
+  "schema": "orion.learned-routines.v1",
+  "at": "2026-10-30T02:10:00.000Z",
+  "routines": [
+    { "id": "evening-out-2", "kind": "away-evening", "weekday": 2, "weekdayName": "Tuesday", "start": 1406, "end": 1686,
+      "cell": "51.50,-0.10", "label": "club", "labelSource": "his words", "confidence": 0.63, "status": "tentative",
+      "occurrences": 2, "misses": 0, "lastHit": "2026-10-06" }
+  ]
+}

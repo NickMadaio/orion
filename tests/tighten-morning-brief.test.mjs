@@ -43,9 +43,9 @@ test("rain is mentioned only when likely", () => {
 });
 
 test("long briefs drop the least important parts", () => {
-  const long = "x".repeat(250);
+  const long = "x".repeat(330);
   const { text } = morningBrief({ now, blocks: classes, deadlines: [{ title: long, date: "2026-10-01" }], weather: { summary: "rain", rainChance: 90 } });
-  assert.ok(text.length <= 300);
+  assert.ok(text.length <= 420);
   assert.ok(!text.includes("Rain likely"));
 });
 

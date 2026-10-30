@@ -42,6 +42,8 @@
 //        what happened. Nothing under way: says so and offers the next item, exit 0. One undo reverses all of it.
 //   orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]   he is not going to it: just that occurrence comes
 //        off his calendar (no approval; undo puts it back). A class never moves unless he says so — this is him saying so.
+//   orion-reschedule classes-off ["<class>" …] [--keep "<word>"] [--date YYYY-MM-DD]   "no classes today": every class that day (or
+//        the ones named) is marked cancelled in ORION's planning, never deleted; --keep leaves one he still has; one undo restores all.
 //   orion-reschedule log "<what he did>" --from HH:MM --to HH:MM|now [--where <placeId>] [--instead "<planned title>"] [--no-replan]
 //        reality replaces the plan: what he really did goes on the calendar (today, even a block already over), the planned
 //        block it replaced is gone (the slip goes to slips.jsonl for the review), then the rest of today is re-weighed by
@@ -98,13 +100,13 @@ import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where", "--checkin"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where", "--checkin", "--keep"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--minutes", "--no-replan", "--notify", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--minutes", "--no-replan", "--notify", "--now", "--plan",
   "--only", "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -117,7 +119,7 @@ if (unknown.length) {
  and "Study" as more titles to remove, ignored --by, and ORION reported both
  changes as done. Refuse the whole call instead of doing part of it.
 */
-const COMMANDS = new Set(["add", "busy", "clear", "day", "displace", "drop", "early", "extend", "fill", "ledger", "log", "late", "minimums", "move", "now",
+const COMMANDS = new Set(["add", "busy", "classes-off", "clear", "day", "displace", "drop", "early", "extend", "fill", "ledger", "log", "late", "minimums", "move", "now",
   "overrun", "rename", "resize", "show", "skip", "swap", "tidy", "undo"]);
 const glued = restRaw.find((w) => COMMANDS.has(String(w).toLowerCase()));
 if (COMMANDS.has(command) && glued) {
@@ -130,6 +132,7 @@ const OWN_OPTIONS = {
   swap: ["--date", "--dry-run"],
   rename: ["--date", "--dry-run"],
   skip: ["--date", "--dry-run"],
+  "classes-off": ["--keep", "--date", "--dry-run"],
   move: ["--to", "--by", "--after", "--before", "--gap", "--until", "--date", "--dry-run"],
   show: ["--json", "--date"],
   log: ["--from", "--to", "--where", "--instead", "--no-replan", "--date", "--dry-run"],
@@ -635,6 +638,31 @@ if (command === "late") {
   console.log(`Changed ${dayName} ${date}:\n  skipped ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} — ${how}. That time is free now.`);
   console.log('Written. "orion-reschedule undo" puts it back.');
   process.exit(0);
+} else if (command === "classes-off") {
+  /*
+   "I don't have classes today" (2026-10-30: said twice, and three leave nudges for MKTG2201 still went out). Every class
+   on the day, or only the ones he named, is marked cancelled in ORION's planning (lib/life/skips.mjs): never deleted, so
+   Apple Calendar still shows it and one undo puts every one back. --keep "<word>" leaves a class he still has ("I still
+   have my lab"). The plugin writes the declared fact (orion-declare) that the ladder and the now record read.
+  */
+  const keep = flag("--keep");
+  const classes = blocks.filter((b) => b.kind === "class" && !(keep && closeness(keep, b.title) > 0));
+  const named = rest.length ? [...new Set(rest.flatMap((n) => closest(n, classes)))] : classes;
+  const missing = rest.filter((n) => !closest(n, classes).length);
+  if (!classes.length || !named.length) {
+    console.log(`NOTHING WAS CHANGED: no ${rest.length ? `class called ${rest.map((n) => `"${n}"`).join(" or ")}` : "classes"} on ${dayName} ${date}${keep ? ` (keeping ${keep})` : ""}. Classes that day: ${blocks.filter((b) => b.kind === "class").map((b) => `${b.title} ${hhmm(b.start)}`).join(", ") || "none"}.`);
+    process.exit(0);
+  }
+  const sorted = [...named].sort((a, b) => a.start - b.start);
+  if (dry) { console.log(`Would cancel on ${dayName}: ${sorted.map((b) => `${b.title} ${hhmm(b.start)}–${hhmm(b.end)}`).join(", ")}.`); process.exit(0); }
+  const steps = sorted.map((b) => { const start = iso(date, b.start); addSkip(b.title, start); return { op: "unskip", title: b.title, start }; });
+  recordUndo(steps);
+  touchDirty();
+  console.log(`Changed ${dayName} ${date}:`);
+  for (const b of sorted) console.log(`  cancelled ${b.title} ${hhmm(b.start)}–${hhmm(b.end)} — marked off in ORION's planning (still in Apple Calendar, not deleted)`);
+  if (missing.length) console.log(`  no class called ${missing.map((n) => `"${n}"`).join(", ")} that day — left alone`);
+  console.log('Written. "orion-reschedule undo" puts them back.');
+  process.exit(0);
 } else if (command === "rename") {
   const [from, to] = rest;
   if (!from || !clean(to ?? "")) fail('usage: orion-reschedule rename "<old title>" "<new title>"');
@@ -990,7 +1018,7 @@ if (command === "late") {
   console.log(plan.summary);
   process.exit(0);
 } else {
-  fail("usage: orion-reschedule late|busy|overrun|now|extend|resize|move|swap|skip|rename|early|log|displace|add|day|drop|tidy|clear|fill|undo  (see the header)");
+  fail("usage: orion-reschedule late|busy|overrun|now|extend|resize|move|swap|skip|classes-off|rename|early|log|displace|add|day|drop|tidy|clear|fill|undo  (see the header)");
 }
 
 if (command === "day") {

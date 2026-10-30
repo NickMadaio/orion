@@ -59,7 +59,8 @@ import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
-import { TONE_NOTE, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
+import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
+import { declareOnly, readReality, runReality, undoReality, type RealityRead, type ScriptRun } from "./reality.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -75,6 +76,9 @@ export type LocalRoutingOptions = {
   stateDir?: string;
   /** USER.md, for the card's few essentials about him. */
   userMdPath?: string;
+  /** Runs scripts/orion-declare or scripts/orion-reschedule with fixed arguments (no shell), for reality statements (reality.ts).
+   *  Unset: reality statements route as before. index.ts wires the real scripts; tests pass a stub. */
+  realityRun?: ScriptRun;
   /** Runs orion-checkin with these arguments (index.ts wires the real script); a reply to a start line sets its check-in through it (2026-10-23). */
   checkinRun?: (args: string[]) => Promise<{ stdout: string; code: number }>;
   clock?: () => string;
@@ -193,6 +197,8 @@ type Run = {
   late?: { kind: "ask" } | { kind: "run"; minutes: number } | { kind: "confirm"; last: { minutes: number; changed: boolean; reply: string; asked?: boolean } };
   /** 2026-10-30: what code read of his state for this turn (state-card.ts); the worker's prompt carries it as the card. */
   card?: CardInputs;
+  /** 2026-10-30: he stated what happened ("no classes today", "i did X instead of Y"): code declares it and changes the plan (reality.ts). */
+  reality?: RealityRead;
 };
 
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
@@ -480,6 +486,10 @@ const ampm12 = (t: string): string => { const [h, m] = t.split(":").map(Number);
 export const liveCheckinRun = (args: string[]): Promise<{ stdout: string; code: number }> => new Promise((resolve) =>
   execFile(RESCHEDULE.replace(/orion-reschedule$/, "orion-checkin"), args, { timeout: 15000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 })));
 
+/** orion-declare / orion-reschedule with fixed arguments (no shell), for reality statements (2026-10-30). Wired in by index.ts only. */
+export const liveRealityRun: ScriptRun = (script, args) => new Promise((resolve) =>
+  execFile(RESCHEDULE.replace(/orion-reschedule$/, script), args, { timeout: 30000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
+
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export const liveExtractReminder = async (message: string, clock?: string): Promise<{ time: string | null; label: string } | null> => {
   try {
@@ -685,16 +695,19 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const lastTurn = new Map<string, { text: string; at: number; marks: string[] }>();
   /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
   const sessionChanges = new Map<string, { at: number; marks: string[] }>();
+  /** Per session: what the last reality statement did (declared facts, calendar writes), for its "undo" (reality.ts). Any later change forgets it. */
+  const lastReality = new Map<string, { facts: string[]; writes: number; at: number }>();
   const recordChange = (sessionKey: string | undefined, marks: string[]) => {
     forgetMade(sessionKey);   // any write: "make it an hour" no longer means the older block (review of 45b3383)
     if (!sessionKey) return;
+    lastReality.delete(sessionKey);
     forgetReplan(sessionKey);
     sessionChanges.set(sessionKey, { at: Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
   };
   /** r8b2 (2026-10-16): per session, the block the last code day answer named (what "and after that?" means), short window. */
   const dayMemory = new Map<string, { at: number; memory: DayMemory }>();
   const otherChanges = new Map<string, { at: number; kind: keyof typeof OTHER_ASKS }>();
-  const recordOther = (sessionKey: string | undefined, kind: keyof typeof OTHER_ASKS) => { if (sessionKey) { forgetReplan(sessionKey); forgetMade(sessionKey); otherChanges.set(sessionKey, { at: Date.now(), kind }); } };
+  const recordOther = (sessionKey: string | undefined, kind: keyof typeof OTHER_ASKS) => { if (sessionKey) { forgetReplan(sessionKey); forgetMade(sessionKey); lastReality.delete(sessionKey); otherChanges.set(sessionKey, { at: Date.now(), kind }); } };
   const recentOther = (sessionKey: string | undefined) => {
     const c = sessionKey ? otherChanges.get(sessionKey) : undefined;
     return c && Date.now() - c.at < SESSION_CHANGE_WINDOW_MS ? c.kind : undefined;
@@ -867,7 +880,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 2026-10-20: "reschedule my day after my class, gym first" is code's whole job (day-replan.ts): the 4B is not asked, so a slow or
     // failing desk can neither delay it by 8 s nor send it down the worker path.
     // The calendar intent layer (calendar-intent.ts): a replan, a follow-up to one, an add at a time or "until T", or a request he took back at the end.
-    const intentRead = on && !cutOff && options.scheduleFlow ? readIntent(message, { now: (options.now ?? (() => new Date()))(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey)! } : {}) }) : undefined;
+    // 2026-10-30: a statement of what happened ("i dont have classes today") is code's from the start: no desk, no model needed for its effect.
+    const reality = on && !cutOff && options.realityRun ? readReality(message) ?? undefined : undefined;
+    const realityWhole = !!reality && !reality.rest;
+    const intentRead = on && !cutOff && !realityWhole && options.scheduleFlow ? readIntent(message, { now: (options.now ?? (() => new Date()))(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey)! } : {}) }) : undefined;
     // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
     const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
     const intentFirst = !!intentRead && !elsewhere && ("intent" in intentRead ? runsFirst(intentRead.intent) : !!intentRead.tookBack);
@@ -877,7 +893,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const made = recentMade(sessionKey);
     const reminderAt = lastReminder.get(sessionKey)?.set ?? 0;
     const editing = on && !cutOff && isEdit(message) && (made ? made.at > reminderAt : Date.now() - reminderAt > CORRECTION_WINDOW_MS);
-    const codeFirst = intentFirst || editing;
+    const codeFirst = intentFirst || editing || realityWhole;
     // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
     const outreach = parseOutreach(raw);
     // 2026-10-30: his state, read once per turn by code (state-card.ts). The desk gets one line of it; the worker gets the card.
@@ -891,7 +907,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         .then((d) => { deskHealth.record(d, call); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -935,6 +951,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run && (RUNNING_LATE.test(run.message) || run.late)) return undefined; // the calendar flow, never a drafted "no problem"
       // r8 review 4 MEDIUM-1 (2026-10-16): a draft must never answer the add question's yes ("Sure, done!" with nothing written).
       if (run?.addAnswer) return undefined;
+      if (run?.reality) return undefined;   // 2026-10-30: what he said happened is code's (reality.ts), never a drafted "Noted!"
       // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
       const draftText = withoutDayClaims(d?.answer ?? "");
       if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: draftText }, reason: "front desk answered" };
@@ -989,6 +1006,38 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             // A defer orion-checkin refuses ("That reads as putting it off") is said as it said it, never as done.
             const refused = plan.act.verb === "defer" && !/^Fair\b/.test(ran.stdout.trim());
             if (ran.code === 0) run.flow = { outcome: "say", kind: "plain", text: refused ? ran.stdout.trim().split("\n")[0]! : plan.text };
+          }
+        }
+      }
+      // 2026-10-30: "undo" right after a reality statement takes back its calendar writes AND the facts it declared.
+      const realityDone = run.sessionKey ? lastReality.get(run.sessionKey) : undefined;
+      if (!run.flow && !run.cutOff && options.realityRun && realityDone && Date.now() - realityDone.at < SESSION_CHANGE_WINDOW_MS && isBareUndo(run.message)) {
+        lastReality.delete(run.sessionKey!);
+        run.flow = await undoReality(realityDone, options.realityRun);
+        if ("calls" in run.flow && run.flow.calls) { const f = run.flow; f.calls!.forEach((canonical, i) => run.tools.push({ canonical, stdout: f.outputs?.[i] ?? "", exit: null })); }
+        if (realityDone.writes) { recordChange(run.sessionKey, []); forgetReplan(run.sessionKey); }
+      }
+      // 2026-10-30: he said what happened ("i dont have classes today", "im doing econ instead of gym", "i ate already"): code declares
+      // it (orion-declare) and changes the plan, and the reply says exactly what changed. With another change in the same breath only
+      // the fact is written here, and the change goes on as usual.
+      if (!run.flow && !run.cutOff && run.reality && options.realityRun) {
+        const read = run.reality; const key = run.sessionKey;
+        const slips = run.card?.slipsWeek ?? [];
+        const next = run.card?.record?.next?.title ? `Next up: ${run.card.record.next.title} at ${clockOf(run.card.record.next.start) ?? "?"}.` : undefined;
+        const deps = { run: options.realityRun, now: (options.now ?? (() => new Date()))(), text: run.message,
+          source: run.spoken ? "voice" : /phone/.test(key ?? "") ? "phone" : "chat",
+          readDay: () => (options.readDayJson ? options.readDayJson(read.reality.kind === "no-classes" && read.reality.tomorrow ? ["--date", "tomorrow"] : []) : Promise.resolve(undefined)),
+          slipsOf: (what: string) => slips.filter((s) => s.planned?.kind === what || (s.planned?.title ?? "").toLowerCase().includes(what.toLowerCase())).length,
+          ...(next ? { next } : {}) };
+        if (read.rest) await declareOnly(read, deps).catch(() => null);
+        else {
+          const out = await runReality(read, deps).catch(() => null);
+          if (out) {
+            run.flow = out.flow; markRead(run, "day");
+            const f = out.flow;
+            if ("calls" in f && f.calls) f.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: f.outputs?.[i] ?? "", exit: null }));
+            if (out.writes) recordChange(key, []);
+            if (key && (out.writes || out.facts.length)) lastReality.set(key, { facts: out.facts, writes: out.writes, at: Date.now() });
           }
         }
       }

@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+// orion-declare — what Nick told ORION about today, written once for every reader (2026-10-30).
+//   orion-declare add --kind no-classes|skip|ate|place|note --text "<his words>" [--source voice|mac-chat|phone]
+//                     [--title "<block>"] [--place <place>] [--date YYYY-MM-DD]       prints the stored fact as JSON
+//   orion-declare remove --id <fact id>                                              takes one back (his "undo")
+//   orion-declare list [--date YYYY-MM-DD]                                           today's facts (all with --all)
+// The file is declared-facts.json in the state dir (lib/awareness/declared-facts.mjs is the contract; the now record,
+// the escalation ladder and the chat state card read it). The chat plugin decides what his words mean and calls this;
+// nothing here parses them. ORION_NOW and ORION_CONTROLLED_DIR (lib/clock.mjs) pin the clock and the directory.
+import { addDeclaredFact, readDeclaredFacts, FILE, FACTS_VERSION } from "./lib/awareness/declared-facts.mjs";
+import { updateJson } from "./lib/awareness/io.mjs";
+import { clockNow, controlledDir } from "./lib/clock.mjs";
+
+const args = process.argv.slice(2);
+const [command] = args;
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const fail = (message, code = 2) => { console.error(`NOTHING WAS CHANGED: ${message}`); process.exit(code); };
+const dir = controlledDir();
+const now = clockNow();
+
+if (command === "add") {
+  try {
+    const fact = addDeclaredFact(dir, { kind: flag("--kind"), text: flag("--text"), source: flag("--source") ?? null,
+      title: flag("--title"), place: flag("--place"), date: flag("--date") }, now);
+    console.log(JSON.stringify(fact));
+  } catch (error) { fail(error.message); }
+} else if (command === "remove") {
+  const id = flag("--id");
+  if (!/^fact-[a-z0-9]{4,16}$/.test(id ?? "")) fail("remove takes --id fact-xxxxxxxx");
+  let removed = null;
+  updateJson(dir, FILE, (current) => {
+    const facts = current?.schemaVersion === FACTS_VERSION && Array.isArray(current.facts) ? current.facts : [];
+    removed = facts.find((f) => f.id === id) ?? null;
+    return { schemaVersion: FACTS_VERSION, facts: facts.filter((f) => f.id !== id) };
+  }, { schemaVersion: FACTS_VERSION, facts: [] });
+  console.log(removed ? `Removed ${removed.kind}: ${removed.text}` : `No fact ${id}.`);
+} else if (command === "list") {
+  const date = args.includes("--all") ? null : flag("--date") ?? now.toLocaleDateString("en-CA");
+  console.log(JSON.stringify(readDeclaredFacts(dir, { date })));
+} else {
+  fail("usage: orion-declare add|remove|list (see the header)");
+}

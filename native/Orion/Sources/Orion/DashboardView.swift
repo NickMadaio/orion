@@ -47,6 +47,8 @@ struct DashboardView: View {
     @State private var phonePlans = PhonePlanRequests()
     @State private var lifeWatch = LifeWatch()
     @State private var glanceExport = GlanceExport()
+    /// The Knowledge tab's graph and his edits to it (KnowledgeStore.swift).
+    @StateObject private var knowledge = KnowledgeStore()
 
     /// The calendar's own model, built here because it needs the same EventKit
     /// syncs this view already owns. Fetches the visible interval plus padding
@@ -148,7 +150,7 @@ struct DashboardView: View {
                             .padding(.top, 26)
                             .padding(.bottom, 60)
                             .frame(width: proxy.size.width, alignment: .leading)
-                    } else if selectedTab == .project {
+                    } else if selectedTab == .project || selectedTab == .knowledge {
                         // Projects is a workspace: the workflow graph owns the
                         // right third, so the document-column cap would leave
                         // exactly the space it needs sitting blank.
@@ -512,6 +514,8 @@ struct DashboardView: View {
                          onOpenChat: { state.chatMode = true; selectedTab = .home })
             case .project:
                 ProjectTab(agenda: agenda)
+            case .knowledge:
+                KnowledgeView(store: knowledge, availableHeight: availableHeight)
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
                           connections: connections, day: dayModel.day,
@@ -615,7 +619,7 @@ private struct NavItem: View {
 // MARK: - Tabs
 
 enum DashboardTab: String, CaseIterable, Identifiable {
-    case home, tasks, project, health, finance, brand, settings
+    case home, tasks, project, knowledge, health, finance, brand, settings
     var id: String { rawValue }
 
     /// The tab a person or ORION means by a word: "plan" and "calendar" are on
@@ -625,6 +629,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case "home": return .home
         case "tasks", "task", "plan", "calendar", "schedule", "todo", "todos": return .tasks
         case "project", "projects": return .project
+        case "knowledge", "memory", "graph": return .knowledge
         case "health": return .health
         case "finance", "finances", "money": return .finance
         case "brand": return .brand
@@ -645,6 +650,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .home: "Home"
         case .tasks: "Plan"
         case .project: "Projects"
+        case .knowledge: "Knowledge"
         case .health: "Health"
         case .finance: "Finances"
         case .brand: "Brand"
@@ -661,6 +667,7 @@ enum DashboardTab: String, CaseIterable, Identifiable {
         case .home: "circle.hexagongrid"
         case .tasks: "checklist"
         case .project: "point.3.connected.trianglepath.dotted"
+        case .knowledge: "circle.hexagonpath"
         case .health: "heart"
         case .finance: "chart.line.uptrend.xyaxis"
         case .brand: "megaphone"

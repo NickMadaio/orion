@@ -1,0 +1,1306 @@
+{
+  "schema": "orion.knowledge-graph.v1",
+  "generatedAt": "2026-10-30T14:00:00.000Z",
+  "nodes": [
+    {
+      "id": "person:priya",
+      "type": "person",
+      "label": "Priya",
+      "facts": [
+        {
+          "text": "Studying with Priya on Thursdays at the library.",
+          "source": {
+            "file": "workspace/USER.md",
+            "line": 24
+          }
+        },
+        {
+          "text": "Mentioned on 1 day in his notes; latest 2026-10-21",
+          "source": {
+            "file": "workspace/memory/2026-10-21.md",
+            "line": 7,
+            "date": "2026-10-21"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 24
+        },
+        {
+          "file": "workspace/memory/2026-10-21.md",
+          "line": 7,
+          "date": "2026-10-21"
+        }
+      ]
+    },
+    {
+      "id": "person:self",
+      "type": "person",
+      "label": "Sam",
+      "subtitle": "Sam Rivera",
+      "facts": [
+        {
+          "text": "Name: Sam Rivera",
+          "source": {
+            "file": "workspace/USER.md",
+            "line": 3
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 3
+        }
+      ]
+    },
+    {
+      "id": "place:campus",
+      "type": "place",
+      "label": "Campus",
+      "facts": [
+        {
+          "text": "25 min commute",
+          "source": {
+            "file": "orion-controlled/places.json"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/places.json"
+        }
+      ]
+    },
+    {
+      "id": "place:club",
+      "type": "place",
+      "label": "club",
+      "facts": [
+        {
+          "text": "Named by his words",
+          "source": {
+            "file": "orion-controlled/learned-routines.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/learned-routines.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "place:devon-house",
+      "type": "place",
+      "label": "Devon House",
+      "facts": [
+        {
+          "text": "Where MKTG2201 meets (Devon House 122)",
+          "source": {
+            "file": "orion-controlled/glance-calendar.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Where CS2100 meets (Devon House 210)",
+          "source": {
+            "file": "orion-controlled/glance-calendar.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/glance-calendar.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "place:london",
+      "type": "place",
+      "label": "London",
+      "facts": [
+        {
+          "text": "Home zone Europe/London",
+          "source": {
+            "file": "orion-controlled/location.json"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/location.json"
+        }
+      ]
+    },
+    {
+      "id": "place:spitalfields",
+      "type": "place",
+      "label": "Spitalfields",
+      "aliases": [
+        "chapter spitalfields",
+        "spit"
+      ],
+      "facts": [
+        {
+          "text": "15 min commute",
+          "source": {
+            "file": "orion-controlled/places.json"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/places.json"
+        }
+      ]
+    },
+    {
+      "id": "course:cs2100",
+      "type": "course",
+      "label": "CS2100",
+      "facts": [
+        {
+          "text": "On his calendar: CS2100 Program Design and Implementation 1",
+          "source": {
+            "file": "orion-controlled/glance-calendar.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Mentioned on 1 day in his notes; latest 2026-10-20",
+          "source": {
+            "file": "workspace/memory/2026-10-20.md",
+            "line": 7,
+            "date": "2026-10-20"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 16
+        },
+        {
+          "file": "orion-controlled/glance-calendar.json",
+          "date": "2026-10-30"
+        },
+        {
+          "file": "workspace/memory/2026-10-20.md",
+          "line": 7,
+          "date": "2026-10-20"
+        }
+      ],
+      "subtitle": "Program Design and Implementation 1"
+    },
+    {
+      "id": "course:econ1115",
+      "type": "course",
+      "label": "ECON1115",
+      "facts": [
+        {
+          "text": "Mentioned on 1 day in his notes; latest 2026-10-21",
+          "source": {
+            "file": "workspace/memory/2026-10-21.md",
+            "line": 7,
+            "date": "2026-10-21"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 16
+        },
+        {
+          "file": "workspace/memory/2026-10-21.md",
+          "line": 7,
+          "date": "2026-10-21"
+        }
+      ]
+    },
+    {
+      "id": "course:mktg2201",
+      "type": "course",
+      "label": "MKTG2201",
+      "aliases": [
+        "Marketing"
+      ],
+      "facts": [
+        {
+          "text": "On his calendar: MKTG2201 Introduction to Marketing — Lecture",
+          "source": {
+            "file": "orion-controlled/glance-calendar.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Mentioned on 1 day in his notes; latest 2026-10-21",
+          "source": {
+            "file": "workspace/memory/2026-10-21.md",
+            "line": 5,
+            "date": "2026-10-21"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 17
+        },
+        {
+          "file": "orion-controlled/glance-calendar.json",
+          "date": "2026-10-30"
+        },
+        {
+          "file": "workspace/memory/2026-10-21.md",
+          "line": 5,
+          "date": "2026-10-21"
+        }
+      ],
+      "subtitle": "Introduction to Marketing"
+    },
+    {
+      "id": "project:london-move",
+      "type": "project",
+      "label": "Moving to London",
+      "facts": [
+        {
+          "text": "Active since 2026-09-01",
+          "source": {
+            "file": "orion-controlled/projects.json"
+          }
+        },
+        {
+          "text": "Lands 08 Sep.",
+          "source": {
+            "file": "orion-controlled/projects.json"
+          }
+        },
+        {
+          "text": "Done: Flight booked (due 2026-08-20)",
+          "source": {
+            "file": "orion-controlled/projects.json"
+          }
+        },
+        {
+          "text": "Open: Oyster card (due 2026-09-15)",
+          "source": {
+            "file": "orion-controlled/projects.json"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/projects.json"
+        }
+      ]
+    },
+    {
+      "id": "project:lumen",
+      "type": "project",
+      "label": "Lumen",
+      "facts": [
+        {
+          "text": "Building Lumen as a local-first desk assistant.",
+          "source": {
+            "file": "workspace/USER.md",
+            "line": 4
+          }
+        },
+        {
+          "text": "Mentioned on 1 day in his notes; latest 2026-10-20",
+          "source": {
+            "file": "workspace/memory/2026-10-20.md",
+            "line": 9,
+            "date": "2026-10-20"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 4
+        },
+        {
+          "file": "workspace/memory/2026-10-20.md",
+          "line": 9,
+          "date": "2026-10-20"
+        }
+      ]
+    },
+    {
+      "id": "routine:evening-out-2",
+      "type": "routine",
+      "label": "Tuesday evenings out",
+      "facts": [
+        {
+          "text": "11:26 PM–4:06 AM, tentative (63% confident)",
+          "source": {
+            "file": "orion-controlled/learned-routines.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Seen 2 times, missed 0; last 2026-10-06",
+          "source": {
+            "file": "orion-controlled/learned-routines.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/learned-routines.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "routine:sleep",
+      "type": "routine",
+      "label": "Sleep",
+      "facts": [
+        {
+          "text": "Falls asleep around 2:00 AM (median of 3 nights)",
+          "source": {
+            "file": "orion-controlled/sleep-actual.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Wakes around 9:30 AM",
+          "source": {
+            "file": "orion-controlled/sleep-actual.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/sleep-actual.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "routine:wake",
+      "type": "routine",
+      "label": "Wake-up",
+      "facts": [
+        {
+          "text": "Usually up around 10:31 AM (median of 137 days)",
+          "source": {
+            "file": "orion-controlled/patterns.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/patterns.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "habit:focus-sessions",
+      "type": "habit",
+      "label": "Focus sessions",
+      "facts": [
+        {
+          "text": "2 sessions, 2.3 h of focus (2026-10-24 to 2026-10-25)",
+          "source": {
+            "file": "orion-controlled/focus-history.jsonl",
+            "date": "2026-10-25"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/focus-history.jsonl",
+          "date": "2026-10-25"
+        }
+      ]
+    },
+    {
+      "id": "habit:gym",
+      "type": "habit",
+      "label": "Gym",
+      "facts": [
+        {
+          "text": "A must anchor, 90 min, every day",
+          "source": {
+            "file": "orion-controlled/life-config.json"
+          }
+        },
+        {
+          "text": "0 of 6 planned gym blocks happened",
+          "source": {
+            "file": "orion-controlled/patterns.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Mentioned on 2 days in his notes; latest 2026-10-21",
+          "source": {
+            "file": "workspace/memory/2026-10-21.md",
+            "line": 5,
+            "date": "2026-10-21"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/life-config.json"
+        },
+        {
+          "file": "orion-controlled/patterns.json",
+          "date": "2026-10-30"
+        },
+        {
+          "file": "workspace/memory/2026-10-21.md",
+          "line": 5,
+          "date": "2026-10-21"
+        }
+      ]
+    },
+    {
+      "id": "habit:magnesium",
+      "type": "habit",
+      "label": "Magnesium",
+      "facts": [
+        {
+          "text": "200mg, evening",
+          "source": {
+            "file": "orion-controlled/health-log.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/health-log.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "app:calendar",
+      "type": "app",
+      "label": "Calendar",
+      "facts": [],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 16
+        }
+      ]
+    },
+    {
+      "id": "app:xcode",
+      "type": "app",
+      "label": "Xcode",
+      "facts": [
+        {
+          "text": "Frontmost when last sampled (2026-10-30 13:58 UTC)",
+          "source": {
+            "file": "orion-controlled/focus-activity.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Counted as a work app during focus",
+          "source": {
+            "file": "orion-controlled/focus-activity.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Mentioned on 1 day in his notes; latest 2026-10-20",
+          "source": {
+            "file": "workspace/memory/2026-10-20.md",
+            "line": 9,
+            "date": "2026-10-20"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/focus-activity.json",
+          "date": "2026-10-30"
+        },
+        {
+          "file": "workspace/memory/2026-10-20.md",
+          "line": 9,
+          "date": "2026-10-20"
+        }
+      ]
+    },
+    {
+      "id": "health:recovery",
+      "type": "health",
+      "label": "Recovery",
+      "facts": [
+        {
+          "text": "50% average over 3 days — moderate",
+          "source": {
+            "file": "orion-controlled/health-log.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/health-log.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "health:sleep",
+      "type": "health",
+      "label": "Sleep",
+      "facts": [
+        {
+          "text": "7.0 h average over the last 3 logged nights",
+          "source": {
+            "file": "orion-controlled/health-log.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/health-log.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "preference:cost-matters",
+      "type": "preference",
+      "label": "Cost matters",
+      "facts": [
+        {
+          "text": "Cost matters: prefer local operation.",
+          "source": {
+            "file": "workspace/USER.md",
+            "line": 6
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 6
+        }
+      ]
+    },
+    {
+      "id": "preference:planning-priorities",
+      "type": "preference",
+      "label": "Planning priorities",
+      "facts": [
+        {
+          "text": "Planning priorities, highest first: classes (fixed, never moved) → sleep → gym → deadlines and study for them → side project every day.",
+          "source": {
+            "file": "workspace/USER.md",
+            "line": 13
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 13
+        }
+      ]
+    },
+    {
+      "id": "preference:times-are-12-hour",
+      "type": "preference",
+      "label": "Times are 12-hour",
+      "facts": [
+        {
+          "text": "Times are 12-hour: \"8:11 PM\", never \"20:11\". Spoken answers especially.",
+          "source": {
+            "file": "workspace/USER.md",
+            "line": 21
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 21
+        }
+      ]
+    },
+    {
+      "id": "preference:wants-concise-explanations",
+      "type": "preference",
+      "label": "Wants concise explanations",
+      "facts": [
+        {
+          "text": "Wants concise explanations and routine reversible actions done without asking.",
+          "source": {
+            "file": "workspace/USER.md",
+            "line": 5
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 5
+        }
+      ]
+    },
+    {
+      "id": "goal:ae1-marketing-presentation",
+      "type": "goal",
+      "label": "AE1 Marketing Presentation",
+      "facts": [
+        {
+          "text": "Due Fri 30 Oct, 7:25 PM",
+          "source": {
+            "file": "orion-controlled/glance-calendar.json",
+            "date": "2026-10-30"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/glance-calendar.json",
+          "date": "2026-10-30"
+        }
+      ]
+    },
+    {
+      "id": "goal:external-executive-function",
+      "type": "goal",
+      "label": "External executive function",
+      "facts": [
+        {
+          "text": "Be his external executive function: plan, remind, follow up. Notice when he is off-plan and replan around what actually happened.",
+          "source": {
+            "file": "workspace/USER.md",
+            "line": 10
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "workspace/USER.md",
+          "line": 10
+        }
+      ]
+    },
+    {
+      "id": "goal:finish-resume",
+      "type": "goal",
+      "label": "finish resume",
+      "facts": [
+        {
+          "text": "Open to-do, due Sat 24 Oct, 11:59 PM (priority 2)",
+          "source": {
+            "file": "orion-controlled/glance-calendar.json",
+            "date": "2026-10-30"
+          }
+        },
+        {
+          "text": "Mentioned on 1 day in his notes; latest 2026-10-20",
+          "source": {
+            "file": "workspace/memory/2026-10-20.md",
+            "line": 5,
+            "date": "2026-10-20"
+          }
+        }
+      ],
+      "sources": [
+        {
+          "file": "orion-controlled/glance-calendar.json",
+          "date": "2026-10-30"
+        },
+        {
+          "file": "workspace/memory/2026-10-20.md",
+          "line": 5,
+          "date": "2026-10-20"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "app:xcode>project:lumen:said-together",
+      "from": "app:xcode",
+      "to": "project:lumen",
+      "kind": "said-together",
+      "reason": "Said together: “opened Xcode for the lumen build”",
+      "source": {
+        "file": "workspace/memory/2026-10-20.md",
+        "line": 9,
+        "date": "2026-10-20"
+      }
+    },
+    {
+      "id": "course:cs2100>habit:gym:said-together",
+      "from": "course:cs2100",
+      "to": "habit:gym",
+      "kind": "said-together",
+      "reason": "Said together: “move CS2100 reading after gym”",
+      "source": {
+        "file": "workspace/memory/2026-10-20.md",
+        "line": 7,
+        "date": "2026-10-20"
+      }
+    },
+    {
+      "id": "course:cs2100>place:devon-house:meets-at",
+      "from": "course:cs2100",
+      "to": "place:devon-house",
+      "kind": "meets-at",
+      "reason": "CS2100 meets at Devon House 210",
+      "source": {
+        "file": "orion-controlled/glance-calendar.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "course:econ1115>person:priya:said-together",
+      "from": "course:econ1115",
+      "to": "person:priya",
+      "kind": "said-together",
+      "reason": "Said together: “coffee with Priya before ECON1115”",
+      "source": {
+        "file": "workspace/memory/2026-10-21.md",
+        "line": 7,
+        "date": "2026-10-21"
+      }
+    },
+    {
+      "id": "course:mktg2201>habit:gym:said-together",
+      "from": "course:mktg2201",
+      "to": "habit:gym",
+      "kind": "said-together",
+      "reason": "Said together: “skipped gym again, did the MKTG2201 slides”",
+      "source": {
+        "file": "workspace/memory/2026-10-21.md",
+        "line": 5,
+        "date": "2026-10-21"
+      }
+    },
+    {
+      "id": "course:mktg2201>place:devon-house:meets-at",
+      "from": "course:mktg2201",
+      "to": "place:devon-house",
+      "kind": "meets-at",
+      "reason": "MKTG2201 meets at Devon House 122",
+      "source": {
+        "file": "orion-controlled/glance-calendar.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "goal:ae1-marketing-presentation>course:mktg2201:deadline-for",
+      "from": "goal:ae1-marketing-presentation",
+      "to": "course:mktg2201",
+      "kind": "deadline-for",
+      "reason": "“AE1 Marketing Presentation” is for MKTG2201",
+      "source": {
+        "file": "orion-controlled/glance-calendar.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "goal:finish-resume>habit:gym:said-together",
+      "from": "goal:finish-resume",
+      "to": "habit:gym",
+      "kind": "said-together",
+      "reason": "Said together: “actually do resume before gym”",
+      "source": {
+        "file": "workspace/memory/2026-10-20.md",
+        "line": 5,
+        "date": "2026-10-20"
+      }
+    },
+    {
+      "id": "habit:focus-sessions>course:cs2100:focused-on",
+      "from": "habit:focus-sessions",
+      "to": "course:cs2100",
+      "kind": "focused-on",
+      "reason": "50 min of focus on “CS2100 lab”",
+      "source": {
+        "file": "orion-controlled/focus-history.jsonl",
+        "date": "2026-10-24"
+      }
+    },
+    {
+      "id": "person:self>app:calendar:uses",
+      "from": "person:self",
+      "to": "app:calendar",
+      "kind": "uses",
+      "reason": "Named in USER.md",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 16
+      }
+    },
+    {
+      "id": "person:self>app:xcode:uses",
+      "from": "person:self",
+      "to": "app:xcode",
+      "kind": "uses",
+      "reason": "The app he was in when ORION last looked",
+      "source": {
+        "file": "orion-controlled/focus-activity.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "person:self>course:cs2100:takes",
+      "from": "person:self",
+      "to": "course:cs2100",
+      "kind": "takes",
+      "reason": "CS2100 is one of his weekly classes",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 16
+      }
+    },
+    {
+      "id": "person:self>course:econ1115:takes",
+      "from": "person:self",
+      "to": "course:econ1115",
+      "kind": "takes",
+      "reason": "ECON1115 is one of his weekly classes",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 16
+      }
+    },
+    {
+      "id": "person:self>course:mktg2201:takes",
+      "from": "person:self",
+      "to": "course:mktg2201",
+      "kind": "takes",
+      "reason": "MKTG2201 is named in USER.md",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 17
+      }
+    },
+    {
+      "id": "person:self>goal:ae1-marketing-presentation:working-toward",
+      "from": "person:self",
+      "to": "goal:ae1-marketing-presentation",
+      "kind": "working-toward",
+      "reason": "On his calendar or to-do list",
+      "source": {
+        "file": "orion-controlled/glance-calendar.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "person:self>goal:external-executive-function:wants",
+      "from": "person:self",
+      "to": "goal:external-executive-function",
+      "kind": "wants",
+      "reason": "What he needs ORION to be",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 10
+      }
+    },
+    {
+      "id": "person:self>goal:finish-resume:working-toward",
+      "from": "person:self",
+      "to": "goal:finish-resume",
+      "kind": "working-toward",
+      "reason": "On his calendar or to-do list",
+      "source": {
+        "file": "orion-controlled/glance-calendar.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "person:self>habit:focus-sessions:keeps",
+      "from": "person:self",
+      "to": "habit:focus-sessions",
+      "kind": "keeps",
+      "reason": "2 focus sessions logged",
+      "source": {
+        "file": "orion-controlled/focus-history.jsonl",
+        "date": "2026-10-25"
+      }
+    },
+    {
+      "id": "person:self>habit:gym:keeps",
+      "from": "person:self",
+      "to": "habit:gym",
+      "kind": "keeps",
+      "reason": "Daily anchor in his plan (must)",
+      "source": {
+        "file": "orion-controlled/life-config.json"
+      }
+    },
+    {
+      "id": "person:self>habit:magnesium:takes",
+      "from": "person:self",
+      "to": "habit:magnesium",
+      "kind": "takes",
+      "reason": "A supplement in his health log",
+      "source": {
+        "file": "orion-controlled/health-log.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "person:self>health:recovery:tracks",
+      "from": "person:self",
+      "to": "health:recovery",
+      "kind": "tracks",
+      "reason": "From his watch, via the health log",
+      "source": {
+        "file": "orion-controlled/health-log.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "person:self>health:sleep:tracks",
+      "from": "person:self",
+      "to": "health:sleep",
+      "kind": "tracks",
+      "reason": "From his watch, via the health log",
+      "source": {
+        "file": "orion-controlled/health-log.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "person:self>person:priya:knows",
+      "from": "person:self",
+      "to": "person:priya",
+      "kind": "knows",
+      "reason": "Named in USER.md",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 24
+      }
+    },
+    {
+      "id": "person:self>place:campus:commutes-to",
+      "from": "person:self",
+      "to": "place:campus",
+      "kind": "commutes-to",
+      "reason": "25 min commute, used when planning his day",
+      "source": {
+        "file": "orion-controlled/places.json"
+      }
+    },
+    {
+      "id": "person:self>place:london:lives-in",
+      "from": "person:self",
+      "to": "place:london",
+      "kind": "lives-in",
+      "reason": "Home is London (Europe/London)",
+      "source": {
+        "file": "orion-controlled/location.json"
+      }
+    },
+    {
+      "id": "person:self>place:spitalfields:commutes-to",
+      "from": "person:self",
+      "to": "place:spitalfields",
+      "kind": "commutes-to",
+      "reason": "15 min commute, used when planning his day",
+      "source": {
+        "file": "orion-controlled/places.json"
+      }
+    },
+    {
+      "id": "person:self>preference:cost-matters:prefers",
+      "from": "person:self",
+      "to": "preference:cost-matters",
+      "kind": "prefers",
+      "reason": "Cost matters",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 6
+      }
+    },
+    {
+      "id": "person:self>preference:planning-priorities:prefers",
+      "from": "person:self",
+      "to": "preference:planning-priorities",
+      "kind": "prefers",
+      "reason": "How he wants a day planned",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 13
+      }
+    },
+    {
+      "id": "person:self>preference:times-are-12-hour:prefers",
+      "from": "person:self",
+      "to": "preference:times-are-12-hour",
+      "kind": "prefers",
+      "reason": "Times are 12-hour",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 21
+      }
+    },
+    {
+      "id": "person:self>preference:wants-concise-explanations:prefers",
+      "from": "person:self",
+      "to": "preference:wants-concise-explanations",
+      "kind": "prefers",
+      "reason": "Wants concise explanations",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 5
+      }
+    },
+    {
+      "id": "person:self>project:london-move:working-on",
+      "from": "person:self",
+      "to": "project:london-move",
+      "kind": "working-on",
+      "reason": "Active project",
+      "source": {
+        "file": "orion-controlled/projects.json"
+      }
+    },
+    {
+      "id": "person:self>project:lumen:builds",
+      "from": "person:self",
+      "to": "project:lumen",
+      "kind": "builds",
+      "reason": "Building Lumen as a local-first desk assistant.",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 4
+      }
+    },
+    {
+      "id": "person:self>routine:evening-out-2:keeps",
+      "from": "person:self",
+      "to": "routine:evening-out-2",
+      "kind": "keeps",
+      "reason": "Learned from where his phone was on past evenings",
+      "source": {
+        "file": "orion-controlled/learned-routines.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "person:self>routine:sleep:keeps",
+      "from": "person:self",
+      "to": "routine:sleep",
+      "kind": "keeps",
+      "reason": "Measured by his watch",
+      "source": {
+        "file": "orion-controlled/sleep-actual.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "person:self>routine:wake:keeps",
+      "from": "person:self",
+      "to": "routine:wake",
+      "kind": "keeps",
+      "reason": "Measured from his mornings",
+      "source": {
+        "file": "orion-controlled/patterns.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "preference:planning-priorities>course:cs2100:ranks",
+      "from": "preference:planning-priorities",
+      "to": "course:cs2100",
+      "kind": "ranks",
+      "reason": "Classes rank #1: fixed, never moved",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 13
+      }
+    },
+    {
+      "id": "preference:planning-priorities>course:econ1115:ranks",
+      "from": "preference:planning-priorities",
+      "to": "course:econ1115",
+      "kind": "ranks",
+      "reason": "Classes rank #1: fixed, never moved",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 13
+      }
+    },
+    {
+      "id": "preference:planning-priorities>course:mktg2201:ranks",
+      "from": "preference:planning-priorities",
+      "to": "course:mktg2201",
+      "kind": "ranks",
+      "reason": "Classes rank #1: fixed, never moved",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 13
+      }
+    },
+    {
+      "id": "preference:planning-priorities>habit:gym:ranks",
+      "from": "preference:planning-priorities",
+      "to": "habit:gym",
+      "kind": "ranks",
+      "reason": "Gym ranks #3",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 13
+      }
+    },
+    {
+      "id": "preference:planning-priorities>health:sleep:ranks",
+      "from": "preference:planning-priorities",
+      "to": "health:sleep",
+      "kind": "ranks",
+      "reason": "Sleep ranks #2",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 13
+      }
+    },
+    {
+      "id": "preference:planning-priorities>routine:sleep:ranks",
+      "from": "preference:planning-priorities",
+      "to": "routine:sleep",
+      "kind": "ranks",
+      "reason": "Sleep ranks #2",
+      "source": {
+        "file": "workspace/USER.md",
+        "line": 13
+      }
+    },
+    {
+      "id": "routine:evening-out-2>place:club:happens-at",
+      "from": "routine:evening-out-2",
+      "to": "place:club",
+      "kind": "happens-at",
+      "reason": "Tuesday evenings out are at club (his words)",
+      "source": {
+        "file": "orion-controlled/learned-routines.json",
+        "date": "2026-10-30"
+      }
+    },
+    {
+      "id": "routine:sleep>health:sleep:measured-by",
+      "from": "routine:sleep",
+      "to": "health:sleep",
+      "kind": "measured-by",
+      "reason": "The same nights, from the health log",
+      "source": {
+        "file": "orion-controlled/sleep-actual.json",
+        "date": "2026-10-30"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": "user",
+      "file": "workspace/USER.md",
+      "ok": true,
+      "items": 25
+    },
+    {
+      "id": "memory",
+      "file": "workspace/MEMORY.md",
+      "ok": true,
+      "items": 7
+    },
+    {
+      "id": "daily",
+      "file": "workspace/memory/*.md",
+      "ok": true,
+      "items": 2
+    },
+    {
+      "id": "places",
+      "file": "orion-controlled/places.json",
+      "ok": true
+    },
+    {
+      "id": "knownPlaces",
+      "file": "orion-controlled/known-places.json",
+      "ok": false
+    },
+    {
+      "id": "location",
+      "file": "orion-controlled/location.json",
+      "ok": true
+    },
+    {
+      "id": "routines",
+      "file": "orion-controlled/learned-routines.json",
+      "ok": true
+    },
+    {
+      "id": "patterns",
+      "file": "orion-controlled/patterns.json",
+      "ok": true
+    },
+    {
+      "id": "lifeConfig",
+      "file": "orion-controlled/life-config.json",
+      "ok": true
+    },
+    {
+      "id": "projects",
+      "file": "orion-controlled/projects.json",
+      "ok": true
+    },
+    {
+      "id": "glance",
+      "file": "orion-controlled/glance-calendar.json",
+      "ok": true
+    },
+    {
+      "id": "focusActivity",
+      "file": "orion-controlled/focus-activity.json",
+      "ok": true
+    },
+    {
+      "id": "sleepActual",
+      "file": "orion-controlled/sleep-actual.json",
+      "ok": true
+    },
+    {
+      "id": "health",
+      "file": "orion-controlled/health-log.json",
+      "ok": true
+    },
+    {
+      "id": "focusHistory",
+      "file": "orion-controlled/focus-history.jsonl",
+      "ok": true,
+      "items": 2
+    },
+    {
+      "id": "calendar",
+      "file": "orion-controlled/glance-calendar.json",
+      "ok": true,
+      "items": 2,
+      "note": "calendar probe disabled; used orion-controlled/glance-calendar.json"
+    }
+  ],
+  "overrides": {
+    "applied": 0
+  }
+}

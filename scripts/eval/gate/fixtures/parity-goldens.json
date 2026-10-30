@@ -1,0 +1,244 @@
+{
+  "outreach" : [
+    {
+      "name" : "latest-row-once",
+      "prefixes" : [
+        "[ORION context: you messaged him first, 10 min ago: \"Check-in: how is the lab going?\". This message MAY be his answer.]\n",
+        ""
+      ]
+    },
+    {
+      "name" : "outside-window",
+      "prefixes" : [
+        ""
+      ]
+    },
+    {
+      "name" : "ask-window-90min",
+      "prefixes" : [
+        "[ORION context: 75 min ago you asked \"Where were you?\" (blank ask about 13:00-14:00). If he says what he did or is doing, log it.]\n"
+      ]
+    },
+    {
+      "name" : "mixed-rows-latest-wins",
+      "prefixes" : [
+        "[ORION context: you messaged him first, 2 min ago: \"It is past bedtime.\". This message MAY be his answer.]\n",
+        ""
+      ]
+    },
+    {
+      "name" : "reply-to-ask",
+      "prefixes" : [
+        "[ORION context: 75 min ago you asked \"Did you start finish resume?\" (finish resume, planned 14:00-now, not started, he is at Library). If he says what he did or is doing, log it.]\n"
+      ]
+    },
+    {
+      "name" : "reply-to-held-ignored",
+      "prefixes" : [
+        "[ORION context: you messaged him first, 9 min ago: \"Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you ea\". This message MAY be his answer.]\n"
+      ]
+    },
+    {
+      "name" : "reply-to-voice-repeat",
+      "prefixes" : [
+        "[ORION context: 30 min ago you asked \"Did you hear me?\" (a spoken question he may not have heard). If he says what he did or is doing, log it.]\n"
+      ]
+    },
+    {
+      "name" : "reply-to-bedtime-newer-wins",
+      "prefixes" : [
+        "[ORION context: you messaged him first, 3 min ago: \"Session done, it is past bedtime for you\". This message MAY be his answer.]\n"
+      ]
+    },
+    {
+      "name" : "reply-to-unknown-falls-through",
+      "prefixes" : [
+        "[ORION context: you messaged him first, 10 min ago: \"Check-in: how is the lab going?\". This message MAY be his answer.]\n"
+      ]
+    },
+    {
+      "name" : "spoke-since-then-new-row-not",
+      "prefixes" : [
+        "",
+        "[ORION context: you messaged him first, 1 min ago: \"Check-in: how is the lab going?\". This message MAY be his answer.]\n",
+        ""
+      ]
+    },
+    {
+      "name" : "no-id-row-repeats-after-turn",
+      "prefixes" : [
+        "[ORION context: you messaged him first, 5 min ago: \"No id row\". This message MAY be his answer.]\n",
+        ""
+      ]
+    },
+    {
+      "name" : "future-row-ignored",
+      "prefixes" : [
+        ""
+      ]
+    },
+    {
+      "name" : "empty-file",
+      "prefixes" : [
+        ""
+      ]
+    }
+  ],
+  "scheduling" : [
+    {
+      "context" : "",
+      "name" : "irrelevant"
+    },
+    {
+      "context" : "[Nick's scheduling preferences]\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Continuation line of the same bullet, indented.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap.\n- Last bullet that may not fit.\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Do not move the class itself. Another sentence here.\n\n[Current user request]\n",
+      "name" : "local-digest"
+    },
+    {
+      "context" : "[ORION scheduling preferences — consult with current calendar and Orion to-dos]\n# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n\n\n[Current user request]\n",
+      "name" : "cloud-full"
+    },
+    {
+      "context" : "[ORION scheduling preferences — consult with current calendar and Orion to-dos]\n# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n\n\n[Current user request]\n",
+      "name" : "shadow-full"
+    },
+    {
+      "context" : "[ORION scheduling preferences — consult with current calendar and Orion to-dos]\n# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n\n\n[Current user request]\n",
+      "name" : "schedule-to-cloud"
+    },
+    {
+      "context" : "[Scheduling memory unavailable: read SCHEDULING.md and current tasks/calendar before planning.]\n\n",
+      "name" : "unavailable"
+    },
+    {
+      "context" : "[ORION scheduling preferences — consult with current calendar and Orion to-dos]\n# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Something else\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n\n\n[Current user request]\n",
+      "name" : "missing-section-fails-open"
+    },
+    {
+      "context" : "[Nick's scheduling preferences]\nOnly prose, which a prose-only section keeps.\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Continuation line of the same bullet, indented.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap.\n- Last bullet that may not fit.\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Do not move the class itself. Another sentence here.\n\n[Current user request]\n",
+      "name" : "prose-only-section"
+    },
+    {
+      "context" : "[ORION scheduling preferences — consult with current calendar and Orion to-dos]\n# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n\n## Appendix\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n[Current user request]\n",
+      "name" : "full-over-12k"
+    },
+    {
+      "context" : "[Nick's scheduling preferences]\n- priority rule 0: keep this exactly as written, it matters a lot to him.\n- priority rule 1: keep this exactly as written, it matters a lot to him.\n- priority rule 2: keep this exactly as written, it matters a lot to him.\n- priority rule 3: keep this exactly as written, it matters a lot to him.\n- priority rule 4: keep this exactly as written, it matters a lot to him.\n- priority rule 5: keep this exactly as written, it matters a lot to him.\n- priority rule 6: keep this exactly as written, it matters a lot to him.\n- priority rule 7: keep this exactly as written, it matters a lot to him.\n- priority rule 8: keep this exactly as written, it matters a lot to him.\n- protected rule 0: keep this exactly as written, it matters a lot to him.\n- protected rule 1: keep this exactly as written, it matters a lot to him.\n- protected rule 2: keep this exactly as written, it matters a lot to him.\n- protected rule 3: keep this exactly as written, it matters a lot to him.\n- protected rule 4: keep this exactly as written, it matters a lot to him.\n- protected rule 5: keep this exactly as written, it matters a lot to him.\n- protected rule 6: keep this exactly as written, it matters a lot to him.\n- protected rule 7: keep this exactly as written, it matters a lot to him.\n- protected rule 8: keep this exactly as written, it matters a lot to him.\n- protected rule 9: keep this exactly as written, it matters a lot to him.\n- protected rule 10: keep this exactly as written, it matters a lot to him.\n- protected rule 11: keep this exactly as written, it matters a lot to him.\n- protected rule 12: keep this exactly as written, it matters a lot to him.\n- protected rule 13: keep this exactly as written, it matters a lot to him.\nA long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class \n\n[Current user request]\n",
+      "name" : "digest-hits-2100-limit"
+    },
+    {
+      "context" : "",
+      "name" : "word-boundary-no-match"
+    },
+    {
+      "context" : "[Nick's scheduling preferences]\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Continuation line of the same bullet, indented.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap.\n- Last bullet that may not fit.\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Do not move the class itself. Another sentence here.\n\n[Current user request]\n",
+      "name" : "case-insensitive"
+    },
+    {
+      "context" : "[Nick's scheduling preferences]\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Continuation line of the same bullet, indented.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap.\n- Last bullet that may not fit.\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Do not move the class itself. Another sentence here.\n\n[Current user request]\n",
+      "name" : "app-context-wrapper"
+    }
+  ],
+  "struggled" : [
+    {
+      "name" : "two-errors",
+      "struggled" : true
+    },
+    {
+      "name" : "one-error",
+      "struggled" : false
+    },
+    {
+      "name" : "mixed-kinds",
+      "struggled" : true
+    },
+    {
+      "name" : "failures-before-since",
+      "struggled" : false
+    },
+    {
+      "name" : "repeat-guard",
+      "struggled" : true
+    },
+    {
+      "name" : "assistant-rows-ignored",
+      "struggled" : false
+    }
+  ],
+  "thinking" : [
+    {
+      "level" : "off",
+      "name" : "off-plain",
+      "needsReasoning" : false
+    },
+    {
+      "level" : "low",
+      "name" : "narrative",
+      "needsReasoning" : true
+    },
+    {
+      "level" : "low",
+      "name" : "whole-day",
+      "needsReasoning" : true
+    },
+    {
+      "level" : "low",
+      "name" : "two-verbs",
+      "needsReasoning" : true
+    },
+    {
+      "level" : "low",
+      "name" : "verb-anchor",
+      "needsReasoning" : true
+    },
+    {
+      "level" : "off",
+      "name" : "one-verb-no-anchor",
+      "needsReasoning" : false
+    },
+    {
+      "level" : "low",
+      "name" : "long-35-words",
+      "needsReasoning" : true
+    },
+    {
+      "level" : "off",
+      "name" : "local-model",
+      "needsReasoning" : true
+    },
+    {
+      "level" : "low",
+      "name" : "boosted",
+      "needsReasoning" : false
+    },
+    {
+      "level" : "off",
+      "name" : "boost-expired",
+      "needsReasoning" : false
+    },
+    {
+      "level" : "off",
+      "name" : "boost-but-local",
+      "needsReasoning" : false
+    },
+    {
+      "level" : "off",
+      "name" : "cloud-model-picked",
+      "needsReasoning" : false
+    },
+    {
+      "level" : "low",
+      "name" : "multiline-wholeday",
+      "needsReasoning" : true
+    },
+    {
+      "level" : "low",
+      "name" : "full-request",
+      "needsReasoning" : true
+    },
+    {
+      "level" : "low",
+      "name" : "unicode-case",
+      "needsReasoning" : true
+    }
+  ]
+}

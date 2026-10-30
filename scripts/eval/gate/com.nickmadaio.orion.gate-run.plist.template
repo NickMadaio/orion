@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template for one gate run. launch.sh fills the @PLACEHOLDERS@ and loads it with `launchctl bootstrap`.
+  Why a plist and not `launchctl submit`: submit restarts the job whenever it exits, and a finished sweep
+  must stay finished. KeepAlive is false here for the same reason.
+  Why launchd at all: Calendar access is the gateway node's TCC grant, which a terminal does not have.
+  The runner runs from a COPY under ~/.openclaw because launchd cannot read ~/Desktop.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>@LABEL@</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@NODE@</string>
+    <string>@RUNNER@</string>
+@ARGS@
+  </array>
+  <key>WorkingDirectory</key><string>@HOME@/.openclaw</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><false/>
+  <!-- SIGTERM makes the runner finish and undo the item in flight; give it time before launchd escalates to SIGKILL. -->
+  <key>ExitTimeOut</key><integer>900</integer>
+  <key>StandardOutPath</key><string>@OUT@/run.log</string>
+  <key>StandardErrorPath</key><string>@OUT@/run.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>@HOME@</string>
+    <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin:@HOME@/.openclaw/bin</string>
+@ENV@
+  </dict>
+</dict>
+</plist>

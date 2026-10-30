@@ -1,0 +1,386 @@
+{
+ "thinking": [
+  {
+   "name": "off-plain",
+   "text": "whats on today",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "narrative",
+   "text": "im gonna nap so i'm up by 1:30, then do the lab",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "whole-day",
+   "text": "can you plan my day around the lab",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "two-verbs",
+   "text": "move gym and cancel the lab",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "verb-anchor",
+   "text": "move gym to after class",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "one-verb-no-anchor",
+   "text": "move gym to 6",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "long-35-words",
+   "text": "word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24 word25 word26 word27 word28 word29 word30 word31 word32 word33 word34 word35",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "local-model",
+   "text": "move gym and cancel the lab",
+   "model": "ollama/qwen3.5:9b",
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "boosted",
+   "text": "hello there",
+   "model": null,
+   "boostedUntil": "2026-10-30T15:05:00.000Z",
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "boost-expired",
+   "text": "hello there",
+   "model": null,
+   "boostedUntil": "2026-10-30T14:59:59.000Z",
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "boost-but-local",
+   "text": "hello there",
+   "model": "ollama/qwen3.5:9b",
+   "boostedUntil": "2026-10-30T15:05:00.000Z",
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "cloud-model-picked",
+   "text": "whats up",
+   "model": "anthropic/claude-sonnet",
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "multiline-wholeday",
+   "text": "organize\nmy evening please",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "full-request",
+   "text": "[Orion app context — factual state supplied by the native app]\nFocus session: inactive.\nFirm enforcement: not active.\nTemporary allowed work apps: none established.\nTreat the session status and allowed apps as current operating context. Do not claim an app is blocked, hidden, or quit unless a tool confirms it.\n\n\nUser message:\nwhats on today",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  },
+  {
+   "name": "unicode-case",
+   "text": "RESCHEDULE gym AND Skip lab",
+   "model": null,
+   "boostedUntil": null,
+   "now": "2026-10-30T15:00:00.000Z"
+  }
+ ],
+ "scheduling": [
+  {
+   "name": "irrelevant",
+   "text": "whats on today",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "local-digest",
+   "text": "can you schedule gym",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "cloud-full",
+   "text": "can you schedule gym",
+   "mode": "off",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "shadow-full",
+   "text": "plan my day",
+   "mode": "shadow",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "schedule-to-cloud",
+   "text": "plan my day",
+   "mode": "on",
+   "scheduleToCloud": true,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "unavailable",
+   "text": "i have a class at 3",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": null
+  },
+  {
+   "name": "missing-section-fails-open",
+   "text": "reschedule lab",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Something else\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "prose-only-section",
+   "text": "nap at 2",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\nOnly prose, which a prose-only section keeps.\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "full-over-12k",
+   "text": "commute is long",
+   "mode": "off",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n\n## Appendix\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
+  },
+  {
+   "name": "digest-hits-2100-limit",
+   "text": "plan my week",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\n## Priority scale\n- priority rule 0: keep this exactly as written, it matters a lot to him.\n- priority rule 1: keep this exactly as written, it matters a lot to him.\n- priority rule 2: keep this exactly as written, it matters a lot to him.\n- priority rule 3: keep this exactly as written, it matters a lot to him.\n- priority rule 4: keep this exactly as written, it matters a lot to him.\n- priority rule 5: keep this exactly as written, it matters a lot to him.\n- priority rule 6: keep this exactly as written, it matters a lot to him.\n- priority rule 7: keep this exactly as written, it matters a lot to him.\n- priority rule 8: keep this exactly as written, it matters a lot to him.\n- priority rule 9: keep this exactly as written, it matters a lot to him.\n- priority rule 10: keep this exactly as written, it matters a lot to him.\n- priority rule 11: keep this exactly as written, it matters a lot to him.\n- priority rule 12: keep this exactly as written, it matters a lot to him.\n- priority rule 13: keep this exactly as written, it matters a lot to him.\n- priority rule 14: keep this exactly as written, it matters a lot to him.\n- priority rule 15: keep this exactly as written, it matters a lot to him.\n- priority rule 16: keep this exactly as written, it matters a lot to him.\n- priority rule 17: keep this exactly as written, it matters a lot to him.\n- priority rule 18: keep this exactly as written, it matters a lot to him.\n- priority rule 19: keep this exactly as written, it matters a lot to him.\n\n## Protected time and transitions\n- protected rule 0: keep this exactly as written, it matters a lot to him.\n- protected rule 1: keep this exactly as written, it matters a lot to him.\n- protected rule 2: keep this exactly as written, it matters a lot to him.\n- protected rule 3: keep this exactly as written, it matters a lot to him.\n- protected rule 4: keep this exactly as written, it matters a lot to him.\n- protected rule 5: keep this exactly as written, it matters a lot to him.\n- protected rule 6: keep this exactly as written, it matters a lot to him.\n- protected rule 7: keep this exactly as written, it matters a lot to him.\n- protected rule 8: keep this exactly as written, it matters a lot to him.\n- protected rule 9: keep this exactly as written, it matters a lot to him.\n- protected rule 10: keep this exactly as written, it matters a lot to him.\n- protected rule 11: keep this exactly as written, it matters a lot to him.\n- protected rule 12: keep this exactly as written, it matters a lot to him.\n- protected rule 13: keep this exactly as written, it matters a lot to him.\n- protected rule 14: keep this exactly as written, it matters a lot to him.\n- protected rule 15: keep this exactly as written, it matters a lot to him.\n- protected rule 16: keep this exactly as written, it matters a lot to him.\n- protected rule 17: keep this exactly as written, it matters a lot to him.\n- protected rule 18: keep this exactly as written, it matters a lot to him.\n- protected rule 19: keep this exactly as written, it matters a lot to him.\n- protected rule 20: keep this exactly as written, it matters a lot to him.\n- protected rule 21: keep this exactly as written, it matters a lot to him.\n- protected rule 22: keep this exactly as written, it matters a lot to him.\n- protected rule 23: keep this exactly as written, it matters a lot to him.\n- protected rule 24: keep this exactly as written, it matters a lot to him.\n- protected rule 25: keep this exactly as written, it matters a lot to him.\n- protected rule 26: keep this exactly as written, it matters a lot to him.\n- protected rule 27: keep this exactly as written, it matters a lot to him.\n- protected rule 28: keep this exactly as written, it matters a lot to him.\n- protected rule 29: keep this exactly as written, it matters a lot to him.\n\n## The class wrapper\nA long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. A long sentence about the class wrapper that keeps going. \n"
+  },
+  {
+   "name": "word-boundary-no-match",
+   "text": "the planet is classy",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "case-insensitive",
+   "text": "LECTURE moved",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  },
+  {
+   "name": "app-context-wrapper",
+   "text": "[Orion app context — factual state supplied by the native app]\nFocus session: inactive.\nFirm enforcement: not active.\nTemporary allowed work apps: none established.\nTreat the session status and allowed apps as current operating context. Do not claim an app is blocked, hidden, or quit unless a tool confirms it.\n\n\nUser message:\nwhat is my plan",
+   "mode": "on",
+   "scheduleToCloud": false,
+   "rules": "# Scheduling memory\n\nIntro text that is not a section.\n\n## To-dos with due dates (orion-tasks, 2026-10-06)\n- Run orion-tasks list before planning. Never invent due dates.\n\n## Priority scale\n- critical: exams and hard deadlines. Never moved without asking.\n- high: sleep and gym protected. Moves only for critical.\n- medium: normal work. Run orion-reschedule move to shift it.\n- low: nice to have, drops first. 2.5 hours is the most it gets.\nHis own words override this scale whenever they conflict.\n(Why this is written down: the 2026-10-05 incident.)\n- never reached\n\n## Protected time and transitions\n- Sleep 11 PM to 7 AM is protected. Nothing goes in it.\n- Nothing (a nap, a call) goes into travel time. Check life-config first.\n  Continuation line of the same bullet, indented.\n- School → dorm commute is 45 minutes, set in life-config.json.\n- Minimum block length for lab work is 90 minutes! Lab is long? Yes it is.\n- Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. Filler bullet that pushes this section past its cap. \n- Last bullet that may not fit.\n\n## The class wrapper (Nick, 2026-10-05)\nA class block is wrapped by commute before and after. Leave 15 minutes before it starts. Use orion-reschedule add for the wrapper. Do not move the class itself. Another sentence here.\n\nSecond paragraph that must not appear.\n\n## Done early\n- Ignored section.\n"
+  }
+ ],
+ "outreach": [
+  {
+   "name": "latest-row-once",
+   "jsonl": "{\"id\":\"s-1\",\"text\":\"Check-in: how is the lab going?\",\"at\":\"2026-10-30T14:50:00Z\"}\n{\"id\":\"s-0\",\"text\":\"older\",\"at\":\"2026-10-30T14:00:00Z\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": null
+    },
+    {
+     "now": "2026-10-30T15:01:00Z",
+     "replyTo": null
+    }
+   ]
+  },
+  {
+   "name": "outside-window",
+   "jsonl": "{\"id\":\"s-1\",\"text\":\"Check-in: how is the lab going?\",\"at\":\"2026-10-30T14:50:00Z\"}\n{\"id\":\"s-0\",\"text\":\"older\",\"at\":\"2026-10-30T14:00:00Z\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:30:00Z",
+     "replyTo": null
+    }
+   ]
+  },
+  {
+   "name": "ask-window-90min",
+   "jsonl": "{\"id\":\"x\",\"text\":\"Where were you?\",\"at\":\"2026-10-30T13:45:00Z\",\"ask\":{\"askId\":\"a\",\"type\":\"blank\",\"window\":{\"start\":780,\"end\":840}}}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": null
+    }
+   ]
+  },
+  {
+   "name": "mixed-rows-latest-wins",
+   "jsonl": "{\"id\":\"o-old\",\"text\":\"very old message\",\"at\":\"2026-10-30T10:00:00Z\"}\n{\"id\":\"o-1\",\"text\":\"Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? \",\"at\":\"2026-10-30T14:50:00.123Z\"}\n{\"id\":\"o-held\",\"text\":\"held message\",\"at\":\"2026-10-30T14:55:00Z\",\"channel\":\"hold\"}\n{\"id\":\"o-status\",\"text\":\"status-held\",\"at\":\"2026-10-30T14:56:00Z\",\"status\":\"held\"}\n{\"id\":\"o-ask\",\"text\":\"What did you do at 2?\",\"at\":\"2026-10-30T14:40:00Z\",\"ask\":{\"askId\":\"a1\",\"type\":\"home-gap\",\"window\":{\"start\":840,\"end\":900},\"place\":\"away\"}}\n{\"id\":\"o-ask2\",\"text\":\"Did you start finish resume?\",\"at\":\"2026-10-30T13:45:00Z\",\"ask\":{\"askId\":\"a2\",\"type\":\"off-plan\",\"kind\":\"mismatch\",\"window\":{\"start\":\"14:00\",\"end\":null},\"title\":\"finish resume\",\"place\":\"Library\"}}\n{\"id\":\"o-voice\",\"text\":\"Did you hear me?\",\"at\":\"2026-10-30T14:30:00Z\",\"ask\":{\"askId\":\"a3\",\"type\":\"voice-repeat\"}}\n{\"id\":\"o-bed\",\"text\":\"It is past bedtime.\",\"at\":\"2026-10-30T14:58:00Z\",\"why\":\"proactive: bed-1\"}\nnot json at all\n{\"id\":\"o-nodate\",\"text\":\"no date\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": null
+    },
+    {
+     "now": "2026-10-30T15:00:30Z",
+     "replyTo": null
+    }
+   ]
+  },
+  {
+   "name": "reply-to-ask",
+   "jsonl": "{\"id\":\"o-old\",\"text\":\"very old message\",\"at\":\"2026-10-30T10:00:00Z\"}\n{\"id\":\"o-1\",\"text\":\"Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? \",\"at\":\"2026-10-30T14:50:00.123Z\"}\n{\"id\":\"o-held\",\"text\":\"held message\",\"at\":\"2026-10-30T14:55:00Z\",\"channel\":\"hold\"}\n{\"id\":\"o-status\",\"text\":\"status-held\",\"at\":\"2026-10-30T14:56:00Z\",\"status\":\"held\"}\n{\"id\":\"o-ask\",\"text\":\"What did you do at 2?\",\"at\":\"2026-10-30T14:40:00Z\",\"ask\":{\"askId\":\"a1\",\"type\":\"home-gap\",\"window\":{\"start\":840,\"end\":900},\"place\":\"away\"}}\n{\"id\":\"o-ask2\",\"text\":\"Did you start finish resume?\",\"at\":\"2026-10-30T13:45:00Z\",\"ask\":{\"askId\":\"a2\",\"type\":\"off-plan\",\"kind\":\"mismatch\",\"window\":{\"start\":\"14:00\",\"end\":null},\"title\":\"finish resume\",\"place\":\"Library\"}}\n{\"id\":\"o-voice\",\"text\":\"Did you hear me?\",\"at\":\"2026-10-30T14:30:00Z\",\"ask\":{\"askId\":\"a3\",\"type\":\"voice-repeat\"}}\nnot json at all\n{\"id\":\"o-nodate\",\"text\":\"no date\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": "o-ask2"
+    }
+   ]
+  },
+  {
+   "name": "reply-to-held-ignored",
+   "jsonl": "{\"id\":\"o-old\",\"text\":\"very old message\",\"at\":\"2026-10-30T10:00:00Z\"}\n{\"id\":\"o-1\",\"text\":\"Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? \",\"at\":\"2026-10-30T14:50:00.123Z\"}\n{\"id\":\"o-held\",\"text\":\"held message\",\"at\":\"2026-10-30T14:55:00Z\",\"channel\":\"hold\"}\n{\"id\":\"o-status\",\"text\":\"status-held\",\"at\":\"2026-10-30T14:56:00Z\",\"status\":\"held\"}\n{\"id\":\"o-ask\",\"text\":\"What did you do at 2?\",\"at\":\"2026-10-30T14:40:00Z\",\"ask\":{\"askId\":\"a1\",\"type\":\"home-gap\",\"window\":{\"start\":840,\"end\":900},\"place\":\"away\"}}\n{\"id\":\"o-ask2\",\"text\":\"Did you start finish resume?\",\"at\":\"2026-10-30T13:45:00Z\",\"ask\":{\"askId\":\"a2\",\"type\":\"off-plan\",\"kind\":\"mismatch\",\"window\":{\"start\":\"14:00\",\"end\":null},\"title\":\"finish resume\",\"place\":\"Library\"}}\n{\"id\":\"o-voice\",\"text\":\"Did you hear me?\",\"at\":\"2026-10-30T14:30:00Z\",\"ask\":{\"askId\":\"a3\",\"type\":\"voice-repeat\"}}\nnot json at all\n{\"id\":\"o-nodate\",\"text\":\"no date\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": "o-held"
+    }
+   ]
+  },
+  {
+   "name": "reply-to-voice-repeat",
+   "jsonl": "{\"id\":\"o-old\",\"text\":\"very old message\",\"at\":\"2026-10-30T10:00:00Z\"}\n{\"id\":\"o-1\",\"text\":\"Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? Did you eat lunch? \",\"at\":\"2026-10-30T14:50:00.123Z\"}\n{\"id\":\"o-held\",\"text\":\"held message\",\"at\":\"2026-10-30T14:55:00Z\",\"channel\":\"hold\"}\n{\"id\":\"o-status\",\"text\":\"status-held\",\"at\":\"2026-10-30T14:56:00Z\",\"status\":\"held\"}\n{\"id\":\"o-ask\",\"text\":\"What did you do at 2?\",\"at\":\"2026-10-30T14:40:00Z\",\"ask\":{\"askId\":\"a1\",\"type\":\"home-gap\",\"window\":{\"start\":840,\"end\":900},\"place\":\"away\"}}\n{\"id\":\"o-ask2\",\"text\":\"Did you start finish resume?\",\"at\":\"2026-10-30T13:45:00Z\",\"ask\":{\"askId\":\"a2\",\"type\":\"off-plan\",\"kind\":\"mismatch\",\"window\":{\"start\":\"14:00\",\"end\":null},\"title\":\"finish resume\",\"place\":\"Library\"}}\n{\"id\":\"o-voice\",\"text\":\"Did you hear me?\",\"at\":\"2026-10-30T14:30:00Z\",\"ask\":{\"askId\":\"a3\",\"type\":\"voice-repeat\"}}\nnot json at all\n{\"id\":\"o-nodate\",\"text\":\"no date\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": "o-voice"
+    }
+   ]
+  },
+  {
+   "name": "reply-to-bedtime-newer-wins",
+   "jsonl": "{\"id\":\"t-1\",\"text\":\"Question you tapped\",\"at\":\"2026-10-30T14:50:00Z\"}\n{\"id\":\"t-bed\",\"text\":\"Session done, it is past bedtime for you\",\"at\":\"2026-10-30T14:57:00Z\",\"why\":\"proactive: session-done-9\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": "t-1"
+    }
+   ]
+  },
+  {
+   "name": "reply-to-unknown-falls-through",
+   "jsonl": "{\"id\":\"s-1\",\"text\":\"Check-in: how is the lab going?\",\"at\":\"2026-10-30T14:50:00Z\"}\n{\"id\":\"s-0\",\"text\":\"older\",\"at\":\"2026-10-30T14:00:00Z\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": "nope"
+    }
+   ]
+  },
+  {
+   "name": "spoke-since-then-new-row-not",
+   "jsonl": "{\"id\":\"s-1\",\"text\":\"Check-in: how is the lab going?\",\"at\":\"2026-10-30T14:50:00Z\"}\n{\"id\":\"s-0\",\"text\":\"older\",\"at\":\"2026-10-30T14:00:00Z\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T14:49:00Z",
+     "replyTo": null
+    },
+    {
+     "now": "2026-10-30T14:51:00Z",
+     "replyTo": null
+    },
+    {
+     "now": "2026-10-30T14:52:00Z",
+     "replyTo": null
+    }
+   ]
+  },
+  {
+   "name": "no-id-row-repeats-after-turn",
+   "jsonl": "{\"text\":\"No id row\",\"at\":\"2026-10-30T14:55:00Z\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": null
+    },
+    {
+     "now": "2026-10-30T15:02:00Z",
+     "replyTo": null
+    }
+   ]
+  },
+  {
+   "name": "future-row-ignored",
+   "jsonl": "{\"id\":\"f\",\"text\":\"future\",\"at\":\"2026-10-30T16:00:00Z\"}",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": null
+    }
+   ]
+  },
+  {
+   "name": "empty-file",
+   "jsonl": "",
+   "steps": [
+    {
+     "now": "2026-10-30T15:00:00Z",
+     "replyTo": null
+    }
+   ]
+  }
+ ],
+ "struggled": [
+  {
+   "name": "two-errors",
+   "since": "2026-10-30T14:59:00Z",
+   "transcript": "{\"timestamp\":\"2026-10-30T14:59:10.500Z\",\"message\":{\"role\":\"toolResult\",\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"boom\"}]}}\n{\"timestamp\":\"2026-10-30T14:59:20Z\",\"message\":{\"role\":\"toolResult\",\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"boom\"}]}}"
+  },
+  {
+   "name": "one-error",
+   "since": "2026-10-30T14:59:00Z",
+   "transcript": "{\"timestamp\":\"2026-10-30T14:59:10Z\",\"message\":{\"role\":\"toolResult\",\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"boom\"}]}}\n{\"timestamp\":\"2026-10-30T14:59:20Z\",\"message\":{\"role\":\"toolResult\",\"details\":{\"exitCode\":0},\"content\":[{\"type\":\"text\",\"text\":\"fine\"}]}}"
+  },
+  {
+   "name": "mixed-kinds",
+   "since": "2026-10-30T14:59:00Z",
+   "transcript": "{\"timestamp\":\"2026-10-30T14:59:10Z\",\"message\":{\"role\":\"toolResult\",\"details\":{\"exitCode\":2},\"content\":[{\"type\":\"text\",\"text\":\"x\"}]}}\n{\"timestamp\":\"2026-10-30T14:59:20Z\",\"message\":{\"role\":\"toolResult\",\"content\":[{\"type\":\"text\",\"text\":\"NOTHING WAS moved\"}]}}"
+  },
+  {
+   "name": "failures-before-since",
+   "since": "2026-10-30T15:00:00Z",
+   "transcript": "{\"timestamp\":\"2026-10-30T14:59:10Z\",\"message\":{\"role\":\"toolResult\",\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"boom\"}]}}\n{\"timestamp\":\"2026-10-30T14:59:20Z\",\"message\":{\"role\":\"toolResult\",\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"boom\"}]}}"
+  },
+  {
+   "name": "repeat-guard",
+   "since": "2026-10-30T14:59:00Z",
+   "transcript": "{\"timestamp\":\"2026-10-30T14:59:10Z\",\"message\":{\"role\":\"toolResult\",\"content\":[{\"type\":\"text\",\"text\":\"Orion repeat guard: stop\"}]}}\n{\"timestamp\":\"2026-10-30T14:59:11Z\",\"message\":{\"role\":\"toolResult\",\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"boom\"}]}}"
+  },
+  {
+   "name": "assistant-rows-ignored",
+   "since": "2026-10-30T14:59:00Z",
+   "transcript": "{\"timestamp\":\"2026-10-30T14:59:10Z\",\"message\":{\"role\":\"assistant\",\"isError\":true}}\n{\"timestamp\":\"2026-10-30T14:59:11Z\",\"message\":{\"role\":\"assistant\",\"isError\":true}}"
+  }
+ ]
+}

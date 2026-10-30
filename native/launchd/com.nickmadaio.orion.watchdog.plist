@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Model-free watchdog: one pass a minute. Relaunches Ollama / Orion.app / the phone link when they are down, warms the
+  local models after an Ollama relaunch, and alerts Nick once per outage through scripts/orion-notify.
+  Not KeepAlive: each pass is short and launchd reruns it. See native/launchd/README-watchdog.md.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.nickmadaio.orion.watchdog</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>__NODE__</string>
+      <string>__REPO__/scripts/orion-watchdog</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>60</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.openclaw/logs/orion-watchdog.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.openclaw/logs/orion-watchdog.log</string>
+  </dict>
+</plist>

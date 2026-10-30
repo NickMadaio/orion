@@ -11,7 +11,8 @@ import { routineFacet } from "../patterns/hooks.mjs";
 
 export const SCHEMA = "orion.awareness.v1";
 export const FILE = "awareness.json";
-export const controlledDir = () => process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+export { controlledDir } from "../clock.mjs";
+import { controlledDir } from "../clock.mjs";
 
 /** The age limit that applies to each facet as stored (location depends on where the fix came from). */
 export const limitFor = (name, facet) => name === "location" ? (facet?.source === "region" ? LIMITS.locationRegion : LIMITS.locationSample) : LIMITS[name];

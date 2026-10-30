@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { sandbox } from "./bridge-path.mjs";
-export const pinsFile = () => process.env.ORION_RESCHEDULE_PINS || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}pins.json`);
+import { controlledDir } from "../clock.mjs";
+export const pinsFile = () => process.env.ORION_RESCHEDULE_PINS || join(controlledDir(), `${sandbox() ? "eval-" : ""}pins.json`);
 export function readPins() {
   try { return JSON.parse(readFileSync(pinsFile(), "utf8")); }
   catch (e) { if (e.code === "ENOENT") return {}; throw e; }

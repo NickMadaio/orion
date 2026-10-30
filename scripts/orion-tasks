@@ -29,6 +29,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bridgeRequest, clockNow } from "./lib/life/bridge-path.mjs";
+import { controlledDir } from "./lib/clock.mjs";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { parseSpread, planSessions, taskImportance, waitsFor } from "./lib/life/task-spread.mjs";
@@ -102,7 +103,7 @@ function spreadOf(task) {
 }
 // The to-dos ORION has booked sessions for (2026-10-13). Reminders only lists the open ones, so
 // without this a ticked-off to-do kept its sessions: his finished cert courses stayed booked.
-const LEDGER = process.env.ORION_TASK_LEDGER || join(homedir(), ".openclaw/orion-controlled/task-sessions.json");
+const LEDGER = process.env.ORION_TASK_LEDGER || join(controlledDir(), "task-sessions.json");
 const readLedger = () => { try { return JSON.parse(readFileSync(LEDGER, "utf8")).titles ?? []; } catch { return []; } };
 function writeLedger(titles) {
   if (dry) return;

@@ -43,14 +43,15 @@ import { inWakeGrace } from "./lib/awareness/wake.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 
 import { evalMode, EVAL_MARKER } from "./lib/eval-mode.mjs";
+import { controlledDir, clockMs } from "./lib/clock.mjs";
 const evaluating = evalMode();
-const FILE = evaluating ? join(dirname(EVAL_MARKER), "eval-checkins.json") : process.env.ORION_CHECKIN_FILE || join(homedir(), ".openclaw/orion-controlled/checkins.json");
+const FILE = evaluating ? join(dirname(EVAL_MARKER), "eval-checkins.json") : process.env.ORION_CHECKIN_FILE || join(controlledDir(), "checkins.json");
 const MAX_ALERTS = 8;
 const PLAN_MAX_ALERTS = 5;   // a plan loop is ORION's own; it stops sooner than one he set (spec 3.4.3)
 const HERE = import.meta.dirname;
-const CONTROLLED = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
-// Test seam: ORION_CHECKIN_NOW is the clock (never set in production).
-const NOW_MS = process.env.ORION_CHECKIN_NOW ? Date.parse(process.env.ORION_CHECKIN_NOW) : Date.now();
+const CONTROLLED = controlledDir();
+// Test seams: ORION_CHECKIN_NOW, then ORION_NOW (lib/clock.mjs), are the clock (never set in production).
+const NOW_MS = clockMs(process.env, ["ORION_CHECKIN_NOW"]);
 const nowMinute = () => Math.floor(NOW_MS / 60000);
 const MAX_DROPS = 3, DROP_COOLDOWN_MIN = 30;
 const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return { checkins: [] }; } };

@@ -35,9 +35,10 @@ import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { announced, markAnnounced } from "./lib/reach/announce.mjs";
 import { appendHeld } from "./lib/reach/held.mjs";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
+import { controlledDir, clockNow, isolated, toOutbox } from "./lib/clock.mjs";
 // A watcher invoked by an evaluation must not mutate live state or queue alerts.
 if (evalMode()) { console.log(process.argv.includes("--json") ? "[]" : "Watcher paused during evaluation."); process.exit(0); }
-const CONTROLLED = join(homedir(), ".openclaw/orion-controlled");
+const CONTROLLED = controlledDir();
 const STATE = process.env.ORION_WATCH_FILE || join(CONTROLLED, "watch.json");
 const OUTBOX = join(CONTROLLED, "alerts-outbox.jsonl");
 const read = (f, fallback) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return fallback; } };
@@ -45,7 +46,7 @@ const read = (f, fallback) => { try { return JSON.parse(readFileSync(f, "utf8"))
 const hhmm = (m) => { const h = Math.floor((m % 1440) / 60), mm = String(m % 60).padStart(2, "0"); return `${h % 12 || 12}:${mm} ${h < 12 ? "AM" : "PM"}`; };
 const argAt = (() => { const i = process.argv.indexOf("--at"); return i > 0 ? process.argv[i + 1] : null; })();
 const dry = process.argv.includes("--dry-run");
-const now = new Date();
+const now = clockNow();   // ORION_NOW (lib/clock.mjs); --at still pins the hour on top
 if (argAt && /^\d{1,2}:\d{2}$/.test(argAt)) { const [h, m] = argAt.split(":").map(Number); now.setHours(h, m, 0, 0); }
 const minute = now.getHours() * 60 + now.getMinutes();
 const today = localDate(new Date(now.getTime() - 4 * 3600000));   // the day turns at 4 AM
@@ -223,6 +224,8 @@ if (alerts.length) {
   mkdirSync(CONTROLLED, { recursive: true });
   if (!dry) {
     for (const a of deliverNow) appendFileSync(OUTBOX, `${JSON.stringify({ ...a, kind: "checkin" })}\n`);
+    // in a state copy the copy's alerts-outbox is read by nothing; the isolated outbox is where a test looks
+    if (isolated()) for (const a of deliverNow) toOutbox("phone", { id: a.id, text: a.text }, { by: "orion-watch" });
     for (const { a, v } of heldAlerts) appendHeld(CONTROLLED, { id: `held-${Date.now()}-${a.id}`, alertId: a.id, at: now.toISOString(), text: a.text, level: a.level, via: "alerts-outbox", heldFor: v.heldFor ?? "focus" });
   }
 }

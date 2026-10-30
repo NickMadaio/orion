@@ -3,6 +3,7 @@
 //   orion-patterns learn [--dry-run] [--calendar]    re-mine history and write learned-routines.json (nightly; cheap, no model)
 // Seams: ORION_CONTROLLED_DIR, ORION_SESSIONS_DIR, ORION_REACH_NOW (the clock).
 import { controlledDir } from "../awareness/state.mjs";
+import { clockNow } from "../clock.mjs";
 import { gatherEvidence } from "./sources.mjs";
 import { learnFromEvidence, explain, eveningSummary } from "./run.mjs";
 import { readRoutines, writeRoutines } from "./store.mjs";
@@ -25,7 +26,7 @@ async function calendarRows(now) {
 
 export async function routinesCommand(args, { env = process.env } = {}) {
   const dir = env.ORION_CONTROLLED_DIR || controlledDir();
-  const now = env.ORION_REACH_NOW ? new Date(env.ORION_REACH_NOW) : new Date();
+  const now = clockNow(env, ["ORION_REACH_NOW"]);
   if (args[0] === "routines") {
     const file = readRoutines(dir);
     if (args.includes("--json")) console.log(JSON.stringify(file, null, 2));

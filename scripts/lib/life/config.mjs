@@ -5,9 +5,10 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
 import { sandbox } from "./bridge-path.mjs";
+import { controlledDir } from "../clock.mjs";
 // During a schedule evaluation, a copy: a rule said in a test must not change his real settings.
 export const CONFIG_FILE = process.env.ORION_LIFE_CONFIG
-  || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}life-config.json`);
+  || join(controlledDir(), `${sandbox() ? "eval-" : ""}life-config.json`);
 export const DEFAULTS = Object.freeze({
   sideProjectMinutes: 60, sideProjectLabel: "Side project (YouTube)",
   gymDays: [1, 3, 5], gymMinutes: 60,   // legacy form of `anchors`; the live default is DEFAULT_ANCHORS (below)

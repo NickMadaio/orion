@@ -6,7 +6,8 @@ import { homedir } from "node:os";
 
 // Its OWN file. It used focus-state.json, which is the Mac app's session file,
 // overwrote it, and the app could no longer start or show a focus session (2026-10-06).
-const DEFAULT_FILE = join(homedir(), ".openclaw/orion-controlled/ontask-state.json");
+const DEFAULT_FILE = join(controlledDir(), "ontask-state.json");
+import { controlledDir } from "../clock.mjs";
 
 export function stateFile(env) {
   return env?.ORION_FOCUS_STATE ?? DEFAULT_FILE;

@@ -190,7 +190,7 @@ async function verifyWritten(date, from) {
 import { mkdirSync as mkLock, rmSync as rmLock, statSync as statLock, writeFileSync as writeLock, readFileSync as readLock } from "node:fs";
 import { join as joinPath } from "node:path";
 import { homedir as home } from "node:os";
-const LOCK = joinPath(home(), ".openclaw/orion-controlled/reschedule.lock");
+const LOCK = joinPath(controlledDir(), "reschedule.lock");
 if (!dry) {
   const deadline = Date.now() + 30000;
   for (;;) {

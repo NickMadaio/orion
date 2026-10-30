@@ -53,6 +53,7 @@ import { bypassesQuiet, isUrgentNotification, URGENT_KINDS } from "./lib/reach/q
 import { appendHeld, readHeld, clearHeld, mergeHeld, releaseHeldAlerts } from "./lib/reach/held.mjs";
 import { withKind } from "./lib/curiosity/ask.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
+import { clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
@@ -64,9 +65,13 @@ const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion
 const LOG = join(DIR, "outreach.jsonl");
 const OUTBOX = join(DIR, "outreach-outbox.jsonl");
 // Test seams (never set in production): a fixed clock, fixed Mac facts, a fake `open`.
-const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();
+const now = clockNow(process.env, ["ORION_REACH_NOW"]);
 const givenFacts = process.env.ORION_REACH_FACTS ? JSON.parse(process.env.ORION_REACH_FACTS) : null;
 const OPEN = process.env.ORION_REACH_OPEN_BIN || "/usr/bin/open";
+// A state copy (lib/clock.mjs) never pokes the real ORION app: the URL goes to the isolated outbox instead.
+const openApp = (url, extra) => (outboxed(process.env, "ORION_REACH_OPEN_BIN")
+  ? toOutbox("mac-app", { url, ...extra }, { by: "orion-reach" })
+  : execFileSync(OPEN, ["-g", url], { timeout: 5000 }));
 
 let text = args.find((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(args[i - 1]));
 let held = [];
@@ -224,7 +229,7 @@ try {
   }
   // Mac channels need the ORION app; if it isn't running, the phone is the way.
   if (decision.channel.startsWith("mac")) {
-    try { execFileSync(OPEN, ["-g", `orion://reach?id=${encodeURIComponent(id)}`], { timeout: 5000 }); }
+    try { openApp(`orion://reach?id=${encodeURIComponent(id)}`, { id, text: entry.text, channel: entry.channel }); }
     catch { entry.channel = "phone"; entry.reason = "the ORION app isn't running"; appendFileSync(LOG, `${JSON.stringify(entry)}\n`); }
   }
   // Into his chat thread everywhere; a phone notification only when that is how he is reached.
@@ -236,7 +241,8 @@ try {
     ...(ask ? { ask, askId: entry.askId, category: "orion.ask" } : {}), ...(validUntil ? { validUntil } : {}) })}\n`);
   // A phone delivery also posts the same row on the Mac as a silent bubble, so it is there when he is back (3.4.4).
   // Its channel is not mac-voice, so the app shows it without speaking. Best effort: the app may not be running.
-  if (phone) { try { execFileSync(OPEN, ["-g", `orion://reach?id=${encodeURIComponent(id)}`], { timeout: 5000 }); } catch { /* the push still reached him */ } }
+  if (phone && outboxed(process.env, "ORION_REACH_OPEN_BIN")) toOutbox("phone", { id, text: entry.text, urgent: genuinelyUrgent }, { by: "orion-reach" });
+  if (phone) { try { openApp(`orion://reach?id=${encodeURIComponent(id)}`, { id, text: entry.text, channel: "phone-mirror" }); } catch { /* the push still reached him */ } }
 } catch (error) {
   // 2026-10-16 audit, finding 6: a failed send used to print and exit 0 and the caller marked it said.
   // Recorded as failed (so it neither blocks a retry nor eats the hourly allowance) and exit 4.

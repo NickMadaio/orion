@@ -4,9 +4,10 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { sandbox } from "./bridge-path.mjs";
+import { controlledDir } from "../clock.mjs";
 
 const file = () => process.env.ORION_SKIPS_FILE
-  || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}skipped-events.json`);
+  || join(controlledDir(), `${sandbox() ? "eval-" : ""}skipped-events.json`);
 const read = () => { try { return JSON.parse(readFileSync(file(), "utf8")); } catch { return []; } };
 const write = (list) => { mkdirSync(dirname(file()), { recursive: true }); writeFileSync(`${file()}.tmp`, JSON.stringify(list, null, 2)); renameSync(`${file()}.tmp`, file()); };
 const key = (title, start) => `${String(title).trim().toLowerCase()}|${new Date(start).toISOString()}`;

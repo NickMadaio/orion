@@ -7,6 +7,7 @@
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { controlledDir } from "./slips.mjs";
+import { clockNow } from "../clock.mjs";
 
 export const loggedFile = () => join(controlledDir(), "logged.jsonl");
 
@@ -22,7 +23,7 @@ export function appendLogged(rows) {
   if (!rows.length) return;
   const file = loggedFile();
   mkdirSync(dirname(file), { recursive: true });
-  appendFileSync(file, rows.map((r) => `${JSON.stringify({ at: new Date().toISOString(), ...r })}\n`).join(""));
+  appendFileSync(file, rows.map((r) => `${JSON.stringify({ at: clockNow().toISOString(), ...r })}\n`).join(""));
 }
 
 /** "undo" takes the log back, so its rows go with it. */

@@ -22,7 +22,8 @@ export function classLadder(ctx, say) {
   const signals = ctx.signals ?? {};
   // "I don't have classes today" (2026-10-30: three leave nudges for MKTG2201 after he said it twice): a block he declared off
   // gets no rung at all, and a commute that led to it leads nowhere. ctx.declared: today's facts (lib/awareness/declared-facts.mjs).
-  const off = (b) => cancels(ctx.declared ?? [], b);
+  // (the now record's rows carry no date: they are today's, so they are dated with the block's own day)
+  const off = (b) => cancels((ctx.declared ?? []).map((f) => (f.date ? f : { ...f, date: b.date })), b);
   const blocks = ctx.day ?? [];
   // Away / left: awareness location when it is known (atHome true or false), else the calendar-derived `out` and the
   // phone's leftAt, as before. Unknown is never "left".

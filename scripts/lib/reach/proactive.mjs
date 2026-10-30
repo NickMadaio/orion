@@ -84,6 +84,9 @@ export function decide(ctx) {
       say("bed-late", `Still up at ${hm(ctx.minute)} — ${sleepLeft(ctx.minute)} left before your alarm.${tail}`, tail.includes("Want me") ? "question" : "reminder", { expires: true });
     }
   }
+  // Up all night (orion-watch wrote awake-late.json for tonight): past the last rung (2.5 h after bed) there was nothing at all
+  // (10-25 into 10-26, 10-29 into 10-30). Once a night, in its words; the bedtime guard in orion-reach still decides if it goes.
+  if (ctx.awakeLate && !away && pastBed > 150 && pastBed < 420) say("bed-late-allnighter", ctx.awakeLate, "reminder", { expires: true });
   return out;
 }
 

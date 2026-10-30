@@ -29,7 +29,8 @@ import { deliveryOutcome } from "./lib/reach/delivery.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { actualWake } from "./lib/life/night.mjs";
 import { isRealClass } from "./lib/reach/class-ladder.mjs";
-import { shouldBrief, alarmClock, composeBriefing, buildView } from "./lib/reach/morning.mjs";
+import { shouldBrief, alarmClock, composeBriefing, buildView, briefingTop } from "./lib/reach/morning.mjs";
+import { readHeads, recordHead } from "./lib/reach/brief-heads.mjs";
 import { weatherWithRetry } from "./lib/reach/weather.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
@@ -97,7 +98,7 @@ const claim = claimBriefing(DIR, today, { now: Date.now() });
 if (!claim.ok) { console.log(`No briefing: ${claim.reason}.`); process.exit(0); }
 let delivered = false;
 try {
-  const { text, view, day } = await gather();
+  const { text, view, day, head } = await gather();
   // Review M1: a catch-up is the fallback for a missed morning, not the morning ritual. Never inside a fixed block (it would
   // talk in a lecture); try again at the next tick.
   const nowMinute = now.getHours() * 60 + now.getMinutes(); 
@@ -118,6 +119,7 @@ try {
     writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2));
     renameSync(`${STATE}.tmp`, STATE);
     finalizeBriefing(DIR, today);
+    try { recordHead(DIR, today, head); } catch { /* a lost head only shortens a streak */ }
   }
 } finally {
   if (!delivered) releaseBriefing(DIR, today);   // a failed brief must not block the next signal
@@ -175,6 +177,9 @@ async function gather() {
   const phone = phoneMinutes(health.phoneSignals, today);
   const nowMinute = now.getHours() * 60 + now.getMinutes();
   const missed = day.filter((b) => isRealClass(b) && b.end <= nowMinute && classAttendance(b, { wokeAt, phone }) === "missed");
-  const facts = { now, day, travel, todos, today, weather: sky, calendar, missed };
-  return { text: composeBriefing(facts), view: buildView(facts), day };
+  // the heads of earlier briefs: the same item first three days running is said as slipping (lib/reach/brief-heads.mjs)
+  const headHistory = readHeads(DIR, today);
+  const facts = { now, day, travel, todos, today, weather: sky, calendar, missed, headHistory };
+  const top = briefingTop({ todos, headHistory, today });
+  return { text: composeBriefing(facts), view: buildView(facts), day, head: top.head?.key ?? null };
 }

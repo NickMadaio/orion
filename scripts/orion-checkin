@@ -5,10 +5,10 @@
 // quiet and checks the work is still going; done or cancelled, it stops.
 //
 //   orion-checkin add <minutes> "<what>" [--because "<reason>"]   schedule a check-in
-//       [--by orion --block <blockId> [--window HH:MM-HH:MM]]      a plan loop (awareness C9): 5 alerts at most, sent
-//                                                                  through orion-reach; on give-up or cancel the day is re-weighed
+//       [--by orion --block <blockId> [--window HH:MM-HH:MM]]      a plan loop (awareness C9): the ladder (below), sent
+//                                                                  through orion-reach; at its END or on cancel the day is re-weighed
 //       [--day YYYY-MM-DD --start <min> --end <min>]               the block's own day and window (minutes after midnight): the loop is
-//                                                                  dropped once the block is over or the day has changed, and its "it's been N min"
+//                                                                  closed once the block is over (one closing message) or the day has changed; "it's been N min"
 //                                                                  counts from that start. [--tier protected] for a must block (the gym).
 //   orion-checkin started|done [id]                                 he began / finished
 //   orion-checkin started "<what>"                                  he began something with no check-in
@@ -22,7 +22,10 @@
 //   orion-checkin list                                               what is pending
 //   orion-checkin tick [--json]                                      advance due loops; print alerts
 //
-// The loop itself is scripts/lib/life/follow-through.mjs. `tick` is run by the
+// A plan loop (--block) climbs the escalation ladder L0-L3 and always ends with a closing message (lib/reach/plan-loop.mjs,
+// docs/design/2026-10-30-escalation-ladder.md); every save also writes ladders.json. [--reply-to <msgId>] on started, done,
+// defer and cancel names the ladder message he answered; find --msg <msgId> finds its loop.
+// His own check-ins are scripts/lib/life/follow-through.mjs. `tick` is run by the
 // phone link on the Mac every 30 s; each alert it prints becomes a notification
 // on Nick's iPhone. [id] defaults to the most recent open check-in.
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";

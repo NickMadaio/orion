@@ -36,6 +36,8 @@ export function deferral(aw, now) {
 /** Movable block ORION planned for him (not a fixed event, not logged reality, not a break). */
 const planned = (b) => !b.fixed && b.source === "orion" && !b.logged && !["rest", "sleep", "commute"].includes(b.kind) && rankOf(b) !== "low";
 const blockPlace = (b) => b.where ?? b.place ?? (b.kind === "gym" ? "gym" : null);
+/** An open plan ladder (waiting, reminded, intervening, or in a grace). */
+export const chasing = (checkins) => (checkins ?? []).some((c) => c.block && OPEN_PHASES.includes(c.loop?.phase));
 const loopFor = (checkins, b) => (checkins ?? []).find((c) => c.block === b.id && OPEN_PHASES.concat("active").includes(c.loop?.phase));
 
 /** Positive evidence that he is doing the block: session on its task, a work app, being at its place, a log, a `started` check-in. */
@@ -109,6 +111,8 @@ export function planVsReality(aw, ctx) {
   const first = mismatches.sort((a, b) => SCORE[a.rank] - SCORE[b.rank])[0];
   if (first) return [...actions, first];
 
+  // A plan ladder is chasing a block: "what are you up to?" on top of "Gym, now" is noise (2026-10-30 demo, 17:15).
+  if (chasing(checkins)) return actions;
   // Nothing is off: a blank (nothing on the calendar, nothing known) is asked about, within the backoff.
   const blank = blankAsk(aw, { minute, date, day, todos, travel, ledger, turns, now: now.getTime() });
   return blank && !sent[blank.key] ? [...actions, { ...blank, type: "blank", blankType: blank.type, action: "ask", kind: "question" }] : actions;

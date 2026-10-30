@@ -16,13 +16,13 @@ export function homeFrom(blocks, { commuteMinutes = 30, wake = 540 } = {}) {
 }
 
 /** The minute this kind of plan would naturally start, never before `home`. */
-export function preferredStart({ title = "", kind = "other" }, home) {
+export function preferredStart({ title = "", kind = "other", early = false }, home) {
   const t = String(title);
   if (/\bnap\b/i.test(t)) return home;
   if (/\bbreakfast\b/i.test(t)) return 0;
   if (/\blunch\b/i.test(t)) return Math.max(home, 12 * 60);
   if (kind === "meal" || /\bdinner\b/i.test(t)) return Math.max(home, 18 * 60 + 30);
-  if (kind === "gym") return Math.max(home, 17 * 60);
+  if (kind === "gym") return early ? home : Math.max(home, 17 * 60);   // fillDay flags the daily gym `early`: it takes the first good gap before the day fills (2026-10-30)
   if (EVENING.test(t) || (kind === "rest" && !/\bbreak\b/i.test(t))) return Math.max(home, 20 * 60);
   return home;
 }

@@ -20,7 +20,12 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
-import { adjustForShortSleep } from "./lib/life/after-late-night.mjs";
+import { adjustForShortSleep, tomorrowProposal, awakeLateFlag, goToBedMessage } from "./lib/life/after-late-night.mjs";
+import { recoveryFromLog } from "./lib/life/recovery.mjs";
+import { sensorHealth, macFacet, phoneFacet } from "./lib/awareness/facets.mjs";
+import { sensorNotices, noticeLine } from "./lib/life/stale-sensors.mjs";
+import { sleepPlanFor, readNowRecord } from "./lib/life/now-state.mjs";
+import { readSlips } from "./lib/life/slips.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
 import { applyPlan, bridge } from "./lib/life/calendar-write.mjs";
 import { morningBrief } from "./lib/life/morning-brief.mjs";
@@ -117,12 +122,48 @@ const lastClass = classes.at(-1);
 const short_ = (t) => t.replace(/ — .*$/, "").replace(/^[A-Z]{2,4}\d{3,4}\s+/, "");
 const plans = (list) => list.map((b) => `${short_(b.title)} at ${hhmm(b.start)}`).join(", ");
 
+// 1b. Awake past the sleep plan (2026-10-30: the 10-25 all-nighter, a 9:00 class, and nothing said). Past bedtime with the
+// Mac or the phone in use is flagged here; the plan for the coming day is a PROPOSAL (class and alarm stay, a nap after
+// class, heavy study later, an easy short gym) that the morning brief states. The go-to-bed words are written to
+// awake-late.json for the bedtime guard, which owns whether and when a message goes.
+const readJson = (f) => read(join(CONTROLLED, f), null);
+const bedPlan = (() => {
+  if (minute < 360) {
+    const kept = (readJson("night.json")?.days ?? []).find((d) => d?.date === localDate(new Date(now.getTime() - 86400000)));
+    return (kept?.bed ?? toMinute(config.bedtime)) % 1440;
+  }
+  const planned = readNowRecord(CONTROLLED)?.sleepPlan?.bedtime;
+  return (planned ? toMinute(planned) : bed) % 1440;
+})();
+const macNow = macFacet(readJson("focus-activity.json"), null, now);
+const phoneNow = phoneFacet(log, now);
+const lateFlag = awakeLateFlag({ minute, bedMinute: bedPlan, macActive: macNow.state === "active", phoneInUse: phoneNow.state === "in-use" });
+if (lateFlag.awake && events) {
+  const targetDate = minute < 360 ? localDate(now) : localDate(new Date(now.getTime() + 86400000));
+  const coming = toBlocks(events, targetDate);
+  const wakeMin = toMinute(sleepPlanFor({ minute, tomorrow: coming }).wake);
+  const sleptMinutes = Math.max(0, (wakeMin - minute + 1440) % 1440);
+  const recovery = recoveryFromLog(log, today, { sleptHours: sleptMinutes / 60 });
+  const proposal = tomorrowProposal([...coming, ...commuteBlocks(coming, config)], { sleptMinutes, wake: wakeMin, window: { start: wakeMin, end: 1380 }, recovery, minimums: config.minimums });
+  const firstClass = coming.filter((b) => b.fixed && b.kind === "class").sort((a, b) => a.start - b.start)[0] ?? null;
+  const flagged = { since: day.awakeLate?.since ?? new Date(now.getTime() - lateFlag.minutesPastBed * 60000).toISOString(), at: now.toISOString(), minutes: lateFlag.minutesPastBed,
+    evidence: lateFlag.evidence, night: today, targetDate, sleptMinutes,
+    message: goToBedMessage({ minute, firstClass: firstClass && { title: firstClass.title.replace(/ — .*$/, ""), start: firstClass.start }, wake: wakeMin }),
+    proposal: { text: proposal.text, changes: proposal.changes, protect: proposal.protect } };
+  day.awakeLate = flagged;
+  if (!dry) { mkdirSync(CONTROLLED, { recursive: true }); writeFileSync(join(CONTROLLED, "awake-late.json.tmp"), JSON.stringify(flagged, null, 2)); renameSync(join(CONTROLLED, "awake-late.json.tmp"), join(CONTROLLED, "awake-late.json")); }
+}
+// The proposal waiting for today (made in the night, or one earlier tick): not stated if WHOOP says he slept after all.
+const proposalToday = [...Object.values(state), day].map((d) => d?.awakeLate).filter((a) => a?.targetDate === localDate(now)).at(-1) ?? null;
+const proposalLive = proposalToday && !(typeof record.sleepHours === "number" && record.sleepHours >= 6.5 && !lateFlag.awake) ? proposalToday : null;
+
 // 2. A short night: reshape the morning, once, as soon as he is up.
 const slept = typeof record.sleepHours === "number" ? record.sleepHours * 60 : null;
 const lateBed = (log.sleepLog ?? []).filter((e) => e.event === "bed").map((e) => new Date(e.at))
   .filter((d) => now - d < 16 * 3600000 && (d.getHours() >= 2 && d.getHours() < 8)).at(-1);
 const short = (slept !== null && slept < 360) || lateBed;
-if (awake && short && !day.adjusted && minute < 780 && blocks.length) {
+// An all-nighter ORION already made a proposal for is stated in the brief, not rewritten on the calendar behind his back.
+if (awake && short && !day.adjusted && minute < 780 && blocks.length && !proposalLive) {
   const sleptMinutes = slept ?? Math.max(0, Math.round((toMinute(config.usualWake) + 1440 - (lateBed.getHours() * 60 + lateBed.getMinutes())) % 1440));
   // The commute home after class is not nap time: gaps are found around it, and
   // the pseudo-blocks never reach the calendar.
@@ -166,16 +207,46 @@ if (awake && !day.tasksPlanned && minute < 780) {
 // he is up and before 1 PM — sleep, the first fixed thing, the nearest deadline,
 // the side-project hour. On an empty day it leads into the question below.
 let brief = null;
-if (awake && minute < 780 && day.calendar === "ok" && !day.asked.includes("brief")) {
+// What ORION cannot see (facets.sensorHealth: stale past 2 h while it should be live), said ONCE per outage, in the brief when
+// there is one this tick and as its own message otherwise.
+const sensorTimes = (() => {
+  const days = log.days ?? {}; const lastDay = Object.keys(days).sort().at(-1);
+  const newest = (...at) => at.filter((x) => x && !Number.isNaN(Date.parse(x))).sort().at(-1) ?? null;
+  return { phone: newest((log.phoneSignals ?? []).at(-1)?.at, (Array.isArray(log.phoneScreen) ? log.phoneScreen.at(-1) : log.phoneScreen)?.at),
+    mac: newest(readJson("focus-activity.json")?.at),
+    whoop: newest(evidence.nights.at(-1)?.wokeAt, lastDay ? days[lastDay]?.updatedAt : null) };
+})();
+const sensorsSeen = sensorHealth({ now, at: sensorTimes, expected: { phone: true, mac: awake, whoop: awake } });
+const toldBefore = Object.assign({}, ...Object.values(state).map((d) => d?.sensorTold ?? {}), day.sensorTold ?? {});
+const sensorSaid = sensorNotices({ health: sensorsSeen, told: toldBefore, now });
+let sensorsInBrief = false;
+if (awake && minute >= 300 && minute < 780 && day.calendar === "ok" && !day.asked.includes("brief")) {
   const deadlines = await bridge("list_deadlines", {}).then((r) => JSON.parse(r.events_json ?? "[]")).catch(() => [])
     .then((list) => list.filter((e) => /\b(quiz|exam|midterm|final|test|due|submission|presentation|essay|assignment|coursework)\b/i.test(e.title))
       .map((e) => ({ title: e.title, date: localDate(new Date(e.start)) })));   // assessments, not holidays
-  brief = morningBrief({
+  // The top of the list is recomputed from today's real deadlines, his to-dos and what keeps slipping, and remembered per day so
+  // the same item cannot head it three days running without being called out.
+  const todos = await bridge("list_incomplete_reminders", { list: config.todoList }).then((r) => JSON.parse(r.reminders_json ?? "[]")).catch(() => []);
+  const weekAgo = localDate(new Date(now.getTime() - 7 * 86400000));
+  const candidates = [
+    ...todos.map((t) => ({ title: t.title, due: t.due ? localDate(new Date(t.due)) : null })),
+    ...readSlips().filter((s) => s.date >= weekAgo && s.planned?.title).map((s) => ({ title: s.planned.title, rank: s.planned.rank })),
+  ];
+  const history = Object.entries(state).filter(([d, v]) => d < today && v?.briefHead).sort(([a], [b]) => (a < b ? 1 : -1)).map(([date, v]) => ({ date, head: v.briefHead }));
+  const gymBlock = blocks.find((b) => b.kind === "gym");
+  const lowRecovery = recoveryFromLog(log, today).level === "low";
+  const made = morningBrief({
     now: { date: localDate(now), minute },
     blocks: blocks.map((b) => ({ title: short_(b.title), kind: b.kind, start: b.start, end: b.end, fixed: b.fixed })),
     deadlines, sleep: { hours: record.sleepHours ?? null, recovery: record.recovery ?? null },
-    sideProjectLabel: config.sideProjectLabel,
-  }).text;
+    sideProjectLabel: config.sideProjectLabel, candidates, history,
+    proposal: proposalLive?.proposal?.text ?? null,
+    gym: gymBlock && !proposalLive ? { start: gymBlock.start, minutes: gymBlock.end - gymBlock.start, easy: lowRecovery && gymBlock.end - gymBlock.start <= 45 } : null,
+    sensorNotices: sensorSaid.notices.map((n) => n.text),
+  });
+  brief = made.text;
+  if (made.head) day.briefHead = made.head.key;
+  sensorsInBrief = sensorSaid.notices.length > 0;
   day.asked.push("brief");
 }
 
@@ -207,6 +278,11 @@ if (awake && free >= 180) {
   }
 }
 if (brief) alerts.unshift({ id: "watch-brief", level: 1, text: `Morning. ${brief}` });
+// Sensors missing, told once: inside the brief when there was one, otherwise alone (awake, and not in the small hours).
+if (sensorSaid.notices.length && (sensorsInBrief || (awake && minute >= 300 && !lateFlag.awake))) {
+  if (!sensorsInBrief) alerts.push({ id: "watch-sensors", level: 1, text: noticeLine(sensorSaid.notices) });
+  day.sensorTold = sensorSaid.told;
+}
 // One delivery gate (awareness 3.2): everything but a class reminder waits in the held queue during focus, the first
 // minutes of a pause and class, and is released on a break or the end. His own wake/awake test above already says he is
 // up, so sleep never holds these. Released by orion-reach --drain-held / orion-proactive's tick.

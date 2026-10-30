@@ -208,6 +208,26 @@ export function audioFacet(activity, phoneSignals, now) {
   return { mac, phone };
 }
 
+/** A sensor that should be live and has not reported for this long is stale (2026-10-30: the phone was dead from 10-26 and nobody was told). */
+export const SENSOR_LIVE_LIMIT = 2 * 3600_000;
+
+/**
+ * Whether each sensor that SHOULD be live is. `at`: the time of its newest sample (ISO) or null. `expected`: which sensors
+ * should be reporting right now (the Mac only while he is up); one that is not expected is "off", never stale.
+ * A missing sample on an expected sensor is stale with `lastAt: null`.
+ * @returns {{ phone, mac, whoop }} each { state: "live"|"stale"|"off", lastAt, ageMs }
+ */
+export function sensorHealth({ now, at = {}, expected = { phone: true, mac: true, whoop: true }, limit = SENSOR_LIVE_LIMIT }) {
+  const one = (name) => {
+    const t = ms(at[name]);
+    const ageMs = t === null ? null : now.getTime() - t;
+    const lastAt = t === null ? null : at[name];
+    if (!expected[name]) return { state: "off", lastAt, ageMs };
+    return { state: t !== null && ageMs <= limit ? "live" : "stale", lastAt, ageMs };
+  };
+  return { phone: one("phone"), mac: one("mac"), whoop: one("whoop") };
+}
+
 /** What the facets add up to. Unknown facets never produce a "yes". */
 export function derive(aw) {
   const { session, calendar, location, mac, sleep, audio } = aw;

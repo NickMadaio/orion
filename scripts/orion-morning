@@ -34,6 +34,7 @@ import { weatherWithRetry } from "./lib/reach/weather.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
+import { clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
 import { commuteWalls } from "./lib/life/commute.mjs";
 import { waitsFor } from "./lib/life/task-spread.mjs";
 
@@ -44,7 +45,7 @@ const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 const [command, signal] = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--at");
 const dry = args.includes("--dry-run");
-const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();   // test seam
+const now = clockNow(process.env, ["ORION_REACH_NOW"]);   // test seams: ORION_REACH_NOW, ORION_NOW (lib/clock.mjs)
 const OPEN = process.env.ORION_REACH_OPEN_BIN || "/usr/bin/open";                              // test seam: never the real app
 const today = localDate(now);
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
@@ -82,7 +83,7 @@ if (command === "catchup") {
 const signalAt = catchupAt ?? (flag("--at") ? new Date(flag("--at")) : now);
 // The alarm that actually rang: his own wake-up beats the planner's (alarmClock).
 let planned = null;
-try { planned = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
+try { planned = JSON.parse(run("orion-now", ["--json"])).sleepPlan?.wake ?? null; } catch {}   // the now record (lib/life/now-record.mjs)
 const wake = alarmClock({ planned, asked: readJson(join(DIR, "wake-request.json"))?.at, today });
 const isCatchup = command === "catchup";
 const gate = shouldBrief({ catchUp: isCatchup, signal: signalName, signalAt, now, wake, briefedToday: !!state[today] });
@@ -131,7 +132,8 @@ function showScreen(view) {
   try {
     mkdirSync(DIR, { recursive: true });
     writeFileSync(join(DIR, "morning-view.json"), JSON.stringify(view, null, 2));
-    execFileSync(OPEN, ["-g", "orion://morning-screen"], { timeout: 5000 });
+    if (outboxed(process.env, "ORION_REACH_OPEN_BIN")) toOutbox("mac-app", { url: "orion://morning-screen" }, { by: "orion-morning" });
+    else execFileSync(OPEN, ["-g", "orion://morning-screen"], { timeout: 5000 });
     return true;
   } catch { return false; }
 }

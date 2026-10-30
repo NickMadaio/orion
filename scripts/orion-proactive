@@ -2,7 +2,8 @@
 /*
  orion-proactive — ORION speaking first, with context (2026-10-07).
 
-   orion-proactive tick [--dry-run] [--reason tick|phase|place]   every ~5 minutes, or right after a phase / place event
+   orion-proactive tick [--dry-run [--print-now]] [--reason tick|phase|place]   every ~5 minutes, or right after a phase / place event
+                                                                  (writes now.json, the now record, on every tick that is not a dry run)
    orion-proactive status                                         what it has said today
    orion-proactive ask-outcome <askId> nothing|declined|logged|answered|saved    close a curiosity ask
 
@@ -39,8 +40,10 @@ import { waitsFor } from "./lib/life/task-spread.mjs";
 import { inWakeGrace } from "./lib/awareness/wake.mjs";
 import { reviewDue, bedOnEvening } from "./lib/reach/review-time.mjs";
 import { routineAsk } from "./lib/patterns/ask.mjs";
+import { buildNow, writeNowRecord } from "./lib/life/now-state.mjs";
+import { clockNow, controlledDir } from "./lib/clock.mjs";
 
-const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+const DIR = controlledDir();
 const STATE = join(DIR, "proactive-sent.json");
 const here = import.meta.dirname;
 const argv = process.argv.slice(2);
@@ -48,7 +51,7 @@ const reasonAt = argv.indexOf("--reason");
 const reason = reasonAt >= 0 ? argv[reasonAt + 1] : "tick";
 const [command, ...positional] = argv.filter((a, i) => !a.startsWith("--") && !(i > 0 && argv[i - 1] === "--reason"));
 const dry = process.argv.includes("--dry-run");
-const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();   // test seam
+const now = clockNow(process.env, ["ORION_REACH_NOW"]);   // test seams: ORION_REACH_NOW, ORION_NOW (lib/clock.mjs)
 // A night belongs to the evening it started: until 6 AM it is still "yesterday".
 const dayKey = new Date(now.getTime() - 6 * 3600000).toLocaleDateString("en-CA");
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
@@ -106,8 +109,6 @@ if ((!session || !["running", "paused"].includes(session.status)) && last?.ended
   session = { status: "finished", sessionId: last.sessionID, endedMinute: ended.getHours() * 60 + ended.getMinutes(),
     reason: last.reason, servedFocusSeconds: last.servedFocusSeconds };   // so abandoned and 2-second test sessions are not announced
 }
-let sleep = {};
-try { sleep = JSON.parse(run("orion-now", ["--json"])).sleep ?? {}; } catch {}
 let day = [], dayOk = false;
 try { day = await liveDayWithLogged(localDate(now)); dayOk = true; } catch {}
 const total = focusToday(history, { dayKey: localDate(now) });
@@ -136,6 +137,12 @@ try { tomorrowDay = tomorrowIsToday ? day : await liveDay(tomorrow); } catch {}
 const lastReachId = (key) => { try { return readFileSync(join(DIR, "outreach.jsonl"), "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }).filter((r) => r.why === `curiosity: ${key}`).at(-1)?.id ?? null; } catch { return null; } };
 // The calendar this script just read vouches for itself when awareness has none (or an old one).
 if (dayOk && aw.calendar?.state !== "ok") aw = { ...aw, calendar: calendarFacet(day, travel, now) };
+// The now record (lib/life/now-record.mjs): what he should be doing now and next, the one decision every surface reads.
+// Written on every tick; before 06:00 the plan is the evening's, so buildNow reads that day itself.
+const record = await buildNow({ dir: DIR, now, aw, config, ...(minute >= 360 ? { day, dayOk, tomorrowDay: tomorrowDay ?? [] } : {}) });
+const sleep = record.sleepPlan;   // tonight's bed and wake (formerly orion-now --json .sleep)
+if (dry) { if (argv.includes("--print-now")) console.log(JSON.stringify(record, null, 2)); }
+else { try { writeNowRecord(DIR, record); } catch { /* a surface reading an older record is better than a tick that dies */ } }
 const bedMin = bedOnEvening(sleep.bedtime);   // a 00:30 bed is 1470 on this evening's clock
 const checkinFile = process.env.ORION_CHECKIN_FILE || join(DIR, "checkins.json");
 const checkins = readJson(checkinFile)?.checkins ?? [];

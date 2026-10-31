@@ -136,7 +136,10 @@ export function applyPlan(p, plan) {
     if (w.content === null) rmSync(w.path, { force: true }); else writeFileSync(w.path, `${JSON.stringify(w.content, null, 2)}\n`);
   }
   // Appended, so the undo can truncate back to the snapshot (state.mjs RESTORED_LOGS).
-  for (const a of plan.appends ?? []) appendFileSync(join(p.ctrl, a.file), a.text);
+  for (const a of plan.appends ?? []) {
+    const file = join(p.ctrl, a.file), cur = readText(file);
+    appendFileSync(file, `${cur && !cur.endsWith("\n") ? "\n" : ""}${a.text}`);
+  }
   if (plan.sandbox) {
     // The sandbox planner reads eval-life-config.json: his real settings, copied (orion-eval-schedule does the same).
     writeFileSync(join(p.ctrl, "eval-life-config.json"), readText(join(p.ctrl, "life-config.json")) ?? "{}");

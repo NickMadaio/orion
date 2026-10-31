@@ -14,9 +14,10 @@ const CTRL_FILES = ["wake-request.json", "reminders.json", "watches.json", "watc
 const WORKSPACE_FILES = ["USER.md", "MEMORY.md"];
 // Append-only inputs the item can add to; restored by truncation only when the old content is still a prefix.
 // logged.jsonl (what he said he did; day-questions habitAnswer reads it): a gate item is not Nick, and the gym fixture appends to it.
-const RESTORED_LOGS = ["inbound-turns.jsonl", "logged.jsonl"];
+// outreach.jsonl: the gate seeds a row per `replyToOutreach` text (lib/seed-outreach.mjs); truncation removes it.
+const RESTORED_LOGS = ["inbound-turns.jsonl", "logged.jsonl", "outreach.jsonl"];
 // Append-only records that are evidence (ledgers, audits): REPORTED, never rewound.
-const REPORTED_LOGS = ["task-ledger.jsonl", "slips.jsonl", "held.jsonl", "outreach.jsonl", "life-history.jsonl", "focus-history.jsonl", "outbox.jsonl"];
+const REPORTED_LOGS = ["task-ledger.jsonl", "slips.jsonl", "held.jsonl", "life-history.jsonl", "focus-history.jsonl", "outbox.jsonl"];
 
 const read = (p) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
 const entriesOf = (raw) => { try { return JSON.parse(raw ?? "[]").map((e) => JSON.stringify(e)); } catch { return []; } };

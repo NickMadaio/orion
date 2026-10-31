@@ -1,5 +1,6 @@
 // --dry-run: what every item's setup WOULD do, read-only. No marker, no file written, no gateway call, no spawn.
 import { basename } from "node:path";
+import { seedOutreach } from "./seed-outreach.mjs";
 import { planSetup, renderTokens } from "./setup.mjs";
 import { trackedFiles } from "./state.mjs";
 
@@ -12,11 +13,13 @@ export async function dryRun({ items, p, realNow = Date.now(), hostZone, log = (
   const writable = new Map(trackedFiles(p).map((f) => [basename(f), f]));
   const rows = [];
   for (const item of items) {
-    const plan = await planSetup(p, item.setup, { writable, realNow, hostZone });
-    const clock = plan.now ? Date.parse(plan.now) : realNow;
+    const planned = await planSetup(p, item.setup, { writable, realNow, hostZone });
+    const clock = planned.now ? Date.parse(planned.now) : realNow;
+    const { plan, rows: seeded } = seedOutreach(item, planned, clock);
     const row = {
       id: item.id, tier: plan.live ? "live" : "sandbox", sandbox: Boolean(plan.sandbox), now: plan.now,
       events: plan.sandbox?.events.length ?? 0, todos: plan.sandbox?.reminders.length ?? 0,
+      outreach: seeded.map((r) => ({ id: r.id, at: r.at, text: r.text })),
       files: [...plan.writes.map((w) => w.file), ...plan.appends.map((a) => `+${a.file}`)], applied: plan.applied, unmet: plan.unmet,
       turns: item.turns.map((t) => renderTokens(t.text, clock)),
     };
@@ -26,6 +29,7 @@ export async function dryRun({ items, p, realNow = Date.now(), hostZone, log = (
   const summary = {
     items: rows.length, sandboxed: rows.filter((r) => r.sandbox).length, live: rows.filter((r) => r.tier === "live").length,
     realTimeNoFixture: rows.filter((r) => !r.sandbox && r.tier !== "live").length,
+    itemsWithOutreach: rows.filter((r) => r.outreach.length).length,
     itemsWithUnmet: rows.filter((r) => r.unmet.length).length,
     appliedByKey: tally(rows, "applied"), unmetByKey: tally(rows, "unmet"),
   };

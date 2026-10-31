@@ -19,6 +19,7 @@ import { holdMarker } from "./lib/marker.mjs";
 import { effectSince, restoreState, snapshotState, trackedFiles, verifyRestore } from "./lib/state.mjs";
 import { checkReplies, summarize, validateScenarios } from "./lib/scenarios.mjs";
 import { applyPlan, planSetup, renderTokens } from "./lib/setup.mjs";
+import { seedOutreach } from "./lib/seed-outreach.mjs";
 import { dryRun } from "./lib/dry-run.mjs";
 
 const stampNow = () => new Date().toISOString().slice(5, 16).replace(/[-:T]/g, "");
@@ -36,7 +37,9 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   mkdirSync(opts.outDir, { recursive: true });
   // Written BEFORE the setup: a crash from here on is undone by --recover, sandbox files included.
   writeFileSync(join(opts.outDir, "inflight-snapshot.json"), JSON.stringify({ id: item.id, snap }));
-  const plan = await planSetup(p, item.setup, { writable: writableFiles(p) });
+  const planned = await planSetup(p, item.setup, { writable: writableFiles(p) });
+  // "ORION just said X" becomes a real outreach row at the item's effective now (sandbox clock, or real time when live).
+  const { plan, replyTo } = seedOutreach(item, planned, planned.sandbox ? Date.parse(planned.sandbox.now) : Date.now());
   const setup = { applied: plan.applied, unmet: plan.unmet, tier: tierOf(item) };
   const turns = [];
   // A sandboxed item lives at the sandbox's `now`: the app-side clock (outreach window, thinking boost, QuickAnswer)
@@ -51,7 +54,7 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
     base = await snapshotState(p);
     for (const t of item.turns) {
       const text = renderTokens(t.text, clock());
-      const r = await askTurn({ text, spoken: t.spoken === true, replyTo: t.replyToOutreach ?? null, conversation, inbound: opts.inbound, allowedApps: opts.allowedApps }, itemCtx, p);
+      const r = await askTurn({ text, spoken: t.spoken === true, replyTo: replyTo(t.replyToOutreach), conversation, inbound: opts.inbound, allowedApps: opts.allowedApps }, itemCtx, p);
       turns.push({ text, ...(text !== t.text ? { template: t.text } : {}), spoken: t.spoken === true, replyToOutreach: t.replyToOutreach ?? null, message: r.message, thinking: r.thinking, sessionStatus: r.sessionStatus,
         reply: r.reply, latencyMs: r.latencyMs, model: r.model, routing: r.routing, tools: r.tools, status: r.status, error: r.error, inbound: r.inbound, bypassedGateway: r.bypassedGateway, raw: slimRaw(r.raw) });
     }

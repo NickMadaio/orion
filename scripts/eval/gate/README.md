@@ -107,8 +107,16 @@ Schema (validated up front; a bad file runs nothing):
   the rendered `text` and the `template`. Run this tier in the afternoon or early evening: "+150m tonight" past
   about 21:30 crosses midnight.
 - Items with neither (memory, screen, files, keychain probes) run at real time with no fixture.
-- What setup cannot make true: a focus session "running" (the session is real state, not a file), an outreach
-  "sent 10 min ago" (the notes describe it; outreach.jsonl is evidence, not rewound), and the timestamp OpenClaw itself
+- **`turns[].replyToOutreach`** is the TEXT of the nudge being answered (`ORION: "..."`). Before the item's turns the
+  runner appends one synthetic row per distinct text to `outreach.jsonl` (real schema: `reach-<ms>-<hex6>` id, `at`,
+  `text` without the `ORION: ` prefix, `kind`, `why: "gate: seeded outreach"`, `channel`, no `ask`, not held) and sends
+  that id as the turn's `replyTo`, so the `[ORION context: you messaged him first ...]` prefix carries the message.
+  `at` is a few minutes (default 5) before the item's effective now: the sandbox `now` for a sandboxed item, real time
+  for a live one; `setup.notes` overrides it ("at 12:47" for sandbox items, "N min ago" for either). A value already
+  shaped like a real id is left alone. Each result's `setup.applied` lists `outreach:<id>`. At undo the rows are
+  removed by truncation (only while the old content is still a prefix; a live row appended meanwhile goes too).
+- What setup cannot make true: a focus session "running" (the session is real state, not a file), the real
+  outreach history (only the synthetic row below is added), and the timestamp OpenClaw itself
   stamps on a turn, which is real time.
 - Regex grading: `reply_must` against the last turn's reply, `reply_must_not` against every turn's. `"/x/i"` or plain
   `"x"` (case-insensitive). Rubric grading is left to the separate grader.
@@ -147,7 +155,7 @@ later by itself. It refuses to start over someone else's live marker.
 Per item: snapshot, run, **record the diff**, undo, verify. What is restored: the calendar through
 `orion-reschedule undo` once per new journal entry, then the journal file itself (the journal keeps only 10);
 about two dozen plugin state files, `USER.md`, `MEMORY.md` and `workspace/memory/*.md` byte for byte;
-`inbound-turns.jsonl` by truncation; Apple Reminders to-dos completed or reopened to match; a focus session the item
+`inbound-turns.jsonl` and `outreach.jsonl` (the rows the gate seeded) by truncation; Apple Reminders to-dos completed or reopened to match; a focus session the item
 started is abandoned and released. `verify` re-reads all of it and lists anything that did not come back.
 
 Limits, stated so they are not discovered later:
@@ -156,7 +164,7 @@ Limits, stated so they are not discovered later:
   than 10 calendar changes is flagged `UNDO INCOMPLETE`.
 - If an item *undoes one of Nick's earlier real changes* (a bare "cancel that"), that is flagged `HAZARD` and not
   restorable here.
-- Ledgers and audit logs (`task-ledger.jsonl`, `outreach.jsonl`, `held.jsonl`, `slips.jsonl`, `life-history.jsonl`,
+- Ledgers and audit logs (`task-ledger.jsonl`, `held.jsonl`, `slips.jsonl`, `life-history.jsonl`,
   `focus-history.jsonl`, `outbox.jsonl`) are reported as appended lines, never rewound: they are evidence.
 - Other top-level files that changed during an item are listed in `effect.otherChanged` but not restored; they may
   be background processes, and overwriting them would be worse than reporting them.

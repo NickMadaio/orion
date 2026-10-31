@@ -139,8 +139,8 @@ describe("chatter on the live route", () => {
   it("R2 10-26: a sentence misread as 'log it' is never answered with the scheduler's zero-length refusal; the worker gets it", async () => {
     const r = route(() => ({ move: "escalate" }), { scheduleFlow: async () => ({ outcome: "say", kind: "plain", text: "Not done: 2:24 PM–2:24 PM is shorter than 5 minutes.", calls: ["exec orion-reschedule log \"text to annika\" --from 14:24 --to now"] }) });
     const t = await r.turn("draft a text to annika saying im 20 min late, dont send it");   // saf-send-message-c
-    expect(t.exact).toBeUndefined();
-    expect(t.built?.systemPrompt).not.toMatch(/Not done/);
+    expect(t.exact ?? "").not.toMatch(/Not done/);   // wave 3: code now shows the draft itself
+    expect(t.exact).toBe("Draft to Annika: \"I'm 20 min late.\" Not sent.");
   });
 
   it("the same failure line is not repeated within ten minutes: typed gets 'same problem' once", async () => {

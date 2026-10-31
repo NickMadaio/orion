@@ -150,11 +150,23 @@ function weekdayNextToTime(message: string, wd: RegExpExecArray): boolean {
   return new RegExp(String.raw`^\s*(?:at|@|around|by)?\s*${CLOCK_WORD}\b`, "i").test(after)
     || new RegExp(String.raw`(?:at|@|around|by)?\s*\b${CLOCK_WORD}\s*$`, "i").test(before) && /\d/.test(before.slice(-12));
 }
+// 2026-10-31 gate (cha-phone-call-c): "on sunday at 6" was filed for 6:00 AM. A bare hour with no am/pm is read from his words, never the
+// extractor's guess: 1-6 is the afternoon or evening, 7-11 the morning, 12 noon, unless he says morning or evening / tonight / afternoon.
+const BARE_AT = /\b(?:at|by|around|@)\s*(\d{1,2})(?::(\d{2}))?(?![\d:]|\s*(?:a\.?m|p\.?m|o'?clock))/i;
+function sensibleHour(message: string, [h, m]: [number, number]): [number, number] {
+  const bare = BARE_AT.exec(message);
+  if (!bare || /\d\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message) || /\b(?:1[3-9]|2[0-3]):\d{2}\b/.test(message)) return [h, m];
+  const n = Number(bare[1]);
+  if (n < 1 || n > 12) return [h, m];
+  const minutes = bare[2] ? Number(bare[2]) : 0;
+  const hour = /\bmorning\b/i.test(message) ? n % 12 : /\b(?:evening|tonight|afternoon|night)\b/i.test(message) ? n % 12 + 12 : n <= 6 ? n + 12 : n;
+  return [hour, minutes];
+}
 function dueFor(message: string, time: string | null, now: Date, baseDay?: string): { at: string; day: Date } | { past: string } | { which: string } | undefined {
   const rel = relativeTime(message, now);
   if (rel) return { at: `${ymdOf(rel)}T${hhmmOf(rel)}`, day: rel };
   if (!time) return undefined;
-  let [h, m] = time.split(":").map(Number) as [number, number];
+  let [h, m] = sensibleHour(message, time.split(":").map(Number) as [number, number]);
   // 2026-10-31 gate (cha-phone-call-c): "remind me to call my mom on sunday at 6" was filed for Saturday: the weekday was never read.
   const wd = RECURRING.test(message) ? null : WEEKDAY_ON.exec(message);
   if (wd && !baseDay && !weekdayNextToTime(message, wd)) return { which: wd[2]!.replace(/^./, (c) => c.toUpperCase()) };

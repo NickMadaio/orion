@@ -45,7 +45,7 @@ test("not started (scenario 13, loop side): one orion plan check-in at 14:05, no
 test("a matching focus session closes the plan loop with no further message", () => {
   const now = Math.floor(new Date(2026, 9, 16, 14, 12).getTime() / 60000);
   const loop = { blockId: "ci-1", phase: "reminded", level: 1, nextCheckAt: now + 10, deferrals: 0, history: [] };
-  const w = world({ cal: resumeCal, checkins: [{ id: "ci-1", what: "finish resume", dueAt: now - 7, createdAt: new Date().toISOString(), alerts: 1, by: "orion", block: "cal-0-resume", returning: null, loop }] });
+  const w = world({ cal: resumeCal, checkins: [{ id: "ci-1", what: "finish resume", dueAt: now - 7, createdAt: new Date().toISOString(), alerts: 1, by: "orion", block: "cal-resume", returning: null, loop }] });
   // on a break the loop is not deferred; the Mac front app being a work app is the evidence
   const t = w.tick(14, 12, { session: { state: "rest" }, mac: { workApp: "Pages" } });
   assert.equal(t.status, 0, t.stderr);

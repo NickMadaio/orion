@@ -30,7 +30,7 @@
 // His own check-ins are scripts/lib/life/follow-through.mjs. `tick` is run by the
 // phone link on the Mac every 30 s; each alert it prints becomes a notification
 // on Nick's iPhone. [id] defaults to the most recent open check-in.
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { startLoop, step } from "./lib/life/follow-through.mjs";
@@ -57,6 +57,7 @@ import { readDeclaredFacts } from "./lib/awareness/declared-facts.mjs";
 import { audienceOf } from "./lib/reach/gate.mjs";
 import { speakOnMac } from "./lib/reach/route.mjs";
 import { summarize } from "./lib/life/history.mjs";
+import { checkinStore } from "./lib/reach/checkin-store.mjs";
 const evaluating = evalMode();
 const FILE = evaluating ? join(dirname(EVAL_MARKER), "eval-checkins.json") : process.env.ORION_CHECKIN_FILE || join(controlledDir(), "checkins.json");
 const MAX_ALERTS = 8;
@@ -65,13 +66,15 @@ const CONTROLLED = controlledDir();
 // Test seams: ORION_CHECKIN_NOW, then ORION_NOW (lib/clock.mjs), are the clock (never set in production).
 const NOW_MS = clockMs(process.env, ["ORION_CHECKIN_NOW"]);
 const nowMinute = () => Math.floor(NOW_MS / 60000);
-const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return { checkins: [] }; } };
+// A tick holds the state across ~60 s of spawns: every save re-reads the file and merges by id (lib/reach/checkin-store.mjs),
+// so a reply that landed meanwhile is never overwritten (2026-10-31 review, finding 7).
+const store = checkinStore(FILE);
+const load = () => store.load();
 const save = (state) => {
-  mkdirSync(dirname(FILE), { recursive: true });
-  const tmp = `${FILE}.${randomBytes(4).toString("hex")}.tmp`;
-  writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); renameSync(tmp, FILE);
+  const merged = store.save(state);
   // the projection the chat state card reads (lib/reach/ladder-state.mjs); a failure here never loses the check-ins
-  if (!evaluating) { try { writeLadders(CONTROLLED, laddersView({ checkins: state.checkins, attended: state.attended, nowMs: NOW_MS })); } catch {} }
+  if (!evaluating) { try { writeLadders(CONTROLLED, laddersView({ checkins: merged.checkins, attended: merged.attended, nowMs: NOW_MS })); } catch {} }
+  return merged;
 };
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };

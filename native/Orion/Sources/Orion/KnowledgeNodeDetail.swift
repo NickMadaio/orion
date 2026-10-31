@@ -115,7 +115,7 @@ struct KnowledgeNodeDetail: View {
     }
 
     private func select(_ id: String) {
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) { store.selectedID = id }
+        withAnimation(OrionMotion.select) { store.selectedID = id }
     }
 
     // MARK: Edits
@@ -156,7 +156,7 @@ struct KnowledgeNodeDetail: View {
 
     private func begin(_ field: Field, with text: String) {
         draft = text
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { editing = field }
+        withAnimation(OrionMotion.select) { editing = field }
     }
 
     private var editor: some View {

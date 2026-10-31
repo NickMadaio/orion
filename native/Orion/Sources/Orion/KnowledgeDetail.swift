@@ -18,7 +18,7 @@ struct KnowledgeDetail: View {
                 overview.transition(.opacity)
             }
         }
-        .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.86), value: store.selectedID)
+        .animation(reduceMotion ? nil : OrionMotion.page, value: store.selectedID)
     }
 
     // MARK: Overview

@@ -52,19 +52,31 @@ struct MorningBriefPanel: View {
     /// list of times and titles with ragged left edges is unreadable. Centring
     /// applies to the composition, not to every line in it.
     var body: some View {
+        // Each part arrives a beat after the one above it, so the brief reads as
+        // being composed for him rather than dropped on screen in one frame.
         VStack(spacing: 34) {
-            heading
-            if facts.hasHealth { readings }
-            narrative
-            FadingRule().frame(width: 220)
+            heading.orionEntrance(order: 0)
+            if facts.hasHealth { readings.orionEntrance(order: 1) }
+            narrative.orionEntrance(order: 2)
+            FadingRule().frame(width: 220).orionEntrance(order: 3)
             HStack(alignment: .top, spacing: 70) {
                 schedule
                 due
             }
             .frame(maxWidth: 620)
+            .orionEntrance(order: 4)
             LogButton(title: "Start the day", systemImage: "arrow.right") { onStartDay() }
                 .padding(.top, 6)
+                .orionEntrance(order: 5)
         }
+        // The paragraph lands after the facts (the model writes it): fade it
+        // in rather than letting the page jump.
+        .animation(OrionMotion.fade, value: writer.text(for: facts.narrativeKey))
+        // Legibility on a pale desktop without painting a plate: a soft dark
+        // halo around the glyphs themselves keeps the window real alpha.
+        // A tight one for the small mono captions, a wide one for the headline.
+        .shadow(color: .black.opacity(0.55), radius: 2.5)
+        .shadow(color: .black.opacity(0.3), radius: 14)
         .frame(maxWidth: 900)
         .frame(maxWidth: .infinity)
         .padding(.top, 18)
@@ -326,10 +338,13 @@ struct ParkedBriefCard: View {
                 }
             }
             .frame(width: 168, alignment: .leading)
+            // Hug the content: the accent capsule beside it is greedy and
+            // otherwise stretches the card to the height of the rail.
+            .fixedSize(horizontal: false, vertical: true)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }

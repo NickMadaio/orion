@@ -514,7 +514,7 @@ private struct EventBlock: View {
         .opacity(event.isPast ? 0.55 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
         .help(event.isReadOnly ? "\(event.title) — read-only calendar" : "\(event.title) — click to edit")
     }
 

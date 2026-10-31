@@ -11,3 +11,16 @@ public enum ViewTokens {
     public static let violet = Color(red: 0.70, green: 0.52, blue: 1.00)
     public static let warning = Color(red: 1.00, green: 0.55, blue: 0.35)
 }
+
+/// The same motion vocabulary as the Mac app's `OrionMotion`, for the screens in this module: fast, damped, and
+/// a plain fade under Reduce Motion.
+public enum ViewMotion {
+    public static let hover = Animation.easeOut(duration: 0.16)
+    public static let select = Animation.spring(response: 0.34, dampingFraction: 0.86)
+    public static let enter = Animation.spring(response: 0.42, dampingFraction: 0.9)
+    public static let reveal = Animation.easeOut(duration: 0.45)
+
+    public static func resolved(_ animation: Animation, reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : animation
+    }
+}

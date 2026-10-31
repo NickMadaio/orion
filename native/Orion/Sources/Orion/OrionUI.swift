@@ -145,32 +145,31 @@ struct OrionTile<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            if let accent {
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [accent.opacity(0.85), accent.opacity(0.05)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 2)
-            }
-            VStack(alignment: .leading, spacing: spacing) { content }
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(padding)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(LinearGradient(colors: [Color.white.opacity(0.075), Color.white.opacity(0.028)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.75)
+        VStack(alignment: .leading, spacing: spacing) { content }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, accent == nil ? 0 : 16)
+            // An overlay rather than an HStack sibling: a bare Capsule in an
+            // HStack is greedy, so it either stretched the tile to fill its
+            // column or collapsed to a stub inside a ScrollView. As an overlay
+            // it is exactly as tall as the content it leads.
+            .overlay(alignment: .leading) {
+                if let accent {
+                    Capsule()
+                        .fill(LinearGradient(colors: [accent.opacity(0.85), accent.opacity(0.05)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(width: 2)
                 }
-                .shadow(color: .black.opacity(0.18), radius: 14, y: 7)
-        }
+            }
+        // Horizontal padding is dropped: with no plate behind it, an inset only
+        // pushes the content off the column edge it should share with its
+        // neighbours. Vertical padding stays as air above and below.
+        .padding(.vertical, padding * 0.5)
+        // 2026-10-30 polish: this was a filled, bordered, shadowed rounded
+        // rectangle — a card, on every Health, Finance and Brand section, in a
+        // file whose first rule is "nothing is in a box". Now the group is held
+        // by a hairline above it that fades out, and by the space around it.
+        // Not both: a top rule meeting a leading accent draws the corner of a box.
+        .overlay(alignment: .top) { if accent == nil { FadingRule().offset(y: -padding * 0.5) } }
     }
 }
 
@@ -431,7 +430,7 @@ struct LogButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }
 
@@ -455,7 +454,7 @@ struct StepButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }
 
@@ -490,7 +489,7 @@ struct InlineAction: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }
 

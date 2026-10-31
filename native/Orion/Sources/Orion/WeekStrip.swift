@@ -97,7 +97,7 @@ private struct DayCell: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 
     private var numberTint: Color {

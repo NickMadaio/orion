@@ -30,6 +30,7 @@ struct DashboardView: View {
         UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["orion.initialTab"]
             .flatMap { $0 as? String }.flatMap(DashboardTab.init(rawValue:)) ?? .home
     @Namespace private var navUnderline
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var quickOpenEditorVisible = false
     @State private var quickOpenAppPickerVisible = false
@@ -184,7 +185,7 @@ struct DashboardView: View {
                     isPreview: sessionPreview == .focus,
                     onExitPreview: sessionPreview == .focus ? { sessionPreview = nil } : nil,
                     onDismiss: onDismiss,
-                    onMinimize: sessionPreview == .focus ? nil : { withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) { state.sessionMinimized = true } }
+                    onMinimize: sessionPreview == .focus ? nil : { withAnimation(OrionMotion.resolved(OrionMotion.page, reduceMotion: reduceMotion)) { state.sessionMinimized = true } }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
@@ -252,7 +253,7 @@ struct DashboardView: View {
         .onChange(of: reminders.tasks) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: state.requestedTab) { _, tab in
             guard let tab else { return }
-            selectedTab = tab
+            OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) { selectedTab = tab }
             state.requestedTab = nil
         }
         .onReceive(phoneTicker.$tick) { _ in
@@ -428,7 +429,7 @@ struct DashboardView: View {
                     isSelected: selectedTab == tab,
                     namespace: navUnderline
                 ) {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                    OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) {
                         selectedTab = tab
                     }
                 }
@@ -511,7 +512,7 @@ struct DashboardView: View {
                          calendar: calendarModel(state),
                          todayPlan: todayPlan,
                          refreshPlanSources: { agenda.refresh(); reminders.refresh(); refreshPlanSources() },
-                         onOpenChat: { state.chatMode = true; selectedTab = .home })
+                         onOpenChat: { OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) { state.chatMode = true; selectedTab = .home } })
             case .project:
                 ProjectTab(agenda: agenda)
             case .knowledge:
@@ -542,7 +543,7 @@ struct DashboardView: View {
         }
         // Content rises slightly as it arrives, which is what makes the tabs
         // feel like one surface changing rather than six screens swapping.
-        .transition(.opacity.combined(with: .offset(y: 10)))
+        .transition(OrionMotion.rise(reduceMotion: reduceMotion))
         .id(selectedTab)
     }
 
@@ -592,7 +593,14 @@ private struct NavItem: View {
                 // The underline is one view that moves between tabs, not one
                 // per tab being shown and hidden.
                 ZStack {
-                    Capsule().fill(Color.clear).frame(height: 2)
+                    // Hover previews where the underline would go: a faint
+                    // hairline that grows from the centre, so pointing at a tab
+                    // answers "is this clickable" before the click.
+                    Capsule()
+                        .fill(OrionTheme.textSoft.opacity(0.35))
+                        .frame(height: 1)
+                        .scaleEffect(x: hovering && !isSelected ? 1 : 0.2, anchor: .center)
+                        .opacity(hovering && !isSelected ? 1 : 0)
                     if isSelected {
                         Capsule()
                             .fill(OrionTheme.accent)
@@ -601,13 +609,14 @@ private struct NavItem: View {
                             .shadow(color: OrionTheme.accent.opacity(0.7), radius: 5)
                     }
                 }
+                .frame(height: 2)
             }
             .padding(.top, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 
     private var tint: Color {

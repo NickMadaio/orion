@@ -73,7 +73,134 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Gym 17:00 today. Memory: Nick often skips gym when tired; today he has had 3 classes and a deadline due at 18:00."
+      "notes": "Gym 17:00 today. Memory: Nick often skips gym when tired; today he has had 3 classes and a deadline due at 18:00.",
+      "calendar": {
+        "now": "2026-11-02T16:30:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": [
+          {
+            "title": "Deadline",
+            "due": "2026-11-02T18:00:00Z"
+          }
+        ]
+      }
     },
     "turns": [
       {
@@ -103,16 +230,16 @@
     "pair": "per-legit-vs-excuse",
     "writes": true,
     "setup": {
-      "now": "2026-11-02T16:30:00Z",
       "state": {
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Gym 17:00 today. Memory: Nick often skips gym when tired; today he has had 3 classes and a deadline due at 18:00."
+      "notes": "Gym 17:00 today. Memory: Nick often skips gym when tired; today he has had 3 classes and a deadline due at 18:00. [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "live": true
     },
     "turns": [
       {
-        "text": "gym is bumped to 7pm tonight because i have a deadline at 6"
+        "text": "gym is bumped to {{now+150m}} tonight because i have a deadline at {{now+90m}}"
       }
     ],
     "expect": {
@@ -141,7 +268,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Gym 17:00. Nick has said \"not feeling it\" for gym 4 times this month."
+      "notes": "Gym 17:00. Nick has said \"not feeling it\" for gym 4 times this month.",
+      "calendar": {
+        "now": "2026-11-02T16:55:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -177,7 +426,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Gym 17:00. Nick has said \"not feeling it\" for gym 4 times this month."
+      "notes": "Gym 17:00. Nick has said \"not feeling it\" for gym 4 times this month.",
+      "calendar": {
+        "now": "2026-11-02T16:55:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -205,7 +576,139 @@
     "pair": "per-tone-stressed",
     "writes": false,
     "setup": {
-      "notes": "Nick has a CS midterm Thursday and a marketing brief due Friday."
+      "notes": "Nick has a CS midterm Thursday and a marketing brief due Friday.",
+      "now": "2026-11-02T10:00:00Z",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": [
+          {
+            "title": "CS2100 midterm",
+            "due": "2026-11-05T09:00:00Z"
+          },
+          {
+            "title": "Marketing brief",
+            "due": "2026-11-06T23:59:00Z"
+          }
+        ]
+      }
     },
     "turns": [
       {
@@ -236,7 +739,139 @@
     "pair": "per-tone-stressed",
     "writes": false,
     "setup": {
-      "notes": "Nick has a CS midterm Thursday and a marketing brief due Friday."
+      "notes": "Nick has a CS midterm Thursday and a marketing brief due Friday.",
+      "now": "2026-11-02T10:00:00Z",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": [
+          {
+            "title": "CS2100 midterm",
+            "due": "2026-11-05T09:00:00Z"
+          },
+          {
+            "title": "Marketing brief",
+            "due": "2026-11-06T23:59:00Z"
+          }
+        ]
+      }
     },
     "turns": [
       {

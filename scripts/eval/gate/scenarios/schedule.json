@@ -11,7 +11,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. MKTG2201 ends 15:30; Nick walks home ~16:15."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. MKTG2201 ends 15:30; Nick walks home ~16:15.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -47,7 +169,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. MKTG2201 ends 15:30; Nick walks home ~16:15."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. MKTG2201 ends 15:30; Nick walks home ~16:15.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -80,9 +324,135 @@
       "now": "2026-11-02T22:00:00Z",
       "state": {
         "timezone": "Europe/London",
-        "home": "Scape Shoreditch"
+        "home": "Scape Shoreditch",
+        "wake-request.json": {
+          "at": "2026-11-03T08:00:00.000Z",
+          "setAt": "2026-11-02T21:00:00.000Z"
+        }
       },
-      "notes": "Alarm exists for 08:00 tomorrow (Tue). No reminders named \"push my alarm\" must be created."
+      "notes": "Alarm exists for 08:00 tomorrow (Tue). No reminders named \"push my alarm\" must be created.",
+      "calendar": {
+        "now": "2026-11-02T22:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -115,9 +485,135 @@
       "now": "2026-11-02T22:00:00Z",
       "state": {
         "timezone": "Europe/London",
-        "home": "Scape Shoreditch"
+        "home": "Scape Shoreditch",
+        "wake-request.json": {
+          "at": "2026-11-03T08:00:00.000Z",
+          "setAt": "2026-11-02T21:00:00.000Z"
+        }
       },
-      "notes": "Alarm exists for 08:00 tomorrow (Tue). No reminders named \"push my alarm\" must be created."
+      "notes": "Alarm exists for 08:00 tomorrow (Tue). No reminders named \"push my alarm\" must be created.",
+      "calendar": {
+        "now": "2026-11-02T22:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -151,7 +647,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -185,7 +803,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -218,7 +958,135 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. CS lab block 20:00-21:00 owned by ORION."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. CS lab block 20:00-21:00 owned by ORION.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS lab",
+            "start": "2026-11-02T20:00:00Z",
+            "end": "2026-11-02T21:00:00Z",
+            "owned": "study"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -251,7 +1119,135 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. CS lab block 20:00-21:00 owned by ORION."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. CS lab block 20:00-21:00 owned by ORION.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS lab",
+            "start": "2026-11-02T20:00:00Z",
+            "end": "2026-11-02T21:00:00Z",
+            "owned": "study"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -284,7 +1280,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now is 19:15. A confirm-loop was seen live."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now is 19:15. A confirm-loop was seen live.",
+      "calendar": {
+        "now": "2026-11-02T19:15:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -314,16 +1432,16 @@
     "pair": "sch-cs-lab-until",
     "writes": true,
     "setup": {
-      "now": "2026-11-02T19:15:00Z",
       "state": {
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now is 19:15. A confirm-loop was seen live."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now is 19:15. A confirm-loop was seen live. [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "live": true
     },
     "turns": [
       {
-        "text": "add cs lab 7:15pm to 10:30pm tonight"
+        "text": "add cs lab {{now+5m}} to {{now+195m}} tonight"
       }
     ],
     "expect": {
@@ -352,7 +1470,134 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 today 13:30-15:30 and ECON1115 11:00. Class-leave nudges are scheduled."
+      "notes": "Calendar has MKTG2201 today 13:30-15:30 and ECON1115 11:00. Class-leave nudges are scheduled.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "ECON1115",
+            "start": "2026-11-02T11:00:00Z",
+            "end": "2026-11-02T12:30:00Z"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -385,7 +1630,134 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 today 13:30-15:30 and ECON1115 11:00. Class-leave nudges are scheduled."
+      "notes": "Calendar has MKTG2201 today 13:30-15:30 and ECON1115 11:00. Class-leave nudges are scheduled.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "ECON1115",
+            "start": "2026-11-02T11:00:00Z",
+            "end": "2026-11-02T12:30:00Z"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -418,7 +1790,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T21:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -446,12 +1940,12 @@
     "pair": "sch-tomorrow-light",
     "writes": true,
     "setup": {
-      "now": "2026-11-02T21:00:00Z",
       "state": {
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "live": true
     },
     "turns": [
       {
@@ -484,7 +1978,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -513,16 +2129,16 @@
     "pair": "sch-gym-moved-later",
     "writes": true,
     "setup": {
-      "now": "2026-11-02T10:00:00Z",
       "state": {
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "live": true
     },
     "turns": [
       {
-        "text": "move gym to 8:30pm today"
+        "text": "move gym to {{now+150m}} today"
       }
     ],
     "expect": {
@@ -551,7 +2167,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -579,12 +2317,12 @@
     "pair": "sch-add-deadline",
     "writes": true,
     "setup": {
-      "now": "2026-11-02T10:00:00Z",
       "state": {
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "live": true
     },
     "turns": [
       {
@@ -617,7 +2355,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -651,7 +2511,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -684,7 +2666,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -717,7 +2821,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -750,7 +2976,134 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. A plan with a friend: \"dinner with Annika\" 19:00-21:00, created by Nick (fixed)."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. A plan with a friend: \"dinner with Annika\" 19:00-21:00, created by Nick (fixed).",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "dinner with Annika",
+            "start": "2026-11-02T19:00:00Z",
+            "end": "2026-11-02T21:00:00Z"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -783,7 +3136,134 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. A plan with a friend: \"dinner with Annika\" 19:00-21:00, created by Nick (fixed)."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. A plan with a friend: \"dinner with Annika\" 19:00-21:00, created by Nick (fixed).",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "dinner with Annika",
+            "start": "2026-11-02T19:00:00Z",
+            "end": "2026-11-02T21:00:00Z"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -816,7 +3296,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -849,7 +3451,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-02T10:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -882,7 +3606,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-06T15:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {
@@ -916,7 +3762,129 @@
         "timezone": "Europe/London",
         "home": "Scape Shoreditch"
       },
-      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30.",
+      "calendar": {
+        "now": "2026-11-06T15:00:00Z",
+        "events": [
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-02T13:30:00Z",
+            "end": "2026-11-02T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-02T17:00:00Z",
+            "end": "2026-11-02T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-02T19:30:00Z",
+            "end": "2026-11-02T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "ECON1115",
+            "start": "2026-11-03T11:00:00Z",
+            "end": "2026-11-03T12:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-03T17:00:00Z",
+            "end": "2026-11-03T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-03T19:30:00Z",
+            "end": "2026-11-03T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "CS2100",
+            "start": "2026-11-04T09:00:00Z",
+            "end": "2026-11-04T10:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-04T17:00:00Z",
+            "end": "2026-11-04T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-04T19:30:00Z",
+            "end": "2026-11-04T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-05T17:00:00Z",
+            "end": "2026-11-05T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-05T19:30:00Z",
+            "end": "2026-11-05T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-06T17:00:00Z",
+            "end": "2026-11-06T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-06T19:30:00Z",
+            "end": "2026-11-06T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-07T17:00:00Z",
+            "end": "2026-11-07T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-07T19:30:00Z",
+            "end": "2026-11-07T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-08T17:00:00Z",
+            "end": "2026-11-08T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-08T19:30:00Z",
+            "end": "2026-11-08T20:30:00Z",
+            "owned": "side_project"
+          },
+          {
+            "title": "MKTG2201",
+            "start": "2026-11-09T13:30:00Z",
+            "end": "2026-11-09T15:30:00Z"
+          },
+          {
+            "title": "Gym",
+            "start": "2026-11-09T17:00:00Z",
+            "end": "2026-11-09T18:30:00Z",
+            "owned": "gym"
+          },
+          {
+            "title": "Side project",
+            "start": "2026-11-09T19:30:00Z",
+            "end": "2026-11-09T20:30:00Z",
+            "owned": "side_project"
+          }
+        ],
+        "reminders": []
+      }
     },
     "turns": [
       {

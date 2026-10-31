@@ -16,6 +16,7 @@
 */
 import type { Day, DayBlock } from "./schedule-flow.js";
 import { fixTypos, lev, refusalOf, startsAsRequest } from "./intent-gate.js";
+import { blocksNamedBy, isGenericName, type NameIntent } from "./block-names.js";
 import { ampm, ceil5, span, takeLength, toMin } from "./intent-time.js";
 export { fixTypos, startsAsRequest };
 
@@ -107,24 +108,19 @@ export function parseReorder(message: string, context: ReplanAsk): ReplanAsk | u
 }
 
 // ---- reading his day ----
-const GENERIC = new Set(["first", "next", "my", "the", "our", "very", "a", "an", "class", "classes", "lecture", "lectures", "session", "today", "last"]);
 const WORD_LEN = 3;
 const wordsOf = (t: string): string[] => norm(t).split(" ").filter((w) => w.length >= WORD_LEN);
 const sameWord = (a: string, b: string): boolean => a === b || (Math.min(a.length, b.length) >= WORD_LEN + 1 && (a.startsWith(b) || b.startsWith(a))) || (Math.min(a.length, b.length) >= 3 && lev(a, b) <= (Math.min(a.length, b.length) >= 7 ? 2 : 1) && a[0] === b[0]);
-const initials = (title: string): string => norm(title).split(" ").filter((w) => w.length > 2 && !/\d/.test(w) && !["lecture", "lab", "class", "for", "and", "the", "seminar", "tutorial"].includes(w)).map((w) => w[0]).join("");
 
-/** Blocks on the day he could mean by this phrase ("marketing class", "lab", "DS"). */
-export function blocksNamed(phrase: string, day: Day): DayBlock[] {
-  const said = norm(phrase).split(" ").filter((w) => w && !GENERIC.has(w));
-  if (!said.length) return [];
-  const long = said.filter((w) => w.length >= WORD_LEN);   // "dr" is not evidence of a block; "ds" alone is (its initials)
-  return day.blocks.filter((b) => { const t = wordsOf(b.title); return (long.length > 0 && long.every((w) => t.some((x) => sameWord(w, x)))) || (said.length === 1 && said[0]!.length >= 2 && initials(b.title) === said[0]); });
+/** Blocks on the day he could mean by this phrase ("marketing class", "lab", "DS", "macro" → ECON1115): block-names.ts decides. */
+export function blocksNamed(phrase: string, day: Day, intent?: NameIntent): DayBlock[] {
+  return blocksNamedBy(phrase, day.blocks, { intent });
 }
 const isClass = (b: DayBlock): boolean => b.kind === "class";
 
 /** The block his "after <phrase>" means: one still going or still ahead, the earliest; else the last that already ended. */
 function anchorBlock(phrase: string, day: Day): DayBlock | undefined {
-  const generic = !norm(phrase).split(" ").some((w) => w && !GENERIC.has(w));
+  const generic = isGenericName(phrase);
   const found = generic ? (/\b(?:class|classes|lecture|lectures)\b/i.test(phrase) ? day.blocks.filter(isClass) : []) : blocksNamed(phrase, day);
   const now = day.now ? toMin(day.now) : -1;
   const ahead = found.filter((b) => toMin(b.end) > now).sort((a, b) => toMin(a.start) - toMin(b.start))[0];

@@ -1,6 +1,7 @@
 import { noteOf } from "./scheduler-out.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf } from "./day-requests.js";
 import { pluginNow } from "./plugin-clock.js";
+import { intentOf, namesTitle, pickByTime, resolveBlockName, whichOne } from "./block-names.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can|could|what|when|why|how)\b/i;
 // Not a fact about his day: a condition, a wish, or someone else's ("she didnt go to the gym").
@@ -130,18 +131,23 @@ export function readReality(message, now = pluginNow()) {
         return { reality: { kind: "place", place: place[1] }, rest };
     return null;
 }
-// ---- matching his words against the day ----
+// ---- matching his words against the day (block-names.ts: "macro" is ECON1115 by its course, "marketing" is MKTG2201) ----
 const words = (t) => t.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-/** "macro" names "ECON1115 Principles of Macroeconomics", "marketing" names "MKTG2201 Introduction to Marketing". */
+/** "macro" names "ECON1115" and "ECON1115 Principles of Macroeconomics", "marketing" names "MKTG2201". */
 export function names(word, title) {
-    const w = word.toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (w.length < 2)
-        return false;
-    return words(title).some((t) => t === w || (w.length >= 3 && t.startsWith(w)) || (t.length >= 4 && w.startsWith(t)) || (/^[a-z]+\d+$/.test(t) && t.startsWith(w) && w.length >= 2));
+    return namesTitle(word, title);
 }
-const matchBlock = (what, blocks) => {
-    const ws = words(what).filter((w) => w.length >= 2 && !["the", "my", "a", "to", "of"].includes(w));
-    return blocks.filter((b) => ws.length && ws.every((w) => names(w, b.title)))[0] ?? blocks.filter((b) => ws.some((w) => w.length >= 3 && names(w, b.title)))[0];
+/** The block he means by these words: block-names first (the verb picks a class or a study block), then any one long word of a title. */
+function resolveIn(what, blocks, text, now) {
+    const hit = resolveBlockName(what, blocks, { now, intent: intentOf(text) });
+    if (hit)
+        return "block" in hit ? hit.block : hit;
+    const ws = words(what).filter((w) => w.length >= 3 && !["the", "my"].includes(w));
+    return blocks.filter((b) => b.kind !== "commute").find((b) => ws.some((w) => words(b.title).some((t) => t === w || (w.length >= 4 && t.startsWith(w)))));
+}
+const matchBlock = (what, blocks, text = "", now = -1) => {
+    const hit = resolveIn(what, blocks, text, now);
+    return hit && "ambiguous" in hit ? pickByTime(hit.ambiguous, now) : hit;
 };
 /** "MKTG2201" for "MKTG2201 Introduction to Marketing — Lecture", the title otherwise. */
 export const shortTitle = (title) => { const code = /^[A-Z]{2,5}\d{3,5}\b/.exec(title)?.[0]; return code ?? title.split(/\s+[—–-]\s+/)[0].trim(); };
@@ -220,7 +226,11 @@ const dateOf = (day, now, plus) => {
 };
 async function missed(r, deps) {
     const day = await deps.readDay().catch(() => undefined);
-    const block = matchBlock(r.what, day?.blocks ?? []);
+    const nowMin = deps.now.getHours() * 60 + deps.now.getMinutes();
+    const hit = resolveIn(r.what, day?.blocks ?? [], deps.text, nowMin);
+    if (hit && "ambiguous" in hit)
+        return { flow: { outcome: "say", kind: "ask", text: whichOne(hit.ambiguous), calls: [], outputs: [] }, facts: [], writes: 0 };
+    const block = hit;
     const title = block?.title ?? r.what;
     const id = await declare(deps, "skip", ["--title", title]);
     if (!id)
@@ -290,7 +300,7 @@ async function instead(r, deps) {
 export const OVERRUN_GUESS_MIN = 15;
 async function overrun(r, deps) {
     const day = await deps.readDay().catch(() => undefined);
-    const block = matchBlock(r.what, (day?.blocks ?? []).filter((b) => b.kind !== "commute"));
+    const block = matchBlock(r.what, (day?.blocks ?? []).filter((b) => b.kind !== "commute"), deps.text);
     if (!block)
         return null; // "this set is running long" names no block: the turn goes on
     const minutes = r.minutes ?? r.guess ?? OVERRUN_GUESS_MIN;
@@ -416,7 +426,7 @@ async function doneIt(r, deps) {
 /** "i was in marketing": the missed mark ORION made is taken back, and that he was there is noted. */
 async function attendedIt(r, deps) {
     const day = await deps.readDay().catch(() => undefined);
-    const block = matchBlock(r.what, day?.blocks ?? []);
+    const block = matchBlock(r.what, day?.blocks ?? [], deps.text);
     const name = block ? shortTitle(block.title) : r.what;
     const listedFacts = await deps.run("orion-declare", ["list"]).catch(() => ({ stdout: "", code: 1 }));
     let facts = [];

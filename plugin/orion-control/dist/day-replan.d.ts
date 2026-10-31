@@ -1,5 +1,6 @@
 import type { Day, DayBlock } from "./schedule-flow.js";
 import { fixTypos, startsAsRequest } from "./intent-gate.js";
+import { type NameIntent } from "./block-names.js";
 export { fixTypos, startsAsRequest };
 /** What the scheduler hands code about the day it plans (`show --json`'s `plan`): the trip home, the gap between blocks, the daily anchors. */
 export type DayPlanFacts = {
@@ -24,8 +25,8 @@ export type ReplanAsk = {
 /** The order and the anchor in his words, or undefined when this is not a reschedule with an order. */
 export declare function parseReplanRequest(message: string): ReplanAsk | undefined;
 export declare function parseReorder(message: string, context: ReplanAsk): ReplanAsk | undefined;
-/** Blocks on the day he could mean by this phrase ("marketing class", "lab", "DS"). */
-export declare function blocksNamed(phrase: string, day: Day): DayBlock[];
+/** Blocks on the day he could mean by this phrase ("marketing class", "lab", "DS", "macro" → ECON1115): block-names.ts decides. */
+export declare function blocksNamed(phrase: string, day: Day, intent?: NameIntent): DayBlock[];
 type Item = {
     title: string;
     minutes: number;

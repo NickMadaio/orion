@@ -1,4 +1,5 @@
 import { spokenReply } from "./schedule-reply.js";
+import { blocksNamedBy } from "./block-names.js";
 export const BUFFER = 5;
 export const DAY_END = 22 * 60;
 export const toMin = (t) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
@@ -37,7 +38,7 @@ export function placedAt(day, title, asked) {
 export const isProtected = (title, block) => !!block?.fixed || block?.kind === "class" || /\bwith\s+(?!me\b|myself\b)[a-z]/i.test(title);
 const isSleep = (b) => b.kind === "sleep" || /^sleep\b/i.test(b.title);
 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
-/** The block on the day he named: the exact title, else one whose title holds every word he used ("marketing" → "MKTG2201 Marketing"). */
+/** The block on the day he named: the exact title, else the one block-names.ts finds ("marketing" → "MKTG2201"), else any shared word. */
 export function blockNamed(day, name) {
     if (!day)
         return undefined;
@@ -47,6 +48,9 @@ export function blockNamed(day, name) {
     const exact = day.blocks.find((b) => norm(b.title) === want);
     if (exact)
         return exact;
+    const named = blocksNamedBy(name, day.blocks);
+    if (named.length)
+        return named[0];
     const ws = want.split(" ").filter((w) => w.length > 2);
     return day.blocks.find((b) => ws.length > 0 && ws.every((w) => norm(b.title).includes(w)))
         ?? day.blocks.find((b) => ws.some((w) => norm(b.title).split(" ").includes(w)));

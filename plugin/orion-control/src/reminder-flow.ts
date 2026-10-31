@@ -152,15 +152,29 @@ function weekdayNextToTime(message: string, wd: RegExpExecArray): boolean {
 }
 // 2026-10-31 gate (cha-phone-call-c): "on sunday at 6" was filed for 6:00 AM. A bare hour with no am/pm is read from his words, never the
 // extractor's guess: 1-6 is the afternoon or evening, 7-11 the morning, 12 noon, unless he says morning or evening / tonight / afternoon.
-const BARE_AT = /\b(?:at|by|around|@)\s*(\d{1,2})(?::(\d{2}))?(?![\d:]|\s*(?:a\.?m|p\.?m|o'?clock))/i;
+// REV3 6: the time read is the reminder's own (the one the extractor picked, else the first), its am/pm or period word only when it sits
+// next to that time ("at 9 to call about tonight's dinner" is 9 AM; "dinner at 7pm" says nothing about "at 6"), "o'clock" is still bare,
+// twelve at night is midnight, and "afternoon" lifts only 1-6.
+const TIME_AT = /\b(?:at|by|around|@)\s*(\d{1,2})(?::(\d{2}))?(?![\d:])(\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z]))?/gi;
+const PERIOD_AFTER = /^\s*(?:o'?clock\s*)?(?:,\s*)?(?:(?:in|at|this|on)\s+(?:the\s+)?)?(morning|afternoon|evening|night|tonight)\b/i;
+const PERIOD_BEFORE = /\b(morning|afternoon|evening|night|tonight)\s*,?\s*$/i;
 function sensibleHour(message: string, [h, m]: [number, number]): [number, number] {
-  const bare = BARE_AT.exec(message);
-  if (!bare || /\d\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message) || /\b(?:1[3-9]|2[0-3]):\d{2}\b/.test(message)) return [h, m];
-  const n = Number(bare[1]);
-  if (n < 1 || n > 12) return [h, m];
-  const minutes = bare[2] ? Number(bare[2]) : 0;
-  const hour = /\bmorning\b/i.test(message) ? n % 12 : /\b(?:evening|tonight|afternoon|night)\b/i.test(message) ? n % 12 + 12 : n <= 6 ? n + 12 : n;
-  return [hour, minutes];
+  const times = [...message.matchAll(TIME_AT)].filter((t) => Number(t[1]) <= 23);
+  if (!times.length) return [h, m];
+  const own = times.find((t) => Number(t[1]) % 12 === h % 12) ?? times[0]!;
+  const n = Number(own[1]);
+  const minutes = own[2] ? Number(own[2]) : 0;
+  if (n > 12) return [n, minutes];
+  if (own[3]) return [n % 12 + (/p/i.test(own[3]) ? 12 : 0), minutes];
+  if (n < 1) return [h, m];
+  const after = message.slice((own.index ?? 0) + own[0].length);
+  const before = message.slice(0, own.index ?? 0);
+  const period = (PERIOD_AFTER.exec(after)?.[1] ?? PERIOD_BEFORE.exec(before)?.[1] ?? "").toLowerCase();
+  if (period === "morning") return [n % 12, minutes];
+  if (period === "afternoon") return [n <= 6 ? n + 12 : n, minutes];
+  // Twelve at night is the midnight that ends today: hour 24 rolls to 00:00 tomorrow.
+  if (period) return [n % 12 + 12 + (n === 12 ? 12 : 0), minutes];
+  return [n <= 6 ? n + 12 : n, minutes];
 }
 function dueFor(message: string, time: string | null, now: Date, baseDay?: string): { at: string; day: Date } | { past: string } | { which: string } | undefined {
   const rel = relativeTime(message, now);

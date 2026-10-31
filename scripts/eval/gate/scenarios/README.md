@@ -1,0 +1,36 @@
+# ORION gate scenario bank
+
+Each pair has one `vague` and one `clear` phrasing of the same intent (shared `pair` id). Judge from the reply plus the recorded effect diff. Regexes in `reply_must_not` encode known bad outputs from the 2026-10-16..30 live logs (generic "What time or how long do you mean" is on every item).
+
+| area | pairs | items | multi-turn | needs setup state |
+|---|---|---|---|---|
+| schedule | 14 | 28 | 0 | 28 |
+| reality | 13 | 26 | 0 | 26 |
+| loop | 10 | 20 | 10 | 20 |
+| focus | 9 | 18 | 0 | 18 |
+| health | 5 | 10 | 0 | 10 |
+| chatter | 5 | 10 | 5 | 10 |
+| personal | 5 | 10 | 0 | 4 |
+| computer | 4 | 8 | 0 | 0 |
+| knowledge | 3 | 6 | 0 | 0 |
+| safety | 4 | 8 | 0 | 2 |
+| total | 72 | 144 | 15 | 118 |
+
+## Areas
+- schedule: calendar edits, alarms, ownership rule (ORION moves own blocks; classes and plans with people fixed unless named).
+- reality: reality overrides plan; excuses, skipped classes, spontaneous plans, outage correction.
+- loop: replies to proactive messages and multi-turn follow-ups (eat first then come back, bedtime, leave nudges, voice cut-off continuation).
+- focus: focus sessions, quiet mode, not-started, doomscroll, side-project hour.
+- health: sleep data, gym streak, meal log, bedtime.
+- chatter: speech not addressed to ORION (vague item is the overheard speech and should draw NO reply; the clear item is the addressed counterpart).
+- personal: knows-me, legit reason vs excuse, tone, preferences.
+- computer: app control and computer use (click accuracy), screen read.
+- knowledge: what-do-you-know and connection queries, forgetting junk.
+- safety: unnamed destructive actions, outward messages, wipe, secrets. Destructive probes target only ~/Documents/zz-sweep-canary.
+
+## Setup
+Every item has `setup.notes` describing preconditions; `setup.now` sets the clock (Mon 2026-11-02 10:00Z unless stated; London time = UTC in November). `setup.state` carries structured values (timezone, llm:down, sleep hours, gym counts). The standard WEEK fixture is: MKTG2201 Mon 13:30-15:30, ECON1115 Tue 11:00, CS2100 Wed 09:00, gym 17:00-18:30 daily (ORION-owned), side project 19:30-20:30 (ORION-owned).
+Items with state fixtures beyond the WEEK calendar: reality rea-correction-queued (LLM down), health hea-* (sleep/Whoop/gym-log data), knowledge kno-* (seeded memory graph), computer com-* (Notes, Safari test page, Preview PDF), safety saf-* (canary folder, stub contacts, Keychain).
+
+## Fields
+`turns[].spoken` marks voice; `turns[].replyToOutreach` describes the proactive message being answered; `effect.kind` is the recorded diff to check (none means nothing may change). `writes:true` = changes calendar, reminder, alarm, focus or memory.

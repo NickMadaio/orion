@@ -1,0 +1,319 @@
+[
+  {
+    "id": "per-who-am-i-v",
+    "area": "personal",
+    "wording": "vague",
+    "pair": "per-who-am-i",
+    "writes": false,
+    "setup": {
+      "notes": "Memory contains: Nick, student in London; MKTG2201, ECON1115, CS2100; lives at Scape Shoreditch; gym 90 min daily; YouTube/side projects."
+    },
+    "turns": [
+      {
+        "text": "do you know me"
+      }
+    ],
+    "expect": {
+      "rubric": "A specific, grounded answer: names things actually in memory (London student, classes, Shoreditch, gym every day, side project/YouTube) in a natural voice. No generic assistant blurb, no invented facts.",
+      "reply_must": [
+        {},
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "As an AI",
+        "I don't have personal"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "per-who-am-i-c",
+    "area": "personal",
+    "wording": "clear",
+    "pair": "per-who-am-i",
+    "writes": false,
+    "setup": {
+      "notes": "Memory contains: Nick, student in London; MKTG2201, ECON1115, CS2100; lives at Scape Shoreditch; gym 90 min daily; YouTube/side projects."
+    },
+    "turns": [
+      {
+        "text": "what do you know about me and my routine, be specific"
+      }
+    ],
+    "expect": {
+      "rubric": "Lists specifics grounded in memory: classes, gym 90 min daily, side project 1h, home, priorities order. Nothing fabricated.",
+      "reply_must": [
+        {},
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "per-legit-vs-excuse-v",
+    "area": "personal",
+    "wording": "vague",
+    "pair": "per-legit-vs-excuse",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T16:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Gym 17:00 today. Memory: Nick often skips gym when tired; today he has had 3 classes and a deadline due at 18:00."
+    },
+    "turns": [
+      {
+        "text": "i cant do gym i have a deadline at 6 i forgot about"
+      }
+    ],
+    "expect": {
+      "rubric": "A legitimate reason (concrete deadline): ORION accepts without moralising, moves gym to after the deadline (e.g. 19:00) and says it will hold him to it. Priority order respected: deadline > nothing shifting classes.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "excuse"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym moved to after 18:00"
+      }
+    }
+  },
+  {
+    "id": "per-legit-vs-excuse-c",
+    "area": "personal",
+    "wording": "clear",
+    "pair": "per-legit-vs-excuse",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T16:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Gym 17:00 today. Memory: Nick often skips gym when tired; today he has had 3 classes and a deadline due at 18:00."
+    },
+    "turns": [
+      {
+        "text": "gym is bumped to 7pm tonight because i have a deadline at 6"
+      }
+    ],
+    "expect": {
+      "rubric": "Gym 19:00-20:30 tonight, deadline recorded. Short reply.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym 19:00-20:30"
+      }
+    }
+  },
+  {
+    "id": "per-excuse-v",
+    "area": "personal",
+    "wording": "vague",
+    "pair": "per-excuse",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T16:55:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Gym 17:00. Nick has said \"not feeling it\" for gym 4 times this month."
+    },
+    "turns": [
+      {
+        "text": "not really feeling gym today"
+      }
+    ],
+    "expect": {
+      "rubric": "A vague excuse of a type he repeats: ORION pushes back in his voice, not boilerplate, e.g. \"that is the fourth time this month, go for 30\" and offers a shorter version instead of agreeing. Does not remove gym.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "motivat",
+        "You've got this"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym kept or shortened, not removed"
+      }
+    }
+  },
+  {
+    "id": "per-excuse-c",
+    "area": "personal",
+    "wording": "clear",
+    "pair": "per-excuse",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T16:55:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Gym 17:00. Nick has said \"not feeling it\" for gym 4 times this month."
+    },
+    "turns": [
+      {
+        "text": "im skipping gym today, no reason just dont want to"
+      }
+    ],
+    "expect": {
+      "rubric": "ORION says no, plainly and briefly (\"No. We're doing at least 30 minutes\"), offers shorter option; gym not deleted. A clear refusal to rubber-stamp the skip, with warmth.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym not deleted"
+      }
+    }
+  },
+  {
+    "id": "per-tone-stressed-v",
+    "area": "personal",
+    "wording": "vague",
+    "pair": "per-tone-stressed",
+    "writes": false,
+    "setup": {
+      "notes": "Nick has a CS midterm Thursday and a marketing brief due Friday."
+    },
+    "turns": [
+      {
+        "text": "im so stressed about everything"
+      }
+    ],
+    "expect": {
+      "rubric": "Warm, short, grounded in his real situation (CS midterm Thursday, brief due Friday); offers a concrete next step (one thing, smallest first step) and an offer to replan. Not \"I'm really sorry it feels this heavy\", not a crisis script, no emoji.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Are you safe",
+        "hotline",
+        "heavy"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "per-tone-stressed-c",
+    "area": "personal",
+    "wording": "clear",
+    "pair": "per-tone-stressed",
+    "writes": false,
+    "setup": {
+      "notes": "Nick has a CS midterm Thursday and a marketing brief due Friday."
+    },
+    "turns": [
+      {
+        "text": "rank what i need to do this week by what matters most, im overwhelmed"
+      }
+    ],
+    "expect": {
+      "rubric": "Gives an ordered list using his priority order and deadlines: classes fixed, gym daily, CS midterm Thu, marketing brief Fri, then side project. Short.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "per-preference-remember-v",
+    "area": "personal",
+    "wording": "vague",
+    "pair": "per-preference-remember",
+    "writes": true,
+    "setup": {
+      "notes": "Memory writable."
+    },
+    "turns": [
+      {
+        "text": "stop being so formal with me"
+      }
+    ],
+    "expect": {
+      "rubric": "Acknowledges in a casual tone matching his own and stores a style preference (memory write). The reply itself is casual; not a formal \"I have noted your preference\".",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "I have noted",
+        "^Saved:"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "tone preference saved"
+      }
+    }
+  },
+  {
+    "id": "per-preference-remember-c",
+    "area": "personal",
+    "wording": "clear",
+    "pair": "per-preference-remember",
+    "writes": true,
+    "setup": {
+      "notes": "Memory writable."
+    },
+    "turns": [
+      {
+        "text": "remember i hate being called buddy and dont use emojis"
+      }
+    ],
+    "expect": {
+      "rubric": "Preference stored (no buddy, no emoji) and confirmed in one short line without using either.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "preferences saved"
+      }
+    }
+  }
+]

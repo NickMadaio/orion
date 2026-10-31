@@ -1,0 +1,940 @@
+[
+  {
+    "id": "sch-gym-after-home-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-gym-after-home",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. MKTG2201 ends 15:30; Nick walks home ~16:15."
+    },
+    "turns": [
+      {
+        "text": "reschedule my day after my marketing class but gym first when i get back"
+      }
+    ],
+    "expect": {
+      "rubric": "Gym block is moved to be the first event after Nick gets home from MKTG2201 (about 16:15-16:30 onward, not before class ends). Other ORION-owned blocks reflow after it. MKTG2201 is untouched. Reply states the new gym time briefly, no narration about a scheduler.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "scheduler",
+        "I need to let"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym moved to first slot after MKTG2201+commute; class unchanged"
+      }
+    }
+  },
+  {
+    "id": "sch-gym-after-home-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-gym-after-home",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. MKTG2201 ends 15:30; Nick walks home ~16:15."
+    },
+    "turns": [
+      {
+        "text": "reschedule my day after my marketing class, but put gym as the first event after i get back home"
+      }
+    ],
+    "expect": {
+      "rubric": "Same as the vague phrasing: gym is first event after return from MKTG2201, rest of own blocks pushed later, class untouched. Completes in one turn without a 250 s stall.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "scheduler",
+        "I need to let"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym first after class"
+      }
+    }
+  },
+  {
+    "id": "sch-alarm-push-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-alarm-push",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T22:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Alarm exists for 08:00 tomorrow (Tue). No reminders named \"push my alarm\" must be created."
+    },
+    "turns": [
+      {
+        "text": "push my alarm to 9"
+      }
+    ],
+    "expect": {
+      "rubric": "Tomorrow alarm moves from 08:00 to 09:00. Reply confirms the alarm time. Must not create a reminder labelled \"push my alarm\". Should flag if 09:00 collides with a fixed class (ECON1115 is 11:00 so fine).",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Reminder set",
+        "push my alarm\\."
+      ],
+      "effect": {
+        "kind": "alarm",
+        "detail": "alarm 09:00 tomorrow; no new reminder"
+      }
+    }
+  },
+  {
+    "id": "sch-alarm-push-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-alarm-push",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T22:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Alarm exists for 08:00 tomorrow (Tue). No reminders named \"push my alarm\" must be created."
+    },
+    "turns": [
+      {
+        "text": "move tomorrow morning alarm from 8 to 9am"
+      }
+    ],
+    "expect": {
+      "rubric": "Alarm changed to 09:00 tomorrow, reply states it. No reminder created.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Reminder set"
+      ],
+      "effect": {
+        "kind": "alarm",
+        "detail": "alarm moved to 09:00"
+      }
+    }
+  },
+  {
+    "id": "sch-before-class-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-before-class",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "can you throw in something before my class, like a quick study thing"
+      }
+    ],
+    "expect": {
+      "rubric": "A study block of ~30 min is placed BEFORE MKTG2201 (before 13:30, ending with a buffer) not after it, and other tasks are not shifted. Reply names the time.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "5:50 PM"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "study block ends <= 13:25 today"
+      }
+    }
+  },
+  {
+    "id": "sch-before-class-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-before-class",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "add a 30 min econ review today before my 1:30 marketing class"
+      }
+    ],
+    "expect": {
+      "rubric": "A 30 min ECON1115 review block ends before 13:30 today; other blocks unchanged.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "30 min econ review before 13:30"
+      }
+    }
+  },
+  {
+    "id": "sch-cs-lab-long-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-cs-lab-long",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. CS lab block 20:00-21:00 owned by ORION."
+    },
+    "turns": [
+      {
+        "text": "cs lab is gonna take more like two hours"
+      }
+    ],
+    "expect": {
+      "rubric": "CS lab block extended to 2 hours (20:00-22:00) and ORION blocks after it shift or drop by priority; gym is not dropped to make room. Must NOT ask \"what time or how long\".",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "cs lab 2h"
+      }
+    }
+  },
+  {
+    "id": "sch-cs-lab-long-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-cs-lab-long",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. CS lab block 20:00-21:00 owned by ORION."
+    },
+    "turns": [
+      {
+        "text": "extend cs lab to two hours today, 8 to 10pm"
+      }
+    ],
+    "expect": {
+      "rubric": "CS lab is 20:00-22:00. Reply confirms. Gym still present today.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "cs lab 20:00-22:00; gym kept"
+      }
+    }
+  },
+  {
+    "id": "sch-cs-lab-until-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-cs-lab-until",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T19:15:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now is 19:15. A confirm-loop was seen live."
+    },
+    "turns": [
+      {
+        "text": "yeah put cs lab from now until ten thirty"
+      }
+    ],
+    "expect": {
+      "rubric": "A CS lab block 19:15-22:30 is created at once with no confirmation question. Conflicts with ORION blocks are resolved by moving those, not classes.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Want me to",
+        "Should I confirm"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "cs lab 19:15-22:30"
+      }
+    }
+  },
+  {
+    "id": "sch-cs-lab-until-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-cs-lab-until",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T19:15:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now is 19:15. A confirm-loop was seen live."
+    },
+    "turns": [
+      {
+        "text": "add cs lab 7:15pm to 10:30pm tonight"
+      }
+    ],
+    "expect": {
+      "rubric": "Block created 19:15-22:30; reply short and confirms.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "cs lab 19:15-22:30"
+      }
+    }
+  },
+  {
+    "id": "sch-no-class-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-no-class",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 today 13:30-15:30 and ECON1115 11:00. Class-leave nudges are scheduled."
+    },
+    "turns": [
+      {
+        "text": "no class today btw"
+      }
+    ],
+    "expect": {
+      "rubric": "ORION asks or infers which class only if truly ambiguous (two classes today) and otherwise removes/marks both as not happening, cancels leave nudges, and offers to use the freed time (gym/study) by priority. Must not nudge to leave afterwards.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "today class events marked cancelled; leave nudges cancelled"
+      }
+    }
+  },
+  {
+    "id": "sch-no-class-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-no-class",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 today 13:30-15:30 and ECON1115 11:00. Class-leave nudges are scheduled."
+    },
+    "turns": [
+      {
+        "text": "i dont have marketing or macro today, both are cancelled, use the time"
+      }
+    ],
+    "expect": {
+      "rubric": "Both class events are marked cancelled for today, leave nudges removed, the freed hours get filled with gym and study blocks in priority order. Reply summarises the new day.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "both classes cancelled; reflowed"
+      }
+    }
+  },
+  {
+    "id": "sch-tomorrow-light-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-tomorrow-light",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T21:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "tmrw needs to be chill i have a lot going on"
+      }
+    ],
+    "expect": {
+      "rubric": "ORION lightens tomorrow: keeps fixed classes, gym (shortened or kept), moves non-essential owned blocks out or shortens them, adds protected rest. States what it dropped. Does not drop gym silently or delete classes.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "tomorrow lighter; classes unchanged"
+      }
+    }
+  },
+  {
+    "id": "sch-tomorrow-light-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-tomorrow-light",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T21:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "make tomorrow lighter: keep classes and gym, cut side project to 30 min, add a long break after lunch"
+      }
+    ],
+    "expect": {
+      "rubric": "Tomorrow: classes and gym unchanged, side project block 30 min, a break block after lunch.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "side project 30m; lunch break added"
+      }
+    }
+  },
+  {
+    "id": "sch-gym-moved-later-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-gym-moved-later",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "can we do gym later, like after dinner"
+      }
+    ],
+    "expect": {
+      "rubric": "Gym block moves to after dinner (about 20:00-21:30 today), other ORION blocks reflow. Still 90 min. Reply states the time.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym 20:00+ , 90 min"
+      }
+    }
+  },
+  {
+    "id": "sch-gym-moved-later-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-gym-moved-later",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "move gym to 8:30pm today"
+      }
+    ],
+    "expect": {
+      "rubric": "Gym is 20:30-22:00 today. Reply confirms.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym 20:30-22:00"
+      }
+    }
+  },
+  {
+    "id": "sch-add-deadline-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-add-deadline",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "i have a marketing quiz thursday i should prob study for it"
+      }
+    ],
+    "expect": {
+      "rubric": "A deadline/quiz item is recorded for Thursday and 1-2 study blocks are scheduled before it in owned slots; not over classes. Reply says which days/times.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "quiz Thu + study blocks Tue/Wed"
+      }
+    }
+  },
+  {
+    "id": "sch-add-deadline-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-add-deadline",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "add marketing quiz thursday at 2pm and book two 1 hour study blocks for it before then"
+      }
+    ],
+    "expect": {
+      "rubric": "Quiz event Thursday 14:00 and two 60 min study blocks before Thursday, none overlapping fixed events.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "quiz + 2 study blocks"
+      }
+    }
+  },
+  {
+    "id": "sch-whats-today-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-whats-today",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "whats my day look like"
+      }
+    ],
+    "expect": {
+      "rubric": "Reads out today in order with times: ECON/MKTG classes, gym, side project. Short, no invention of events, nothing changes.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "sch-whats-today-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-whats-today",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "list everything on my calendar today with times"
+      }
+    ],
+    "expect": {
+      "rubric": "Complete list of today with times matching the calendar exactly. No changes.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "sch-cancel-owned-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-cancel-owned",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "dont need the side project thing tonight"
+      }
+    ],
+    "expect": {
+      "rubric": "The ORION-owned side-project block tonight is removed (owned, free to move) and the freed time is left free or offered to gym/rest. Classes untouched. Reply confirms.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "side-project block removed"
+      }
+    }
+  },
+  {
+    "id": "sch-cancel-owned-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-cancel-owned",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "delete tonight side project block"
+      }
+    ],
+    "expect": {
+      "rubric": "Side project block deleted; nothing else changes.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "only that block removed"
+      }
+    }
+  },
+  {
+    "id": "sch-fixed-plan-protect-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-fixed-plan-protect",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. A plan with a friend: \"dinner with Annika\" 19:00-21:00, created by Nick (fixed)."
+    },
+    "turns": [
+      {
+        "text": "push everything back like an hour"
+      }
+    ],
+    "expect": {
+      "rubric": "ORION moves only its own blocks one hour later. Classes and the Annika dinner stay fixed; ORION says it left them. If a moved block now collides with the dinner it resolves by dropping/shortening by priority (gym kept). Does not move the dinner.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "owned blocks +1h; class and dinner unchanged"
+      }
+    }
+  },
+  {
+    "id": "sch-fixed-plan-protect-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-fixed-plan-protect",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. A plan with a friend: \"dinner with Annika\" 19:00-21:00, created by Nick (fixed)."
+    },
+    "turns": [
+      {
+        "text": "push all your blocks back an hour but leave classes and dinner where they are"
+      }
+    ],
+    "expect": {
+      "rubric": "Owned blocks shifted +60 min, class and dinner unchanged; reply notes any block dropped.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "owned +1h; fixed unchanged"
+      }
+    }
+  },
+  {
+    "id": "sch-move-fixed-named-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-move-fixed-named",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "marketing is moved to 2pm today thx"
+      }
+    ],
+    "expect": {
+      "rubric": "Because Nick named the class, ORION moves MKTG2201 today to 14:00 (keeps duration) and adjusts leave nudges and the gym slot. Reply confirms.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "MKTG2201 starts 14:00 today"
+      }
+    }
+  },
+  {
+    "id": "sch-move-fixed-named-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-move-fixed-named",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "move my MKTG2201 class today from 1:30 to 2pm, its running late"
+      }
+    ],
+    "expect": {
+      "rubric": "MKTG2201 starts 14:00 today, owned blocks reflowed, leave nudge retimed.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "MKTG2201 14:00"
+      }
+    }
+  },
+  {
+    "id": "sch-weekend-plan-v",
+    "area": "schedule",
+    "wording": "vague",
+    "pair": "sch-weekend-plan",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-06T15:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "plan my weekend, i want to get ahead on econ and also actually relax"
+      }
+    ],
+    "expect": {
+      "rubric": "Weekend gets gym 90 min each day, an econ study block each day, a protected rest block, side project/YouTube >= 1h. No fake events with people. Reply lists Sat and Sun briefly.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "Sat/Sun blocks created"
+      }
+    }
+  },
+  {
+    "id": "sch-weekend-plan-c",
+    "area": "schedule",
+    "wording": "clear",
+    "pair": "sch-weekend-plan",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-06T15:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "plan sat and sun: gym 90 min each day, econ study 2 hours saturday, a free afternoon sunday, and 1 hour youtube both days"
+      }
+    ],
+    "expect": {
+      "rubric": "Sat/Sun have exactly those blocks. Sunday afternoon is free of owned blocks.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "specified blocks present"
+      }
+    }
+  }
+]

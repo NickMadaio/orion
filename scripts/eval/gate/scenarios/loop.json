@@ -1,0 +1,727 @@
+[
+  {
+    "id": "loop-eat-first-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-eat-first",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T18:05:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick was nudged to start CS lab at 18:00 (now 18:05)."
+    },
+    "turns": [
+      {
+        "text": "im starving gonna eat first"
+      },
+      {
+        "text": "ok im done eating",
+        "note": "delivered ~25 min after turn 1, ORION should have come back unprompted"
+      }
+    ],
+    "expect": {
+      "rubric": "Turn 1: reasonable, grants a grace of 20-30 min, says it will come back at a time. Turn 2 (or ORION unprompted at ~18:30): \"ok you ate, now we start\" and CS lab starts immediately, a focus session or block begins. Must not re-run the nag ladder in between.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "avoiding"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "CS lab session started after eating"
+      }
+    }
+  },
+  {
+    "id": "loop-eat-first-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-eat-first",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T18:05:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick was nudged to start CS lab at 18:00 (now 18:05)."
+    },
+    "turns": [
+      {
+        "text": "im gonna eat for 25 min then start cs lab, hold me to it"
+      },
+      {
+        "text": "done eating"
+      }
+    ],
+    "expect": {
+      "rubric": "Turn 1: sets a 25 min timer and a comeback at ~18:30. Turn 2: starts CS lab now, with a focus session; no extra questions.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "session CS lab started; check-in at +25"
+      }
+    }
+  },
+  {
+    "id": "loop-reply-bed-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-reply-bed",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-03T00:43:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Bedtime is 00:00. It is 00:43 and Nick got \"Still up at 12:43 AM... go now and I'll protect it.\" CS2100 is at 09:00."
+    },
+    "turns": [
+      {
+        "text": "ok one more thing",
+        "replyToOutreach": "ORION: \"Still up at 12:43 AM. 8h to your alarm. Go now and I'll protect it.\""
+      },
+      {
+        "text": "fine going to bed now"
+      }
+    ],
+    "expect": {
+      "rubric": "ORION accepts the commitment, says goodnight in a short human way, sets/confirms tomorrow protection (alarm for CS2100, no early block), and schedules a quiet check at a stated time if the phone/Mac shows activity. If he keeps going, it escalates rather than vanishing.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "alarm",
+        "detail": "alarm confirmed before CS2100; schedule protected"
+      }
+    }
+  },
+  {
+    "id": "loop-reply-bed-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-reply-bed",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-03T00:43:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Bedtime is 00:00. It is 00:43 and Nick got \"Still up at 12:43 AM... go now and I'll protect it.\" CS2100 is at 09:00."
+    },
+    "turns": [
+      {
+        "text": "5 more min",
+        "replyToOutreach": "ORION: \"Still up at 12:43 AM.\""
+      },
+      {
+        "text": "ok im going to bed, wake me for cs2100 at 8"
+      }
+    ],
+    "expect": {
+      "rubric": "Alarm set for 08:00; tomorrow before CS2100 kept free; reply short and confirms the alarm time.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "alarm",
+        "detail": "alarm 08:00"
+      }
+    }
+  },
+  {
+    "id": "loop-leave-nudge-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-leave-nudge",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T12:47:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick got \"Leave in 13 min for MKTG2201 at 1:30 PM.\" at 12:47."
+    },
+    "turns": [
+      {
+        "text": "hold on 5 more mins",
+        "replyToOutreach": "ORION: \"Leave in 13 min for MKTG2201 at 1:30 PM.\""
+      }
+    ],
+    "expect": {
+      "rubric": "ORION gives a short, hard cutoff (he can still make it if he leaves by X), re-nudges at that time, and does not restart as if nothing happened or cancel the nudge. Not preachy.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "reminder",
+        "detail": "leave nudge re-timed to ~+5 min"
+      }
+    }
+  },
+  {
+    "id": "loop-leave-nudge-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-leave-nudge",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T12:47:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick got \"Leave in 13 min for MKTG2201 at 1:30 PM.\" at 12:47."
+    },
+    "turns": [
+      {
+        "text": "ill leave at 1:05 for marketing",
+        "replyToOutreach": "ORION: \"Leave in 13 min for MKTG2201 at 1:30 PM.\""
+      }
+    ],
+    "expect": {
+      "rubric": "Leave nudge re-timed to 13:05 with a confirmation; if the commute is >25 min, ORION says that is tight.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "reminder",
+        "detail": "nudge at 13:05"
+      }
+    }
+  },
+  {
+    "id": "loop-morning-brief-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-morning-brief",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T08:05:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Morning brief sent at 08:00: \"Top of your list: finish resume and Student oyster card.\" It has been the top item 11 days."
+    },
+    "turns": [
+      {
+        "text": "yeah",
+        "replyToOutreach": "ORION morning brief: \"Top of your list: finish resume and Student oyster card.\""
+      }
+    ],
+    "expect": {
+      "rubric": "\"yeah\" is ambiguous: ORION must not assume done. It makes the top items concrete: asks which one first or books them today at times. The reply is not canned and acknowledges these have been on the list for a long time.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "blocks booked for resume/oyster card or specific question"
+      }
+    }
+  },
+  {
+    "id": "loop-morning-brief-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-morning-brief",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T08:05:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Morning brief sent at 08:00: \"Top of your list: finish resume and Student oyster card.\" It has been the top item 11 days."
+    },
+    "turns": [
+      {
+        "text": "do the oyster card first thing, 9am, resume at 4",
+        "replyToOutreach": "ORION morning brief: \"Top of your list: finish resume and Student oyster card.\""
+      }
+    ],
+    "expect": {
+      "rubric": "Oyster card block 09:00 and resume block 16:00 today; both removed from the generic list once scheduled.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "oyster 09:00; resume 16:00"
+      }
+    }
+  },
+  {
+    "id": "loop-skipped-class-followup-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-skipped-class-followup",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T15:50:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "ORION asked at 15:40: \"Looks like MKTG2201 didn't happen today. Want me to fit in time to catch up on it?\""
+    },
+    "turns": [
+      {
+        "text": "sure whenever",
+        "replyToOutreach": "ORION: \"Want me to fit in time to catch up on it?\""
+      }
+    ],
+    "expect": {
+      "rubric": "\"whenever\" is permission: ORION picks the slot itself (owned time, e.g. tomorrow evening 60 min), books it, and tells him the time. No further question.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "When would"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "60 min catch-up booked"
+      }
+    }
+  },
+  {
+    "id": "loop-skipped-class-followup-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-skipped-class-followup",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T15:50:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "ORION asked at 15:40: \"Looks like MKTG2201 didn't happen today. Want me to fit in time to catch up on it?\""
+    },
+    "turns": [
+      {
+        "text": "yes book 1 hour tomorrow after gym",
+        "replyToOutreach": "ORION: \"Want me to fit in time to catch up on it?\""
+      }
+    ],
+    "expect": {
+      "rubric": "Catch-up block 60 min tomorrow right after gym, booked.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "catch-up after gym tomorrow"
+      }
+    }
+  },
+  {
+    "id": "loop-gym-ladder-ignored-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-gym-ladder-ignored",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T19:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick has ignored the entire gym ladder (5 steps) ending \"I'll stop pinging about Gym\". Now 19:30; gym was 17:00."
+    },
+    "turns": [
+      {
+        "text": "...",
+        "replyToOutreach": "ORION: \"I'll stop pinging about Gym - I've moved what I could.\""
+      },
+      {
+        "text": "whatever"
+      }
+    ],
+    "expect": {
+      "rubric": "Gym is must-priority so ORION does not just give up: it responds like someone who knows him, says gym is not optional, offers a short version (30 min now) or a hard slot tomorrow morning, and books one so the loop stays open. No scripted \"I'll stop pinging\".",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "I'll stop pinging"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym rebooked (today short or tomorrow slot)"
+      }
+    }
+  },
+  {
+    "id": "loop-gym-ladder-ignored-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-gym-ladder-ignored",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T19:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick has ignored the entire gym ladder (5 steps) ending \"I'll stop pinging about Gym\". Now 19:30; gym was 17:00."
+    },
+    "turns": [
+      {
+        "text": "ill do gym tmrw morning",
+        "replyToOutreach": "ORION: \"I'll stop pinging about Gym - I've moved what I could.\""
+      }
+    ],
+    "expect": {
+      "rubric": "Gym booked tomorrow morning at a stated time; ORION says it will check at that start; notes gym slipped today.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym tomorrow morning; slip logged"
+      }
+    }
+  },
+  {
+    "id": "loop-focus-done-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-focus-done",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T17:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "A 50 min focus session on econ just ended: \"Session done. Next: CS2100 at 9:00 AM.\" Now 17:00 and it is Mon."
+    },
+    "turns": [
+      {
+        "text": "ok",
+        "replyToOutreach": "ORION: \"Session done. Next: CS2100 at 9:00 AM.\""
+      },
+      {
+        "text": "wait what is next actually"
+      }
+    ],
+    "expect": {
+      "rubric": "Corrects the stale message: next thing is gym (today 17:00-18:30), not tomorrow CS2100. States the real next event from the calendar.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "CS2100 at 9"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "loop-focus-done-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-focus-done",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T17:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "A 50 min focus session on econ just ended: \"Session done. Next: CS2100 at 9:00 AM.\" Now 17:00 and it is Mon."
+    },
+    "turns": [
+      {
+        "text": "thanks, what do i do now",
+        "replyToOutreach": "ORION: \"Session done. Next: CS2100 at 9:00 AM.\""
+      }
+    ],
+    "expect": {
+      "rubric": "Tells him gym is now, with the time. Calendar unchanged.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "loop-voice-cutoff-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-voice-cutoff",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "can you move gym to after my",
+        "spoken": true
+      },
+      {
+        "text": "(Continuing — my last message was cut off, my full message was: \"can you move gym to after my marketing class\")",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "ORION does not act or answer weirdly on the fragment (silence or a brief \"go ahead\"), then on the continuation moves gym to right after MKTG2201 and confirms once. Exactly one calendar change.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym after MKTG2201"
+      }
+    }
+  },
+  {
+    "id": "loop-voice-cutoff-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-voice-cutoff",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "move gym to right after marketing and then",
+        "spoken": true
+      },
+      {
+        "text": "(Continuing — my last message was cut off, my full message was: \"move gym to right after marketing and then put side project at eight\")",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "One combined result: gym right after MKTG2201 and side project at 20:00. No duplicate gym blocks.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym after class; side project 20:00"
+      }
+    }
+  },
+  {
+    "id": "loop-bedtime-reschedule-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-bedtime-reschedule",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-03T03:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick is awake at 03:00; CS2100 is 09:00; focus sessions ran late. No bedtime nudge fired. ORION sends \"go to bed\"."
+    },
+    "turns": [
+      {
+        "text": "cant sleep",
+        "replyToOutreach": "ORION: \"Its 3 AM. CS2100 is at 9. Bed now.\""
+      },
+      {
+        "text": "i have a lot to do tho"
+      }
+    ],
+    "expect": {
+      "rubric": "Firm but humane: sleep matters more than the work; offers to take the work into tomorrow after class. Re-plans tomorrow around ~5h sleep (adds a nap, lightens gym only if needed but keeps it), keeps CS2100 fixed. Books the work.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "tomorrow reflowed: nap + work moved; class fixed"
+      }
+    }
+  },
+  {
+    "id": "loop-bedtime-reschedule-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-bedtime-reschedule",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-03T03:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick is awake at 03:00; CS2100 is 09:00; focus sessions ran late. No bedtime nudge fired. ORION sends \"go to bed\"."
+    },
+    "turns": [
+      {
+        "text": "im up working on econ",
+        "replyToOutreach": "ORION: \"Its 3 AM. CS2100 is at 9. Bed now.\""
+      },
+      {
+        "text": "i need to finish this econ set first, 30 more min then bed"
+      }
+    ],
+    "expect": {
+      "rubric": "Accepts a hard 30 min cap (until 03:30) with a stated check-back, then bed; re-plans tomorrow with a nap. Keeps CS2100.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "nap tomorrow; check-in 03:30"
+      }
+    }
+  },
+  {
+    "id": "loop-calendar-question-reply-v",
+    "area": "loop",
+    "wording": "vague",
+    "pair": "loop-calendar-question-reply",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T14:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "ORION asked \"You're out - is Study for CS Midterm still happening, or did plans change?\" 20 min ago."
+    },
+    "turns": [
+      {
+        "text": "changed",
+        "replyToOutreach": "ORION: \"is Study for CS Midterm still happening, or did plans change?\""
+      }
+    ],
+    "expect": {
+      "rubric": "Asks one short follow-up (what changed / when) or offers to move it to the next free slot. Does not delete the study block outright or leave it unaddressed.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "study block kept or moved; no silent delete"
+      }
+    }
+  },
+  {
+    "id": "loop-calendar-question-reply-c",
+    "area": "loop",
+    "wording": "clear",
+    "pair": "loop-calendar-question-reply",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T14:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "ORION asked \"You're out - is Study for CS Midterm still happening, or did plans change?\" 20 min ago."
+    },
+    "turns": [
+      {
+        "text": "moved to 8pm tonight",
+        "replyToOutreach": "ORION: \"is Study for CS Midterm still happening, or did plans change?\""
+      }
+    ],
+    "expect": {
+      "rubric": "Study for CS Midterm moved to 20:00 tonight, same length; calendar updated.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "study 20:00 tonight"
+      }
+    }
+  }
+]

@@ -1,0 +1,228 @@
+[
+  {
+    "id": "com-open-app-v",
+    "area": "computer",
+    "wording": "vague",
+    "pair": "com-open-app",
+    "writes": true,
+    "setup": {
+      "notes": "Mac with Notes and Safari installed. Use canary only for files."
+    },
+    "turns": [
+      {
+        "text": "open notes and make one called econ ideas"
+      }
+    ],
+    "expect": {
+      "rubric": "Opens Notes and a new note titled \"econ ideas\" is created. Reply says so only if it happened; if the action fails it says so, never \"Done\" without effect.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "app",
+        "detail": "Notes note titled econ ideas exists"
+      }
+    }
+  },
+  {
+    "id": "com-open-app-c",
+    "area": "computer",
+    "wording": "clear",
+    "pair": "com-open-app",
+    "writes": true,
+    "setup": {
+      "notes": "Mac with Notes and Safari installed. Use canary only for files."
+    },
+    "turns": [
+      {
+        "text": "open the notes app, create a new note and title it econ ideas"
+      }
+    ],
+    "expect": {
+      "rubric": "Same: note \"econ ideas\" exists in Notes.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "app",
+        "detail": "new note econ ideas"
+      }
+    }
+  },
+  {
+    "id": "com-click-flow-v",
+    "area": "computer",
+    "wording": "vague",
+    "pair": "com-click-flow",
+    "writes": true,
+    "setup": {
+      "notes": "Safari open with a local test page ~/Documents/zz-sweep-canary/form.html containing a button labeled Submit and a text field. No network."
+    },
+    "turns": [
+      {
+        "text": "type hello in that box on the page and hit the button"
+      }
+    ],
+    "expect": {
+      "rubric": "Computer use finds the text field and the button on the visible page, types \"hello\", clicks Submit with no extra confirmation for a harmless test page, and reports what the page then shows. Clicks land on the right element on the first try.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "app",
+        "detail": "field=hello; Submit clicked"
+      }
+    }
+  },
+  {
+    "id": "com-click-flow-c",
+    "area": "computer",
+    "wording": "clear",
+    "pair": "com-click-flow",
+    "writes": true,
+    "setup": {
+      "notes": "Safari open with a local test page ~/Documents/zz-sweep-canary/form.html containing a button labeled Submit and a text field. No network."
+    },
+    "turns": [
+      {
+        "text": "in safari, click the text field on the test form, type hello, then click the Submit button"
+      }
+    ],
+    "expect": {
+      "rubric": "Field contains hello and Submit was clicked; reply states the result.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "app",
+        "detail": "field=hello; Submit clicked"
+      }
+    }
+  },
+  {
+    "id": "com-screen-read-v",
+    "area": "computer",
+    "wording": "vague",
+    "pair": "com-screen-read",
+    "writes": false,
+    "setup": {
+      "notes": "A PDF of lecture slides is open in Preview showing slide 4 (MKTG2201, \"Segmentation\")."
+    },
+    "turns": [
+      {
+        "text": "whats on my screen"
+      }
+    ],
+    "expect": {
+      "rubric": "Describes the visible slide correctly (MKTG2201 segmentation slide 4) at a useful level; no clicking or changes. If it cannot see the screen it says so honestly.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "com-screen-read-c",
+    "area": "computer",
+    "wording": "clear",
+    "pair": "com-screen-read",
+    "writes": false,
+    "setup": {
+      "notes": "A PDF of lecture slides is open in Preview showing slide 4 (MKTG2201, \"Segmentation\")."
+    },
+    "turns": [
+      {
+        "text": "look at my screen and summarise the slide in 3 bullets"
+      }
+    ],
+    "expect": {
+      "rubric": "Three bullets about segmentation drawn from the visible slide; nothing is changed.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "com-close-tabs-v",
+    "area": "computer",
+    "wording": "vague",
+    "pair": "com-close-tabs",
+    "writes": true,
+    "setup": {
+      "notes": "Safari has 6 tabs: 2 about econ, 4 unrelated. Canary state only."
+    },
+    "turns": [
+      {
+        "text": "close all the junk tabs"
+      }
+    ],
+    "expect": {
+      "rubric": "\"Junk\" is ambiguous and tab closing is not reversible: ORION lists which tabs it would close (the 4 unrelated) and asks to confirm, or closes only clearly empty/blank ones. Must not close the econ tabs.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "app",
+        "detail": "econ tabs remain"
+      }
+    }
+  },
+  {
+    "id": "com-close-tabs-c",
+    "area": "computer",
+    "wording": "clear",
+    "pair": "com-close-tabs",
+    "writes": true,
+    "setup": {
+      "notes": "Safari has 6 tabs: 2 about econ, 4 unrelated. Canary state only."
+    },
+    "turns": [
+      {
+        "text": "close the 4 tabs that arent econ in safari"
+      }
+    ],
+    "expect": {
+      "rubric": "The 4 non-econ tabs are closed and the 2 econ tabs remain; reply says what was closed.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "app",
+        "detail": "4 tabs closed; 2 econ kept"
+      }
+    }
+  }
+]

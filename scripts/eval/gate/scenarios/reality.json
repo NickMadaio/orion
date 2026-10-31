@@ -1,0 +1,871 @@
+[
+  {
+    "id": "rea-skip-gym-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-skip-gym",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T14:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Gym block 17:00-18:30 today."
+    },
+    "turns": [
+      {
+        "text": "ugh im not doing the gym thing today"
+      }
+    ],
+    "expect": {
+      "rubric": "Gym is a high-priority item so ORION does not just accept. It asks one short question for the reason OR pushes back lightly and offers a smaller version (30 min) or a later slot, tells him tomorrow gets protected. If he insists later the block moves, never silently deleted. No scolding wall of text.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Done",
+        "all set"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym not deleted this turn"
+      }
+    }
+  },
+  {
+    "id": "rea-skip-gym-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-skip-gym",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T14:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Gym block 17:00-18:30 today."
+    },
+    "turns": [
+      {
+        "text": "skip gym today, im sick of it and tired, move it to tomorrow"
+      }
+    ],
+    "expect": {
+      "rubric": "Explicit reschedule: gym today moved to tomorrow (a 90 min slot after classes), owned blocks reflow, ORION notes gym comes first tomorrow. It may add one light line but does not argue.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym moved to tomorrow"
+      }
+    }
+  },
+  {
+    "id": "rea-friends-invite-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-friends-invite",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T16:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 16:30. Gym 17:00-18:30, side project 19:30."
+    },
+    "turns": [
+      {
+        "text": "annika just asked if i wanna get food rn"
+      }
+    ],
+    "expect": {
+      "rubric": "A worthwhile spontaneous choice: ORION adapts instead of scolding. Asks how long if unknown or assumes ~2h, moves gym later tonight or to tomorrow, keeps classes. No lecture. Adds the plan as a fixed event only if Nick confirms details.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "should not",
+        "you need to"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym moved; no deletion of fixed events"
+      }
+    }
+  },
+  {
+    "id": "rea-friends-invite-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-friends-invite",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T16:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 16:30. Gym 17:00-18:30, side project 19:30."
+    },
+    "turns": [
+      {
+        "text": "going to get food with annika from 5 to 7, move gym to after"
+      }
+    ],
+    "expect": {
+      "rubric": "Adds \"food with Annika\" 17:00-19:00 as fixed (named by Nick). Gym moves to after, about 19:00-20:30; side project shifts or drops. Reply short and friendly.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "plan 17-19 added; gym 19:00+"
+      }
+    }
+  },
+  {
+    "id": "rea-class-late-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-class-late",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T15:20:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 15:20, MKTG2201 scheduled to end 15:30."
+    },
+    "turns": [
+      {
+        "text": "marketing is running over lol"
+      }
+    ],
+    "expect": {
+      "rubric": "ORION pushes only its own post-class blocks (commute, gym) later by a reasonable guess or asks once how long; leave-for-gym nudge retimed. Does not mark class as skipped.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "didn't happen"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "post-class blocks shifted; class intact"
+      }
+    }
+  },
+  {
+    "id": "rea-class-late-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-class-late",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T15:20:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 15:20, MKTG2201 scheduled to end 15:30."
+    },
+    "turns": [
+      {
+        "text": "marketing is running 30 min over, shift my stuff after it by 30"
+      }
+    ],
+    "expect": {
+      "rubric": "Owned blocks after 15:30 shifted by 30 minutes. Class unchanged.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "owned blocks +30"
+      }
+    }
+  },
+  {
+    "id": "rea-task-twice-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-task-twice",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T18:50:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Econ problem set block 18:30-19:30 (ORION-owned), side project 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "this econ set is taking forever"
+      }
+    ],
+    "expect": {
+      "rubric": "Extends the econ block (asks or assumes +45-60 min), shifts the side project, keeps gym unless time truly runs out; says what moved. Does not offer a lecture.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "econ block extended; side project shifted"
+      }
+    }
+  },
+  {
+    "id": "rea-task-twice-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-task-twice",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T18:50:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Econ problem set block 18:30-19:30 (ORION-owned), side project 19:30-20:30."
+    },
+    "turns": [
+      {
+        "text": "econ problem set needs another hour, push whatever is after it"
+      }
+    ],
+    "expect": {
+      "rubric": "Econ block runs until 20:30; following owned blocks shifted by 60 min or trimmed by priority.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "econ ends 20:30"
+      }
+    }
+  },
+  {
+    "id": "rea-exhausted-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-exhausted",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T13:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 13:00, nap block 16:00 exists? No. Gym 17:00, side project 19:30."
+    },
+    "turns": [
+      {
+        "text": "im so tired i can barely think"
+      }
+    ],
+    "expect": {
+      "rubric": "Acknowledges in a human way, reads the day: proposes a 20-30 min nap before class or after and lightens the evening; keeps gym but offers a shorter version. Does not overwrite classes. A question is fine but it should also act or give a concrete proposal.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Go on"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "nap block added or proposal made"
+      }
+    }
+  },
+  {
+    "id": "rea-exhausted-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-exhausted",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T13:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 13:00, nap block 16:00 exists? No. Gym 17:00, side project 19:30."
+    },
+    "turns": [
+      {
+        "text": "add a 30 min nap at 4 today and cut side project tonight im wrecked"
+      }
+    ],
+    "expect": {
+      "rubric": "30 min nap 16:00-16:30 added, side project tonight removed, gym unchanged.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "nap added; side project removed"
+      }
+    }
+  },
+  {
+    "id": "rea-didnt-go-class-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-didnt-go-class",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T15:45:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 15:45. MKTG2201 ended 15:30. Nick did not leave home (no location change)."
+    },
+    "turns": [
+      {
+        "text": "didnt make it to marketing"
+      }
+    ],
+    "expect": {
+      "rubric": "Records MKTG2201 missed today and responds without scolding or canned lines. Offers to schedule catch-up time (lecture slides/recording) in an owned slot this week; asks for his choice or proposes a concrete slot. Memory/slip record updated.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "missed class recorded"
+      }
+    }
+  },
+  {
+    "id": "rea-didnt-go-class-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-didnt-go-class",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T15:45:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 15:45. MKTG2201 ended 15:30. Nick did not leave home (no location change)."
+    },
+    "turns": [
+      {
+        "text": "i skipped marketing, put 1 hour of catch up on it tomorrow evening"
+      }
+    ],
+    "expect": {
+      "rubric": "A 60 min MKTG2201 catch-up block tomorrow evening exists; the skip is logged.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "1h catch-up tomorrow evening"
+      }
+    }
+  },
+  {
+    "id": "rea-meal-prep-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-meal-prep",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T19:45:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick was nudged: \"Time to start: Gym.\" 10 min ago via the ladder. Now 19:45."
+    },
+    "turns": [
+      {
+        "text": "i'm meal prepping sorry",
+        "replyToOutreach": "ORION: \"Time to start: Gym.\" then \"Gym - still not started. Start now; just the first five minutes.\""
+      }
+    ],
+    "expect": {
+      "rubric": "ORION treats meal prep as a legit reason, stops the escalation ladder for now, and either reschedules gym to a concrete later time or says it will check back at a stated time. Must not say \"What time or how long do you mean\", and must not send the next ladder step during the grace window.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "avoiding Gym",
+        "Get up"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym snoozed/rescheduled; ladder paused"
+      }
+    }
+  },
+  {
+    "id": "rea-meal-prep-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-meal-prep",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T19:45:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Nick was nudged: \"Time to start: Gym.\" 10 min ago via the ladder. Now 19:45."
+    },
+    "turns": [
+      {
+        "text": "im meal prepping for like 40 min then ill do gym",
+        "replyToOutreach": "ORION: \"Time to start: Gym.\""
+      }
+    ],
+    "expect": {
+      "rubric": "Gym start deferred about 40 min (about 20:25); ORION says it will come back then; no further nudges until then.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym start ~20:25; nudges held until then"
+      }
+    }
+  },
+  {
+    "id": "rea-spontaneous-nap-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-spontaneous-nap",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 14:00."
+    },
+    "turns": [
+      {
+        "text": "took a nap lol"
+      }
+    ],
+    "expect": {
+      "rubric": "Logs the nap, asks nothing silly. Notes how long if unknown and fixes the remaining day: shifts what the nap displaced, brings gym back to the plan. Conversational, one or two lines.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "nap logged; blocks reflowed"
+      }
+    }
+  },
+  {
+    "id": "rea-spontaneous-nap-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-spontaneous-nap",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 14:00."
+    },
+    "turns": [
+      {
+        "text": "i slept from 2 to 3:30pm, redo the rest of the day from now"
+      }
+    ],
+    "expect": {
+      "rubric": "Logs the sleep 14:00-15:30; rebuilds the day from 15:30: classes untouched, gym next, study after, in priority order.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "day rebuilt from 15:30"
+      }
+    }
+  },
+  {
+    "id": "rea-took-longer-gym-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-took-longer-gym",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T19:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 19:00; gym was 17:00-18:30 but Nick got back late."
+    },
+    "turns": [
+      {
+        "text": "just got back from the gym"
+      }
+    ],
+    "expect": {
+      "rubric": "Marks gym done today, notes the actual time, and reflows the remainder (dinner/study) from now. Does not ask if he went when he just said so.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "gym done logged"
+      }
+    }
+  },
+  {
+    "id": "rea-took-longer-gym-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-took-longer-gym",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T19:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 19:00; gym was 17:00-18:30 but Nick got back late."
+    },
+    "turns": [
+      {
+        "text": "gym done, was 5:30 to 7, plan my evening"
+      }
+    ],
+    "expect": {
+      "rubric": "Gym logged as done 17:30-19:00; evening plan from 19:00 produced and booked with no overlaps.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "evening blocks after 19:00"
+      }
+    }
+  },
+  {
+    "id": "rea-work-on-it-tomorrow-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-work-on-it-tomorrow",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T21:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "A task \"finish resume\" slipped 6 times in 2 weeks and is in the brief daily. Now 21:00."
+    },
+    "turns": [
+      {
+        "text": "ill do the resume tomorrow"
+      }
+    ],
+    "expect": {
+      "rubric": "ORION notices this is the 7th deferral and does not just accept: books a concrete block tomorrow (named time) and says plainly it has been slipping, asks what blocks him or proposes a smaller first step. Not a canned motivational line.",
+      "reply_must": [
+        {},
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "resume block tomorrow with a time"
+      }
+    }
+  },
+  {
+    "id": "rea-work-on-it-tomorrow-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-work-on-it-tomorrow",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T21:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "A task \"finish resume\" slipped 6 times in 2 weeks and is in the brief daily. Now 21:00."
+    },
+    "turns": [
+      {
+        "text": "move finish resume to tomorrow at 10am, 45 min"
+      }
+    ],
+    "expect": {
+      "rubric": "Resume task moved to tomorrow 10:00-10:45; reply may note it has slipped repeatedly.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "resume tomorrow 10:00-10:45"
+      }
+    }
+  },
+  {
+    "id": "rea-class-actually-here-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-class-actually-here",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T16:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "ORION earlier sent \"Looks like MKTG2201 didn't happen today\". Nick was actually in class (phone on silent)."
+    },
+    "turns": [
+      {
+        "text": "i was literally in marketing"
+      }
+    ],
+    "expect": {
+      "rubric": "Apologises briefly, corrects the record (MKTG2201 attended), removes the missed-class slip and any catch-up proposal. Offers no excuse-making.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "slip removed; attended recorded"
+      }
+    }
+  },
+  {
+    "id": "rea-class-actually-here-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-class-actually-here",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T16:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "ORION earlier sent \"Looks like MKTG2201 didn't happen today\". Nick was actually in class (phone on silent)."
+    },
+    "turns": [
+      {
+        "text": "you said i missed marketing but i was there, fix it"
+      }
+    ],
+    "expect": {
+      "rubric": "The missed record for MKTG2201 today is corrected to attended and confirmed.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "attended recorded"
+      }
+    }
+  },
+  {
+    "id": "rea-correction-queued-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-correction-queued",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:32:00Z",
+      "state": {
+        "llm": "down",
+        "timezone": "Europe/London"
+      },
+      "notes": "LLM backend is down for this turn (simulated outage). MKTG2201 and ECON1115 are scheduled; leave nudges will fire. Replay the turn after backend returns."
+    },
+    "turns": [
+      {
+        "text": "i dont have classes today"
+      }
+    ],
+    "expect": {
+      "rubric": "Even through an outage the correction is not lost: it is queued/handled so that after recovery classes today are marked off and leave nudges are cancelled. If it cannot act, it says so honestly and does not claim Done.",
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Connection error"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "classes cancelled for today after recovery; no leave nudges"
+      }
+    }
+  },
+  {
+    "id": "rea-correction-queued-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-correction-queued",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:32:00Z",
+      "state": {
+        "llm": "down",
+        "timezone": "Europe/London"
+      },
+      "notes": "LLM backend is down for this turn (simulated outage). MKTG2201 and ECON1115 are scheduled; leave nudges will fire. Replay the turn after backend returns."
+    },
+    "turns": [
+      {
+        "text": "no marketing and no macro today, cancel the leave reminders"
+      }
+    ],
+    "expect": {
+      "rubric": "Both classes cancelled today and leave reminders removed; reply confirms. Also holds in outage mode by queueing and saying so.",
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Connection error"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "classes cancelled; leave reminders removed"
+      }
+    }
+  },
+  {
+    "id": "rea-sick-v",
+    "area": "reality",
+    "wording": "vague",
+    "pair": "rea-sick",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-03T08:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 08:00 Tue; ECON1115 11:00."
+    },
+    "turns": [
+      {
+        "text": "feel like crap, think im getting sick"
+      }
+    ],
+    "expect": {
+      "rubric": "Responds with care, no canned lines. Offers to drop gym and non-essential work today, keep or review the ECON1115 decision with him (fixed unless he names it), adds rest. Asks one question or proposes; does not delete the class itself.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym/side project dropped or proposal; class intact"
+      }
+    }
+  },
+  {
+    "id": "rea-sick-c",
+    "area": "reality",
+    "wording": "clear",
+    "pair": "rea-sick",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-03T08:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 08:00 Tue; ECON1115 11:00."
+    },
+    "turns": [
+      {
+        "text": "im sick, cancel gym and side project today, im still going to econ"
+      }
+    ],
+    "expect": {
+      "rubric": "Gym and side project today removed, ECON1115 untouched, rest block added.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "gym+side removed; econ kept"
+      }
+    }
+  }
+]

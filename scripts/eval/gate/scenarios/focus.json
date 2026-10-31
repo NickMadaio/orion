@@ -1,0 +1,603 @@
+[
+  {
+    "id": "foc-start-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-start",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "No focus session running."
+    },
+    "turns": [
+      {
+        "text": "ok lets work on econ"
+      }
+    ],
+    "expect": {
+      "rubric": "Starts a focus session for econ, default length (about 50 min), says when it ends. One line.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "econ session started"
+      }
+    }
+  },
+  {
+    "id": "foc-start-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-start",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "No focus session running."
+    },
+    "turns": [
+      {
+        "text": "start a 45 min focus session on econ"
+      }
+    ],
+    "expect": {
+      "rubric": "45 min focus session on econ is running; reply states the end time.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "45 min econ"
+      }
+    }
+  },
+  {
+    "id": "foc-shush-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-shush",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T23:03:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus not on. Now 23:03; Nick is working."
+    },
+    "turns": [
+      {
+        "text": "im doing work shush up"
+      }
+    ],
+    "expect": {
+      "rubric": "Quiet mode: ORION goes quiet, starts focus, and does NOT ask \"since when\". One short ack at most, with no bedtime nudge for the window it was told to hold off. Calendar not changed.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Since when",
+        "what time did you start"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "quiet/focus session started"
+      }
+    }
+  },
+  {
+    "id": "foc-shush-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-shush",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T23:03:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus not on. Now 23:03; Nick is working."
+    },
+    "turns": [
+      {
+        "text": "put me in focus mode for an hour, no messages unless its important"
+      }
+    ],
+    "expect": {
+      "rubric": "Focus session 60 min on; non-urgent nudges held for it; short ack.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "60 min quiet focus"
+      }
+    }
+  },
+  {
+    "id": "foc-extend-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-extend",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session on econ 50 min, 3 min left."
+    },
+    "turns": [
+      {
+        "text": "actually keep going for a bit"
+      }
+    ],
+    "expect": {
+      "rubric": "Extends the running session (by ~25 min, says so) and moves later owned blocks if needed. Does not start a second session.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "session extended"
+      }
+    }
+  },
+  {
+    "id": "foc-extend-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-extend",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session on econ 50 min, 3 min left."
+    },
+    "turns": [
+      {
+        "text": "extend my focus session by 30 min"
+      }
+    ],
+    "expect": {
+      "rubric": "Current session end +30 min, reply states the new end time.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "extended by 30"
+      }
+    }
+  },
+  {
+    "id": "foc-doomscroll-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-doomscroll",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session running; screen context shows Instagram open for 12 min."
+    },
+    "turns": [
+      {
+        "text": "im on tiktok instead of studying"
+      }
+    ],
+    "expect": {
+      "rubric": "Honest, human, short: tells him to put it down, restarts the focus session now, and offers to hold distractions where allowed. Does not forgive for the whole evening. No canned motivational line.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Go on"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "focus session reset/started"
+      }
+    }
+  },
+  {
+    "id": "foc-doomscroll-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-doomscroll",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session running; screen context shows Instagram open for 12 min."
+    },
+    "turns": [
+      {
+        "text": "ive been on tiktok for 20 mins. start a 25 min focus session on econ right now and be strict"
+      }
+    ],
+    "expect": {
+      "rubric": "A 25 min econ focus session starts; strict mode enabled if available (or says it is not and what it will do instead). Escalation check-in set.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "25 min strict econ session"
+      }
+    }
+  },
+  {
+    "id": "foc-not-started-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-not-started",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T18:15:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Study block \"Econ problem set\" 18:00-19:00 started 15 min ago; no activity detected."
+    },
+    "turns": [
+      {
+        "text": "ya in a sec",
+        "replyToOutreach": "ORION: \"Econ problem set - still not started. Start now; just the first five minutes.\""
+      }
+    ],
+    "expect": {
+      "rubric": "\"In a sec\" is a stall: ORION answers with a specific time (\"5 min, I'll start a timer\") and starts a focus timer, or gives a firm \"now\". Escalates if not started. Not a canned phrase.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "5 min start timer or session"
+      }
+    }
+  },
+  {
+    "id": "foc-not-started-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-not-started",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T18:15:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Study block \"Econ problem set\" 18:00-19:00 started 15 min ago; no activity detected."
+    },
+    "turns": [
+      {
+        "text": "starting in 10",
+        "replyToOutreach": "ORION: \"Econ problem set - still not started.\""
+      }
+    ],
+    "expect": {
+      "rubric": "Sets a hard start at +10 min with a nudge, says so. If not started by then ORION escalates.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "reminder",
+        "detail": "start nudge at +10"
+      }
+    }
+  },
+  {
+    "id": "foc-end-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-end",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session running 20 min in."
+    },
+    "turns": [
+      {
+        "text": "ok im done for now"
+      }
+    ],
+    "expect": {
+      "rubric": "Ends the session early, logs actual time, asks nothing heavy; reflows the next block. Optional light note about the unfinished time.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "session ended; actual time logged"
+      }
+    }
+  },
+  {
+    "id": "foc-end-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-end",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session running 20 min in."
+    },
+    "turns": [
+      {
+        "text": "stop the focus session, i did 20 min"
+      }
+    ],
+    "expect": {
+      "rubric": "Session stopped, 20 min logged.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "stopped; 20 min logged"
+      }
+    }
+  },
+  {
+    "id": "foc-side-project-hour-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-side-project-hour",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T21:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 21:30; side project/YouTube block earlier was dropped; no side-project time logged today."
+    },
+    "turns": [
+      {
+        "text": "didnt do youtube stuff today"
+      }
+    ],
+    "expect": {
+      "rubric": "Priority rule is at least 1h daily: ORION notices what is left, tells him there is time tonight and books 60 min (before bed) or the first slot tomorrow, no lecture.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "60 min side-project block booked"
+      }
+    }
+  },
+  {
+    "id": "foc-side-project-hour-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-side-project-hour",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T21:30:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 21:30; side project/YouTube block earlier was dropped; no side-project time logged today."
+    },
+    "turns": [
+      {
+        "text": "book an hour of youtube editing tonight at 10"
+      }
+    ],
+    "expect": {
+      "rubric": "Side project block 22:00-23:00 tonight created.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "22:00-23:00 block"
+      }
+    }
+  },
+  {
+    "id": "foc-app-lock-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-app-lock",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session running; app restriction is permitted in settings."
+    },
+    "turns": [
+      {
+        "text": "block my distracting stuff while i study"
+      }
+    ],
+    "expect": {
+      "rubric": "Enables app/website blocking for the session where possible and names what is blocked; if no permission it says so and asks, rather than claiming it did. Must not claim Done without effect.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "blocking enabled or honest decline"
+      }
+    }
+  },
+  {
+    "id": "foc-app-lock-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-app-lock",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session running; app restriction is permitted in settings."
+    },
+    "turns": [
+      {
+        "text": "block instagram and youtube for the next hour"
+      }
+    ],
+    "expect": {
+      "rubric": "Instagram and YouTube blocked for 60 min with confirmation; or an explicit statement that blocking is not available.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "instagram+youtube blocked 60m"
+      }
+    }
+  },
+  {
+    "id": "foc-pomodoro-break-v",
+    "area": "focus",
+    "wording": "vague",
+    "pair": "foc-pomodoro-break",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session of 50 min just finished; next study block begins in 10 min."
+    },
+    "turns": [
+      {
+        "text": "need a break"
+      }
+    ],
+    "expect": {
+      "rubric": "Gives a 10 min break (not an open-ended one), says when to be back, sets the return timer, then starts the next block. No scolding.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "reminder",
+        "detail": "return nudge in ~10 min"
+      }
+    }
+  },
+  {
+    "id": "foc-pomodoro-break-c",
+    "area": "focus",
+    "wording": "clear",
+    "pair": "foc-pomodoro-break",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T10:00:00Z",
+      "state": {
+        "timezone": "Europe/London",
+        "home": "Scape Shoreditch"
+      },
+      "notes": "Focus session of 50 min just finished; next study block begins in 10 min."
+    },
+    "turns": [
+      {
+        "text": "take a 10 min break then restart the session"
+      }
+    ],
+    "expect": {
+      "rubric": "10 min break, then focus restarts automatically at the end; reply states the return time.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "break then restart"
+      }
+    }
+  }
+]

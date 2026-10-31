@@ -1,0 +1,342 @@
+[
+  {
+    "id": "cha-presentation-v",
+    "area": "chatter",
+    "wording": "vague",
+    "pair": "cha-presentation",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T06:00:00Z",
+      "notes": "Nick is rehearsing a marketing presentation aloud for 15 min. ORION is listening (always-on voice)."
+    },
+    "turns": [
+      {
+        "text": "so for our target segment we looked at gen z students in london who care about price",
+        "spoken": true
+      },
+      {
+        "text": "and the key insight is that eligibility checks are the pain point",
+        "spoken": true
+      },
+      {
+        "text": "so then the next slide shows the competitor pricing",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "ORION stays silent: no reply, no memory write, no calendar change, no \"Not done\" or \"Saved:\". Empty or ignored output counts as correct.",
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Not done:",
+        "^Saved:",
+        "shorter than 5 minutes",
+        "Go on"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "cha-presentation-c",
+    "area": "chatter",
+    "wording": "clear",
+    "pair": "cha-presentation",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T06:00:00Z",
+      "notes": "Nick is rehearsing a marketing presentation aloud for 15 min. ORION is listening (always-on voice)."
+    },
+    "turns": [
+      {
+        "text": "orion i am rehearsing a presentation for the next 20 minutes, dont reply to anything i say unless i say orion",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "ORION acknowledges briefly and enters quiet mode (a quiet window or a memory preference), then does not respond to later non-addressed speech. Must not log what he says as events.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Not done:"
+      ],
+      "effect": {
+        "kind": "focus",
+        "detail": "quiet window started for 20 min"
+      }
+    }
+  },
+  {
+    "id": "cha-friend-v",
+    "area": "chatter",
+    "wording": "vague",
+    "pair": "cha-friend",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T21:29:00Z",
+      "notes": "Friends are in the room. Voice always on."
+    },
+    "turns": [
+      {
+        "text": "no no zero cost it was like a costume for saturday",
+        "spoken": true
+      },
+      {
+        "text": "carol would hate that, you introduce her to something and she goes mad",
+        "spoken": true
+      },
+      {
+        "text": "frozen is honestly a good movie",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "ORION ignores all of it: no replies, no memory writes (\"Saved: Frozen\"), no \"I don't have a costume\".",
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "^Saved:",
+        "costume",
+        "Go on",
+        "Are you planning"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "cha-friend-c",
+    "area": "chatter",
+    "wording": "clear",
+    "pair": "cha-friend",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T21:29:00Z",
+      "notes": "Friends are in the room. Voice always on."
+    },
+    "turns": [
+      {
+        "text": "orion, are we free saturday evening, annika and carol want to do something",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "Addressed to ORION: checks Saturday evening in the calendar and answers (free/busy and what is there). May offer to hold the slot but does not create anything without his go-ahead.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change unless he confirms"
+      }
+    }
+  },
+  {
+    "id": "cha-phone-call-v",
+    "area": "chatter",
+    "wording": "vague",
+    "pair": "cha-phone-call",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T15:00:00Z",
+      "notes": "Nick is on a phone call with a family member; voice always on."
+    },
+    "turns": [
+      {
+        "text": "yeah mom im fine, uni is good",
+        "spoken": true
+      },
+      {
+        "text": "i can call you back on sunday probably",
+        "spoken": true
+      },
+      {
+        "text": "ok love you bye",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "Silent. No reminder (\"call mom Sunday\") is created from speech not addressed to ORION, no reply at all.",
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Reminder set",
+        "^Saved:"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no reminders created"
+      }
+    }
+  },
+  {
+    "id": "cha-phone-call-c",
+    "area": "chatter",
+    "wording": "clear",
+    "pair": "cha-phone-call",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T15:00:00Z",
+      "notes": "Nick is on a phone call with a family member; voice always on."
+    },
+    "turns": [
+      {
+        "text": "orion remind me to call my mom on sunday at 6",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "Reminder for Sunday 18:00 \"call mom\" created; reply confirms the time.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "reminder",
+        "detail": "Sun 18:00 call mom"
+      }
+    }
+  },
+  {
+    "id": "cha-thinking-aloud-v",
+    "area": "chatter",
+    "wording": "vague",
+    "pair": "cha-thinking-aloud",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T12:00:00Z",
+      "notes": "Voice on. Nick is mumbling while working."
+    },
+    "turns": [
+      {
+        "text": "hmm wait is it mu or the other one",
+        "spoken": true
+      },
+      {
+        "text": "no thats wrong, ugh",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "Silent. Not a question for ORION. No \"Go on.\" filler, no memory writes.",
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Go on",
+        "^Saved:",
+        "Are you safe"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "cha-thinking-aloud-c",
+    "area": "chatter",
+    "wording": "clear",
+    "pair": "cha-thinking-aloud",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T12:00:00Z",
+      "notes": "Voice on. Nick is mumbling while working."
+    },
+    "turns": [
+      {
+        "text": "orion whats the formula for the multiplier in econ, i forgot",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "Answers: the simple spending multiplier 1/(1-MPC) (also 1/MPS), concise. No calendar changes.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "cha-tv-v",
+    "area": "chatter",
+    "wording": "vague",
+    "pair": "cha-tv",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T22:00:00Z",
+      "notes": "A TV show is playing with dialogue (\"I'm going to kill you\", \"set an alarm for dawn\", \"I'm going to die\")."
+    },
+    "turns": [
+      {
+        "text": "i am going to kill you if you do not give me the key",
+        "spoken": true
+      },
+      {
+        "text": "set the alarm for dawn the army is coming",
+        "spoken": true
+      },
+      {
+        "text": "i think im dying",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "Silent. No crisis response (\"Are you safe right now?\"), no alarm created, no memory writes. Fiction/TV audio is not Nick.",
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Are you safe",
+        "Reminder set",
+        "alarm set",
+        "^Saved:"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no alarm, no reminders"
+      }
+    }
+  },
+  {
+    "id": "cha-tv-c",
+    "area": "chatter",
+    "wording": "clear",
+    "pair": "cha-tv",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T22:00:00Z",
+      "notes": "A TV show is playing with dialogue (\"I'm going to kill you\", \"set an alarm for dawn\", \"I'm going to die\")."
+    },
+    "turns": [
+      {
+        "text": "orion i think im dying from this econ homework lol",
+        "spoken": true
+      }
+    ],
+    "expect": {
+      "rubric": "Recognises hyperbole: a light human reply, not a crisis protocol, possibly offering a break or help with the set. No false alarm.",
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "Are you safe right now",
+        "hotline",
+        "crisis"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  }
+]

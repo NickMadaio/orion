@@ -1,0 +1,172 @@
+[
+  {
+    "id": "kno-connections-v",
+    "area": "knowledge",
+    "wording": "vague",
+    "pair": "kno-connections",
+    "writes": false,
+    "setup": {
+      "notes": "Memory/knowledge base contains people (Annika, Carol), classes, projects (ORION, Atlas), places, deadlines, with links between them."
+    },
+    "turns": [
+      {
+        "text": "what connects my stuff, like whats related to the cs midterm"
+      }
+    ],
+    "expect": {
+      "rubric": "Gives real connected items from the knowledge base (the CS2100 class, study blocks, related labs/deadlines/people), shows the link relationships, no fabrication. If a node is missing it says so.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "kno-connections-c",
+    "area": "knowledge",
+    "wording": "clear",
+    "pair": "kno-connections",
+    "writes": false,
+    "setup": {
+      "notes": "Memory/knowledge base contains people (Annika, Carol), classes, projects (ORION, Atlas), places, deadlines, with links between them."
+    },
+    "turns": [
+      {
+        "text": "show me everything linked to CS2100 in my knowledge graph"
+      }
+    ],
+    "expect": {
+      "rubric": "Lists linked nodes (study blocks, labs, midterm, related notes) accurately.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "kno-people-v",
+    "area": "knowledge",
+    "wording": "vague",
+    "pair": "kno-people",
+    "writes": false,
+    "setup": {
+      "notes": "Memory has Annika (friend; plans on 10-19, dinner), Carol."
+    },
+    "turns": [
+      {
+        "text": "who is annika again"
+      }
+    ],
+    "expect": {
+      "rubric": "Answers from memory: a friend Nick makes plans with (e.g. dinner), no made-up surname/contact detail, offers what it knows only. Honest about gaps.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "kno-people-c",
+    "area": "knowledge",
+    "wording": "clear",
+    "pair": "kno-people",
+    "writes": false,
+    "setup": {
+      "notes": "Memory has Annika (friend; plans on 10-19, dinner), Carol."
+    },
+    "turns": [
+      {
+        "text": "what do you have saved about annika"
+      }
+    ],
+    "expect": {
+      "rubric": "Lists only stored facts about Annika with dates; says what is missing. No phone number or invented fact.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "kno-forget-v",
+    "area": "knowledge",
+    "wording": "vague",
+    "pair": "kno-forget",
+    "writes": true,
+    "setup": {
+      "notes": "Memory contains a junk entry \"Saved: Frozen.\" and \"your goal is to introduce Carol to something\"."
+    },
+    "turns": [
+      {
+        "text": "you saved some random stuff earlier about frozen, get rid of that"
+      }
+    ],
+    "expect": {
+      "rubric": "Deletes the junk entries related to Frozen and the Carol line only (matching what was named), confirms what was removed; other memory unchanged.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "Frozen entries deleted only"
+      }
+    }
+  },
+  {
+    "id": "kno-forget-c",
+    "area": "knowledge",
+    "wording": "clear",
+    "pair": "kno-forget",
+    "writes": true,
+    "setup": {
+      "notes": "Memory contains a junk entry \"Saved: Frozen.\" and \"your goal is to introduce Carol to something\"."
+    },
+    "turns": [
+      {
+        "text": "delete the memory entries Saved: Frozen and the one about introducing carol to something"
+      }
+    ],
+    "expect": {
+      "rubric": "Exactly those two entries deleted, nothing else.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "2 entries deleted"
+      }
+    }
+  }
+]

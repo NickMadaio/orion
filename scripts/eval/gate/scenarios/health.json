@@ -1,0 +1,314 @@
+[
+  {
+    "id": "hea-sleep-debt-v",
+    "area": "health",
+    "wording": "vague",
+    "pair": "hea-sleep-debt",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-03T08:00:00Z",
+      "state": {
+        "sleep_last_night_h": 4.5,
+        "whoop_recovery": 31
+      },
+      "notes": "Whoop shows 4.5 h of sleep and recovery 31%. CS2100 09:00."
+    },
+    "turns": [
+      {
+        "text": "how did i sleep"
+      }
+    ],
+    "expect": {
+      "rubric": "Quotes the actual numbers (about 4.5 h, low recovery) and tells him what that means for today in plain words, e.g. nap and go lighter. No invented numbers. No changes unless he asks.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "hea-sleep-debt-c",
+    "area": "health",
+    "wording": "clear",
+    "pair": "hea-sleep-debt",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-03T08:00:00Z",
+      "state": {
+        "sleep_last_night_h": 4.5,
+        "whoop_recovery": 31
+      },
+      "notes": "Whoop shows 4.5 h of sleep and recovery 31%. CS2100 09:00."
+    },
+    "turns": [
+      {
+        "text": "how many hours did i sleep last night and what was my recovery"
+      }
+    ],
+    "expect": {
+      "rubric": "States 4.5 h sleep and recovery 31% accurately.",
+      "reply_must": [
+        {},
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "hea-sleep-adjust-v",
+    "area": "health",
+    "wording": "vague",
+    "pair": "hea-sleep-adjust",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-03T08:00:00Z",
+      "state": {
+        "sleep_last_night_h": 4.5
+      },
+      "notes": "Day has CS2100 09:00, gym 17:00, side project 19:30."
+    },
+    "turns": [
+      {
+        "text": "slept like garbage, fix my day"
+      }
+    ],
+    "expect": {
+      "rubric": "Uses real sleep data to add a nap, lighten the evening, keep CS2100, and keep gym (possibly shorter). States the change. Not canned.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "nap added; load reduced"
+      }
+    }
+  },
+  {
+    "id": "hea-sleep-adjust-c",
+    "area": "health",
+    "wording": "clear",
+    "pair": "hea-sleep-adjust",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-03T08:00:00Z",
+      "state": {
+        "sleep_last_night_h": 4.5
+      },
+      "notes": "Day has CS2100 09:00, gym 17:00, side project 19:30."
+    },
+    "turns": [
+      {
+        "text": "only slept 4 and a half hours, add a nap after class and cut side project"
+      }
+    ],
+    "expect": {
+      "rubric": "Nap after class added, side project removed, gym kept.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "calendar",
+        "detail": "nap added; side project removed"
+      }
+    }
+  },
+  {
+    "id": "hea-gym-streak-v",
+    "area": "health",
+    "wording": "vague",
+    "pair": "hea-gym-streak",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T20:00:00Z",
+      "state": {
+        "gym_done_days_last7": 4
+      },
+      "notes": "health-log shows gym done 4 of last 7 days."
+    },
+    "turns": [
+      {
+        "text": "have i been going to the gym"
+      }
+    ],
+    "expect": {
+      "rubric": "Answers from data: 4 of the last 7 days, names the missed days if known, no inflating, no scolding wall. Nothing changes.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "hea-gym-streak-c",
+    "area": "health",
+    "wording": "clear",
+    "pair": "hea-gym-streak",
+    "writes": false,
+    "setup": {
+      "now": "2026-11-02T20:00:00Z",
+      "state": {
+        "gym_done_days_last7": 4
+      },
+      "notes": "health-log shows gym done 4 of last 7 days."
+    },
+    "turns": [
+      {
+        "text": "how many gym days this week"
+      }
+    ],
+    "expect": {
+      "rubric": "States 4 days this week from the log.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "none",
+        "detail": "no change"
+      }
+    }
+  },
+  {
+    "id": "hea-log-meal-v",
+    "area": "health",
+    "wording": "vague",
+    "pair": "hea-log-meal",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T13:00:00Z",
+      "notes": "health-log exists."
+    },
+    "turns": [
+      {
+        "text": "had a big lunch, like pasta"
+      }
+    ],
+    "expect": {
+      "rubric": "Logs the meal with a timestamp (not as a junk \"Saved:\" message) and a one-line friendly reply; may nudge a lighter gym if it is soon. Memory/health log updated.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean",
+        "^Saved:"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "meal logged"
+      }
+    }
+  },
+  {
+    "id": "hea-log-meal-c",
+    "area": "health",
+    "wording": "clear",
+    "pair": "hea-log-meal",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T13:00:00Z",
+      "notes": "health-log exists."
+    },
+    "turns": [
+      {
+        "text": "log lunch at 1pm: pasta, big portion"
+      }
+    ],
+    "expect": {
+      "rubric": "Health log has lunch 13:00 pasta big portion; reply short.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "lunch logged"
+      }
+    }
+  },
+  {
+    "id": "hea-bedtime-set-v",
+    "area": "health",
+    "wording": "vague",
+    "pair": "hea-bedtime-set",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T20:00:00Z",
+      "notes": "Bedtime currently 00:00."
+    },
+    "turns": [
+      {
+        "text": "i wanna sleep earlier this week"
+      }
+    ],
+    "expect": {
+      "rubric": "Asks or proposes a target (e.g. 11:30 pm), updates bedtime for the week, and sets the nudges accordingly while noting the effect on tomorrow morning alarm if relevant. One reply.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "bedtime changed"
+      }
+    }
+  },
+  {
+    "id": "hea-bedtime-set-c",
+    "area": "health",
+    "wording": "clear",
+    "pair": "hea-bedtime-set",
+    "writes": true,
+    "setup": {
+      "now": "2026-11-02T20:00:00Z",
+      "notes": "Bedtime currently 00:00."
+    },
+    "turns": [
+      {
+        "text": "set my bedtime to 11:30 for the rest of the week"
+      }
+    ],
+    "expect": {
+      "rubric": "Bedtime set to 23:30 through Sunday; reply confirms.",
+      "reply_must": [
+        {}
+      ],
+      "reply_must_not": [
+        "What time or how long do you mean"
+      ],
+      "effect": {
+        "kind": "memory",
+        "detail": "bedtime 23:30 this week"
+      }
+    }
+  }
+]

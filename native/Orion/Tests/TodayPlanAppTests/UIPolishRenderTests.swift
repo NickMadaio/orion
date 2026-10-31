@@ -23,7 +23,7 @@ final class UIPolishRenderTests: XCTestCase {
                                       models: [ModelChoice(id: "q", label: "qwen3.5 · local", local: true)],
                                       selectedModel: .constant(nil), draft: .constant(""), waiting: true,
                                       liveThinking: "Finding Priya in contacts…\nDrafting a two-line note",
-                                      onSelect: { _ in }, onNew: {}, onSend: {}, onRename: { _, _ in }, onDelete: { _ in })
+                                      onSelect: { _ in }, onNew: {}, onSend: {}, onRename: { _, _ in }, onDelete: { _ in }, snapshot: true)
                 .padding(.horizontal, 22).padding(.top, 20)
             try UIRender.write("chat-\(tag)", UIRender.onDesktop(thread, light: light, size: wide), size: wide)
         }

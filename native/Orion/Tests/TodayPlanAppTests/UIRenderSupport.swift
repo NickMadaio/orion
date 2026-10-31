@@ -34,6 +34,8 @@ enum UIRender {
             .background(OrionTheme.ink.opacity(SurfaceSettings.defaultOpacity))
             .background(wallpaper(light: light))
             .environment(\.colorScheme, .dark)
+            // ImageRenderer never runs onAppear, so entrances are held settled unless a test asks for a mid-frame.
+            .environment(\.orionFrozenMotion, 1)
     }
 
     @discardableResult

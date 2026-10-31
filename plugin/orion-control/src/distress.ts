@@ -51,7 +51,7 @@ export const CRISIS_REPLY = "I'm really sorry it feels this heavy, Nick, and I'm
 // this check-in line follows it. Anything else in a continuation (more about how he feels, "i've got the pills here") keeps CRISIS_REPLY.
 export const SUPPORT_LINE = "Are you safe right now? If not, call 999, or Samaritans free on 116 123.";
 
-export const OVERWHELMED_NOTE = "Nick is feeling overwhelmed. Answer with warmth in two short spoken sentences: say you hear him, then suggest ONE small first step he could take in the next few minutes (a breath, water, writing down the one thing due first). Do not call any tools, do not look anything up, and do not read out his schedule.";
+export const OVERWHELMED_NOTE = "Nick is feeling overwhelmed. Answer with warmth in two short spoken sentences: say you hear him, then suggest ONE small first step he could take in the next few minutes (a breath, a stretch, writing down the one thing due first). Do not call any tools, do not look anything up, and do not read out his schedule.";
 
 export const isCrisis = (message: string): boolean => CRISIS.test(message);
 export const isOverwhelmed = (message: string): boolean => !isCrisis(message) && OVERWHELMED.test(message);

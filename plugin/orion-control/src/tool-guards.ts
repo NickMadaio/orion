@@ -15,7 +15,7 @@
  Exec handling stays argv-safe: a command is only ever rewritten in its first word, and never when the rest
  holds a live shell operator.
 */
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ACTION_CATALOG } from "./catalog.js";
 import { OPERATOR_REASON, TYPED_ACTIONS, TOOL_IDS } from "./exec-routing.js";
@@ -25,6 +25,13 @@ import { TASK_RUN_ID } from "./task-run-wiring.js";
 export { hasShellOperator };
 
 export const SCRIPTS_DIR = "/Users/nickmadaio/Desktop/ORION/scripts";
+
+/** One of ORION's scripts by name: the live folder when it is there, otherwise the same folder relative to this file
+    (src/ or dist/ → ../../../scripts), the same order `scriptNames` reads them in. */
+export function scriptPath(name: string, exists: (path: string) => boolean = existsSync): string {
+  const live = `${SCRIPTS_DIR}/${name}`;
+  return exists(live) ? live : fileURLToPath(new URL(`../../../scripts/${name}`, import.meta.url));
+}
 
 export interface GuardDeps {
   /** Names of the files in scripts/ (injected in tests). */

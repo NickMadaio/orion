@@ -474,6 +474,8 @@ final class AppState: ObservableObject {
     /// What opened the microphone for the turn being heard now — the address
     /// gate's first question (AddressGate.swift, 2026-10-30).
     private var turnOpening: VoiceTurnOpening = .pushToTalk
+    /// The live turn's cancel flag, read on the agent queue before the gateway call.
+    private var liveTurnCancellation = TurnCancellation()
     /// "Don't reply unless I say Orion" / "I'm rehearsing" (VoiceQuiet.swift).
     private var quietWindow = QuietWindow.off
     /// Failures already said aloud in the last ten minutes (VoiceQuiet.swift).
@@ -641,8 +643,11 @@ final class AppState: ObservableObject {
            command.count >= 2 {
             // "Orion, what's on my calendar" — the whole request arrived in one
             // breath. Don't make him say the second half again.
+            // Through the gate like every other wake turn (2026-10-31): the
+            // detector fires on television, so its tail is not a key press.
             heard = command
-            if QuietWindow.isRequest(command) { startQuietWindow(heard: command) } else { send(command) }
+            turnOpening = .wake
+            sendHeard(command)
         } else {
             // Just the name. Open a hands-free turn and let silence close it.
             beginListening(handsFree: true)
@@ -2094,7 +2099,7 @@ final class AppState: ObservableObject {
     ///   - the UI: generation bumped, watchdog and progress polling torn down,
     ///     phase back to idle. Synchronous, so this is the part that lands
     ///     within about a second — what "cancelled" has to mean to Nick.
-    ///   - the subprocess: `GatewayClient.cancelInFlight` SIGTERMs then
+    ///   - the subprocess: the turn's `TurnCancellation` SIGTERMs then
     ///     SIGKILLs it on a background queue. That can take longer if a
     ///     grandchild is holding its pipe open (the 2026-08-12 shape), which is
     ///     fine — nothing in the app is waiting on it any more, because the
@@ -2105,14 +2110,16 @@ final class AppState: ObservableObject {
         runProgress?.recordUserCancelled(at: Date())
         stopProgressPolling()
         askGeneration += 1
+        // Stops this turn's own gateway process, if it has started (REV3 #8:
+        // never "whatever is running now", which could be the next turn).
+        // Not via `agentQueue`: it is serial and the `ask` being cancelled is
+        // the block running on it (2026-10-31 17:40:24).
+        liveTurnCancellation.cancel()
         OrionLog.write("[think] cancelled by user — \(reason)")
         voiceCue.stop()
         setPhase(.idle)
         statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
         append(.system, "Cancelled — stopped waiting for that one. (Anything it already started may still finish in the background.)")
-        agentQueue.async {
-            _ = GatewayClient.cancelInFlight(reason: reason)
-        }
     }
 
     func toggleSummonMute() {
@@ -2175,6 +2182,8 @@ final class AppState: ObservableObject {
 
         askGeneration += 1
         let generation = askGeneration
+        let cancellation = TurnCancellation()
+        liveTurnCancellation = cancellation
         let request = agentRequest(userText: userText, spoken: !typed)
 
         chatThinking = nil
@@ -2194,8 +2203,13 @@ final class AppState: ObservableObject {
         agentQueue.async { [weak self] in
             let result: Result<GatewayReply, Error>
             InboundTurnLog.settle()   // the outreach inject lands before the turn reads the session
+            // Cancelled while waiting: never start the gateway call (2026-10-31 17:40).
+            if cancellation.isCancelled {
+                OrionLog.write("[think] cancelled before the gateway call — nothing sent")
+                return
+            }
             do {
-                result = .success(try GatewayClient.ask(request, session: chatSession, model: chatModel, replyTo: tappedReply))
+                result = .success(try GatewayClient.ask(request, session: chatSession, model: chatModel, replyTo: tappedReply, cancellation: cancellation))
             } catch {
                 result = .failure(error)
             }

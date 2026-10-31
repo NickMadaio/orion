@@ -52,14 +52,6 @@ enum GatewayClient {
     // otherwise every later turn inherits that broken tool history.
     static let sessionKey = "orion-app-v2"
 
-    /// The `Process` currently blocked inside `ask`, if any, so a deliberate
-    /// user cancel (`cancelInFlight`) has something to signal. `ask` is always
-    /// called from `AppState.agentQueue`, which is serial — there is only ever
-    /// one turn in flight — but the lock costs nothing and means this file
-    /// never has to assume that stays true.
-    private static let runningProcessLock = NSLock()
-    private static var runningProcess: Process?
-
     // MARK: Reachability
 
     /// The port the gateway listens on. Only `gateway.port` is read; the rest of
@@ -108,7 +100,7 @@ enum GatewayClient {
     // MARK: One agent turn
 
     /// Blocking. Always call from a background queue.
-    static func ask(_ text: String, session: String = GatewayClient.sessionKey, model: String? = nil, replyTo: String? = nil) throws -> GatewayReply {
+    static func ask(_ text: String, session: String = GatewayClient.sessionKey, model: String? = nil, replyTo: String? = nil, cancellation: TurnCancellation? = nil) throws -> GatewayReply {
         guard FileManager.default.isExecutableFile(atPath: binaryPath) else {
             throw GatewayError.missingBinary(binaryPath)
         }
@@ -155,17 +147,10 @@ enum GatewayClient {
             throw GatewayError.failed(error.localizedDescription)
         }
 
-        // Tracked so a user-initiated cancel (`cancelInFlight`) has something
-        // to signal. Cleared unconditionally on every exit from this function,
-        // whichever path that is.
-        runningProcessLock.lock()
-        runningProcess = process
-        runningProcessLock.unlock()
-        defer {
-            runningProcessLock.lock()
-            if runningProcess === process { runningProcess = nil }
-            runningProcessLock.unlock()
-        }
+        // Attached to this turn's cancellation, so a user cancel stops THIS
+        // process and never a later turn's (REV3 #8). Detached on every exit.
+        cancellation?.attach(process)
+        defer { cancellation?.detach(process) }
 
         // Watchdog: the CLI has its own --timeout, this is the backstop for the
         // case where it wedges without honouring it.
@@ -279,36 +264,6 @@ enum GatewayClient {
     }
 
     // MARK: Cancellation
-
-    /// Ends the in-flight `ask`, if there is one, without waiting for it.
-    ///
-    /// Before this existed, nothing could cancel `.thinking` at all: the
-    /// recovery in `AppState.recoverFromStuckThinking` only ORPHANS the call
-    /// (bumps a generation so a late answer is ignored) because it fires from
-    /// the watchdog, which cannot reach the `Process` — it only ever sees the
-    /// symptom, long after `ask` started. This is called from the user's own
-    /// cancel, which runs on the same turn and can reach it directly.
-    ///
-    /// SIGTERM first, same grace as the internal watchdog, then SIGKILL. A
-    /// grandchild holding the pipe open can still make the READ side of `ask`
-    /// take until `clientReadDeadline` to notice the process died — this
-    /// function does not wait for that, and does not need to: the caller has
-    /// already moved its own generation on, so a late return is harmless.
-    ///
-    /// Returns whether a process was actually found and signalled — false
-    /// means there was nothing in flight to cancel.
-    @discardableResult
-    static func cancelInFlight(reason: String) -> Bool {
-        runningProcessLock.lock()
-        let process = runningProcess
-        runningProcessLock.unlock()
-        guard let process, process.isRunning else { return false }
-        process.terminate()
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + RunTimeouts.killGrace) {
-            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-        }
-        return true
-    }
 
     // MARK: Progress polling
 

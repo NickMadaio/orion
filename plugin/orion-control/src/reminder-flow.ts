@@ -150,11 +150,37 @@ function weekdayNextToTime(message: string, wd: RegExpExecArray): boolean {
   return new RegExp(String.raw`^\s*(?:at|@|around|by)?\s*${CLOCK_WORD}\b`, "i").test(after)
     || new RegExp(String.raw`(?:at|@|around|by)?\s*\b${CLOCK_WORD}\s*$`, "i").test(before) && /\d/.test(before.slice(-12));
 }
+// 2026-10-31 gate (cha-phone-call-c): "on sunday at 6" was filed for 6:00 AM. A bare hour with no am/pm is read from his words, never the
+// extractor's guess: 1-6 is the afternoon or evening, 7-11 the morning, 12 noon, unless he says morning or evening / tonight / afternoon.
+// REV3 6: the time read is the reminder's own (the one the extractor picked, else the first), its am/pm or period word only when it sits
+// next to that time ("at 9 to call about tonight's dinner" is 9 AM; "dinner at 7pm" says nothing about "at 6"), "o'clock" is still bare,
+// twelve at night is midnight, and "afternoon" lifts only 1-6.
+const TIME_AT = /\b(?:at|by|around|@)\s*(\d{1,2})(?::(\d{2}))?(?![\d:])(\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z]))?/gi;
+const PERIOD_AFTER = /^\s*(?:o'?clock\s*)?(?:,\s*)?(?:(?:in|at|this|on)\s+(?:the\s+)?)?(morning|afternoon|evening|night|tonight)\b/i;
+const PERIOD_BEFORE = /\b(morning|afternoon|evening|night|tonight)\s*,?\s*$/i;
+function sensibleHour(message: string, [h, m]: [number, number]): [number, number] {
+  const times = [...message.matchAll(TIME_AT)].filter((t) => Number(t[1]) <= 23);
+  if (!times.length) return [h, m];
+  const own = times.find((t) => Number(t[1]) % 12 === h % 12) ?? times[0]!;
+  const n = Number(own[1]);
+  const minutes = own[2] ? Number(own[2]) : 0;
+  if (n > 12) return [n, minutes];
+  if (own[3]) return [n % 12 + (/p/i.test(own[3]) ? 12 : 0), minutes];
+  if (n < 1) return [h, m];
+  const after = message.slice((own.index ?? 0) + own[0].length);
+  const before = message.slice(0, own.index ?? 0);
+  const period = (PERIOD_AFTER.exec(after)?.[1] ?? PERIOD_BEFORE.exec(before)?.[1] ?? "").toLowerCase();
+  if (period === "morning") return [n % 12, minutes];
+  if (period === "afternoon") return [n <= 6 ? n + 12 : n, minutes];
+  // Twelve at night is the midnight that ends today: hour 24 rolls to 00:00 tomorrow.
+  if (period) return [n % 12 + 12 + (n === 12 ? 12 : 0), minutes];
+  return [n <= 6 ? n + 12 : n, minutes];
+}
 function dueFor(message: string, time: string | null, now: Date, baseDay?: string): { at: string; day: Date } | { past: string } | { which: string } | undefined {
   const rel = relativeTime(message, now);
   if (rel) return { at: `${ymdOf(rel)}T${hhmmOf(rel)}`, day: rel };
   if (!time) return undefined;
-  let [h, m] = time.split(":").map(Number) as [number, number];
+  let [h, m] = sensibleHour(message, time.split(":").map(Number) as [number, number]);
   // 2026-10-31 gate (cha-phone-call-c): "remind me to call my mom on sunday at 6" was filed for Saturday: the weekday was never read.
   const wd = RECURRING.test(message) ? null : WEEKDAY_ON.exec(message);
   if (wd && !baseDay && !weekdayNextToTime(message, wd)) return { which: wd[2]!.replace(/^./, (c) => c.toUpperCase()) };

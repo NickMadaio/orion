@@ -34,6 +34,10 @@ async function project(t) {
   return { home, root, cli };
 }
 
+// The receipt can be read mid-write under load: a half-written file is "not there yet", not a failure.
+// (`.then(JSON.parse, () => null)` did not catch that: a throw in onFulfilled rejects instead.)
+const parseOrNull = text => { try { return JSON.parse(text); } catch { return null; } };
+
 test('every halt works with no revision to look up', async t => {
   const { cli } = await project(t);
   assert.equal(cli('pause').pauseRequested, true);
@@ -64,7 +68,7 @@ test('exterminate kills a supervisor that has stopped responding — and only th
   // The reaper records what it did, so the morning can see it.
   let receipt;
   for (let i = 0; i < 40 && !receipt; i++) {
-    receipt = await readFile(join(root, 'exterminate.json'), 'utf8').then(JSON.parse, () => null);
+    receipt = await readFile(join(root, 'exterminate.json'), 'utf8').then(parseOrNull, () => null);
     if (!receipt) await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.equal(receipt?.killed, true);
@@ -94,7 +98,7 @@ test('a resume inside the grace window disarms the reaper: the supervisor Nick k
   assert.equal(cliWith(2, 'resume').exterminateRequested, false, 'Nick changed his mind within the grace');
   let receipt = null;
   for (let i = 0; i < 60 && !receipt; i++) {
-    receipt = await readFile(join(root, 'exterminate.json'), 'utf8').then(JSON.parse, () => null);
+    receipt = await readFile(join(root, 'exterminate.json'), 'utf8').then(parseOrNull, () => null);
     if (!receipt) await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.equal(receipt?.killed, false);

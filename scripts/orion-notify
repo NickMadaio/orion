@@ -47,6 +47,7 @@ import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 import { controlledDir, clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
+import { partitionDeferred } from "./lib/notify/stale.mjs";
 
 const run = promisify(execFile);
 
@@ -381,7 +382,16 @@ if (command === "flush") {
     if (verdict.action === "hold") { console.log(verdict.heldFor === "quiet" ? "quiet hours: not flushing" : `${verdict.heldFor === "focus" ? "focus session running" : verdict.reason}: not flushing`); process.exit(0); }
   }
   if (!dryRun) await retryPending(await resolveTransport(flags));
-  const state = await readState();
+  let state = await readState();
+  // Stale held items are dropped, never delivered (2026-10-31: a Friday "Heads up 3:30 PM" went out Saturday on app launch).
+  const { fresh, stale } = partitionDeferred(state.notify.deferred, at);
+  if (stale.length > 0) {
+    for (const s of stale) console.error(`orion-notify: dropped a stale held update (${s.reason}): ${s.entry.message.slice(0, 80)}`);
+    if (!dryRun) {
+      await writeState((cur) => ({ ...cur, notify: { ...cur.notify, deferred: cur.notify.deferred.filter((d) => !stale.some((s) => s.entry.at === d.at && s.entry.message === d.message && s.entry.missionId === d.missionId)) } }));
+    }
+    state = { ...state, notify: { ...state.notify, deferred: fresh } };
+  }
   if (state.notify.deferred.length === 0) {
     console.log("nothing deferred");
     process.exit(0);
@@ -393,7 +403,7 @@ if (command === "flush") {
   const transport = await resolveTransport(flags);
   const result = await deliver(transport, digest, dryRun);
   if (!dryRun && result.delivered) {
-    await writeState((fresh) => ({ ...fresh, notify: { ...fresh.notify, deferred: [] } }));
+    await writeState((cur) => ({ ...cur, notify: { ...cur.notify, deferred: cur.notify.deferred.filter((d) => !state.notify.deferred.some((s) => s.at === d.at && s.message === d.message && s.missionId === d.missionId)) } }));
   }
   process.exit(result.error ? 1 : 0);
 }

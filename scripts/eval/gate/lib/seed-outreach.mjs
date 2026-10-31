@@ -22,10 +22,14 @@ export function ageFromNotes(notes, nowMs, { sandbox }) {
   const ago = notes.match(/(\d{1,3})\s*min(?:utes)?\s+ago/i);
   if (ago) return Number(ago[1]);
   if (!sandbox) return null;   // a clock time in the notes belongs to the sandbox clock, not the real one
-  const at = notes.match(/\bat\s+(\d{1,2}):(\d{2})\b/i);
+  // Times inside the quoted nudge ("Leave ... for MKTG2201 at 1:30 PM.") are its content, not when it was sent.
+  const unquoted = notes.replace(/"[^"]*"/g, " ").replace(/\u201c[^\u201d]*\u201d/g, " ");
+  const at = unquoted.match(/\bat\s+(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
   if (!at) return null;
   const now = new Date(nowMs);
-  let target = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), Number(at[1]), Number(at[2]));
+  let hour = Number(at[1]);
+  if (at[3]) hour = (hour % 12) + (at[3].toLowerCase() === "pm" ? 12 : 0);
+  let target = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hour, Number(at[2]));
   if (target > nowMs) target -= 86_400_000;
   return Math.round((nowMs - target) / 60_000);
 }

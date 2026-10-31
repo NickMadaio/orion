@@ -105,3 +105,13 @@ test("dry run reports the seeded outreach per item", async () => {
   assert.equal(rows[1].outreach.length, 0);
   assert.equal(summary.itemsWithOutreach, 1);
 });
+
+test("ageFromNotes ignores times inside the quoted nudge and honours am/pm", async () => {
+  const { ageFromNotes } = await import("../lib/seed-outreach.mjs");
+  const now = Date.UTC(2026, 10, 2, 12, 47);
+  assert.equal(ageFromNotes('Nick got "Leave in 13 min for MKTG2201 at 1:30 PM." at 12:47.', now, { sandbox: true }), 0);
+  const late = Date.UTC(2026, 10, 3, 0, 43);
+  assert.equal(ageFromNotes('It is 00:43 and Nick got "Still up at 12:43 AM... go now."', late, { sandbox: true }), null);
+  assert.equal(ageFromNotes("ORION nudged at 12:30 am about bed", late, { sandbox: true }), 13);
+  assert.equal(ageFromNotes('Session done: "Next: CS2100 at 9:00 AM." Now 17:00', Date.UTC(2026, 10, 2, 17, 0), { sandbox: true }), null);
+});

@@ -56,8 +56,11 @@ describe("health through the routing", () => {
     const v = await r.turn("had a big lunch, like pasta");
     expect(v.exact).toBe("Logged lunch at 1:00 PM: Pasta, big portion. That's 1 meal logged for today; I didn't guess calories.");
     const c = await r.turn("log lunch at 1pm: pasta, big portion");
-    expect(c.exact).toMatch(/^Logged lunch at 1:00 PM: Pasta, big portion\. That's 2 meals/);
+    // REV4 11c: the same meal at the same time said twice is one entry.
+    expect(c.exact).toBe("Lunch is already logged at 1:00 PM, so I didn't add it again.");
     expect(c.final).not.toMatch(/Exec failed|already over/);
+    const d = await r.turn("log dinner at 7pm: curry");
+    expect(d.exact).toMatch(/^Logged dinner at 7:00 PM: Curry\. That's 2 meals/);
     expect(r.writes).toEqual([]);
     expect((r.read("health-log.json").nutritionLog as Record<string, unknown[]>)["2026-11-02"]).toHaveLength(2);
   });

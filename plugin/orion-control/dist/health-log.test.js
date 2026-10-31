@@ -151,6 +151,40 @@ describe("sleepLine", () => {
         expect(await sleepLine(dir(), NOW)).toBe("");
     });
 });
+describe("bedtime statements that are not settings (REV4 item 4)", () => {
+    it.each([
+        "went to bed at 3 last night", "fell asleep at 1 lol", "got to sleep by 4 yesterday", "was asleep by 2 last night so im wrecked",
+        "slept at 3 again", "early night for me", "gonna have an early night tonight", "i wanna sleep earlier tonight", "fix my sleep schedule",
+    ])("writes nothing: %s", (said) => {
+        expect(readBedtime(said)).toBeNull();
+    });
+    it("an early night does not touch life-config", async () => {
+        const d = dir();
+        writeFileSync(join(d, "life-config.json"), JSON.stringify({ bedtime: "23:00" }));
+        expect(readHealthIntent("early night for me", NOW)).toBeNull();
+        expect(json(d, "life-config.json").bedtime).toBe("23:00");
+    });
+    it.each([["set my bedtime to 11", "23:00"], ["change bedtime to 10:30pm", "22:30"], ["make my bedtime 1am", "01:00"]])("a setting verb still sets: %s", (said, time) => {
+        expect(readBedtime(said)).toMatchObject({ read: false, time });
+    });
+});
+describe("meal logged twice (REV4 item 11c)", () => {
+    it.each(["had lunch", "just had lunch", "ate lunch"])("%s twice logs once", async (said) => {
+        const d = dir();
+        await runMeal(readMeal(said, NOW), { stateDir: d, now: NOW });
+        const again = await runMeal(readMeal(said, new Date(NOW.getTime() + 4 * 60_000)), { stateDir: d, now: new Date(NOW.getTime() + 4 * 60_000) });
+        const rows = json(d, "health-log.json").nutritionLog["2026-11-02"];
+        expect(rows).toHaveLength(1);
+        expect(text(again)).toMatch(/already logged/i);
+    });
+    it("a different meal, or the same meal hours apart, is a new entry", async () => {
+        const d = dir();
+        await runMeal(readMeal("had lunch", NOW), { stateDir: d, now: NOW });
+        await runMeal(readMeal("had dinner", NOW), { stateDir: d, now: NOW });
+        await runMeal(readMeal("had lunch an hour ago", NOW), { stateDir: d, now: NOW });
+        expect(json(d, "health-log.json").nutritionLog["2026-11-02"]).toHaveLength(3);
+    });
+});
 describe("routing order", () => {
     it("bedtime, then gym, then meal; a plain statement reads none", () => {
         expect(readHealthIntent("i wanna sleep earlier", NOW)?.kind).toBe("bedtime");

@@ -90,7 +90,10 @@ export function readGym(message) {
 const TIME = String.raw `(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?|(midnight)`;
 const BED_WORD = String.raw `(?:bed\s?time|bed|be asleep|lights out|sleep(?:ing)?|asleep)`;
 const BED_SET = new RegExp(String.raw `\b(?:set|change|make|move|put|update|push|pull|switch)\b[^.?!]{0,25}\bbed\s?time\b[^.?!]{0,12}?(?:to|at|for|by|:)?\s*(?:${TIME})|\b${BED_WORD}\b[^.?!]{0,12}\b(?:by|at|before|to)\s+(?:${TIME})|\bbed\s?time\s+(?:is|of)\s+(?:${TIME})`, "i");
-const BED_EARLIER = /\b(?:sleep|go to bed|get to bed|get to sleep|be in bed|be asleep|turn in|hit the hay)\s+(?:a (?:bit|little) |way |much )?earlier\b|\bearlier\s+(?:bed\s?time|night|nights|to bed)\b|\bearly night\b|\bfix (?:my )?sleep(?: schedule)?\b|\bbed\s?time\b[^.?!]{0,20}\bearlier\b|\bearlier\b[^.?!]{0,20}\bbed\s?time\b/i;
+const BED_EARLIER = /\b(?:sleep|go to bed|get to bed|get to sleep|be in bed|be asleep|turn in|hit the hay)\s+(?:a (?:bit|little) |way |much )?earlier\b|\bearlier\s+(?:bed\s?time|night|nights|to bed)\b|\bbed\s?time\b[^.?!]{0,20}\bearlier\b|\bearlier\b[^.?!]{0,20}\bbed\s?time\b/i;
+// Past tense is a report, and "tonight" / "early night" is a one-off: neither is a bedtime setting (REV4 item 4).
+const BED_PAST = /\b(?:went|fell|got|was|were|slept|woke|stayed up|last night|yesterday|the other night)\b/i;
+const BED_ONE_OFF = /\b(?:tonight|tn|early night|late night|an early one)\b/i;
 const BED_ASK = /\b(?:what(?:'s|s| is)?|when(?:'s|s| is)?|tell me)\b[^.?!]{0,20}\bmy bed\s?time\b|\bwhat time (?:is|am i|should i)[^.?!]{0,20}\b(?:bed|sleep|asleep)\b/i;
 function bedTime(match, first) {
     for (let i = first; i + 3 < match.length + 1; i += 4) {
@@ -118,6 +121,8 @@ export function readBedtime(message) {
         return { kind: "bedtime", read: true, week: false };
     if (/\?/.test(m) && !/\b(?:set|change|make)\b/i.test(m))
         return null;
+    if (BED_PAST.test(m) || BED_ONE_OFF.test(m))
+        return null;
     const set = BED_SET.exec(m);
     const time = set ? bedTime(set, 1) : undefined;
     if (time)
@@ -131,20 +136,34 @@ export function readHealthIntent(message, now) {
     return readBedtime(message) ?? readGym(message) ?? readMeal(message, now);
 }
 // ---- meals ----
+/** The same meal at (nearly) the same time within this window is one meal said twice. */
+const MEAL_DUPLICATE_MS = 20 * 60_000;
 export async function runMeal(read, deps) {
     const file = join(deps.stateDir, "health-log.json");
     const entry = { id: randomUUID(), title: read.title, meal: read.meal, calories: 0, protein: 0, carbohydrates: 0, fat: 0, fiber: 0, notes: read.notes, loggedAt: read.at.toISOString() };
     const day = dayKey(read.at);
     let count = 0;
+    let duplicate; // assigned inside mutate
     try {
         await mutate(file, (log) => {
-            const rows = [...(log.nutritionLog?.[day] ?? []), entry];
+            const existing = log.nutritionLog?.[day] ?? [];
+            duplicate = existing.find((r) => String(r.meal ?? "").toLowerCase() === read.meal.toLowerCase()
+                && Math.abs(Date.parse(String(r.loggedAt ?? "")) - read.at.getTime()) <= MEAL_DUPLICATE_MS);
+            if (duplicate) {
+                count = existing.length;
+                return;
+            }
+            const rows = [...existing, entry];
             count = rows.length;
             log.nutritionLog = { ...(log.nutritionLog ?? {}), [day]: rows };
         });
     }
     catch {
         return { outcome: "say", kind: "plain", text: "I couldn't write to your health log just now, so that meal isn't logged." };
+    }
+    if (duplicate) {
+        const at = new Date(String(duplicate.loggedAt));
+        return { outcome: "say", kind: "plain", text: `${read.meal} is already logged at ${clock12(at)}, so I didn't add it again.`, calls: [`read health-log.json nutritionLog ${day}`], outputs: [String(count)] };
     }
     const when = day === dayKey(deps.now) ? clock12(read.at) : `${weekday(day)} ${clock12(read.at)}`;
     const what = read.title.toLowerCase() === read.meal.toLowerCase() ? "" : `: ${read.title}${read.notes ? `, ${read.notes}` : ""}`;

@@ -96,6 +96,16 @@ async function systemStatus() {
 
 if (!command || command === "help") fail(readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0].replace(/^[\s\S]*?\/\*/, "").trim(), 0);
 
+// Fast and value-free: only whether each connector needs a key and whether one is set (never the key). `list` also probes every system and takes 10-20 s.
+if (command === "status") {
+  const rows = [...specs().values()].map((spec) => {
+    const needsKey = !!spec.auth && spec.auth.type !== "none";
+    return { name: spec.name, title: spec.title ?? spec.name, needsKey, keySet: needsKey ? !!secret(spec.auth.keychain) : false };
+  });
+  console.log(JSON.stringify(rows));
+  process.exit(0);
+}
+
 if (command === "list") {
   console.log("Built-in connections:");
   for (const [name, status] of await systemStatus()) console.log(`  ${name.padEnd(32)} ${status}`);

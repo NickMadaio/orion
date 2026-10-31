@@ -9,6 +9,7 @@ import { tellsFactAloud } from "./memory-facts.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
+import { liveConnectorStatus } from "./code-answers.js";
 import { readReminders, remindersPath } from "./ambient.js";
 import { liveSessionExec, liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { liveWakeFlow } from "./wake-flow.js";
@@ -1719,6 +1720,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       readDay: liveReadDay,
       readDayJson: liveReadDayJson,
       readDeadlines: liveReadDeadlines,
+      connectorStatus: liveConnectorStatus,
       extractReminder: liveExtractReminder,
       // Read-only: listing and finding the id to cancel; every change still goes through orion_task_run.
       listReminders: () => readReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined)),

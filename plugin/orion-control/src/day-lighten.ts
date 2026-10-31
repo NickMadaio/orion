@@ -33,9 +33,19 @@ const SICK = new RegExp(String.raw`\b(?:i'?m|im|i am|feel(?:ing)?|think i'?m|i t
 const SLEPT = /\bslept (?:like (?:garbage|crap|shit|trash|rubbish|hell)|(?:so )?(?:badly|terribly|awfully|horribly|poorly|bad|awful|terrible)|(?:so )?little)\b|\b(?:only|barely|hardly) (?:slept|got)\b[^.,]*\b(?:\d|one|two|three|four|five|hours?|sleep)|\b(?:only |barely |hardly )slept\b|\b(?:didn'?t|did not|couldn'?t|could not|barely) (?:get any |get much |)sleep\b|\bno sleep\b|\b(?:bad|rough|terrible|awful|crap|shit) (?:night|sleep)\b|\bup all night\b/i;
 const HOURS_OF_SLEEP = /\b(?:only |like |maybe |about |barely |got )*(?:[1-5](?:\.5)?|one|two|three|four|five)(?: and a half)? ?(?:h|hrs?|hours?) (?:of )?sleep\b/i;
 const SLEPT_HOURS = /\bslept (?:only |like |maybe |about |around )*(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine)(?: and a half)? ?(?:h|hrs?|hours?)\b/i;
+const WORK_NOUN = String.raw`(?:homework|assignment|essay|exam|midterm|final|problem set|pset|project|lab report|revision|coursework|deadline|studying|reading|paper|quiz|econ|maths?|calc|chem|bio)`;
+// Hyperbole about work or the day ("im dying from this econ homework lol", "ugh what a rough day"): a rough moment, not a crisis (distress.ts keeps the real wording).
+const ROUGH = new RegExp([
+  String.raw`\bdying (?:from|of|because of|over|with) [\w' ]{0,25}?\b${WORK_NOUN}\b`,
+  String.raw`\b${WORK_NOUN}s? (?:is|are)?\s*(?:literally |actually |really )?(?:killing|destroying|murdering|crushing) me\b`,
+  String.raw`\bwhat an? (?:\w+ )?(?:rough|bad|long|hard|brutal|terrible|awful|shit|crappy|horrible) day\b`,
+  String.raw`\b(?:having|had|been having) an? (?:so |really |super )?(?:rough|bad|brutal|terrible|awful|shit|crappy|horrible) (?:day|week)\b`,
+  String.raw`^(?:ugh+\s+|man\s+)?(?:rough|brutal|long|bad) day[.!\s]*$`,
+].join("|"), "i");
 // First person only: "my mom is so stressed" is not his.
-const STRESSED = /(?:^|\b(?:i'?m|im|i am|i feel|feel(?:ing)?|getting|i'?ve been|ive been)\s+)(?:so\s+|really\s+|super\s+|kinda\s+|pretty\s+|completely\s+)*(?:stressed|overwhelm\w*|swamped|drowning|freaking out|panicking|anxious)\b|\btoo much (?:to do|on my plate)\b|\bso much to do\b/i;
-const RANK = /\b(?:rank|prioriti[sz]e|triage)\b|\bwhat (?:should i|do i) (?:do|focus on|start with|tackle) first\b|\bwhat matters most\b|\bin order of (?:importance|priority)\b/i;
+const STRESSED_BASE = /(?:^|\b(?:i'?m|im|i am|i feel|feel(?:ing)?|getting|i'?ve been|ive been)\s+)(?:so\s+|really\s+|super\s+|kinda\s+|pretty\s+|completely\s+)*(?:stressed|overwhelm\w*|swamped|drowning|freaking out|panicking|anxious)\b|\btoo much (?:to do|on my plate)\b|\bso much to do\b/i;
+const STRESSED = { test: (m: string) => STRESSED_BASE.test(m) || ROUGH.test(m) };
+const RANK =/\b(?:rank|prioriti[sz]e|triage)\b|\bwhat (?:should i|do i) (?:do|focus on|start with|tackle) first\b|\bwhat matters most\b|\bin order of (?:importance|priority)\b/i;
 const DO_IT = /\b(?:fix|sort(?: out)?|lighten|ease|redo|rework|adjust|rejig|clear|make)\s+(?:up\s+)?(?:my |the |today'?s? |tonight'?s? |this )?(?:day|schedule|plan|calendar|evening|afternoon|tonight|today)\b|\b(?:do it|go ahead|just do it|make it lighter|make (?:it|today|my day) easier|lighten (?:it|things) up)\b|\b(?:add|book|put|give me|schedule|slot)\s+(?:me\s+)?(?:in\s+)?(?:a |an )?(?:\d+\s*(?:-\s*)?(?:min(?:ute)?s?|m)?\s*)?nap\b|\b(?:cut|drop|cancel|scrap|ditch|remove|get rid of|bin)\s+(?!it\b)\w/i;
 /** Another change in the same breath is the schedule flow's ("im tired, move gym to 8"), as is a reminder. */
 const OTHER_CHANGE = /\b(?:move|push|pull|swap|resize|extend|shorten|reschedule|remind|alarm|timer|log|start (?:a|an|my|the)|session|text|email)\b|\?|\b(?:what'?s|whats|what is|when is|how (?:long|much|many))\b/i;

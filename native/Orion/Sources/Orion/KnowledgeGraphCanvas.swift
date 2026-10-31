@@ -179,9 +179,9 @@ struct KnowledgeGraphCanvas: View {
         .contentShape(Circle().inset(by: -6))
         .onTapGesture { select(node.id) }
         .onHover { hovered = $0 ? node.id : (hovered == node.id ? nil : hovered) }
-        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.72), value: selected)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: hovered)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: faded)
+        .animation(reduceMotion ? nil : OrionMotion.select, value: selected)
+        .animation(reduceMotion ? nil : OrionMotion.hover, value: hovered)
+        .animation(reduceMotion ? nil : OrionMotion.fade, value: faded)
         .accessibilityElement()
         .accessibilityLabel("\(node.kind.singular): \(node.label)")
         .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
@@ -189,7 +189,7 @@ struct KnowledgeGraphCanvas: View {
 
     private func select(_ id: String?) {
         if reduceMotion { store.selectedID = id; return }
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) { store.selectedID = id }
+        withAnimation(OrionMotion.select) { store.selectedID = id }
     }
 
     // MARK: Pan and zoom
@@ -226,7 +226,7 @@ struct KnowledgeGraphCanvas: View {
 
     private func zoomButton(_ symbol: String, action: @escaping () -> Void) -> some View {
         Button {
-            if reduceMotion { action() } else { withAnimation(.spring(response: 0.35, dampingFraction: 0.85), action) }
+            if reduceMotion { action() } else { withAnimation(OrionMotion.select, action) }
         } label: {
             Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).foregroundStyle(palette.textSoft)
                 .frame(width: 18, height: 18).contentShape(Rectangle())

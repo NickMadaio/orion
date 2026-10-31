@@ -176,7 +176,7 @@ public struct ChatModeView: View {
         Text(text).font(.system(size: 12)).foregroundStyle(ViewTokens.dim).textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12)
             .overlay(alignment: .leading) {
-                Rectangle().fill(LinearGradient(colors: [ViewTokens.violet.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)).frame(width: 1)
+                Rectangle().fill(ViewTokens.violet.opacity(0.35)).frame(width: 1)
             }
     }
 

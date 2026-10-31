@@ -127,7 +127,7 @@ struct KnowledgeIndex: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.8), value: selected)
+        .animation(reduceMotion ? nil : OrionMotion.select, value: selected)
     }
 
     /// Selecting from the list: the ring appears on the row, then flies to the node in the graph.
@@ -136,7 +136,7 @@ struct KnowledgeIndex: View {
         ringInList = true
         store.selectedID = id
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) { ringInList = false }
+            withAnimation(OrionMotion.select) { ringInList = false }
         }
     }
 

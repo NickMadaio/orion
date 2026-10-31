@@ -34,7 +34,7 @@ import { decide, keepWarm, FRONT_DESK_CTX, type Decision } from "./front-desk.js
 import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
 import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, outcomeOf, retryInstruction, type ToolResult } from "./work-check.js";
-import { isSessionStart, startsSession, type SessionHint } from "./session-flow.js";
+import { isSessionStart, startsSession, type SessionExec, type SessionHint } from "./session-flow.js";
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
@@ -43,8 +43,10 @@ import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
+import { asksDayRead, asksHabit, habitAnswer } from "./day-questions.js";
 import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne, type EditTarget } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
+import { unnamedAnchorWrite } from "./anchor-write-guard.js";
 import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
 import { maybeRunComputerTask, type ComputerDeps } from "./computer-loop.js";
 import { detectComputerIntent } from "./computer-intent.js";
@@ -54,7 +56,7 @@ import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksR
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply, type LateExec } from "./late-flow.js";
 import { parseMessagesRead, readNote, type MessagesRead, type ReadOutcome } from "./messages-read.js";
-import { isBareTime, isReminderTurn, planReminder, type StoredReminder } from "./reminder-flow.js";
+import { isBareTime, isReminderTurn, leaveAsReminder, planReminder, type StoredReminder } from "./reminder-flow.js";
 import { mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
 import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
@@ -62,9 +64,13 @@ import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocu
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
-import { WIPE_CONFIRM, gymPushback, isWipe, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
+import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
-import { QUIET_REPLY, QuietWindow, RepeatGuard, addressed, quietAck, quietRequest } from "./chatter.js";
+import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
+import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, roomQuiet, roomTalk } from "./chatter.js";
+import { planLighten, readLighten, runLighten, saysYes, type LightenPending, type LightenRead } from "./day-lighten.js";
+import { readFocusMove, runFocusMove, type FocusMove } from "./focus-moves.js";
+import { KNOWLEDGE_PROMPT, isKnowledgeAsk } from "./knowledge-ask.js";
 import { declareOnly, readReality, runReality, undoReality, type RealityRead, type ScriptRun } from "./reality.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 
@@ -117,6 +123,8 @@ export type LocalRoutingOptions = {
   wakeFlow?: (message: string, decision?: Decision) => Promise<FlowResult>;
   /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
   todoDoneFlow?: (message: string) => Promise<FlowResult>;
+  /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
+  sessionExec?: SessionExec;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
   sessionStatus?: () => Promise<FlowResult>;
   /** The focus history rows, for "how long have i been focusing today" (tests pass a stub; default reads the real file, read-only). */
@@ -219,6 +227,16 @@ type Run = {
   /** 2026-10-30 (chatter.ts): he asked for quiet (minutes), or this spoken turn falls in a quiet window and is not addressed. */
   quietStart?: number;
   hushed?: boolean;
+  /** 2026-10-31 (chatter.ts): spoken without "orion": "room" = said to someone else (silent); "streak" = request-shaped inside a run of room talk. */
+  room?: "room" | "streak";
+  /** 2026-10-31: his "yes" to a change ORION proposed last turn (day-lighten.ts / focus-moves.ts). */
+  pendingYes?: LightenPending;
+  /** 2026-10-31: tired, sick, slept badly or stressed (day-lighten.ts). */
+  lighten?: LightenRead;
+  /** 2026-10-31: a focus phrase mapped to its one call (focus-moves.ts). */
+  focusMove?: FocusMove;
+  /** 2026-10-31: a textbook question (knowledge-ask.ts): the worker answers it, never the desk's draft. */
+  knowledge?: boolean;
   /** 2026-10-30 gate (anchor-guards.ts): he is putting gym off; code answers, gym is never dropped for an excuse. */
   gymSkip?: GymSkip;
   /** "wipe my week": asked about first by code, nothing runs. */
@@ -749,6 +767,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   // 2026-10-30 (chatter.ts): the quiet window he asks for, and no failure line twice in ten minutes per session.
   const quiet = new QuietWindow(options.stateDir);
   const repeats = new RepeatGuard();
+  // 2026-10-31: spoken lines that went unanswered as not for ORION, per session (chatter.ts), and what a "yes" next turn carries out.
+  const rooms = new RoomStreak();
+  const ownPending = new Map<string, { pending: LightenPending; at: number }>();
   const nowMs = () => (options.now ?? (() => new Date()))().getTime();
   const runs = new Map<string, Run>();
   /** Per session: his last message (stitched) and the scheduler changes it made. */
@@ -838,18 +859,89 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     // "move it to tomorrow": tomorrow's 90 minutes first, and today's comes off only once that is booked. One "undo" takes both back.
     if (!options.realityRun || !gym) { say(gym ? "I couldn't move gym just now, so it's still on today." : "Gym isn't on today's calendar, so there's nothing to move. Want me to put 90 minutes in tomorrow?", gym ? "plain" : "ask"); return; }
-    const add = await options.realityRun("orion-reschedule", ["add", gym.title, "90", "--date", "tomorrow"]).catch(() => ({ stdout: "", code: 1 }));
-    run.tools.push({ canonical: `exec orion-reschedule add "${gym.title}" 90 --date tomorrow`, stdout: add.stdout, exit: add.code });
-    const when = /(\d{2}:\d{2})[–-](\d{2}:\d{2})/.exec(add.stdout);
-    if (add.code !== 0 || /NOTHING WAS|NOT BOOKED|did not fit/i.test(add.stdout)) { say(`There's no room for 90 minutes of gym tomorrow, so I left today's gym at ${ampm12(gym.start)}. Tell me what to move tomorrow and I'll fit it.`); return; }
+    const nowD = (options.now ?? (() => new Date()))();
+    const nowHm = `${String(nowD.getHours()).padStart(2, "0")}:${String(nowD.getMinutes()).padStart(2, "0")}`;
+    // REV2 finding 8: "ill do gym tmrw" before today's gym is over would delete a gym day on a whim: pushback and one question.
+    if (skip.kind === "tomorrow" && skip.deferred && gym.end > nowHm) { say(deferAsk(gym.start), "ask"); return; }
+    const at = skip.kind === "tomorrow" && skip.at ? ["--at", skip.at] : [];
+    const add = await options.realityRun("orion-reschedule", ["add", gym.title, "90", ...at, "--date", "tomorrow"]).catch(() => ({ stdout: "", code: 1 }));
+    run.tools.push({ canonical: `exec orion-reschedule add "${gym.title}" 90 ${at.length ? `${at.join(" ")} ` : ""}--date tomorrow`, stdout: add.stdout, exit: add.code });
+    const when = /(\d{2}:\d{2})[–-](\d{2}:\d{2})/.exec(add.stdout) ?? (at.length ? [at[1]!, at[1]!] : null);
+    const assumed = skip.kind === "tomorrow" && skip.assumed ? ` (I took ${skip.assumed} as ${ampm12(skip.at!)})` : "";
+    // REV2 finding 1: only the gym's own NOT BOOKED (or a refusal) is "no room"; what else that run wrote is undone at once.
+    if (refused(add) || notBooked(add.stdout, gym.title)) {
+      if (wrote(add)) { const back = await options.realityRun("orion-reschedule", ["undo"]).catch(() => ({ stdout: "", code: 1 })); run.tools.push({ canonical: "exec orion-reschedule undo", stdout: back.stdout, exit: back.code }); }
+      say(`There's no room for 90 minutes of gym tomorrow${at.length ? ` at ${ampm12(at[1]!)}` : ""}, so I left today's gym at ${ampm12(gym.start)}. Tell me what to move tomorrow and I'll fit it.`); return;
+    }
+    const tomorrowAlso = sideNotes(gym.title, [add.stdout]);
+    const alsoLine = tomorrowAlso.length ? ` To fit it tomorrow: ${tomorrowAlso.join("; ")}.` : "";
+    // 2026-10-31 (loop-gym-ladder-ignored-c): today's gym already over is a slip, not a block to take off.
+    if (gym.end <= nowHm) {
+      recordChange(run.sessionKey, []);
+      if (run.sessionKey) lastReality.set(run.sessionKey, { facts: [], writes: 1, at: Date.now() });
+      run.flow = { outcome: "done", calls: run.tools.map((t) => t.canonical), outputs: run.tools.map((t) => t.stdout),
+        reply: `Booked: gym tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""}, 90 minutes${assumed}.${alsoLine} Today's ${ampm12(gym.start)} gym slipped; I'll come back to you when tomorrow's starts. Say "undo" to take it back.` };
+      return;
+    }
     const drop = await options.realityRun("orion-reschedule", ["drop", gym.title]).catch(() => ({ stdout: "", code: 1 }));
     run.tools.push({ canonical: `exec orion-reschedule drop "${gym.title}"`, stdout: drop.stdout, exit: drop.code });
-    const dropped = drop.code === 0 && !/NOTHING WAS/.test(drop.stdout);
+    const dropped = !refused(drop);
     recordChange(run.sessionKey, []);
     if (run.sessionKey) lastReality.set(run.sessionKey, { facts: [], writes: dropped ? 2 : 1, at: Date.now() });
     run.flow = { outcome: "done", calls: run.tools.map((t) => t.canonical), outputs: run.tools.map((t) => t.stdout),
-      reply: dropped ? `Moved: gym is off today and on tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""}, 90 minutes. Say "undo" to put it back.`
+      reply: dropped ? `Moved: gym is off today and on tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""}, 90 minutes${assumed}.${alsoLine} Say "undo" to put it back.`
         : `I booked gym tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""} but couldn't take today's off, so you have both for now. Say "undo" to take tomorrow's back.` };
+  };
+  /** 2026-10-31 (day-lighten.ts, focus-moves.ts): carries out his yes, a lightening of the day, or a focus phrase. A prompt only when the worker
+   *  must make the one call (a stall's reminder); otherwise run.flow is set and the turn's reply is code's. */
+  const ownTurn = async (run: Run, now: string): Promise<{ systemPrompt: string; appendContext: string } | undefined> => {
+    const at = (options.now ?? (() => new Date()))();
+    const key = run.sessionKey;
+    const offer = (pending: LightenPending | undefined) => { if (pending && key) ownPending.set(key, { pending, at: Date.now() }); };
+    const wrote = (flow: FlowResult, writes: number) => {
+      run.flow = flow;
+      if ("calls" in flow && flow.calls) flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: flow.outputs?.[i] ?? "", exit: null }));
+      if (writes) { recordChange(key, []); if (key) lastReality.set(key, { facts: [], writes, at: Date.now() }); }
+    };
+    const startSession = async (words: string) => {
+      if (!options.sessionFlow) return;
+      const flow = await options.sessionFlow(words).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+      if (flow.outcome === "fallback") { run.flow = { outcome: "say", kind: "plain", text: "I couldn't start the focus session just now, so nothing is running." }; return; }
+      wrote(flow, 0);
+      if (flow.outcome === "done") recordOther(key, "focus");
+    };
+    if (run.pendingYes) {
+      const p = run.pendingYes;
+      if ("session" in p) await startSession(p.session);
+      else if (options.realityRun) { const out = await runLighten(p.steps, options.realityRun); wrote(out.flow, out.writes); markRead(run, "day"); }
+      return undefined;
+    }
+    const task = run.card?.record?.shouldBe?.kind && !/^(?:unknown|sleep|free)$/.test(run.card.record.shouldBe.kind) ? run.card.record.shouldBe.title ?? undefined : run.card?.record?.next?.title ?? undefined;
+    if (run.focusMove) {
+      const out = await runFocusMove(run.focusMove, { ...(options.sessionExec ? { exec: options.sessionExec } : {}), ...(options.realityRun ? { run: options.realityRun } : {}), now: at, ...(task ? { task } : {}) });
+      if (out.pendingSession) offer({ session: out.pendingSession });
+      if (out.flow) { wrote(out.flow, out.writes ?? 0); if (out.flow.outcome === "done" && /orion-session start/.test(out.flow.calls.join(" "))) recordOther(key, "focus"); }
+      if (out.reminder) {
+        run.reminder = { args: out.reminder.args, say: out.reminder.say, action: "alarm_set", label: out.reminder.label, at: out.reminder.at };
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\nDo this for Nick now with ${taskRunCall(out.reminder.args)}\nThen, only if the result shows it worked, reply: "${out.reminder.say}" If it did not, say so plainly.\n\n${now}`,
+          appendContext: `[ORION: ${taskRunNow(out.reminder.args)}]` };
+      }
+      return undefined;
+    }
+    if (run.lighten) {
+      const read = run.lighten;
+      const [day, deadlines] = await Promise.all([
+        options.readDayJson ? withTimeout(options.readDayJson([]).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) : Promise.resolve(undefined),
+        options.readDeadlines ? withTimeout(options.readDeadlines().then((r) => r ?? undefined).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) : Promise.resolve(undefined),
+      ]);
+      if (day) markRead(run, "day");
+      if (deadlines) markRead(run, "deadlines");
+      const plan = planLighten(read, { ...(day ? { day } : {}), deadlines: deadlines ?? null, now: at });
+      if (plan.steps.length && options.realityRun) { const out = await runLighten(plan.steps, options.realityRun, plan.text); wrote(out.flow, out.writes); return undefined; }
+      run.flow = { outcome: "say", kind: plan.pending ? "ask" : "plain", text: plan.text || "I couldn't change your day just now, so nothing changed." };
+      offer(plan.pending);
+    }
+    return undefined;
   };
   const lastLate = new Map<string, { minutes: number; at: number; changed: boolean; reply: string; asked?: boolean }>();
   /** Whether this turn is the late flow's: "running late" with no minutes, the short answer to our question, or the go-ahead after it. Consumes the pending question. */
@@ -977,7 +1069,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const quietStart = on && !parseOutreach(raw) ? quietRequest(message) ?? undefined : undefined;
     const quietUntil = on ? quiet.until(nowMs()) : null;
     if (quietUntil && addressed(message) && quietStart === undefined) quiet.end(nowMs());
-    const hushed = !!quietUntil && spokenTurn && !addressed(message) && quietStart === undefined;
+    // 2026-10-31 (chatter.ts roomTalk): out loud and without "orion", one side of someone else's conversation, or a line in a run of them.
+    if (addressed(message)) rooms.clear(sessionKey);
+    const room = on && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()) }) ?? undefined : undefined;
+    const hushed = (!!quietUntil && spokenTurn && !addressed(message) && quietStart === undefined) || room === "room";
     const cutOff = !hushed && spokenTurn && trailsOff(message);
     if (sessionKey) lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });
     // Text owed by an earlier turn in this session is never delivered on this one (review, 2026-10-16).
@@ -987,12 +1082,22 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // The calendar intent layer (calendar-intent.ts): a replan, a follow-up to one, an add at a time or "until T", or a request he took back at the end.
     // 2026-10-30: a statement of what happened ("i dont have classes today") is code's from the start: no desk, no model needed for its effect.
     const quietTurn = hushed || quietStart !== undefined;
-    const reality = on && !cutOff && !quietTurn && options.realityRun ? readReality(message) ?? undefined : undefined;
+    const reality = on && !cutOff && !quietTurn && options.realityRun ? readReality(message, (options.now ?? (() => new Date()))()) ?? undefined : undefined;
     const realityWhole = !!reality && !reality.rest;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
     const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? undefined : undefined;
     const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
-    const guarded = !!gymSkip || wipe;
+    // 2026-10-31: tired / sick / slept badly / stressed (day-lighten.ts), a focus phrase (focus-moves.ts), or his "yes" to what one proposed.
+    const held = sessionKey ? ownPending.get(sessionKey) : undefined;
+    if (sessionKey) ownPending.delete(sessionKey);
+    const free = on && !cutOff && !quietTurn && !realityWhole && !gymSkip && !wipe;
+    const pendingYes = free && held && Date.now() - held.at < STITCH_WINDOW_MS * 3 && (isYes(message.replace(/[.!?…]+$/, "")) || saysYes(message)) ? held.pending : undefined;
+    const lighten = free && !pendingYes && !isCrisis(message) ? readLighten(message) ?? undefined : undefined;
+    // A stall ("in 10") answering ORION's own line is that line's loop (outreach-reply.ts); a bare time after "What time?" is the reminder's.
+    const move = free && !pendingYes && !lighten ? readFocusMove(message) ?? undefined : undefined;
+    const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
+    const knowledge = on && !quietTurn && isKnowledgeAsk(message);
+    const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove;
     const intentRead = on && !cutOff && !quietTurn && !realityWhole && !guarded && options.scheduleFlow ? readIntent(message, { now: (options.now ?? (() => new Date()))(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey)! } : {}) }) : undefined;
     // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
     const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
@@ -1019,7 +1124,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         .then((d) => { deskHealth.record(d, call); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(knowledge ? { knowledge } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -1057,6 +1162,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const run = runFor(event, ctx);
       // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
       if (run && isCrisis(run.message) && !run.afterCrisis) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
+      if (run && (run.room || run.hushed || run.pendingYes || run.lighten || run.focusMove || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
       if (run && isOverwhelmed(run.message)) return undefined;
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;
@@ -1087,10 +1193,21 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
       // Only in "on" mode: in shadow, or once the testing window closes, the configured (cloud) model answers
       // him itself, which is intended: the fixed reply exists to guard the small local models.
+      // REV2 5 (orchestrator decision): crisis words always get the safety reply, whatever room classification says.
       if (isCrisis(run.message) && !run.afterCrisis) run.flow = { outcome: "say", kind: "plain", text: CRISIS_REPLY };
       // 2026-10-30 (chatter.ts): his quiet request gets a short ack; a spoken turn inside the window gets nothing. Safety (above) still wins.
       if (!run.flow && run.quietStart !== undefined) { quiet.start(nowMs(), run.quietStart, run.message); run.flow = { outcome: "say", kind: "plain", text: quietAck(run.quietStart) }; }
       if (!run.flow && run.hushed) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
+      // 2026-10-31: tired / sick / stressed, a focus phrase, or his yes to what one of them proposed: code's (ownTurn below).
+      if (!run.flow && !run.cutOff && (run.pendingYes || run.lighten || run.focusMove)) {
+        const prompt = await ownTurn(run, now);
+        if (prompt) return prompt;
+      }
+      // 2026-10-31 (cha-thinking-aloud-c): a textbook question gets the worker with a prompt for the standard answer, not the desk's draft.
+      if (!run.flow && !run.cutOff && run.knowledge && run.settled.move !== "tool" && run.settled.move !== "ignore") {
+        run.noTools = true;
+        return { systemPrompt: `${LOCAL_IDENTITY}\n\n${KNOWLEDGE_PROMPT}\n\n${now}` };
+      }
       // 2026-10-31: a screen task ("close my safari tabs", "whats on my screen") runs through the computer loop, by code, before any other
       // intent flow. Not on half a spoken sentence, in a quiet window, or on a spoken turn the chatter guard below would drop as not for ORION.
       const chatter = run.settled.move === "ignore" && !!run.spoken && (!addressed(run.message) || isNotForOrion(run.message, true));
@@ -1151,6 +1268,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const deps = { run: options.realityRun, now: (options.now ?? (() => new Date()))(), text: run.message,
           source: run.spoken ? "voice" : /phone/.test(key ?? "") ? "phone" : "chat",
           readDay: () => (options.readDayJson ? options.readDayJson(read.reality.kind === "no-classes" && read.reality.tomorrow ? ["--date", "tomorrow"] : []) : Promise.resolve(undefined)),
+          readDayOn: (dateArgs: string[]) => (options.readDayJson ? options.readDayJson(dateArgs) : Promise.resolve(undefined)),
           slipsOf: (what: string) => slips.filter((s) => s.planned?.kind === what || (s.planned?.title ?? "").toLowerCase().includes(what.toLowerCase())).length,
           ...(next ? { next } : {}) };
         if (read.rest) await declareOnly(read, deps).catch(() => null);
@@ -1289,7 +1407,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // His answer to "What time?" is read with the request it answers ("the one with the form", then "tomorrow at 9").
         const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && (isBareTime(run.message) || (asked.label && answersLabel(run.message, run.settled?.move))) && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
         const last = lastReminder.get(key);
-        const plan = await planReminder({ message: followUp ?? run.message, now: (options.now ?? (() => new Date()))(),
+        const plan = await planReminder({ message: followUp ?? leaveAsReminder(run.message) ?? run.message, now: (options.now ?? (() => new Date()))(),
           extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
           list: options.listReminders ?? (async () => []), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
         if (plan?.kind === "say") {
@@ -1304,6 +1422,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // A reminder turn the plan could not work out gets a fixed reply, never the old free-form prompt (review, 2026-10-16).
         if (!plan && REMINDER.test(run.message) && isReminderTurn(run.message)) run.flow = { outcome: "say", kind: "plain", text: REMINDER_UNCLEAR };
       }
+      // 2026-10-31 gate (hea-gym-streak-v): "have i been going to the gym" is answered from what was tracked (day-questions.ts), never a write.
+      const habit = !run.flow && !run.cutOff && options.stateDir ? asksHabit(run.message) : null;
+      if (habit) { run.provided = true; markRead(run, "history"); run.flow = { outcome: "say", kind: "plain", text: habitAnswer(habit, options.stateDir!, (options.now ?? (() => new Date()))()) }; }
       // A fact to keep goes to his "Nick" note, a question about one searches first (live sweep 2026-10-15:
       // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
       // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
@@ -1410,7 +1531,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
       // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
       const openAsk = run.ask && answersAsk(run.message, run.ask) ? run.ask : undefined;
-      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !run.flow && !run.scheduleTried && isCalendarTurn(run.message, run.settled, !!openAsk)) {
+      if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !asksDayRead(run.message) && !asksHabit(run.message) && !run.flow && !run.scheduleTried && isCalendarTurn(run.message, run.settled, !!openAsk)) {
         // No built-in default: only the plugin entry point wires the real scheduler in (a test that
         // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
         // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
@@ -1434,7 +1555,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         if (after) { run.provided = true; markRead(run, tomorrow ? "day-tomorrow" : "day"); run.flow = { outcome: "say", kind: "plain", text: after.text }; dayMemory.set(run.sessionKey!, { at: Date.now(), memory: after.memory }); }
       }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
-      if ((SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && isQuestion(run.message) && options.readDay && !run.flow) {
+      if ((SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && (isQuestion(run.message) || asksDayRead(run.message)) && options.readDay && !run.flow) {
         const tomorrow = meansTomorrow(run.message);
         const day = await options.readDay(tomorrow).catch(() => "");
         if (day) { run.provided = true; markRead(run, tomorrow ? "day-tomorrow" : "day"); }
@@ -1455,6 +1576,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           appendContext: `[ORION scheduler — already done. Your whole reply must be exactly: ${exact}]` };
       }
       if (run.flow?.outcome === "say") {
+        // 2026-10-31 (cha-tv-v): inside a run of room talk, a question back ("What time should I remind you?") or a failure line is not said.
+        if (run.room === "streak" && roomQuiet(exactFor(run), run.flow.kind)) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
+        if (run.spoken && !addressed(run.message) && exactFor(run) === QUIET_REPLY) rooms.mark(run.sessionKey, nowMs());
         // 2026-10-30: the same failure line never twice in ten minutes in a session (R2: thirty "Not done: 6:00 AM–6:00 AM").
         const said = exactFor(run); const guarded = repeats.guard(run.sessionKey, said, !!run.spoken, nowMs());
         if (guarded !== said) run.flow = { outcome: "say", kind: "plain", text: guarded };
@@ -1466,6 +1590,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // instructions (the 4B asked for times it could have read, 2026-10-12), and a request to change
       // his day is always work, whatever the front desk thought.
       // A lookup (weather, sun times, his texts, his day) never gets a draft: nothing checks a draft's facts.
+      // 2026-10-31: inside a run of room talk, nothing reaches the worker's free reply: only a flow that acted above may answer.
+      if (run.room === "streak") { run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY }; rooms.mark(run.sessionKey, nowMs()); return fixedReply(QUIET_REPLY); }
       const lookup = needsLiveData(run.message);
       const draft = withoutDayClaims(run.settled.answer ?? "");
       if (run.settled.move === "answer" && draft && !CHANGE_REQUEST.test(run.message) && !lookup) {
@@ -1553,6 +1679,22 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     return { block: true, blockReason: "Orion undo guard: this chat has not changed his calendar, so there is nothing of THIS conversation to undo, and `orion-reschedule undo` would reverse a change from an earlier day. Do not run it. Ask Nick what he wants cancelled." };
   });
 
+  // 2026-10-31 (gate foc-pomodoro-break-c): the worker's `orion-session pause` with no session running exited non-zero, and the host appended
+  // "⚠️ 🛠️ Exec failed: …orion-session pause" after the plugin's last hook, where no sanitizer reaches. The status is read first: a control
+  // command with nothing to control never runs, so it never fails.
+  if (on && options.sessionExec) api.on("before_tool_call", async (event, ctx) => {
+    if (pick(event, ctx, "toolName") !== "exec") return undefined;
+    const command = str((event.params as Record<string, unknown> | undefined)?.command) ?? "";
+    if (!/\borion-session\s+(?:pause|resume|unpause|continue|skip|shorten|finish|end|stop|done|complete|wrap|abandon|cancel|quit|back|idle|end-break)\b/.test(command)) return undefined;
+    const status = await options.sessionExec!(["status", "--json"]).catch(() => ({ stdout: "", code: 1 }));
+    let state = "";
+    try { state = String((JSON.parse(status.stdout) as { status?: unknown }).status ?? ""); } catch { /* unread: let it run */ return undefined; }
+    // REV2 finding 14: orion-session also reports not-started and finishing, where pause or abandon is legitimate. Only a state that
+    // says there is no session (none, finished) is blocked; anything else, unknown included, runs.
+    if (!["none", "finished"].includes(state)) return undefined;
+    return { block: true, blockReason: "Orion session check: no focus session is running, so there is nothing to pause, resume or end. Do not run another command; tell Nick plainly that no focus session is running, and offer to start one." };
+  });
+
   // 2026-10-30 (chatter.ts): out loud, nothing goes into his memory unless he said "remember …" / "note that …" ("Saved: Frozen.").
   if (on) api.on("before_tool_call", (event, ctx) => {
     const run = runFor(event, ctx);
@@ -1600,6 +1742,27 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }));
     const off = checks.find(Boolean);
     return off ? { block: true, blockReason: `Orion time check: ${off} Do not run another command; tell Nick exactly this.` } : undefined;
+  });
+
+  // REV2 finding 18: a misread form falls back to the worker, which can run orion-reschedule. Gym and study are not protected by the
+  // scheduler the way classes are, so a worker write that takes or moves one he did not name is refused (anchor-write-guard.ts).
+  if (on) api.on("before_tool_call", async (event, ctx) => {
+    if (pick(event, ctx, "toolName") !== "exec") return undefined;
+    const run = runFor(event, ctx);
+    const writes = writesIn(str((event.params as Record<string, unknown> | undefined)?.command) ?? "").filter((a) => /^(?:drop|move|resize|swap|rename|displace)$/.test(a[0] ?? ""));
+    const readJson = options.readDayJson;
+    if (!run || !writes.length || !readJson) return undefined;
+    // The same per-turn day read as the time backstop above (one read per turn, however many writes).
+    const days = (run.dayReads ??= new Map<string, Promise<Day | undefined>>());
+    for (const args of writes) {
+      const date = args.includes("--date") ? ["--date", args[args.indexOf("--date") + 1]!] : [];
+      const k = date.join(" ");
+      if (!days.has(k)) days.set(k, withTimeout(readJson(date).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS));
+      const day = await days.get(k)!;
+      const hit = day ? unnamedAnchorWrite(run.message, args, day.blocks) : null;
+      if (hit) return { block: true, blockReason: `Orion anchor check: ${hit.title} is ${/gym/i.test(hit.kind ?? hit.title) ? "his daily gym" : "study for a deadline"}, and he did not name it, so it is not dropped or moved. Do not run another command; tell Nick nothing changed and ask whether he meant ${hit.title}.` };
+    }
+    return undefined;
   });
 
   // 2026-10-19 backstop: the worker reached for `orion-reschedule <write>` by name (the tool guard refuses it). The run remembers it, so
@@ -1669,7 +1832,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // 2026-10-30 gate (hea-gym-streak-c "how many gym days this week", per-who-am-i-c): a QUESTION on a turn that attempted no write
       // got "I couldn't make that change": a write-failure line for a turn with no write. A question with no write keeps its answer.
       const questionOnly = isQuestion(run.message) && !wroteThisTurn(run.tools) && !run.directive && !run.reminder;
-      const findings = codeReadOnly || questionOnly ? allFindings.filter((f) => !FALSE_CLAIM.test(f)) : allFindings;
+      // 2026-10-31 (cha-thinking-aloud-c): a textbook answer with no tool is never replaced by the claims check.
+      const findings = run.knowledge && !run.hostTools ? [] : codeReadOnly || questionOnly ? allFindings.filter((f) => !FALSE_CLAIM.test(f)) : allFindings;
       run.findings.push(findings);
       // A revise returns before the end of this hook; it is logged first so no turn goes unrecorded (those 16 had routing null).
       const record = async (extra: Record<string, unknown> = {}) => {

@@ -37,7 +37,7 @@ describe("what counts as a reality statement", () => {
   });
 
   it("a reality statement with another change in it is only declared here; the change goes on as usual", () => {
-    expect(readReality("i skipped marketing, put 1 hour of catch up on it tomorrow evening")).toMatchObject({ reality: { kind: "missed", what: "marketing" }, rest: true });
+    expect(readReality("i skipped marketing, move gym to 6")).toMatchObject({ reality: { kind: "missed", what: "marketing" }, rest: true });
   });
 
   it.each([
@@ -190,9 +190,9 @@ describe("reality on the live route", () => {
     expect(r.calls.some((c) => c[1] === "classes-off")).toBe(false);
   });
 
-  it("'i skipped marketing, put 1 hour of catch up on it tomorrow evening': the fact is written and the request routes on", async () => {
+  it("'i skipped marketing, move gym to 6': the fact is written and the request routes on", async () => {
     const r = route();
-    const { exact } = await r.turn("i skipped marketing, put 1 hour of catch up on it tomorrow evening", "rest-1");
+    const { exact } = await r.turn("i skipped marketing, move gym to 6", "rest-1");
     expect(r.calls).toEqual([expect.arrayContaining(["orion-declare", "add", "--kind", "skip", "--title", "marketing"])]);
     expect(exact).toBeUndefined();   // not code's reply: the normal turn handles the catch-up
     expect(r.desk()).toBe(1);

@@ -22,7 +22,27 @@ const memDir = (p) => join(p.workspace, "memory");
 const memFiles = (p) => (existsSync(memDir(p)) ? readdirSync(memDir(p)).filter((f) => f.endsWith(".md")) : []);
 const clip = (s, n = 300) => (s.length > n ? `${s.slice(0, n)}...` : s);
 
-export const trackedFiles = (p) => [...CTRL_FILES.map((f) => join(p.ctrl, f)), ...WORKSPACE_FILES.map((f) => join(p.workspace, f))];
+// Files live writers rewrite on their own schedule: restoring them would fight the writer, so they are never tracked.
+const LIVE_FEEDS = new Set(["awareness.json", "now.json", "glance-calendar.json", "focus-activity.json", "focus-state.json", "focus-phone.json",
+  "ontask-state.json", "messages-recent.json", "remote.json", "remote-link.json", "watchdog.json", "knowledge-graph.json", "computer-relay.key",
+  "lights-status.json"]);
+const MAX_TRACKED_BYTES = 1 << 20;
+// REV2 finding 10 (2026-10-31): restoring every small .json rewound files the live system owns (location.json, remote-inbound.json,
+// proactive-sent.json, cron-delivery.json, selfdev-*.json, permission-state.json, usage-cache.json, account-health.json,
+// sleep-actual.json, morning-*.json): a restore wiped phone messages and re-sent pings. Only an allow-list is restored
+// (CTRL_FILES + KNOWN_NEW_STATE); every other small top-level .json is snapshotted read-only and REPORTED when it changes, never written.
+const KNOWN_NEW_STATE = ["declared-facts.json", "chat-quiet.json", "ladders.json", "awake-late.json", "brief-heads.json", "model-outage-queue.json"];
+const RESTORABLE = new Set([...CTRL_FILES, ...KNOWN_NEW_STATE]);
+/** Small top-level .json files that are not restorable and not live feeds: watched and reported only. */
+export function reportedFiles(p) {
+  try {
+    return readdirSync(p.ctrl).filter((f) => f.endsWith(".json") && !LIVE_FEEDS.has(f) && !RESTORABLE.has(f)
+      && (() => { try { return statSync(join(p.ctrl, f)).size <= MAX_TRACKED_BYTES; } catch { return false; } })());
+  } catch { return []; }
+}
+
+/** The files a restore may write: the allow-list only. */
+export const trackedFiles = (p) => [...RESTORABLE].map((f) => join(p.ctrl, f)).concat(WORKSPACE_FILES.map((f) => join(p.workspace, f)));
 
 async function todos(p) {
   try {
@@ -42,6 +62,7 @@ export async function snapshotState(p) {
   const status = await sessionStatus(p);
   return {
     files: Object.fromEntries(trackedFiles(p).map((f) => [f, read(f)])),
+    seen: Object.fromEntries(reportedFiles(p).map((f) => [f, read(join(p.ctrl, f))])),
     mem: Object.fromEntries(memFiles(p).map((f) => [f, read(join(memDir(p), f))])),
     logs: Object.fromEntries([...RESTORED_LOGS, ...REPORTED_LOGS].map((f) => [f, read(join(p.ctrl, f))])),
     undoRaw: read(p.undo),
@@ -89,8 +110,13 @@ export async function effectSince(p, snap) {
     : { added: [], completed: [], unavailable: true };
   const otherChanged = Object.keys(after.mtimes).filter((f) => after.mtimes[f] !== snap.mtimes[f]
     && !trackedFiles(p).some((t) => t.endsWith(`/${f}`)) && ![...RESTORED_LOGS, ...REPORTED_LOGS].includes(f));
+  // Live-owned state the item (or the live system) changed: what changed is reported; restoreState never touches these.
+  const reported = [...new Set([...Object.keys(snap.seen ?? {}), ...Object.keys(after.seen ?? {})])].flatMap((f) => {
+    const before = snap.seen?.[f] ?? null, now = after.seen?.[f] ?? null;
+    return before === now ? [] : [{ path: f, kind: before === null ? "created" : now === null ? "deleted" : "changed", ...lineDelta(before, now) }];
+  });
   return {
-    calendar, files, memory, logs, todos: todoDelta, otherChanged,
+    calendar, files, memory, logs, todos: todoDelta, otherChanged, reported,
     session: { started: after.sessionId && after.sessionId !== snap.sessionId ? after.sessionId : null },
     changedAnything: Boolean(files.length || memory.length || calendar.newEntries.length || calendar.removedEntries.length
       || todoDelta.added.length || todoDelta.completed.length || logs.length),

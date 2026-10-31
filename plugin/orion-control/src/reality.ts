@@ -20,6 +20,8 @@
  ladder read: the ladder is what cancels the leave nudges).
 */
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
+import { noteOf } from "./scheduler-out.js";
+import { readDayRequest, runDayRequest, whyNot, yesterdayOf, type DayRequest } from "./day-requests.js";
 
 export type Reality =
   | { kind: "no-classes"; names: string[]; keep?: string; tomorrow: boolean; fill: boolean }
@@ -28,12 +30,20 @@ export type Reality =
   | { kind: "ate" }
   | { kind: "place"; place: string }
   /** "marketing is running over lol" (rea-class-late-v): what comes after it moves back, by his minutes or a stated guess. */
-  | { kind: "overrun"; what: string; minutes?: number };
+  | { kind: "overrun"; what: string; minutes?: number; guess?: number }
+  /** "gym done, was 5:30 to 7", "just got back from the gym", "took a nap lol", "i slept from 2 to 3:30pm" (2026-10-31 gate, cluster 3). */
+  | { kind: "done"; what: string; from?: string; to?: string; fill: boolean }
+  /** "i was literally in marketing", "you said i missed marketing but i was there, fix it": the missed mark is taken back. */
+  | { kind: "attended"; what: string }
+  /** A calendar request code carries out itself (day-requests.ts): a deadline, a combination, tomorrow, "X then Y", clear my own blocks. */
+  | { kind: "request"; request: DayRequest };
 /** A reality statement plus whether he also asked for another change in the same breath ("..., put catch-up on it tomorrow"). */
 export type RealityRead = { reality: Reality; rest: boolean };
 
-export type ScriptRun = (script: "orion-declare" | "orion-reschedule", args: string[]) => Promise<{ stdout: string; code: number }>;
+export type ScriptRun = (script: "orion-declare" | "orion-reschedule" | "orion-tasks", args: string[]) => Promise<{ stdout: string; code: number }>;
 export type RealityDeps = { run: ScriptRun; readDay: () => Promise<Day | undefined>; now: Date; source: string; text: string;
+  /** Another day, by orion-reschedule's --date words ("tomorrow", a weekday, YYYY-MM-DD). Unset: only today is read. */
+  readDayOn?: (dateArgs: string[]) => Promise<Day | undefined>;
   /** How many times this kind or title slipped in the last 7 days (the state card), for "that's the fourth gym skip this week". */
   slipsOf?: (what: string) => number };
 /** What a reality turn did: the reply, the declared fact ids and how many calendar writes (each is one orion-reschedule undo). */
@@ -62,10 +72,72 @@ const ATE = /^(?:(?:ok|so|yeah|ya|btw|fyi|just|already)[,\s]+)*(?:i\s+)?(?:alrea
 const PLACE = /^(?:(?:ok|so|fyi|btw|hey|orion|yeah)[,\s]+)*(?:i'?m|im|i am)\s+(?:at|in)\s+(?:the\s+)?(library|gym|home|campus|uni|university|school|office|work|cafe|coffee shop|[a-z]+'s(?: place| house| flat)?)\s*(?:now|rn|right now|already)?\s*[.!]*$/i;
 
 const OVERRUN = /\b((?:my |the )?[a-z0-9]+)(?:'s|\s+is|\s+has been)\s+(?:running|going|dragging)\s+(?:(\d{1,3})\s*(?:min|mins|minutes)\s+)?(?:over|long|late)\b/i;
+// 2026-10-31 gate (rea-task-twice-v/c): "this econ set is taking forever", "econ problem set needs another hour, push whatever is after it".
+const TAKING = /\b(?:the |this |my )?([a-z][a-z0-9 ]{1,30}?)\s+(?:is|'s)\s+taking\s+(?:forever|ages|so long|way longer|longer(?: than (?:i )?(?:thought|expected|planned))?|a while|too long)\b/i;
+const NEEDS_MORE = /\b(?:the |this |my )?([a-z][a-z0-9 ]{1,30}?)\s+needs\s+(?:another|an extra|one more|(\d{1,3}) more)\s*(hour|hr|(?:\d{1,3}\s*)?(?:min|mins|minutes))?\b|\bi need (?:another|an extra|one more) (hour|(?:\d{1,3}\s*)?(?:min|mins|minutes)) (?:on|for|of) (?:the |my )?([a-z][a-z0-9 ]{1,30}?)(?=\s*(?:,|\.|!|$|and|then))/i;
+export const TAKING_GUESS_MIN = 45;
+const lengthOf = (t?: string): number | undefined => (!t ? undefined : /^(?:hour|hr)$/.test(t) ? 60 : Number(/\d+/.exec(t)?.[0] ?? NaN) || undefined);
+
+// ---- "it's done": a block he finished, a nap he took (2026-10-31 gate, rea-took-longer-gym-v/c, rea-spontaneous-nap-v/c) ----
+const CLK = String.raw`(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)`;
+const DONE_TIMES = new RegExp(String.raw`\b(?:was|from|went)\s+${CLK}\s*(?:to|till|until|-|–)\s*${CLK}`, "i");
+const BACK_FROM = /\b(?:just\s+)?(?:got\s+|came\s+|am\s+|i'?m\s+|im\s+)?back from (?:the\s+|my\s+)?([a-z][a-z0-9 ]{1,25}?)(?=\s*(?:,|\.|!|$|lol|now|early|late|finally|and))/i;
+const IS_DONE = /^(?:(?:ok(?:ay)?|so|yeah|ya|btw|fyi|right)[,\s]+)*(?:the\s+|my\s+)?([a-z][a-z0-9 ]{1,25}?)(?:\s+is|'s|\s+was)?\s+(?:done|finished|complete|completed|over)\b(?!\s+(?:at|by)\b)/i;
+const FINISHED = /\b(?:i\s+)?(?:just\s+)?(?:finished|done with|wrapped up)\s+(?:the\s+|my\s+)?([a-z][a-z0-9 ]{1,25}?)(?=\s*(?:,|\.|!|$|lol|now|early|and))/i;
+const NAP = /\b(?:took|had|did|just had)\s+(?:a\s+)?(?:quick\s+|little\s+|long\s+)?nap\b|\bnapped\b|\bwoke up from (?:a|my) nap\b|\bfell asleep\b/i;
+const SLEPT = new RegExp(String.raw`\bi\s+(?:slept|napped|was asleep|passed out)\s+from\s+${CLK}\s*(?:to|till|until|-|–)\s*${CLK}`, "i");
+const PLAN_REST = /\b(?:plan|redo|rebuild|replan|re-?do|fix|sort(?: out)?|reshuffle|rework)\s+(?:out\s+)?(?:my|the)\s+(?:evening|night|afternoon|rest of (?:the|my) day|rest of (?:today|tonight)|day)\b|\bfrom now\b/i;
+const NOT_DONE_THING = /^(?:i|im|i'm|it|that|this|we|you|everything|all|day|today|my day|session|focus|the session|it all|mine|one|nap|class|the class)$/;
+// REV2 finding 2: "i just finished my coffee" captured "i just" as the thing done. A capture with a pronoun or an adverb is not a block name.
+const PRONOUN_OR_ADVERB = /\b(?:i|im|i'm|me|we|you|he|she|they|it|its|it's|this|that|just|really|finally|already|actually|totally|basically|literally|so|now)\b/;
+const NOT_A_PLACE = /^(?:home|library|uni|campus|work|school|bed|my room|office|cafe|town)$/;
+const ATTENDED = /\bi (?:was|went|did go|made it)\s+(?:literally\s+|actually\s+|totally\s+|definitely\s+)?(?:in|at|to)\s+(?:the\s+|my\s+)?([a-z][a-z0-9 ]{1,25}?)(?=\s*(?:class|lecture|today|lol|tho|though|,|\.|!|$|fix|but|so|the whole))/i;
+const SAID_MISSED = /\byou (?:said|thought|marked|logged)\s+(?:that\s+)?i (?:missed|skipped|didn'?t (?:go to|make it to|go))\s+(?:the\s+|my\s+)?([a-z0-9]+)/i;
+const WAS_THERE = /\b(?:i was there|i went|i was in (?:it|class)|i attended|i did go)\b/i;
+
+function readDone(m: string): Reality | null {
+  const slept = SLEPT.exec(m);
+  if (slept) return { kind: "done", what: "nap", from: slept[1]!, to: slept[2]!, fill: PLAN_REST.test(m) };
+  if (NAP.test(m)) return { kind: "done", what: "nap", fill: PLAN_REST.test(m) };
+  const hit = BACK_FROM.exec(m) ?? IS_DONE.exec(m) ?? FINISHED.exec(m);
+  const what = hit?.[1]?.trim().replace(/\s+(?:now|already|finally)$/, "");
+  if (!what || NOT_DONE_THING.test(what) || PRONOUN_OR_ADVERB.test(what) || NOT_A_PLACE.test(what) || /\b(?:is|are|was|running|going|dragging|taking|almost|not)\b/.test(what) || /\b(?:not|never|almost|nearly)\b/.test(m.slice(0, hit!.index))) return null;
+  const times = DONE_TIMES.exec(m);
+  return { kind: "done", what, ...(times ? { from: times[1]!, to: times[2]! } : {}), fill: PLAN_REST.test(m) };
+}
+function readAttended(m: string): Reality | null {
+  const said = SAID_MISSED.exec(m);
+  if (said && WAS_THERE.test(m)) return { kind: "attended", what: said[1]! };
+  const was = ATTENDED.exec(m);
+  if (!was || NOT_A_PLACE.test(was[1]!.trim())) return null;
+  const what = was[1]!.trim();
+  // "i was at the gym" is the gym done, not a class attended.
+  if (/\bgym\b/.test(what)) return { kind: "done", what: "gym", fill: PLAN_REST.test(m) };
+  return { kind: "attended", what };
+}
+
 /** He told ORION something that happened (or is happening), not asked for a change. Null when it is not one. */
-export function readReality(message: string): RealityRead | null {
+export function readReality(message: string, now: Date = new Date()): RealityRead | null {
   const m = clean(message);
-  if (!m || QUESTION.test(m) || NOT_ME.test(m.replace(/\bi still have\b.*$/, ""))) return null;
+  if (!m) return null;
+  // A calendar request code carries out itself comes first (day-requests.ts): its own reader rules out questions and conditions
+  // ("can we do gym later, like after dinner" is a request, not a question).
+  const request = readDayRequest(message, now);
+  if (request) return { reality: { kind: "request", request }, rest: false };
+  if (QUESTION.test(m)) return null;
+  if (NOT_ME.test(m.replace(/\bi still have\b.*$/, ""))) return null;
+  const attended = readAttended(m);
+  if (attended) return { reality: attended, rest: false };
+  const more = NEEDS_MORE.exec(m);
+  if (more) {
+    const what = (more[1] ?? more[5] ?? "").trim();
+    const minutes = more[1] ? (more[2] ? Number(more[2]) : lengthOf(more[3]) ?? 60) : lengthOf(more[4]) ?? 60;
+    if (what && !NOT_DONE_THING.test(what)) return { reality: { kind: "overrun", what, minutes }, rest: false };
+  }
+  const taking = TAKING.exec(m);
+  if (taking && !NOT_DONE_THING.test(taking[1]!.trim())) return { reality: { kind: "overrun", what: taking[1]!.trim(), guess: TAKING_GUESS_MIN }, rest: false };
+  const finished = readDone(m);
+  if (finished) return { reality: finished, rest: false };
   const rest = OTHER_CHANGE.test(m.replace(REMINDERS_OFF, "").replace(/\bcancell?ed\b/g, ""));
   const tomorrow = /\b(?:tomorrow|tmrw)\b/.test(m);
   const named = NAMED_NO.exec(m); const cancelled = CANCELLED.exec(m);
@@ -121,15 +193,22 @@ const say = (text: string, calls: string[] = [], outputs: string[] = []): FlowRe
 const done = (reply: string, calls: string[], outputs: string[]): FlowResult => ({ outcome: "done", calls, outputs, reply });
 const canon = (args: string[]) => args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
 /** The "Changed …:" lines a script printed, as plain clauses ("moved Study: 18:00 → 19:00"). */
-const changeLines = (stdout: string) => stdout.split("\n").map((l) => l.trim()).filter((l) => /^(?:moved|bumped|re-entered|logged)\b/.test(l) || / has no room today$/.test(l));
-const clause = (l: string) => l.replace(/(\d{1,2}:\d{2})/g, (t) => ampm(t)).replace(/ \(([^)]*)\): lower weight than what it made room for/, " to make room");
+// REV2 finding 1: a block shrunk or taken off to make room ("SHRUNK to fit", "NOT BOOKED … no longer fits") is a change too.
+const changeLines = (stdout: string) => stdout.split("\n").map((l) => l.trim()).filter((l) => /^(?:moved|bumped|re-entered|logged)\b/.test(l) || / has no room today$/.test(l) || /^(?:SHRUNK to fit|NOT BOOKED|SKIPPED OPTIONAL|SHIFTED):/.test(l));
+const clause = (l: string) => /^[A-Z]{4,}/.test(l) ? noteOf(l)?.[1] ?? l.replace(/\s+[—(].*$/, "") : l.replace(/(\d{1,2}:\d{2})/g, (t) => ampm(t)).replace(/ \(([^)]*)\): lower weight than what it made room for/, " to make room");
 
 async function noClasses(r: Extract<Reality, { kind: "no-classes" }>, deps: RealityDeps): Promise<RealityOutcome | null> {
   const day = await deps.readDay().catch(() => undefined);
   const classes = (day?.blocks ?? []).filter((b) => b.kind === "class");
   const named = r.names.length ? classes.filter((b) => r.names.some((n) => names(n, b.title))) : [];
   // Named words that are no class on that day ("no gym today") are not this statement: the turn goes on as usual.
-  if (r.names.length && day && !named.length) return null;
+  // 2026-10-31 gate (sch-no-class-c): "i dont have marketing or macro today, both are cancelled" with neither on the day went to the form,
+  // which answered "only 10 minutes between …". Said cancelled, they are classes: that they are not on the day is the answer.
+  if (r.names.length && day && !named.length) {
+    if (!/\bcancell?ed\b|\bcalled off\b/.test(deps.text.toLowerCase())) return null;
+    const which = listed(r.names.map((n) => n.replace(/^./, (c) => c.toUpperCase())));
+    return { flow: say(`${which} ${r.names.length > 1 ? "aren't" : "isn't"} on ${r.tomorrow ? "tomorrow's" : "today's"} calendar, so there was nothing to cancel and nothing changed.${classes.length ? ` Still on: ${listed(classes.map((b) => shortTitle(b.title)))}.` : ""}`), facts: [], writes: 0 };
+  }
   const facts = (r.names.length ? await Promise.all(named.map((b) => declare(deps, "skip", ["--title", b.title, ...(r.tomorrow ? ["--date", dateOf(day, deps.now, 1)] : [])])))
     : [await declare(deps, "no-classes", r.tomorrow ? ["--date", dateOf(day, deps.now, 1)] : [])]).filter((id): id is string => !!id);
   if (!facts.length) return { flow: say(REALITY_SAVE_FAILED), facts, writes: 0 };
@@ -209,7 +288,7 @@ async function instead(r: Extract<Reality, { kind: "instead" }>, deps: RealityDe
   calls.push(`exec orion-reschedule ${canon(args)}`); outputs.push(out.stdout);
   const ok = out.code === 0 && !/NOTHING WAS/.test(out.stdout);
   if (!ok) {
-    const why = /NOTHING WAS CHANGED: (.+)/.exec(out.stdout)?.[1]?.replace(/\.$/, "");
+    const why = whyNot(out.stdout);
     return { flow: say(`I couldn't put ${r.did} in place of ${shortTitle(planned.title)}${why ? ` (${why.replace(/(\d{2}:\d{2})/g, (t) => ampm(t))})` : ""}, so your calendar is as it was${writes ? `, apart from marking ${shortTitle(planned.title)} cancelled. ${UNDO}` : "."}`, calls, outputs), facts: [id], writes };
   }
   writes += 1;
@@ -222,7 +301,9 @@ async function overrun(r: Extract<Reality, { kind: "overrun" }>, deps: RealityDe
   const day = await deps.readDay().catch(() => undefined);
   const block = matchBlock(r.what, (day?.blocks ?? []).filter((b) => b.kind !== "commute"));
   if (!block) return null;   // "this set is running long" names no block: the turn goes on
-  const minutes = r.minutes ?? OVERRUN_GUESS_MIN;
+  const minutes = r.minutes ?? r.guess ?? OVERRUN_GUESS_MIN;
+  // His own block running long is an extend (the scheduler's overrun is for a class): what comes after it slides (rea-class-late, rea-task-twice).
+  if (!block.fixed) return extendOwn(block, minutes, !r.minutes, deps);
   const args = ["overrun", String(minutes), "--what", shortTitle(block.title)];
   const out = await deps.run("orion-reschedule", args).catch(() => ({ stdout: "", code: 1 }));
   const calls = [`exec orion-reschedule ${canon(args)}`];
@@ -231,6 +312,111 @@ async function overrun(r: Extract<Reality, { kind: "overrun" }>, deps: RealityDe
   if (!ok) return { flow: say(`${shortTitle(block.title)} running over: I couldn't move what's after it just now, so your plan is as it was.`, calls, [out.stdout]), facts: [], writes: 0 };
   const moved = changeLines(out.stdout).map(clause);
   return { flow: done(`Okay, ${shortTitle(block.title)} is running over: I pushed what's after it back ${minutes} minutes${guess}${moved.length ? `: ${moved.slice(0, 4).join("; ")}` : ""}. ${shortTitle(block.title)} itself stays as it is. ${UNDO}`, calls, [out.stdout]), facts: [], writes: 1 };
+}
+
+async function extendOwn(block: DayBlock, minutes: number, guessed: boolean, deps: RealityDeps): Promise<RealityOutcome> {
+  const args = ["extend", block.title, String(minutes)];
+  const out = await deps.run("orion-reschedule", args).catch(() => ({ stdout: "", code: 1 }));
+  const calls = [`exec orion-reschedule ${canon(args)}`];
+  const name = shortTitle(block.title);
+  if (out.code !== 0 || /NOTHING WAS/.test(out.stdout)) {
+    const why = whyNot(out.stdout);
+    return { flow: say(`I couldn't give ${name} more time just now${why ? ` (${why})` : ""}, so your plan is as it was.`, calls, [out.stdout]), facts: [], writes: 0 };
+  }
+  const moved = changeLines(out.stdout).map(clause);
+  const guess = guessed ? ` (my guess is ${minutes} minutes more; tell me if it needs longer)` : "";
+  return { flow: done(`Okay, ${name} now runs until ${ampm(hhmm(minuteOf(block.end) + minutes))}${guess}${moved.length ? `, and what's after it moved: ${moved.slice(0, 4).join("; ")}` : ""}. ${UNDO}`, calls, [out.stdout]), facts: [], writes: 1 };
+}
+
+/** "5:30", "7", "3:30pm" said about something already done today: the latest reading at or before now (a bare 7 at 19:20 is 19:00). */
+function pastClock(said: string, now: number): number | null {
+  const m = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/.exec(said.trim());
+  if (!m) return null;
+  const h = Number(m[1]); const min = Number(m[2] ?? 0);
+  if (h > 23 || min > 59) return null;
+  if (m[3]) return (h % 12) * 60 + (m[3] === "pm" ? 720 : 0) + min;
+  if (h >= 13) return h * 60 + min;
+  const options = [(h % 12) * 60 + min, (h % 12) * 60 + min + 720].filter((v) => v <= now + 15);
+  return options.length ? Math.max(...options) : (h % 12) * 60 + min;
+}
+const NAP_GUESS_MIN = 45;
+/** He did it (or slept): it goes on the calendar as what really happened (log), replacing the planned block, and the rest is re-weighed. */
+async function doneIt(r: Extract<Reality, { kind: "done" }>, deps: RealityDeps): Promise<RealityOutcome> {
+  const now = deps.now.getHours() * 60 + deps.now.getMinutes();
+  const day = await deps.readDay().catch(() => undefined);
+  if (!day) return { flow: say("I couldn't read your calendar just now, so nothing changed. Tell me again in a moment."), facts: [], writes: 0 };
+  const nap = r.what === "nap";
+  const blocks = day.blocks.filter((b) => b.kind !== "commute");
+  const block = nap ? blocks.find((b) => /\b(?:nap|sleep|rest)\b/i.test(b.title) && minuteOf(b.start) <= now) : matchBlock(r.what, blocks);
+  // Before 5 AM "the gym" he just did may be last night's: then it is noted, since the scheduler only rewrites today.
+  if (!block && !nap && deps.now.getHours() < 5 && deps.readDayOn) {
+    const last = await deps.readDayOn(["--date", yesterdayOf(deps.now)]).catch(() => undefined);
+    const y = matchBlock(r.what, last?.blocks ?? []);
+    if (y) {
+      const id = await declare(deps, "note", ["--title", y.title, "--date", yesterdayOf(deps.now)]);
+      return { flow: say(id ? `Nice, noted: ${shortTitle(y.title)} done last night. It's after midnight, so yesterday's calendar stays as it was.` : REALITY_SAVE_FAILED), facts: id ? [id] : [], writes: 0 };
+    }
+  }
+  // REV2 finding 2: "the movie is over" / "dinner is done" with no such block planned is not his day to rewrite: nothing is logged (gym, his daily anchor, still is).
+  if (!block && !nap && !/\bgym\b/.test(r.what)) return { flow: say(`Nice. ${r.what.replace(/^./, (c) => c.toUpperCase())} isn't on today's plan, so I left your calendar alone. Tell me the times if you want it on there.`), facts: [], writes: 0 };
+  if (block?.fixed) {
+    const id = await declare(deps, "note", ["--title", block.title]);
+    return { flow: say(id ? `Noted: ${shortTitle(block.title)} done.` : REALITY_SAVE_FAILED), facts: id ? [id] : [], writes: 0 };
+  }
+  const title = block?.title ?? (nap ? "Nap" : r.what.replace(/^./, (c) => c.toUpperCase()));
+  const len = block ? minuteOf(block.end) - minuteOf(block.start) : nap ? NAP_GUESS_MIN : 60;
+  const saidFrom = r.from ? pastClock(r.from, now) : null; const saidTo = r.to ? pastClock(r.to, now) : null;
+  // Times he gave win; else it ended just now and lasted the planned length (said back as the assumption).
+  // With no times, a planned block that already started began as planned (so the log covers it whole and no sliver of the plan is left),
+  // capped at 3 hours; anything else lasted its usual length.
+  const plannedStart = block && !nap && minuteOf(block.start) < now && now - minuteOf(block.start) <= 180 ? minuteOf(block.start) : undefined;
+  let to = saidTo ?? now; let from = saidFrom ?? plannedStart ?? to - len;
+  if (saidFrom !== null && saidTo === null) to = Math.max(saidFrom + 5, now);
+  if (from >= to) from = to - len;
+  from = Math.max(240, from);
+  const assumed = saidFrom === null ? (nap ? ` (I assumed about ${NAP_GUESS_MIN} minutes, ending now; tell me if it was longer)` : plannedStart !== undefined ? ` (I assumed it started at ${ampm(block!.start)} as planned and ended just now; tell me the times if not)` : " (I assumed it ended just now; tell me the times if not)") : "";
+  const ahead = block && minuteOf(block.start) > now;
+  const args = ["log", title, "--from", hhmm(from), "--to", to >= now ? "now" : hhmm(to), ...(block && !ahead ? ["--instead", block.title] : [])];
+  const calls: string[] = []; const outputs: string[] = [];
+  const out = await deps.run("orion-reschedule", args).catch(() => ({ stdout: "", code: 1 }));
+  calls.push(`exec orion-reschedule ${canon(args)}`); outputs.push(out.stdout);
+  if (out.code !== 0 || /NOTHING WAS/.test(out.stdout)) {
+    const why = whyNot(out.stdout);
+    return { flow: say(`I couldn't log ${shortTitle(title)} just now${why ? ` (${why})` : ""}, so your calendar is as it was.`, calls, outputs), facts: [], writes: 0 };
+  }
+  let writes = 1;
+  if (ahead) {
+    const drop = await deps.run("orion-reschedule", ["drop", block!.title]).catch(() => ({ stdout: "", code: 1 }));
+    calls.push(`exec orion-reschedule drop ${canon([block!.title])}`); outputs.push(drop.stdout);
+    if (drop.code === 0 && !/NOTHING WAS/.test(drop.stdout)) writes += 1;
+  }
+  const moved = changeLines(out.stdout).filter((l) => !/^logged\b/.test(l)).map(clause);
+  let reply = `${nap ? "Logged your nap" : `Nice, ${shortTitle(title)} done`}: ${ampm(hhmm(from))}–${ampm(hhmm(to))}${assumed}.${moved.length ? ` The rest of today moved: ${moved.slice(0, 4).join("; ")}.` : ""}`;
+  if (r.fill) {
+    const fill = await deps.run("orion-reschedule", ["fill"]).catch(() => ({ stdout: "", code: 1 }));
+    calls.push("exec orion-reschedule fill"); outputs.push(fill.stdout);
+    const placed = fill.stdout.split("\n").map((l) => l.trim()).filter((l) => /^(?:added|placed|booked|planned)\b/i.test(l)).slice(0, 4).map(clause);
+    if (fill.code === 0 && !/NOTHING WAS/.test(fill.stdout) && !/^Nothing to add/m.test(fill.stdout)) { writes += 1; reply += placed.length ? ` From now: ${placed.join("; ")}.` : " I planned the rest of the day from now."; }
+    else reply += /^Nothing to add/m.test(fill.stdout) ? " The rest of the day already has what it needs." : " I couldn't plan the rest of the day just now.";
+  }
+  return { flow: done(`${reply} ${UNDO}`, calls, outputs), facts: [], writes };
+}
+
+/** "i was in marketing": the missed mark ORION made is taken back, and that he was there is noted. */
+async function attendedIt(r: Extract<Reality, { kind: "attended" }>, deps: RealityDeps): Promise<RealityOutcome> {
+  const day = await deps.readDay().catch(() => undefined);
+  const block = matchBlock(r.what, day?.blocks ?? []);
+  const name = block ? shortTitle(block.title) : r.what;
+  const listedFacts = await deps.run("orion-declare", ["list"]).catch(() => ({ stdout: "", code: 1 }));
+  let facts: Array<{ id?: string; kind?: string; title?: string; text?: string }> = [];
+  try { const parsed = JSON.parse(listedFacts.stdout.trim().split("\n").at(-1) ?? "[]") as unknown; facts = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { facts?: unknown }).facts) ? (parsed as { facts: typeof facts }).facts : []; } catch { facts = []; }
+  const wrong = facts.filter((f) => f.kind === "skip" && typeof f.id === "string" && (names(r.what, f.title ?? "") || (block && f.title === block.title)));
+  const calls = ["exec orion-declare list"]; const outputs = [listedFacts.stdout];
+  for (const f of wrong) { const out = await deps.run("orion-declare", ["remove", "--id", f.id!]).catch(() => ({ stdout: "", code: 1 })); calls.push(`exec orion-declare remove --id ${f.id}`); outputs.push(out.stdout); }
+  const id = await declare(deps, "note", ["--title", block?.title ?? r.what]);
+  if (!id && !wrong.length) return { flow: say(REALITY_SAVE_FAILED, calls, outputs), facts: [], writes: 0 };
+  const text = wrong.length ? `Sorry, my mistake. ${name} counts as attended today; I took back the missed mark.` : `Got it, you were at ${name}. Noted as attended, so nothing counts it as missed.`;
+  return { flow: say(text, calls, outputs), facts: id ? [id] : [], writes: 0 };
 }
 
 async function noted(r: Extract<Reality, { kind: "ate" | "place" }>, deps: RealityDeps, next?: string): Promise<RealityOutcome> {
@@ -247,6 +433,9 @@ export async function runReality(read: RealityRead, deps: RealityDeps & { next?:
   if (r.kind === "missed") return missed(r, deps);
   if (r.kind === "instead") return instead(r, deps);
   if (r.kind === "overrun") return overrun(r, deps);
+  if (r.kind === "done") return doneIt(r, deps);
+  if (r.kind === "attended") return attendedIt(r, deps);
+  if (r.kind === "request") return runDayRequest(r.request, deps);
   return noted(r, deps, deps.next);
 }
 

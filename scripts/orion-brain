@@ -20,7 +20,11 @@
  Canvas refresh replaces only its marked source section and Canvas properties,
  with conflict checks and local backups. Other commands append or read.
 */
-import { execFileSync } from "node:child_process";
+import { execFileSync, execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { bmArgs } from "./lib/brain/bm.mjs";
+import { brainSearch } from "./lib/brain/search.mjs";
+import { loadGraph } from "./lib/brain/graph-search.mjs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -32,8 +36,15 @@ import { canvasId } from "./lib/connect/canvas.mjs";
 const BM = join(homedir(), ".local/bin/basic-memory");
 const [command, ...rest] = process.argv.slice(2);
 const fail = (m, code = 2) => { console.error(m); process.exit(code); };
-const bm = (args) => execFileSync(BM, ["tool", ...args, "--project", "orion"], { encoding: "utf8", timeout: 60000, maxBuffer: 8 << 20 });
+const bm = (args) => execFileSync(BM, args, { encoding: "utf8", timeout: 60000, maxBuffer: 8 << 20 });
+const RANKED_BUDGET_MS = 2200; // a lookup must return in under 3 s
+const rankedSearch = async (q) => {
+  const { stdout } = await promisify(execFile)(BM, bmArgs.search(q), { encoding: "utf8", timeout: RANKED_BUDGET_MS, maxBuffer: 8 << 20 });
+  return (JSON.parse(stdout).results ?? []).map((r) => ({ title: r.title, file_path: r.file_path, excerpt: r.matched_chunk ?? r.content ?? "" }));
+};
 const clean = (s, max) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
+// REV2 BRAIN: a note title is a name, never an option ("--help", "-rf") or a path ("../x", "a/b") for basic-memory to act on.
+const badTitle = (t) => /^-/.test(t) || /[/\\]/.test(t) || /\.\./.test(t);
 
 try {
   if (command === "canvas-courses" || command === "canvas-refresh") {
@@ -72,31 +83,32 @@ try {
     }
   } else if (command === "search") {
     const q = clean(rest.join(" "), 200); if (!q) fail('usage: orion-brain search "<words>"');
-    const results = JSON.parse(bm(["search-notes", q])).results ?? [];
-    if (!results.length) { console.log(`Nothing in the brain matches "${q}".`); process.exit(0); }
-    for (const r of results.slice(0, 6)) console.log(`## ${r.title}  (${r.file_path})\n${String(r.matched_chunk ?? r.content ?? "").slice(0, 700)}\n`);
+    const controlled = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+    const vaultDir = process.env.ORION_BRAIN_VAULT || join(homedir(), "Documents/orionBrain");
+    console.log(await brainSearch(q, { graph: loadGraph(controlled), vaultDir, ranked: rankedSearch }));
   } else if (command === "read" || command === "context") {
     const title = clean(rest[0], 120); if (!title) fail(`usage: orion-brain ${command} "<note title>"`);
-    process.stdout.write(command === "read" ? bm(["read-note", title]) : bm(["build-context", `memory://${title}`, "--plain"]));
+    if (badTitle(title)) fail(`orion-brain: "${title}" is not a note title (no leading "-", "/" or ".."); nothing was read.`);
+    process.stdout.write(command === "read" ? bm(bmArgs.read(title)) : bm(bmArgs.context(title)));
   } else if (command === "learn") {
     const [rawTitle, rawCategory, ...fact] = rest;
     const title = clean(rawTitle, 80); const category = clean(rawCategory, 30).toLowerCase().replace(/[^a-z -]/g, "");
     const text = clean(fact.join(" "), 400);
     if (!title || !category || !text) fail('usage: orion-brain learn "<note title>" "<category>" "<fact>"');
+    if (badTitle(title)) fail(`orion-brain: "${title}" is not a note title (no leading "-", "/" or ".."); nothing was saved.`);
     const line = `- [${category}] ${text} (${new Date().toISOString().slice(0, 10)})`;
     let existing = null;
-    try { existing = bm(["read-note", title]); } catch { /* new note */ }
+    try { existing = bm(bmArgs.read(title)); } catch { /* new note */ }
     if (!existing || /not found/i.test(existing)) {
-      bm(["write-note", "--title", title, "--folder", "20 Areas/Learned", "--type", "note",
-        "--content", `## Learned\n${line}\n\n## Relations\n- about [[Nick]]\n`]);
+      bm(bmArgs.write({ title, directory: "20 Areas/Learned", noteType: "note", content: `## Learned\n${line}\n\n## Relations\n- about [[Nick]]\n` }));
       console.log(`New note "${title}" (linked to Nick) with: ${line}`);
     } else {
-      if (!/^## Learned/m.test(existing)) bm(["edit-note", title, "--operation", "append", "--content", "\n## Learned\n"]);
-      bm(["edit-note", title, "--operation", "append", "--content", `${line}\n`]);
+      if (!/^## Learned/m.test(existing)) bm(bmArgs.append(title, "\n## Learned\n"));
+      bm(bmArgs.append(title, `${line}\n`));
       console.log(`Added to "${title}": ${line}`);
     }
   } else if (command === "recent") {
-    process.stdout.write(bm(["recent-activity", "--timeframe", "7d"]));
+    process.stdout.write(bm(bmArgs.recent()));
   } else {
     fail("usage: orion-brain search|read|context|learn|recent|canvas-courses|canvas-refresh (see the header)");
   }

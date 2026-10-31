@@ -171,12 +171,13 @@ function projectDay(dayBlocks, { moves = [], created = [], removed = [] }) {
   const moved = new Map(moves.map((m) => [m.id, m]));
   return [...dayBlocks.filter((b) => !gone.has(b.id)).map((b) => {
     const m = moved.get(b.id);
-    return m ? { ...b, start: m.to, end: Number.isInteger(m.toEnd) ? m.toEnd : m.to + (b.end - b.start) } : b;
+    return m ? { ...b, touched: true, start: m.to, end: Number.isInteger(m.toEnd) ? m.toEnd : m.to + (b.end - b.start) } : b;
   }),
-    ...created.map((c) => ({ ...c, source: "orion", fixed: c.fixed === true }))];
+    ...created.map((c) => ({ ...c, touched: true, source: "orion", fixed: c.fixed === true }))];
 }
 function refuseIfBroken(day, from, label) {
-  const check = checkDay(day, { from });
+  // Judge only what this change creates or moves: a stale tiny block of ORION's own must not veto a valid move.
+  const check = checkDay(day, { from, onlyTouched: true });
   if (check.ok) return;
   console.log(`NOTHING WAS CHANGED: ${label} would break the day rules — ${check.problems.slice(0, 3).join("; ")}. Tell him what clashes and ask which to move; do not retry the same call.`);
   process.exit(1);
@@ -184,7 +185,8 @@ function refuseIfBroken(day, from, label) {
 async function verifyWritten(date, from) {
   try {
     const written = toBlocks(await calendarEvents(), date);
-    const check = checkDay(written, { from });
+    // A leftover sliver of ORION's own is not something to warn him about.
+    const check = checkDay(written.filter((b) => !(b.source === "orion" || b.fixed === false) || b.end - b.start >= 5), { from });
     if (!check.ok) console.log(`WARNING: his calendar now has an overlap — ${check.problems.slice(0, 2).join("; ")}. Tell him.`);
   } catch { /* a failed read-back is not a failed write */ }
 }

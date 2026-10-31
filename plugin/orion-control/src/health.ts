@@ -2,6 +2,7 @@ import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/prom
 import os from "node:os";
 import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+import { pluginNow } from "./plugin-clock.js";
 
 /*
  The supplement and workout store, from the plugin's side.
@@ -401,7 +402,7 @@ export async function takeSupplement(
   return { ...(matched ? { matched } : {}), created, alreadyTaken };
 }
 
-export async function supplementStatus(file: string, now = new Date()) {
+export async function supplementStatus(file: string, now = pluginNow()) {
   const log = await readHealthLog(file);
   const day = today(now);
   const taken = new Set(log.days?.[day]?.supplementIDs ?? log.supplementLog[day] ?? []);
@@ -476,7 +477,7 @@ export async function logExercise(
   return result;
 }
 
-export async function workoutStatus(file: string, now = new Date()) {
+export async function workoutStatus(file: string, now = pluginNow()) {
   const log = await readHealthLog(file);
   const day = today(now);
   const session = log.workouts.find((entry) => entry.day === day);

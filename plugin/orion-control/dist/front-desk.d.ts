@@ -17,13 +17,15 @@ type Turn = {
     role: "user" | "assistant";
     content: string;
 };
+/** context: one line of Nick's state (state-card.ts deskLine) and, for speech, that the microphone heard it (2026-10-30). */
 export type FrontDeskInput = {
     message: string;
     clock: string;
     history?: Turn[];
+    context?: string;
 };
 /** The Ollama /api/chat body, identical in shape to the evaluation's front-desk call. */
-export declare function frontDeskRequest({ message, clock, history }: FrontDeskInput, model?: string): {
+export declare function frontDeskRequest({ message, clock, history, context }: FrontDeskInput, model?: string): {
     model: string;
     stream: boolean;
     think: boolean;
@@ -32,7 +34,7 @@ export declare function frontDeskRequest({ message, clock, history }: FrontDeskI
         properties: {
             move: {
                 type: string;
-                enum: ("answer" | "tool" | "escalate" | "ask" | "ignore")[];
+                enum: ("ask" | "answer" | "tool" | "escalate" | "ignore")[];
             };
             tool: {
                 type: string;

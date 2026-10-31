@@ -21,6 +21,7 @@ export declare const isSessionStart: (message: string) => boolean;
 export declare const startsSession: (message: string, hint?: SessionHint) => boolean;
 /** His request, or null. A front-desk start (hint.start) counts only when nothing in his words rules a start out. */
 export declare function parseSessionRequest(message: string, hint?: SessionHint): SessionRequest | null;
+export declare const STRICT_LINE = "Firm app blocking can't be switched on from chat, so it's the timer only; I'm not blocking anything.";
 /** One start request, end to end. Returns a FlowResult whose reply is built only from script output. */
 export declare function runSessionFlow({ message, hint, exec, resolveApp }: {
     message: string;
@@ -33,6 +34,8 @@ export declare function runSessionFlow({ message, hint, exec, resolveApp }: {
 export declare function runSessionStatus({ exec }: {
     exec: SessionExec;
 }): Promise<FlowResult>;
+/** orion-session with fixed arguments (no shell), for the focus moves (focus-moves.ts). Wired in by index.ts only. */
+export declare const liveSessionExec: SessionExec;
 /** The real flow: Orion.app's session socket through orion-session. Wired in by index.ts only. */
 export declare const liveSessionFlow: (message: string, hint?: SessionHint) => Promise<FlowResult>;
 /** The real status read (orion-session status --json). Wired in by index.ts only. */

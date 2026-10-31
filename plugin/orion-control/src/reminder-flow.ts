@@ -14,6 +14,7 @@
  only reads the reminder store (to list, and to find the id to cancel).
 */
 import { meansTomorrow } from "./schedule-flow.js";
+import { pluginNow } from "./plugin-clock.js";
 
 export type StoredReminder = { id: string; label: string; dueAt: number };
 export type Extracted = { time: string | null; label: string } | null;
@@ -55,7 +56,7 @@ export function isCorrection(message: string): boolean {
 }
 /** His whole answer is a time or day ("at 5pm", "tomorrow at 9"): safe to read together with the reminder it answers. */
 export function isBareTime(message: string): boolean {
-  return (CLOCK.test(message) || /\bat\s+\d{1,2}\b/i.test(message) || RELATIVE.test(message) || meansTomorrow(message, new Date())) && (message.toLowerCase().match(/[a-z]+/g) ?? []).every((w) => CORRECTION_FILLER.has(w) || w === "like" || w === "about" || w === "around" || w === "next");
+  return (CLOCK.test(message) || /\bat\s+\d{1,2}\b/i.test(message) || RELATIVE.test(message) || meansTomorrow(message, pluginNow())) && (message.toLowerCase().match(/[a-z]+/g) ?? []).every((w) => CORRECTION_FILLER.has(w) || w === "like" || w === "about" || w === "around" || w === "next");
 }
 /** Cancel, not create: the cancel word comes before the reminder word and no create verb is present (review, 2026-10-16). */
 function isCancel(message: string): boolean {

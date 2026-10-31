@@ -22,6 +22,7 @@
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import { noteOf } from "./scheduler-out.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf, type DayRequest } from "./day-requests.js";
+import { pluginNow } from "./plugin-clock.js";
 
 export type Reality =
   | { kind: "no-classes"; names: string[]; keep?: string; tomorrow: boolean; fill: boolean }
@@ -117,7 +118,7 @@ function readAttended(m: string): Reality | null {
 }
 
 /** He told ORION something that happened (or is happening), not asked for a change. Null when it is not one. */
-export function readReality(message: string, now: Date = new Date()): RealityRead | null {
+export function readReality(message: string, now: Date = pluginNow()): RealityRead | null {
   const m = clean(message);
   if (!m) return null;
   // A calendar request code carries out itself comes first (day-requests.ts): its own reader rules out questions and conditions

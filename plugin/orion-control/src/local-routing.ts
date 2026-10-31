@@ -73,6 +73,7 @@ import { readFocusMove, runFocusMove, type FocusMove } from "./focus-moves.js";
 import { KNOWLEDGE_PROMPT, isKnowledgeAsk } from "./knowledge-ask.js";
 import { askKind, ownAnswer, readGraphFile, readHealthFile, type AskKind, type ConnectorRow, type HealthLog } from "./code-answers.js";
 import { declareOnly, readReality, runReality, undoReality, type RealityRead, type ScriptRun } from "./reality.js";
+import { pluginNow } from "./plugin-clock.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -279,7 +280,7 @@ const answersLabel = (message: string, move?: string): boolean =>
 const REMINDER_UNCLEAR = "I couldn't work that reminder out — nothing was set.";
 const STITCH_WINDOW_MS = 3 * 60_000;
 const DAY_MEMORY_MS = 10 * 60_000;
-const nowMinutes = (now?: () => Date): number => { const d = (now ?? (() => new Date()))(); return d.getHours() * 60 + d.getMinutes(); };
+const nowMinutes = (now?: () => Date): number => { const d = (now ?? pluginNow)(); return d.getHours() * 60 + d.getMinutes(); };
 // 2026-10-16 re-run, q092: in a FRESH chat "cancel that" had the worker run `orion-reschedule undo`, which
 // reversed a REAL change Nick made a day earlier ("Undone: put Review spending back"). A bare cancel or
 // undo (no named object) may take back a calendar change only when THIS session made one recently.
@@ -420,7 +421,7 @@ export function userText(prompt: string): string {
 }
 
 /** "Sat 18:05" in local time, the clock format the front desk was evaluated with. */
-export function localClock(now = new Date()): string {
+export function localClock(now = pluginNow()): string {
   const day = now.toLocaleDateString("en-GB", { weekday: "short" });
   return `${day} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
@@ -597,7 +598,7 @@ export const EXACT_REPLY_PROMPT = "Reply to Nick with exactly this text and noth
 const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on.";
 
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
-export function dateLine(now = new Date()): string {
+export function dateLine(now = pluginNow()): string {
   const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   const name = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "long" });
   const tomorrow = new Date(now.getTime() + 86400000);
@@ -866,7 +867,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     // "move it to tomorrow": tomorrow's 90 minutes first, and today's comes off only once that is booked. One "undo" takes both back.
     if (!options.realityRun || !gym) { say(gym ? "I couldn't move gym just now, so it's still on today." : "Gym isn't on today's calendar, so there's nothing to move. Want me to put 90 minutes in tomorrow?", gym ? "plain" : "ask"); return; }
-    const nowD = (options.now ?? (() => new Date()))();
+    const nowD = (options.now ?? pluginNow)();
     const nowHm = `${String(nowD.getHours()).padStart(2, "0")}:${String(nowD.getMinutes()).padStart(2, "0")}`;
     // REV2 finding 8: "ill do gym tmrw" before today's gym is over would delete a gym day on a whim: pushback and one question.
     if (skip.kind === "tomorrow" && skip.deferred && gym.end > nowHm) { say(deferAsk(gym.start), "ask"); return; }
@@ -902,7 +903,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   /** 2026-10-31 (day-lighten.ts, focus-moves.ts): carries out his yes, a lightening of the day, or a focus phrase. A prompt only when the worker
    *  must make the one call (a stall's reminder); otherwise run.flow is set and the turn's reply is code's. */
   const ownTurn = async (run: Run, now: string): Promise<{ systemPrompt: string; appendContext: string } | undefined> => {
-    const at = (options.now ?? (() => new Date()))();
+    const at = (options.now ?? pluginNow)();
     const key = run.sessionKey;
     const offer = (pending: LightenPending | undefined) => { if (pending && key) ownPending.set(key, { pending, at: Date.now() }); };
     const wrote = (flow: FlowResult, writes: number) => {
@@ -1089,7 +1090,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // The calendar intent layer (calendar-intent.ts): a replan, a follow-up to one, an add at a time or "until T", or a request he took back at the end.
     // 2026-10-30: a statement of what happened ("i dont have classes today") is code's from the start: no desk, no model needed for its effect.
     const quietTurn = hushed || quietStart !== undefined;
-    const reality = on && !cutOff && !quietTurn && options.realityRun ? readReality(message, (options.now ?? (() => new Date()))()) ?? undefined : undefined;
+    const reality = on && !cutOff && !quietTurn && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
     const realityWhole = !!reality && !reality.rest;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
     const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? undefined : undefined;
@@ -1106,7 +1107,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const knowledge = on && !quietTurn && isKnowledgeAsk(message);
     const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
     const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove;
-    const intentRead = on && !cutOff && !quietTurn && !realityWhole && !guarded && options.scheduleFlow ? readIntent(message, { now: (options.now ?? (() => new Date()))(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey)! } : {}) }) : undefined;
+    const intentRead = on && !cutOff && !quietTurn && !realityWhole && !guarded && options.scheduleFlow ? readIntent(message, { now: (options.now ?? pluginNow)(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey)! } : {}) }) : undefined;
     // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
     const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
     const intentFirst = !!intentRead && !elsewhere && ("intent" in intentRead ? runsFirst(intentRead.intent) : !!intentRead.tookBack);
@@ -1122,7 +1123,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
     const outreach = parseOutreach(raw);
     // 2026-10-30: his state, read once per turn by code (state-card.ts). The desk gets one line of it; the worker gets the card.
-    const card = on && options.stateDir ? loadCardInputs({ stateDir: options.stateDir, ...(options.userMdPath ? { userMdPath: options.userMdPath } : {}), now: (options.now ?? (() => new Date()))() }) : undefined;
+    const card = on && options.stateDir ? loadCardInputs({ stateDir: options.stateDir, ...(options.userMdPath ? { userMdPath: options.userMdPath } : {}), now: (options.now ?? pluginNow)() }) : undefined;
     const deskContext = [card ? deskLine(card) : "", spokenTurn ? SPOKEN_DESK_NOTE : ""].filter(Boolean).join(" ") || undefined;
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
@@ -1139,7 +1140,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!on) return undefined; // shadow: fire and forget
     // 2026-10-31 (code-answers.ts): answered from data in under a second or two, no desk call and no model loop.
     if (run.own) {
-      const at = (options.now ?? (() => new Date()))();
+      const at = (options.now ?? pluginNow)();
       const text = await withTimeout(ownAnswer(run.own, message, { now: at, brainSearch: options.brainSearch ?? defaultBrainSearch,
         ...(options.readHealth ? { readHealth: options.readHealth } : options.stateDir ? { readHealth: async () => readHealthFile(options.stateDir!) } : {}),
         ...(options.stateDir ? { readGraph: () => readGraphFile(options.stateDir!) } : {}),
@@ -1284,7 +1285,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const read = run.reality; const key = run.sessionKey;
         const slips = run.card?.slipsWeek ?? [];
         const next = run.card?.record?.next?.title ? `Next up: ${run.card.record.next.title} at ${clockOf(run.card.record.next.start) ?? "?"}.` : undefined;
-        const deps = { run: options.realityRun, now: (options.now ?? (() => new Date()))(), text: run.message,
+        const deps = { run: options.realityRun, now: (options.now ?? pluginNow)(), text: run.message,
           source: run.spoken ? "voice" : /phone/.test(key ?? "") ? "phone" : "chat",
           readDay: () => (options.readDayJson ? options.readDayJson(read.reality.kind === "no-classes" && read.reality.tomorrow ? ["--date", "tomorrow"] : []) : Promise.resolve(undefined)),
           readDayOn: (dateArgs: string[]) => (options.readDayJson ? options.readDayJson(dateArgs) : Promise.resolve(undefined)),
@@ -1397,7 +1398,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const noSession = status.outcome === "say" && /^No focus session/.test(status.text);
         if (todayAsk && !statusAsk && status.outcome === "say" && (noSession || status.calls)) {
           // q052: today's focused minutes from the history file plus a session still running (see focusTodayTotal).
-          const now = (options.now ?? (() => new Date()))();
+          const now = (options.now ?? pluginNow)();
           const rows = (options.focusHistory ?? (() => readFocusHistory()))();
           const total = focusTodayTotal(rows, localDayKey(now), liveFocusSeconds(status.outputs?.[0] ?? ""));
           run.tools.push({ canonical: "read focus-history.jsonl (today)", stdout: JSON.stringify(total), exit: null });
@@ -1406,7 +1407,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         } else if (asksCurrentTask(run.message) && noSession && options.readDay) {
           // q050: no session, so code names the block he is in now, else the next one today (never the 9B's guess).
           const day = await options.readDay(false).catch(() => "");
-          const now = (options.now ?? (() => new Date()))();
+          const now = (options.now ?? pluginNow)();
           // An empty read is a failed read as often as an empty day: then only the session status is said (r8 integration).
           if (day.trim()) {
             run.tools.push({ canonical: "read day (code)", stdout: day, exit: null });
@@ -1426,7 +1427,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // His answer to "What time?" is read with the request it answers ("the one with the form", then "tomorrow at 9").
         const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && (isBareTime(run.message) || (asked.label && answersLabel(run.message, run.settled?.move))) && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
         const last = lastReminder.get(key);
-        const plan = await planReminder({ message: followUp ?? leaveAsReminder(run.message) ?? run.message, now: (options.now ?? (() => new Date()))(),
+        const plan = await planReminder({ message: followUp ?? leaveAsReminder(run.message) ?? run.message, now: (options.now ?? pluginNow)(),
           extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
           list: options.listReminders ?? (async () => []), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
         if (plan?.kind === "say") {
@@ -1443,7 +1444,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // 2026-10-31 gate (hea-gym-streak-v): "have i been going to the gym" is answered from what was tracked (day-questions.ts), never a write.
       const habit = !run.flow && !run.cutOff && options.stateDir ? asksHabit(run.message) : null;
-      if (habit) { run.provided = true; markRead(run, "history"); run.flow = { outcome: "say", kind: "plain", text: habitAnswer(habit, options.stateDir!, (options.now ?? (() => new Date()))()) }; }
+      if (habit) { run.provided = true; markRead(run, "history"); run.flow = { outcome: "say", kind: "plain", text: habitAnswer(habit, options.stateDir!, (options.now ?? pluginNow)()) }; }
       // A fact to keep goes to his "Nick" note, a question about one searches first (live sweep 2026-10-15:
       // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
       // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
@@ -1484,7 +1485,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           run.provided = true;
           markRead(run, "deadlines");
           run.tools.push({ canonical: "orion-agenda deadlines --json; orion-tasks list", stdout: `${read.events.length} events, ${read.tasks.length} dated to-dos`, exit: null });
-          run.flow = { outcome: "say", kind: "plain", text: deadlineReply(run.message, read, (options.now ?? (() => new Date()))()) };
+          run.flow = { outcome: "say", kind: "plain", text: deadlineReply(run.message, read, (options.now ?? pluginNow)()) };
         }
       }
       // 2026-10-30 gate (foc-extend-c, foc-end-c, foc-pomodoro-break-c): "extend my focus session by 30" with no session running went to the
@@ -1742,7 +1743,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const run = runFor(event, ctx);
     const writes = writesIn(str((event.params as Record<string, unknown> | undefined)?.command) ?? "");
     if (!run || !writes.length) return undefined;
-    const now = (options.now ?? (() => new Date()))();
+    const now = (options.now ?? pluginNow)();
     const iso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     // Wired to the live read in index.ts; without one (tests) there is no day, and an end that cannot be worked out is refused.
     // Re-review: the read is capped (DAY_READ_MS) and kept for the turn, so a worker that writes three times reads his day once.

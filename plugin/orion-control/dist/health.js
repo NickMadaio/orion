@@ -2,6 +2,7 @@ import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/prom
 import os from "node:os";
 import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+import { pluginNow } from "./plugin-clock.js";
 /**
  * A FUNCTION, not a shared constant.
  *
@@ -277,7 +278,7 @@ export async function takeSupplement(file, name, now = new Date()) {
     });
     return { ...(matched ? { matched } : {}), created, alreadyTaken };
 }
-export async function supplementStatus(file, now = new Date()) {
+export async function supplementStatus(file, now = pluginNow()) {
     const log = await readHealthLog(file);
     const day = today(now);
     const taken = new Set(log.days?.[day]?.supplementIDs ?? log.supplementLog[day] ?? []);
@@ -336,7 +337,7 @@ export async function logExercise(file, exercise, sets, unit = "lb", now = new D
     });
     return result;
 }
-export async function workoutStatus(file, now = new Date()) {
+export async function workoutStatus(file, now = pluginNow()) {
     const log = await readHealthLog(file);
     const day = today(now);
     const session = log.workouts.find((entry) => entry.day === day);

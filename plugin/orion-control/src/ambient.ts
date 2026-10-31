@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { pluginNow } from "./plugin-clock.js";
 
 const run = promisify(execFile);
 
@@ -229,7 +230,7 @@ export function readClock(timezone?: string): {
   spoken: string;
   timezone: string;
 } {
-  const now = new Date();
+  const now = pluginNow();
   const zone = timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone;
   let spoken: string;
   try {
@@ -397,7 +398,7 @@ end tell`;
   }
 }
 
-export function resolveAlarmTime(at: string, now = new Date()): number {
+export function resolveAlarmTime(at: string, now = pluginNow()): number {
   const trimmed = at.trim();
   const clock = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i.exec(trimmed);
   if (clock) {

@@ -23,7 +23,7 @@ const RUNNING_STATES = new Set(["running", "paused", "waiting-for-return"]);
 const ARMED_LEVELS = new Set(["gentle", "guided", "firm", "shield"]);
 const START = /\b(start|begin|kick(?:\s|-)?off|launch|fire up|spin up|set up|open)\b[^.?!]{0,40}?\b(focus|work|study|deep work)(?:\s+(session|block|mode|time))?\b|\block me in\b/i;
 // "focus mode on for an hour, leetcode" has no start verb and became a calendar block (q051, sweep 2026-10-15).
-const MODE_ON = /\b(focus|study|work|deep work)\s+mode\s+on\b/i;
+const MODE_ON = /\b(focus|study|work|deep work)\s+mode\s+on\b|\b(?:put|get|switch|turn)\s+me\s+(?:in|into|on)(?:to)?\s+(?:focus|study|work|deep work)(?:\s+mode)?\b|\b(?:focus|study|deep work)\s+mode\s+for\b/i;
 // Not now, or not a session: a future start belongs to the calendar path; these words end or query one.
 // "remind me to start work in 20 min" is a reminder, not a session now (review, 2026-10-16).
 const NOT_A_START = /\b(end|stop|finish|pause|cancel|abandon|calendar|schedule|tomorrow|remind|ping|nudge|at \d{1,2}(:\d{2})?)\b/i;
@@ -37,7 +37,7 @@ const ruledOut = (message) => NOT_A_START.test(message) || RESUMES.test(message)
 // activity is a calendar item, never a session. (A desk-read start with no session word still counts: "25 min on resume", review of efc37af.)
 const SESSION_WORD = /\b(?:focus(?:ing)?|lock(?:ed)?\s+in|pomodoro|session|timer|deep work|study mode|work mode)\b/i;
 const CLOCK_SAID = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b\d{1,2}:\d{2}\b|\b(?:at|from)\s+\d{1,2}\b|\b(?:noon|midday|tonight|tomorrow|this (?:morning|afternoon|evening))\b/i;
-const CALENDAR_VERB = /\b(?:add|put|schedule|book|pencil|slot|block (?:off|out)|calendar)\b/i;
+const CALENDAR_VERB = /\b(?:add|put(?!\s+me\b)|schedule|book|pencil|slot|block (?:off|out)|calendar)\b/i;
 const MEAL_OR_ACTIVITY = /\b(?:lunch|dinner|breakfast|brunch|meal|snack|coffee|eat(?:ing)?|cook(?:ing)?|gym|walk|run(?:ning)?|workout|lift(?:ing)?|yoga|swim(?:ming)?|nap|shower|laundry|groceries|shopping|chores?|clean(?:ing)?|piano|guitar|practice|call|meeting|class|lecture|lab)\b/i;
 // With a session word ("start a focus session until 8:30 pm") only a calendar verb makes it a calendar item.
 const calendarItem = (message) => CALENDAR_VERB.test(message) || (!SESSION_WORD.test(message) && (CLOCK_SAID.test(message) || MEAL_OR_ACTIVITY.test(message)));
@@ -54,7 +54,12 @@ function readMinutes(message) {
     const hours = /\bfor (\d+(?:\.\d+)?|one|two|three|four|five|six|an?)\s*(?:hours?|hrs?|h)\b/.exec(m);
     if (hours?.[1])
         return Math.round((WORD_NUMBERS[hours[1]] ?? (/^an?$/.test(hours[1]) ? 1 : Number(hours[1]))) * 60);
-    const minutes = /\b(?:for|like|about|around) (\d+)\s*(?:minutes?|mins?|m)\b/.exec(m);
+    // foc-doomscroll-c (gate run-1031133008): "ive been on tiktok for 20 mins. start a 25 min focus session" ran 20. A length on the
+    // session itself ("a 25 min focus session", "25 minutes of econ") wins; "been … for N" is how long something else went on.
+    const own = /\b(\d+)\s*(?:-\s*)?(?:minutes?|mins?|m)\b(?=\s+(?:of\s+)?(?:focus|session|pomodoro|block|timer|deep work|study|work|on)\b)/.exec(m);
+    if (own?.[1])
+        return Number(own[1]);
+    const minutes = [...m.matchAll(/\b(?:for|like|about|around) (\d+)\s*(?:minutes?|mins?|m)\b/g)].find((x) => !/\b(?:been|was|were|spent|wasted)\b[^.!?]{0,30}$/.test(m.slice(0, x.index)));
     return minutes?.[1] ? Number(minutes[1]) : undefined;
 }
 function readUntil(message) {
@@ -67,7 +72,7 @@ function readUntil(message) {
     const pm = meridiem ? meridiem === "pm" : hour >= 1 && hour <= 7;
     return `${String(hour + (pm ? 12 : 0)).padStart(2, "0")}:${m[2] ?? "00"}`;
 }
-const STOP_TO_TASK = /(?=\s+(?:for|until|with|and I|I need)\b|[.,?!]|$)/.source;
+const STOP_TO_TASK = /(?=\s+(?:for|until|with|and (?:I|be|make|no|then|block)|I need|right now|now|asap|please|pls)\b|[.,?!]|$)/.source;
 // "start focus for the resume" names the task (q054); "for the next hour" names a length.
 const FOR_THE_TASK = new RegExp(`\\bfor\\s+((?:the|my)\\s+.+?)${STOP_TO_TASK}`, "i");
 const DURATION_WORDS = /\b(hours?|minutes?|mins?|rest|next|day|morning|afternoon|evening|night)\b/i;
@@ -133,6 +138,8 @@ async function allowApps(apps, exec, resolveApp) {
         : `I couldn't set the allowed apps: ${reason(result.stdout)}.${missingLine}`;
     return { call: args, output: result.stdout, line };
 }
+const STRICT = /\b(?:strict|firm|hard mode|no excuses|lock me down|block (?:everything|distractions))\b/i;
+export const STRICT_LINE = "Firm app blocking can't be switched on from chat, so it's the timer only; I'm not blocking anything.";
 /** One start request, end to end. Returns a FlowResult whose reply is built only from script output. */
 export async function runSessionFlow({ message, hint, exec, resolveApp }) {
     const request = parseSessionRequest(message, hint);
@@ -171,7 +178,8 @@ export async function runSessionFlow({ message, hint, exec, resolveApp }) {
         outcome: "done",
         calls: calls.map((args) => `exec orion-session ${args.join(" ")}`),
         outputs,
-        reply: [opening, apps?.line].filter(Boolean).join(" "),
+        // foc-doomscroll-c: "be strict" is answered honestly: enforcement needs his app choice in Orion, so chat starts the timer only.
+        reply: [opening, apps?.line, STRICT.test(message) && !apps?.call ? STRICT_LINE : ""].filter(Boolean).join(" "),
     };
 }
 /** "how much focus time is left", read by code (sweep 2026-10-15, q049/q053: the worker called nothing
@@ -207,6 +215,8 @@ const liveResolveApp = async (name) => {
     const id = result.stdout.trim();
     return result.code === 0 && /^[\w.-]+$/.test(id) ? id : null;
 };
+/** orion-session with fixed arguments (no shell), for the focus moves (focus-moves.ts). Wired in by index.ts only. */
+export const liveSessionExec = (args) => runFile(ORION_SESSION, args, 15000);
 /** The real flow: Orion.app's session socket through orion-session. Wired in by index.ts only. */
 export const liveSessionFlow = (message, hint) => runSessionFlow({ message, ...(hint ? { hint } : {}), exec: (args) => runFile(ORION_SESSION, args, 15000), resolveApp: liveResolveApp });
 /** The real status read (orion-session status --json). Wired in by index.ts only. */

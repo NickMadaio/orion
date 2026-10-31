@@ -26,6 +26,7 @@ import { parseClock, resolveStart } from "./intent-time.js";
 import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
 import { addedNotes, dayDiff, FAILED, nothingWritten, spokenFailure, spokenReply, summarize, uncertainReply, UNKNOWN_OUTCOME } from "./schedule-reply.js";
+import { pluginNow } from "./plugin-clock.js";
 export { nothingWritten, spokenFailure, spokenReply, summarize };
 
 /** nameable: one of his own events (not a class or a plan with people): fixed for automatic changes, but he may move it by naming it. */
@@ -490,7 +491,7 @@ export const TOMORROW = /\b(tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
 /** Before 5 AM he is still up: "tomorrow" means the coming daytime — today's date (2026-10-13: a reminder
  *  asked for at 00:44 "tomorrow at 11" was filed for the day after). */
 export const LATE_NIGHT_UNTIL = 5;
-export function meansTomorrow(message: string, now: Date = new Date()): boolean {
+export function meansTomorrow(message: string, now: Date = pluginNow()): boolean {
   return TOMORROW.test(message) && now.getHours() >= LATE_NIGHT_UNTIL;
 }
 
@@ -506,7 +507,7 @@ const inPassing = (message: string, m: RegExpMatchArray): boolean =>
 /** The day the change is for: tomorrow, a weekday he names, or today. "i gotta leave early friday, cut
  *  the last block off" resized Thursday's last block (sweep q027, 2026-10-15). The weekday that is
  *  today stays today; orion-reschedule reads any other as the next one ("--date friday"). */
-export function dayArgsFor(message: string, now: Date = new Date()): { args: string[]; label: string | undefined; ask?: string } {
+export function dayArgsFor(message: string, now: Date = pluginNow()): { args: string[]; label: string | undefined; ask?: string } {
   if (meansTomorrow(message, now)) return { args: ["--date", "tomorrow"], label: "tomorrow" };
   // 2026-10-16 (live re-run q020, 01:11): before 5 AM "tomorrow" is today's date for a reminder, but a calendar
   // write that drops --date lands on today while the message says tomorrow — and the reply never said which.
@@ -599,7 +600,7 @@ export function partialReply(before: Day | undefined, after: Day | undefined, ou
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }: {
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = pluginNow(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }: {
   message: string; clock: string; now?: Date; askContext?: AskContext;
   exec: (args: string[], signal?: AbortSignal) => Promise<{ stdout: string; code: number }>;
   /** budgetMs: how long this one call may take (turn-budget.ts); a model call past it is abandoned and answers null. */

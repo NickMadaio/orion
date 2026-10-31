@@ -45,6 +45,38 @@ export function mailReadFailed(tools) {
     return tools.some((t) => MAIL_TOOL.test(t.canonical)
         && ((typeof t.exit === "number" && t.exit !== 0) || RAW_OAUTH.test(t.stdout) || RAW_PERMISSION.test(t.stdout)));
 }
+/*
+ Gate run-1031133008 (cluster 5): the worker paraphrased tool failures in its own words, which the spans above do not catch:
+ "The command failed. Try this: /Users/…/scripts/orion-brain learn Nick fact …" (per-preference-remember-c) and "The orion-brain
+ tool isn't available in the current tool catalog." (hea-sleep-debt-c). A sentence that talks about ORION's plumbing is dropped
+ whole; what is left is the honest part of the reply, or REPLY_FAILED when nothing is.
+*/
+const LEAK_SENTENCE = /\b(?:the command failed|command (?:failed|didn'?t work|returned an error)|try (?:this|running)\s*:|tools? (?:isn'?t|is not|aren'?t|are not) available|(?:current |my )?tool catalog|exec(?:ution)? (?:failed|denied|error)|allowlist|exit code|stderr|stack trace|orion-[a-z]+(?:-[a-z]+)*|orion_task_run|tool_call)\b|\/scripts\/|~\/Desktop\/ORION|\/Users\/[^/\s]+\/Desktop\/ORION/i;
+const FAILED_WORDS = /\b(?:fail(?:ed|s|ure)?|didn'?t work|returned an error|error|denied|couldn'?t|could not|can'?t|cannot|unable|isn'?t available|not available)\b/i;
+export const ONE_PART_FAILED = "One part didn't work.";
+function dropLeaks(line) {
+    if (!LEAK_SENTENCE.test(line))
+        return line;
+    // "Try this: <command>" carries the command after the colon: the rest of the line goes with it.
+    const pieces = line.split(/(?<=[.!?])\s+(?=[A-Z"'])/);
+    const kept = [];
+    // REV2 finding 17: a dropped sentence that said something FAILED leaves its meaning behind ("Done: moved gym and set reminder. The command
+    // failed for the reminder." must not read as a plain "Done").
+    let failed = false;
+    for (const p of pieces) {
+        if (LEAK_SENTENCE.test(p)) {
+            if (FAILED_WORDS.test(p) && !failed && kept.length) {
+                failed = true;
+                kept.push(ONE_PART_FAILED);
+            }
+            if (/try (?:this|running)\s*:/i.test(p))
+                break;
+            continue;
+        }
+        kept.push(p);
+    }
+    return kept.join(" ").trim();
+}
 const tidy = (line) => line.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
 /** The reply with raw CLI/tool spans removed (known failures become one short line). Returns the input when it is clean. */
 export function sanitizeReply(reply, ctx = {}) {
@@ -82,6 +114,12 @@ export function sanitizeReply(reply, ctx = {}) {
         for (const re of SPANS)
             line = line.replace(re, () => { changed = true; if (re === SPANS[0])
                 execCut = true; return ""; });
+        const kept = dropLeaks(line);
+        if (kept !== line) {
+            changed = true;
+            execCut = true;
+            line = kept;
+        }
         if (line !== raw) {
             line = tidy(line);
             if (!/\w/.test(line))

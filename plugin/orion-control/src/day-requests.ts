@@ -22,6 +22,7 @@ import { blocksNamed } from "./day-replan.js";
 import { gymPushback } from "./anchor-guards.js";
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import { notBooked, refused, sideNotes, wrote, writesIn } from "./scheduler-out.js";
+import { pluginNow } from "./plugin-clock.js";
 
 export type Clause =
   | { verb: "remove"; names: string[] }
@@ -218,7 +219,7 @@ function readCatchUp(m: string): DayRequest | null {
 }
 
 /** A calendar request code carries out itself, or null (the turn goes on as usual). */
-export function readDayRequest(message: string, now: Date = new Date()): DayRequest | null {
+export function readDayRequest(message: string, now: Date = pluginNow()): DayRequest | null {
   const raw = clean(message);
   // "can we do gym later, like after dinner?" is a request, not a question.
   const m = /^(?:(?:ok(?:ay)?|so|actually|hey|orion)[,\s]+)*(?:can|could|would)\s+(?:we|you|u)\b/.test(raw) ? raw.replace(/\?\s*$/, "") : raw;

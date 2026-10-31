@@ -21,9 +21,11 @@ import { editLength } from "./edit-followup.js";
 import { readIntent } from "./calendar-intent.js";
 import { planIntent } from "./intent-run.js";
 import { repairStart, timeMismatch } from "./time-backstop.js";
+import { parseClock, resolveStart } from "./intent-time.js";
 import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
 import { addedNotes, dayDiff, FAILED, nothingWritten, spokenFailure, spokenReply, summarize, uncertainReply, UNKNOWN_OUTCOME } from "./schedule-reply.js";
+import { pluginNow } from "./plugin-clock.js";
 export { nothingWritten, spokenFailure, spokenReply, summarize };
 const toMin = (t) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
 const hhmm = (n) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
@@ -173,14 +175,19 @@ const SAYS_LENGTH = new RegExp(String.raw `\b(?:\d+(?:\.\d+)?|${NUM_WORD}|an?|ha
 const DEFAULT_ADD_MINUTES = 30;
 const ownLength = (message, list) => list.map((st) => st.do === "add" && !(st.to && st.until) && Number.isFinite(st.minutes) && !SAYS_LENGTH.test(message) ? { ...st, minutes: DEFAULT_ADD_MINUTES } : st);
 /** Steps that would write something he did not ask for, as what to say instead. null = fine. */
+/** decline: the form misread him (a step on a block he never named, an add for a removal): nothing is written and nothing is blamed on
+ *  him; the flow hands the turn on as a typed fallback ("declined: …") so another flow or the worker can take it (2026-10-31 gate). */
 export function guardSteps(message, steps, day) {
     const obj = removalObject(message);
     // Never claim a block is missing when it is on the day (review, 2026-10-16).
     const onDay = obj ? day.blocks.some((b) => messageNames(obj, b)) : false;
-    const gone = `I didn't make that change — ${onDay ? `you asked to take ${obj} off, not to add anything` : `there's no ${obj ?? "such block"} on ${day.now ? "today's" : "that day's"} calendar`}`;
+    // 2026-10-31 gate (rea-exhausted-c, rea-spontaneous-nap-c, rea-sick-c): "there's no such block" and "you asked to take gym off, not to
+    // add anything" answered requests that were plain: the form's misread. Only a named thing really absent from the day is said as absent.
+    const gone = obj && !onDay ? { say: "cannot", text: `I didn't make that change — there's no ${obj} on ${day.now ? "today's" : "that day's"} calendar` }
+        : { say: "decline", text: obj ? `the form added something for a removal of ${obj}` : "the form changed a block he did not name" };
     // A skip only ever takes something off: "skip gym today" (no gym) became add gym 15:05 and "Done" (q019).
     if (REMOVE_VERB.test(message) && !ADD_CUE.test(message) && steps.some((s) => ["add", "fill_between", "plan"].includes(s.do)))
-        return { say: "cannot", text: gone };
+        return gone;
     // Whatever the cues, never add or fill the very thing he asked to remove ("skip yoga today, i'll go tomorrow" wrote
     // yoga today; review, 2026-10-16). Swapping in something else ("skip lunch, i'll go for a walk") is fine.
     if (obj) {
@@ -194,7 +201,7 @@ export function guardSteps(message, steps, day) {
             continue;
         const id = s.what && /^B\d+$/.test(s.what) ? day.blocks[Number(s.what.slice(1)) - 1] : day.blocks.find((b) => s.what && normTitle(b.title).includes(normTitle(s.what)));
         if (id && !messageNames(message, id, day))
-            return { say: "cannot", text: gone };
+            return gone;
     }
     // A clock time the form wrote when his words hold none is the model's, not his: ask, write nothing (2026-10-19).
     const clockTime = (t) => /^\d{1,2}:\d{2}$/.test(t ?? "");
@@ -216,14 +223,23 @@ export function isUnnamedThing(what) {
     const w = normTitle(String(what ?? "")).split(" ").filter((x) => x && !UNNAMED_FILLER.has(x));
     return w.length === 0 || w.every((x) => UNNAMED_NOUN.has(x));
 }
+// 2026-10-31 gate (loop-skipped-class-followup-c, foc-side-project-hour-c): the form kept his verb as the title ("book" 8:00 PM) or a
+// preposition ("of youtube editing"). The verb is his request, not the block; a title that was only a verb is an unnamed thing (asked about).
+const TITLE_LEAD = /^(?:(?:(?:add|put|schedule|slot|pencil)\s+in|do|doing|of|for|some|an?|the|my)\s+)+/i;
+const VERB_ONLY = /^(?:book|add|put|schedule|slot|pencil|block|time|session|one|hour|an hour|it|that)$/i;
+export function cleanAddTitle(what) {
+    const t = what.trim().replace(TITLE_LEAD, "").trim();
+    return !t || VERB_ONLY.test(t) || VERB_ONLY.test(what.trim()) ? "something" : t;
+}
 const GENERIC_WORD = new Set(["first", "next", "my", "the", "our", "very", "class", "classes", "lecture", "lectures", "a", "an", "earliest", "upcoming", "one", "today", "tomorrow"]);
 const TAIL = String.raw `(?=\s+(?:today|tomorrow|tonight|and|but|then|so|please|after|before)\b|[,.;!?]|$)`;
 function blockPhrase(phrase, day) {
     const rest = normTitle(phrase).split(" ").filter((w) => w && !GENERIC_WORD.has(w)).join(" ");
     const generic = !rest && /\b(class|classes|lecture|lectures)\b/i.test(phrase);
     const found = rest ? day.blocks.filter((b) => messageNames(rest, b)) : generic ? day.blocks.filter((b) => b.fixed && (b.kind === undefined || b.kind === "class")) : [];
+    // 2026-10-31 gate (sch-before-class-v): "before my class" with no class on the day booked a quick study at 6:37 PM. No class is a "no".
     if (!found.length)
-        return undefined;
+        return generic ? { gone: "class" } : undefined;
     const now = day.now ? toMin(day.now) : -1;
     const next = found.filter((b) => toMin(b.start) > now).sort((a, b) => toMin(a.start) - toMin(b.start))[0];
     return next ? { block: next } : { gone: generic ? "class" : found[0].title };
@@ -337,8 +353,13 @@ export function compile(input, day, message, opts = {}) {
             // At 22:25 a 15-minute gap at 14:30 was "only 0 minutes between CS Lab and Review spending" (sweep q019/q028).
             if (day.now && now >= toMin(b.start))
                 return { say: "cannot", text: `that gap between ${a.title} and ${b.title} has already passed today — want it tomorrow?` };
+            // 2026-10-31 gate (rea-friends-invite-c, sch-no-class-c): "only 5 minutes between practice leetcode and Go over Orion learning plan"
+            // answered requests that never said "between": the form's guess, and two of ORION's own slivers, blamed on him. Only his own
+            // "between" gets that answer; otherwise it is a misread that goes back to the form (and then the normal path).
             if (end - start < 15)
-                return { say: "cannot", text: `there are only ${Math.max(0, toMin(b.start) - Math.max(toMin(a.end), now))} minutes between ${a.title} and ${b.title}` };
+                return message && /\bbetween\b/i.test(message)
+                    ? { say: "cannot", text: `there are only ${Math.max(0, toMin(b.start) - Math.max(toMin(a.end), now))} minutes between ${a.title} and ${b.title}` }
+                    : { error: `fill_between ${a.title} and ${b.title} has no room, and he did not ask for a between` };
             if (what)
                 return { args: ["move", what.title, "--to", hhmm(start), "--until", hhmm(end)] };
             if (!step.what)
@@ -372,7 +393,7 @@ export function compile(input, day, message, opts = {}) {
             const endsAt = day.blocks.findIndex((b) => b !== what && time(step.to) === b.end);
             const startsAt = day.blocks.findIndex((b) => b !== what && time(step.until) === b.start);
             if (endsAt >= 0 && startsAt >= 0)
-                return compile({ do: "fill_between", what: step.what, after: `B${endsAt + 1}`, before: `B${startsAt + 1}` }, day);
+                return compile({ do: "fill_between", what: step.what, after: `B${endsAt + 1}`, before: `B${startsAt + 1}` }, day, "between");
             if (Number.isFinite(step.by) && step.by !== 0)
                 return { args: ["move", what.title, "--to", hhmm(toMin(what.start) + Math.round(step.by))] };
             if (time(step.to) && time(step.until))
@@ -390,6 +411,8 @@ export function compile(input, day, message, opts = {}) {
         case "extend":
             return what && time(step.until) ? { args: ["extend", what.title, "--until", time(step.until)] } : { error: "extend needs a block id and until" };
         case "add": {
+            if (step.what && !/^B\d+$/.test(step.what))
+                step = { ...step, what: cleanAddTitle(step.what) };
             if (!step.what || byId(step.what))
                 return { error: "add needs a new title" };
             // His own words anchor the add even when the form dropped it (r8, 2026-10-16): resolved here from the day.
@@ -469,8 +492,10 @@ function sensibleTime(t, now) {
 /** log: what he really did → `log <title> --from HH:MM --to HH:MM|now [--instead <planned>]`. The ask window or the planned block
  *  he was asked about (his prompt's context line) fills what he did not say; with no times at all, ask since when. */
 function compileLog(step, day, ctx) {
+    // 2026-10-31 gate (rea-work-on-it-tomorrow-v): "ill do the resume tomorrow" read tomorrow's day and the form wrote a log. A log for a
+    // day that is not today is the form's misread, never his ("I can only log what happened today" answered a plan for tomorrow).
     if (!day.now)
-        return { say: "cannot", text: "I can only log what happened today" };
+        return { error: "log is only for what already happened today; for another day use add or move" };
     const now = toMin(day.now);
     const ref = (v) => (v && /^B\d+$/.test(v) ? day.blocks[Number(v.slice(1)) - 1] : undefined);
     const title = (ref(step.what)?.title ?? String(step.what ?? "")).replace(/\s+/g, " ").trim().slice(0, 80);
@@ -497,7 +522,7 @@ export const TOMORROW = /\b(tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
 /** Before 5 AM he is still up: "tomorrow" means the coming daytime — today's date (2026-10-13: a reminder
  *  asked for at 00:44 "tomorrow at 11" was filed for the day after). */
 export const LATE_NIGHT_UNTIL = 5;
-export function meansTomorrow(message, now = new Date()) {
+export function meansTomorrow(message, now = pluginNow()) {
     return TOMORROW.test(message) && now.getHours() >= LATE_NIGHT_UNTIL;
 }
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -509,7 +534,7 @@ const inPassing = (message, m) => /^['\u2019]s\b/i.test(message.slice(m.index + 
 /** The day the change is for: tomorrow, a weekday he names, or today. "i gotta leave early friday, cut
  *  the last block off" resized Thursday's last block (sweep q027, 2026-10-15). The weekday that is
  *  today stays today; orion-reschedule reads any other as the next one ("--date friday"). */
-export function dayArgsFor(message, now = new Date()) {
+export function dayArgsFor(message, now = pluginNow()) {
     if (meansTomorrow(message, now))
         return { args: ["--date", "tomorrow"], label: "tomorrow" };
     // 2026-10-16 (live re-run q020, 01:11): before 5 AM "tomorrow" is today's date for a reminder, but a calendar
@@ -598,7 +623,7 @@ export function partialReply(before, after, outputs, when) {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = new Date(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }) {
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = pluginNow(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }) {
     const left = () => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
     // A READ is stopped by the signal; a WRITE never is: once the scheduler has begun to write it finishes (it is bounded by its own timeout), and a write that
     // has not begun is refused when the hook has given up (review round 2, 2026-10-20: a killed write could delete blocks and never create them).
@@ -622,7 +647,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     if (pending?.kind === "push")
         return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0, reread: () => readDayAgain(pending.argvs[0] ?? []) });
     // Spoken times ("until ten thirty") are read as digits before anything else looks at them (2026-10-19).
-    message = spokenTimesToDigits(message);
+    message = attachBareTimes(spokenTimesToDigits(message));
     const titled = pending?.kind === "title" ? pending : undefined;
     let undone = 0;
     const takenBackWhat = [];
@@ -775,6 +800,12 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
             bad = compiled.find((c) => "error" in c);
         }
         const stopped = guardSteps(message, steps, day);
+        if (stopped?.say === "decline")
+            return undone ? takenBack({ outcome: "say", kind: "plain", text: "Nothing else changed." }) : { outcome: "fallback", reason: `declined: ${stopped.text}` };
+        // 2026-10-31 gate (cluster 2): a time the form chose when he gave none is offered, not refused: one concrete option and a yes runs it.
+        const offer = stopped?.say === "ask" ? offerFor(compiled, day, when) : undefined;
+        if (offer)
+            return takenBack(offer);
         if (stopped)
             return takenBack({ outcome: "say", text: stopped.text, kind: stopped.say });
     }
@@ -804,7 +835,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     }
     // The form left out the one start he said: put it in (live run 4: "45 min walk today at 5pm" became `add walk 45` with no time).
     const formed = runs.map((c) => [...c.args, ...dateArgs]);
-    const argvs = (titled ? undefined : repairStart(message, formed, clockCtx)) ?? formed;
+    const argvs = (titled ? undefined : repairStart(message, formed, clockCtx) ?? repairStarts(message, formed, clockCtx)) ?? formed;
     // Whatever the form wrote, a time he said is the start it uses, or nothing runs (live run 3: "tonight at 7" became 1:20 PM).
     const off = titled ? undefined : offTime(argvs);
     if (off)
@@ -834,6 +865,50 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     // A block the plan created that was not on his day is said to be new, with its length and why (live run 3).
     const added = ran.outcome === "done" && !ran.uncertain ? addedNotes(day, ran.outputs, argvs, message) : "";
     return added && ran.outcome === "done" ? { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} ${added}` } : ran;
+}
+/** "do the oyster card first thing, 9am, resume at 4": a clock said on its own after an item is that item's start ("… first thing at 9am"). */
+export function attachBareTimes(message) {
+    return message.replace(/([a-z])\s*,\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*(?=[,.;!]|$)/gi, "$1 at $2");
+}
+/** Several writes, each missing the start his words gave it in its own clause (loop-morning-brief-c: two items, two times; repairStart takes one). */
+export function repairStarts(message, argvs, ctx) {
+    const clauses = message.split(/[,;.!?]|\b(?:and|then|but|also|plus)\b/i).map((c) => c.trim()).filter(Boolean);
+    const used = new Set(argvs.flatMap((a) => ["--at", "--to"].flatMap((f) => { const i = a.indexOf(f); return i >= 0 ? [a[i + 1]] : []; })));
+    let changed = false;
+    const out = argvs.map((a) => {
+        const flag = a[0] === "add" ? "--at" : a[0] === "move" ? "--to" : undefined;
+        if (!flag || a.includes(flag) || a.includes("--after") || a.includes("--before") || a.includes("--until"))
+            return a;
+        const title = (a[1] ?? "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+        const hits = clauses.filter((c) => title.some((t) => new RegExp(`\\b${t}`, "i").test(c)) && new RegExp(String.raw `\bat\s+${CLOCK_SAID}`, "i").test(c));
+        if (hits.length !== 1)
+            return a;
+        const said = parseClock(new RegExp(String.raw `\bat\s+(${CLOCK_SAID})`, "i").exec(hits[0])[1]);
+        const r = said ? resolveStart(said, { day: ctx.day, now: ctx.now }) : undefined;
+        if (!r || !("at" in r) || used.has(hhmm(r.at)))
+            return a;
+        used.add(hhmm(r.at));
+        changed = true;
+        return [...a, flag, hhmm(r.at)];
+    });
+    return changed ? out : undefined;
+}
+const CLOCK_SAID = String.raw `\d{1,2}(?::\d{2})?\s*(?:am|pm)?`;
+/** One write whose time was the form's, as a concrete offer he can say yes to (the push pending runs it exactly). Undefined when the
+ *  form's answer was not exactly one add/move/extend with a clock. */
+function offerFor(compiled, day, when) {
+    const runs = compiled.filter((c) => "args" in c);
+    if (runs.length !== 1 || compiled.length !== 1)
+        return undefined;
+    const a = runs[0].args;
+    const flag = (f) => { const i = a.indexOf(f); return i >= 0 ? a[i + 1] : undefined; };
+    const at = flag("--to") ?? flag("--at") ?? flag("--until");
+    if (!at || !/^\d{2}:\d{2}$/.test(at) || !["add", "move", "extend"].includes(a[0]))
+        return undefined;
+    const title = a[1];
+    const what = a[0] === "add" ? `put ${title} in at ${ampm(at)}` : a[0] === "move" ? `move ${title} to ${ampm(at)}` : `run ${title} until ${ampm(at)}`;
+    return { outcome: "say", kind: "ask", text: `You didn't give a time, so here's my pick: ${what}${when ? ` ${when}` : ""}. Go ahead? I haven't changed anything yet.`,
+        pending: { kind: "push", argvs: [[...a, "--date", day.date]], displaced: [], ...(when ? { when } : {}) } };
 }
 /** Blocks a scheduler run would move, cut or remove, by name and by what happens to them, from its own output (M2). */
 function displaced(out, title = "") {

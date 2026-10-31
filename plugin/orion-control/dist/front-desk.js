@@ -34,9 +34,9 @@ const SCHEMA = {
     required: ["move", "tool", "args", "tier", "think", "say", "answer"],
 };
 /** The Ollama /api/chat body, identical in shape to the evaluation's front-desk call. */
-export function frontDeskRequest({ message, clock, history = [] }, model = FRONT_DESK_MODEL) {
+export function frontDeskRequest({ message, clock, history = [], context }, model = FRONT_DESK_MODEL) {
     const earlier = history.slice(-8).map((m) => `${m.role === "assistant" ? "ORION" : "Nick"}: ${m.content}`).join("\n");
-    const content = [`Now: ${clock}.`, earlier ? `Earlier:\n${earlier}` : null, `Message:\nNick: ${message}`].filter(Boolean).join("\n\n");
+    const content = [`Now: ${clock}.`, context ? `Context: ${context}` : null, earlier ? `Earlier:\n${earlier}` : null, `Message:\nNick: ${message}`].filter(Boolean).join("\n\n");
     return {
         model,
         stream: false,

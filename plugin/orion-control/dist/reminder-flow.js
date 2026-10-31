@@ -14,6 +14,7 @@
  only reads the reminder store (to list, and to find the id to cancel).
 */
 import { meansTomorrow } from "./schedule-flow.js";
+import { pluginNow } from "./plugin-clock.js";
 const SET = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me)\b/i;
 // "dont let me forget that" is something to remember, not an alarm, unless he gives a time (q058).
 const FORGET = /\bdon'?t let me forget\b/i;
@@ -38,7 +39,7 @@ export function isCorrection(message) {
 }
 /** His whole answer is a time or day ("at 5pm", "tomorrow at 9"): safe to read together with the reminder it answers. */
 export function isBareTime(message) {
-    return (CLOCK.test(message) || /\bat\s+\d{1,2}\b/i.test(message) || RELATIVE.test(message) || meansTomorrow(message, new Date())) && (message.toLowerCase().match(/[a-z]+/g) ?? []).every((w) => CORRECTION_FILLER.has(w) || w === "like" || w === "about" || w === "around" || w === "next");
+    return (CLOCK.test(message) || /\bat\s+\d{1,2}\b/i.test(message) || RELATIVE.test(message) || meansTomorrow(message, pluginNow())) && (message.toLowerCase().match(/[a-z]+/g) ?? []).every((w) => CORRECTION_FILLER.has(w) || w === "like" || w === "about" || w === "around" || w === "next");
 }
 /** Cancel, not create: the cancel word comes before the reminder word and no create verb is present (review, 2026-10-16). */
 function isCancel(message) {
@@ -112,20 +113,80 @@ async function cancelPlan(message, now, list) {
     const [r] = named;
     return { kind: "call", action: "reminder_cancel", args: JSON.stringify({ steps: [{ action: "reminder_cancel", id: r.id }] }), reply: `Cancelled your ${spokenDue(r.dueAt, now)} reminder: ${r.label}.` };
 }
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const WEEKDAY_ON = /\b(?:(on|this|next)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|(?<=\b(?:on|this|next)\s+)(?:mon|tues?|wed|thu|thurs|fri|sat|sun))\b(?!'s)/i;
+/** "ill leave at 1:05 for marketing" (loop-leave-nudge-c): a time he will leave is a leave reminder, said as one. Undefined otherwise. */
+const LEAVE_AT = /^(?:(?:ok(?:ay)?|so|yeah|fine|alright|orion)[,\s]+)*(?:i'?ll|ill|i will|i'?m gonna|im gonna|gonna|i'?m going to|im going to|i'?m leaving|im leaving|leaving)\s+(?:leave\s+)?(?:at|by|around)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?:for|to)\s+(?:the\s+|my\s+)?([a-z0-9][a-z0-9 ]{1,30}?))?\s*[.!]*$/i;
+export function leaveAsReminder(message) {
+    const m = LEAVE_AT.exec(message.trim());
+    return m ? `remind me to leave${m[2] ? ` for ${m[2]}` : ""} at ${m[1]}` : undefined;
+}
 /** The exact due time: relative times by arithmetic, a time already past today moved to the next day. */
+// REV2 finding 15: a weekday counts only when it is next to the time ("on friday at 6", "at 6 on friday", "6pm friday").
+// "remind me at 6 to study for the quiz on friday" names the quiz's day, not the reminder's: that is asked.
+const CLOCK_WORD = String.raw `\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?`;
+function weekdayNextToTime(message, wd) {
+    const before = message.slice(0, wd.index);
+    const after = message.slice(wd.index + wd[0].length);
+    return new RegExp(String.raw `^\s*(?:at|@|around|by)?\s*${CLOCK_WORD}\b`, "i").test(after)
+        || new RegExp(String.raw `(?:at|@|around|by)?\s*\b${CLOCK_WORD}\s*$`, "i").test(before) && /\d/.test(before.slice(-12));
+}
+// 2026-10-31 gate (cha-phone-call-c): "on sunday at 6" was filed for 6:00 AM. A bare hour with no am/pm is read from his words, never the
+// extractor's guess: 1-6 is the afternoon or evening, 7-11 the morning, 12 noon, unless he says morning or evening / tonight / afternoon.
+// REV3 6: the time read is the reminder's own (the one the extractor picked, else the first), its am/pm or period word only when it sits
+// next to that time ("at 9 to call about tonight's dinner" is 9 AM; "dinner at 7pm" says nothing about "at 6"), "o'clock" is still bare,
+// twelve at night is midnight, and "afternoon" lifts only 1-6.
+const TIME_AT = /\b(?:at|by|around|@)\s*(\d{1,2})(?::(\d{2}))?(?![\d:])(\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z]))?/gi;
+const PERIOD_AFTER = /^\s*(?:o'?clock\s*)?(?:,\s*)?(?:(?:in|at|this|on)\s+(?:the\s+)?)?(morning|afternoon|evening|night|tonight)\b/i;
+const PERIOD_BEFORE = /\b(morning|afternoon|evening|night|tonight)\s*,?\s*$/i;
+function sensibleHour(message, [h, m]) {
+    const times = [...message.matchAll(TIME_AT)].filter((t) => Number(t[1]) <= 23);
+    if (!times.length)
+        return [h, m];
+    const own = times.find((t) => Number(t[1]) % 12 === h % 12) ?? times[0];
+    const n = Number(own[1]);
+    const minutes = own[2] ? Number(own[2]) : 0;
+    if (n > 12)
+        return [n, minutes];
+    if (own[3])
+        return [n % 12 + (/p/i.test(own[3]) ? 12 : 0), minutes];
+    if (n < 1)
+        return [h, m];
+    const after = message.slice((own.index ?? 0) + own[0].length);
+    const before = message.slice(0, own.index ?? 0);
+    const period = (PERIOD_AFTER.exec(after)?.[1] ?? PERIOD_BEFORE.exec(before)?.[1] ?? "").toLowerCase();
+    if (period === "morning")
+        return [n % 12, minutes];
+    if (period === "afternoon")
+        return [n <= 6 ? n + 12 : n, minutes];
+    // Twelve at night is the midnight that ends today: hour 24 rolls to 00:00 tomorrow.
+    if (period)
+        return [n % 12 + 12 + (n === 12 ? 12 : 0), minutes];
+    return [n <= 6 ? n + 12 : n, minutes];
+}
 function dueFor(message, time, now, baseDay) {
     const rel = relativeTime(message, now);
     if (rel)
         return { at: `${ymdOf(rel)}T${hhmmOf(rel)}`, day: rel };
     if (!time)
         return undefined;
-    const [h, m] = time.split(":").map(Number);
-    const base = baseDay && !meansTomorrow(message, now) ? new Date(`${baseDay}T00:00`) : new Date(now.getTime() + (meansTomorrow(message, now) ? 86400000 : 0));
+    let [h, m] = sensibleHour(message, time.split(":").map(Number));
+    // 2026-10-31 gate (cha-phone-call-c): "remind me to call my mom on sunday at 6" was filed for Saturday: the weekday was never read.
+    const wd = RECURRING.test(message) ? null : WEEKDAY_ON.exec(message);
+    if (wd && !baseDay && !weekdayNextToTime(message, wd))
+        return { which: wd[2].replace(/^./, (c) => c.toUpperCase()) };
+    const target = wd ? WEEKDAY_NAMES.findIndex((d) => d.startsWith(wd[2].toLowerCase().slice(0, 3))) : -1;
+    const ahead = target >= 0 ? ((target - now.getDay() + 7) % 7) || (/^next/i.test(wd[1] ?? "") ? 7 : 0) : 0;
+    // A bare clock with no am/pm that already passed this morning is this afternoon ("ill leave at 1:05" at 12:47 is 1:05 PM).
+    const meridiem = /\d\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message) || /\b(?:1[3-9]|2[0-3]):\d{2}\b/.test(message);
+    if (!meridiem && target < 0 && !baseDay && !meansTomorrow(message, now) && h < 12 && h * 60 + m <= now.getHours() * 60 + now.getMinutes() && (h + 12) * 60 + m > now.getHours() * 60 + now.getMinutes())
+        h += 12;
+    const base = baseDay && !meansTomorrow(message, now) ? new Date(`${baseDay}T00:00`) : new Date(now.getTime() + (meansTomorrow(message, now) ? 86400000 : ahead * 86400000));
     const day = new Date(base.getFullYear(), base.getMonth(), base.getDate(), h ?? 0, m ?? 0);
     if (day.getTime() <= now.getTime()) {
         if (TODAY.test(message))
-            return { past: time };
-        day.setDate(day.getDate() + 1);
+            return { past: `${pad(h)}:${pad(m)}` };
+        day.setDate(day.getDate() + (target >= 0 ? 7 : 1));
     }
     return { at: `${ymdOf(day)}T${hhmmOf(day)}`, day };
 }
@@ -151,6 +212,8 @@ export async function planReminder(input) {
     const due = dueFor(message, STATES_TIME.test(message) ? got.time : null, now, correcting && last ? last.at.slice(0, 10) : undefined);
     if (!due)
         return { kind: "say", text: correcting ? "What time should I move it to?" : "What time should I remind you?", pending: !correcting };
+    if ("which" in due)
+        return { kind: "say", text: `Is that ${due.which} at ${ampm12(STATES_TIME.test(message) && got.time ? got.time : "00:00")}, or today? Say "${due.which.toLowerCase()} at …" or "today at …" and I'll set it. Nothing's set yet.` };
     if ("past" in due)
         return { kind: "say", text: `It's already past ${ampm12(due.past)} today, so nothing was set. Want it tomorrow instead?` };
     const old = correcting && last ? (await list().catch(() => [])).find((r) => r.label === last.label && r.dueAt > now.getTime()) : undefined;

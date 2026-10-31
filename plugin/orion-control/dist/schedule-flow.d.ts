@@ -186,12 +186,15 @@ export declare function setPlaces(places: Record<string, number>): void;
 /** The message asks for two opposite things about one noun ("cancel my lab and also make sure I'm in the lab at 2"). */
 export declare function contradiction(message: string): string | undefined;
 /** Steps that would write something he did not ask for, as what to say instead. null = fine. */
+/** decline: the form misread him (a step on a block he never named, an add for a removal): nothing is written and nothing is blamed on
+ *  him; the flow hands the turn on as a typed fallback ("declined: …") so another flow or the worker can take it (2026-10-31 gate). */
 export declare function guardSteps(message: string, steps: Intent[], day: Day): {
-    say: "cannot" | "ask";
+    say: "cannot" | "ask" | "decline";
     text: string;
 } | null;
 /** "something", "small task", "a thing" — not a title (never booked as one). */
 export declare function isUnnamedThing(what?: string): boolean;
+export declare function cleanAddTitle(what: string): string;
 type Anchor = {
     before?: {
         minute: number;
@@ -310,3 +313,10 @@ export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, no
         req: EditRequest;
     };
 }): Promise<FlowResult>;
+/** "do the oyster card first thing, 9am, resume at 4": a clock said on its own after an item is that item's start ("… first thing at 9am"). */
+export declare function attachBareTimes(message: string): string;
+/** Several writes, each missing the start his words gave it in its own clause (loop-morning-brief-c: two items, two times; repairStart takes one). */
+export declare function repairStarts(message: string, argvs: string[][], ctx: {
+    day: "today" | "tomorrow";
+    now: number | null;
+}): string[][] | undefined;

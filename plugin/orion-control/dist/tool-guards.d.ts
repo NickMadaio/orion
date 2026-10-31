@@ -1,6 +1,9 @@
 import { hasShellOperator } from "./shell-operators.js";
 export { hasShellOperator };
 export declare const SCRIPTS_DIR = "/Users/nickmadaio/Desktop/ORION/scripts";
+/** One of ORION's scripts by name: the live folder when it is there, otherwise the same folder relative to this file
+    (src/ or dist/ → ../../../scripts), the same order `scriptNames` reads them in. */
+export declare function scriptPath(name: string, exists?: (path: string) => boolean): string;
 export interface GuardDeps {
     /** Names of the files in scripts/ (injected in tests). */
     scriptNames: () => readonly string[];

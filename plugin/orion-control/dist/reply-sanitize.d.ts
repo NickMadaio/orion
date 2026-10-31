@@ -8,5 +8,6 @@ export declare function mailReadFailed(tools: ReadonlyArray<{
     stdout: string;
     exit?: number | null;
 }>): boolean;
+export declare const ONE_PART_FAILED = "One part didn't work.";
 /** The reply with raw CLI/tool spans removed (known failures become one short line). Returns the input when it is clean. */
 export declare function sanitizeReply(reply: string, ctx?: SanitizeContext): string;

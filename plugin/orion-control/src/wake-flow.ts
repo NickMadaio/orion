@@ -16,6 +16,7 @@ import type { Decision } from "./front-desk.js";
 import { ampm12 } from "./reminder-flow.js";
 import type { FlowResult } from "./schedule-flow.js";
 import { isTimerRequest } from "./tool-moves.js";
+import { pluginNow } from "./plugin-clock.js";
 
 export type WakeExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 export type WakeRequest = { kind: "set"; time: string } | { kind: "clear" } | { kind: "read" } | { kind: "repeat" } | { kind: "ask" } | { kind: "bedtime" };
@@ -124,7 +125,7 @@ let askedAt = 0; // when ORION last asked "what time?", so his next bare time is
 const ANSWER_WINDOW_MS = 5 * 60_000;
 export const liveWakeFlow = async (message: string, decision?: Decision): Promise<FlowResult> => {
   const answering = Date.now() - askedAt < ANSWER_WINDOW_MS;
-  const result = await runWakeFlow({ message, ...(decision ? { decision } : {}), now: new Date(), answering, exec: (args) => runFile(ORION_WAKE, args, 15000) });
+  const result = await runWakeFlow({ message, ...(decision ? { decision } : {}), now: pluginNow(), answering, exec: (args) => runFile(ORION_WAKE, args, 15000) });
   askedAt = result.outcome === "say" && result.kind === "ask" ? Date.now() : 0;
   return result;
 };

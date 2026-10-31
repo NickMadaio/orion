@@ -19,7 +19,9 @@ describe("schedule flow — past gaps and blocks that are not there (sweep 2026-
     });
     it("a gap still ahead reports its real size", () => {
         const morning = { ...thursday, now: "13:00" };
-        expect(compile({ do: "fill_between", what: "gym", after: "B3", before: "B4" }, morning)).toMatchObject({ say: "cannot", text: expect.stringMatching(/only 5 minutes between DS Lab and CS Lab/) });
+        expect(compile({ do: "fill_between", what: "gym", after: "B3", before: "B4" }, morning, "fit gym between ds lab and cs lab")).toMatchObject({ say: "cannot", text: expect.stringMatching(/only 5 minutes between DS Lab and CS Lab/) });
+        // 2026-10-31 gate: with no "between" in his words a tiny gap is the form's misread, never a "doesn't fit" blamed on him.
+        expect(compile({ do: "fill_between", what: "gym", after: "B3", before: "B4" }, morning, "going to get food with annika from 5 to 7, move gym to after")).toMatchObject({ error: expect.any(String) });
     });
     it("'skip gym today' with no gym on his day says so instead of booking gym somewhere (q019)", () => {
         expect(compile({ do: "skip", what: "gym" }, thursday)).toEqual({ say: "cannot", text: "there's no gym on today's calendar" });

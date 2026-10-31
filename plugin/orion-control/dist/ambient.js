@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { pluginNow } from "./plugin-clock.js";
 const run = promisify(execFile);
 /*
  The things an assistant is expected to just know: what it is like outside, what
@@ -167,7 +168,7 @@ export async function readWeather(options) {
 }
 // ------------------------------------------------------------------ clock
 export function readClock(timezone) {
-    const now = new Date();
+    const now = pluginNow();
     const zone = timezone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone;
     let spoken;
     try {
@@ -305,7 +306,7 @@ end tell`;
         return false;
     }
 }
-export function resolveAlarmTime(at, now = new Date()) {
+export function resolveAlarmTime(at, now = pluginNow()) {
     const trimmed = at.trim();
     const clock = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i.exec(trimmed);
     if (clock) {

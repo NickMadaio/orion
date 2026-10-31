@@ -305,6 +305,41 @@ def handle(payload: dict) -> dict:
     return {"ok": False, "error": f"unknown op {op!r}"}
 
 
+# Seconds between keep-warm embeds. Idle for hours, the encoder's weights get
+# paged out and the first real verify after that can blow the app's 1.5s
+# budget, which the app treats as "daemon did not answer" and fails open.
+KEEPWARM_SECONDS = float(os.environ.get("ORION_VOICEID_KEEPWARM", "45"))
+# Drop a client that sends nothing for this long so a dead peer cannot pin a thread.
+CLIENT_IDLE_SECONDS = 300.0
+
+
+def log(message: str) -> None:
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"{stamp} orion-voiceid: {message}", flush=True)
+
+
+def warm() -> float:
+    """Run one throwaway embedding so weights, preprocessing and BLAS are hot."""
+    if not EMBEDDER.available:
+        return 0.0
+    import numpy as np
+
+    started = time.monotonic()
+    t = np.arange(16000, dtype="float64") / 16000.0
+    tone = 0.1 * np.sin(2 * np.pi * 220 * t) * (1 + 0.5 * np.sin(2 * np.pi * 3 * t))
+    try:
+        EMBEDDER.embed(tone, 16000)
+    except Exception as error:  # noqa: BLE001
+        log(f"warm-up failed: {error}")
+    return time.monotonic() - started
+
+
+def keep_warm() -> None:
+    while True:
+        time.sleep(KEEPWARM_SECONDS)
+        warm()
+
+
 def serve() -> None:
     if SOCKET_PATH.exists():
         SOCKET_PATH.unlink()
@@ -326,28 +361,58 @@ def serve() -> None:
         print(f"orion-voiceid: interpreter = {sys.executable}", flush=True)
         print(f"orion-voiceid: python {sys.version.split()[0]}", flush=True)
 
+    log(f"model warm in {warm() * 1000:.0f}ms")
+    threading.Thread(target=keep_warm, daemon=True).start()
+
     while True:
-        conn, _ = server.accept()
+        try:
+            conn, _ = server.accept()
+        except OSError as error:
+            log(f"accept failed: {error}")
+            time.sleep(0.1)
+            continue
         threading.Thread(target=session, args=(conn,), daemon=True).start()
 
 
 def session(conn: socket.socket) -> None:
-    with conn:
-        buffer = b""
-        while True:
-            chunk = conn.recv(65536)
-            if not chunk:
-                return
-            buffer += chunk
-            while b"\n" in buffer:
-                line, buffer = buffer.split(b"\n", 1)
-                if not line.strip():
-                    continue
-                try:
-                    response = handle(json.loads(line))
-                except Exception as error:  # noqa: BLE001
-                    response = {"ok": False, "error": str(error)}
+    """One client. Any failure here ends this client only, never the daemon."""
+    try:
+        with conn:
+            conn.settimeout(CLIENT_IDLE_SECONDS)
+            serve_connection(conn)
+    except (BrokenPipeError, ConnectionResetError, socket.timeout, OSError) as error:
+        log(f"client went away ({type(error).__name__}); dropped this session only")
+    except Exception as error:  # noqa: BLE001
+        log(f"session crashed: {error!r}")
+
+
+def serve_connection(conn: socket.socket) -> None:
+    buffer = b""
+    while True:
+        chunk = conn.recv(65536)
+        if not chunk:
+            return
+        buffer += chunk
+        while b"\n" in buffer:
+            line, buffer = buffer.split(b"\n", 1)
+            if not line.strip():
+                continue
+            started = time.monotonic()
+            op = "?"
+            try:
+                payload = json.loads(line)
+                op = str(payload.get("op"))
+                response = handle(payload)
+            except Exception as error:  # noqa: BLE001
+                response = {"ok": False, "error": str(error)}
+            elapsed_ms = (time.monotonic() - started) * 1000
+            try:
                 conn.sendall((json.dumps(response) + "\n").encode())
+            except (BrokenPipeError, ConnectionResetError):
+                # The app gave up (its timeout) before we answered.
+                log(f"op={op} took {elapsed_ms:.0f}ms; client already gone, reply dropped")
+                return
+            log(f"op={op} ok={response.get('ok')} {elapsed_ms:.0f}ms")
 
 
 if __name__ == "__main__":

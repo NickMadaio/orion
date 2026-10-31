@@ -318,8 +318,9 @@ async function runClauses(r: Extract<DayRequest, { kind: "clauses" }>, deps: Req
         if (out.ok) said.push(`took ${label(b)} (${ampm(toMin(b.start))}) off`); else notes.push(`I couldn't take ${label(b)} off`);
       }
     } else if (c.verb === "add") {
-      const args = ["add", c.name];
-      let minutes = c.minutes ?? (/\bnap\b/i.test(c.name) ? 30 : 30);
+      // A block he names lands on the calendar capitalised ("Nap", not "nap"), like every other block ORION writes.
+      const args = ["add", c.name.charAt(0).toUpperCase() + c.name.slice(1)];
+      let minutes = c.minutes ?? 30;
       let at: number | undefined;
       if (c.at) {
         const s = parseClock(c.at); const res = s ? resolveStart(s, { day: "today", now }) : undefined;

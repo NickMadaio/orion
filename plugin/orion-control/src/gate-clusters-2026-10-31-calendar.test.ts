@@ -194,14 +194,14 @@ describe("cluster 3: what happened is logged first, against the real day, then t
   it("rea-exhausted-c 'add a 30 min nap at 4 today and cut side project tonight im wrecked'", async () => {
     const r = route({ now: "13:00", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added nap 16:00–16:30" : "Changed Monday:\n  dropped side project") });
     const t = await r.turn("add a 30 min nap at 4 today and cut side project tonight im wrecked");
-    expect(r.writes()).toEqual([["orion-reschedule", "add", "nap", "30", "--at", "16:00"], ["orion-reschedule", "drop", "side project"]]);
+    expect(r.writes()).toEqual([["orion-reschedule", "add", "Nap", "30", "--at", "16:00"], ["orion-reschedule", "drop", "side project"]]);
     expect(t.exact).toBe("Feel better. Done: nap 4:00 PM–4:30 PM; took side project (7:30 PM) off. Say \"undo\" to put it back.");
   });
   it("hea-sleep-adjust-c 'only slept 4 and a half hours, add a nap after class and cut side project': the nap after class, the side project off", async () => {
     expect(readDayRequest("only slept 4 and a half hours, add a nap after class and cut side project", at("10:00"))).toMatchObject({ kind: "clauses", clauses: [{ verb: "add", name: "nap", after: "class" }, { verb: "remove", names: ["side project"] }] });
     const r = route({ now: "10:00", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added nap 15:35–16:05" : "Changed Monday:\n  dropped side project") });
     const t = await r.turn("only slept 4 and a half hours, add a nap after class and cut side project");
-    expect(r.writes()).toEqual([["orion-reschedule", "add", "nap", "30", "--after", MKTG.title], ["orion-reschedule", "drop", "side project"]]);
+    expect(r.writes()).toEqual([["orion-reschedule", "add", "Nap", "30", "--after", MKTG.title], ["orion-reschedule", "drop", "side project"]]);
     expect(t.exact).toMatch(/^Done: nap 3:35 PM–4:05 PM; took side project \(7:30 PM\) off\./);
   });
   it("without a health reason, dropping gym in a combination is the gym guard's, never a silent drop", () => {
@@ -212,7 +212,7 @@ describe("cluster 3: what happened is logged first, against the real day, then t
   it("rea-friends-invite-c 'going to get food with annika from 5 to 7, move gym to after': the plan with her, then gym after it", async () => {
     const r = route({ now: "16:30", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added food with annika 17:00–19:00" : "Changed Monday:\n  moved Gym: 17:00 → 19:05") });
     const t = await r.turn("going to get food with annika from 5 to 7, move gym to after");
-    expect(r.writes()).toEqual([["orion-reschedule", "add", "food with annika", "120", "--at", "17:00", "--fixed"], ["orion-reschedule", "move", "Gym", "--after", "food with annika"]]);
+    expect(r.writes()).toEqual([["orion-reschedule", "add", "Food with annika", "120", "--at", "17:00", "--fixed"], ["orion-reschedule", "move", "Gym", "--after", "food with annika"]]);
     expect(t.exact).toMatch(/^Done: food with annika 5:00 PM–7:00 PM; Gym moved to 7:05 PM/);
   });
   it("rea-didnt-go-class-c 'i skipped marketing, put 1 hour of catch up on it tomorrow evening': the skip noted, the catch-up booked", async () => {

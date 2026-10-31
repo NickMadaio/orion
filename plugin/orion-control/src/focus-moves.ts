@@ -50,7 +50,7 @@ export function readFocusMove(message: string): FocusMove | null {
   const stall = STALL.exec(m);
   if (stall) {
     const n = Number(stall[2] ?? stall[3] ?? stall[4]);
-    return { kind: "stall", minutes: Number.isFinite(n) && n > 0 ? Math.min(60, n) : (stall[1] ? WORD_MIN[stall[1].toLowerCase()] ?? 5 : 10) };
+    return { kind: "stall", minutes: Number.isFinite(n) && n > 0 ? Math.min(60, n) : (stall[1] ? WORD_MIN[stall[1].toLowerCase()] ?? 5 : /\b(?:sec|second|min|minute)\b/i.test(stall[0]) ? 5 : 10) };   // REV2 NICE: "give me a sec" is 5
   }
   const brk = BREAK.exec(m);
   if (brk) return { kind: "break", minutes: Math.min(60, Math.max(1, Number(brk[1] ?? 10))), work: /\bpomodoro\b/i.test(m) ? 25 : 50 };

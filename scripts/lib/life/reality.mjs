@@ -74,7 +74,10 @@ export function planLog(blocks, interval, opts) {
   for (const b of targets) {
     const inside = Math.max(0, Math.min(b.end, to) - Math.max(b.start, from));
     const missed = Math.min(b.end - b.start, Math.max(inside || b.end - b.start, minimumFor(b.title, config.minimums ?? {})));
-    const left = overlaps(b, span) ? leftovers(b, from, to) : [];
+    // 2026-10-31 gate: a piece left after the logged time that is already over by now never stays in elapsed time; one under way starts now.
+    const left = (overlaps(b, span) ? leftovers(b, from, to) : [])
+      .map((p) => (p.start >= to && p.start < now ? { ...p, start: now } : p))
+      .filter((p) => p.start < to || p.end - p.start >= MIN_PIECE);
     if (!sameActivity(b.title, title)) displaced.push({ block: b, minutes: missed, keeps: left.length > 0 });
     if (!left.length) { removed.push(b); continue; }
     const [first, ...others] = left;

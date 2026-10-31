@@ -91,13 +91,15 @@ async function reverseSteps(steps) {
    - SIGTERM / SIGINT / SIGHUP during the write are held until it has finished, then re-raised: the write completes and is recorded.
 */
 const HELD = ["SIGTERM", "SIGINT", "SIGHUP"];
+/** Undo entries kept: enough for every replan ORION makes in a day (2026-10-31 review: 10 lost the morning's by evening). */
+export const UNDO_KEEP = 50;
 
 export async function applyPlan({ date, moves, created, removed = [], blocksById, group = null, pinIds = [], pinCreated = [], config = {} }) {
   const undo = []; const priorPins = readPins(); const addedPins = []; const createdIds = {};
   const readHistory = () => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } };
   const base = readHistory();
   const startedAt = clockNow().toISOString();
-  const save = (list) => { mkdirSync(dirname(UNDO_FILE), { recursive: true }); writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(list.slice(-10), null, 2)); renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE); };
+  const save = (list) => { mkdirSync(dirname(UNDO_FILE), { recursive: true }); writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(list.slice(-UNDO_KEEP), null, 2)); renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE); };
   const journal = () => {
     const last = base.at(-1);
     save(group && last?.group === group
@@ -176,7 +178,7 @@ export function recordUndo(steps) {
   if (!steps.length) return;
   mkdirSync(dirname(UNDO_FILE), { recursive: true });
   const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
-  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify([...history, { at: clockNow().toISOString(), steps }].slice(-10), null, 2));
+  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify([...history, { at: clockNow().toISOString(), steps }].slice(-UNDO_KEEP), null, 2));
   renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
 }
 
@@ -192,6 +194,6 @@ export function appendUndoSteps(group, steps) {
   const next = group && last?.group === group
     ? [...history.slice(0, -1), { ...last, steps: [...last.steps, ...steps] }]
     : [...history, { at: clockNow().toISOString(), ...(group ? { group } : {}), steps }];
-  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(next.slice(-10), null, 2));
+  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(next.slice(-UNDO_KEEP), null, 2));
   renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
 }

@@ -27,6 +27,7 @@ import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
 import { addedNotes, dayDiff, FAILED, nothingWritten, spokenFailure, spokenReply, summarize, uncertainReply, UNKNOWN_OUTCOME } from "./schedule-reply.js";
 import { pluginNow } from "./plugin-clock.js";
+import { asksToShiftAfter, movesThisOne, overrunIsMove } from "./own-event-writes.js";
 export { nothingWritten, spokenFailure, spokenReply, summarize };
 
 /** nameable: one of his own events (not a class or a plan with people): fixed for automatic changes, but he may move it by naming it. */
@@ -330,7 +331,9 @@ export function compile(input: Intent, day: Day, message?: string, opts: { singl
   for (const k of ["after", "before", "with"] as const) if (step[k] && !byId(step[k])) return { error: `${step[k]} is not a block on his day` };
   const what = byId(step.what);
   if (what && (step.what === step.after || step.what === step.before)) return { error: "the block to place cannot be one of its own anchors" };
-  if (what?.fixed && ["fill_between", "move", "resize", "drop", "swap"].includes(step.do)) return { error: `${what.title} is a class or a plan with people — it does not move` };
+  // A class or plan with people moves only when his own words name it (own-event-writes.ts, gate sch-move-fixed-named).
+  const named = step.do === "move" && !!what && !!message && movesThisOne(message, what, day.blocks);
+  if (what?.fixed && !named && ["fill_between", "move", "resize", "drop", "swap"].includes(step.do)) return { error: `${what.title} is a class or a plan with people — it does not move` };
   const time = (t?: string) => (t && /^\d{1,2}:\d{2}$/.test(t) ? t.padStart(5, "0") : undefined);
   switch (step.do) {
     case "cannot": case "ask": case "answer": {
@@ -448,7 +451,10 @@ export function compile(input: Intent, day: Day, message?: string, opts: { singl
       if (!what || !Number.isFinite(step.minutes) || step.minutes! < 5) return { error: "overrun needs a block id and minutes (5 or more)" };
       // His own block running over is an extend; overrun is for a class.
       if (!what.fixed) return { args: ["extend", what.title, "--until", hhmm(Math.min(toMin(what.end) + Math.round(step.minutes!), 1439))] };
-      return { args: ["overrun", String(Math.round(step.minutes!)), "--what", what.title] };
+      // "move my MKTG2201 class from 1:30 to 2pm, its running late" is a move to the time he said; "shift my stuff after it by 30" asks for the push.
+      const moved = message ? overrunIsMove(message, what, day.blocks) : undefined;
+      if (moved) return { args: moved };
+      return { args: ["overrun", String(Math.round(step.minutes!)), "--what", what.title, ...(message && asksToShiftAfter(message) ? ["--shift"] : [])] };
     }
     default: return { error: `unknown step ${String(step.do)}` };
   }

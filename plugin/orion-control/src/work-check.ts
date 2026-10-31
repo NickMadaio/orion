@@ -193,6 +193,9 @@ export function checkCalendar({ before, after, now, commands }: { before: Block[
 const CANT_CHECK = /\bI can'?t check that right now\b/i;
 const NO_ACCESS = /\b(I )?(don'?t|do not) have (any )?(access|a way|the ability)\b|\bI (can'?t|cannot|am unable to|'m unable to) (access|see|check|look (at|up)|read|view)\b|\bno access to\b/i;
 
+/** Gate foc-start-v (2026-11-01): "I can't use the tool "orion-session" here because it isn't available. I need to stop retrying it…" */
+const TOOL_TALK = /\b(?:the |that |this )?tools?\b[^.!?\n]{0,40}?\b(?:isn'?t|is not|aren'?t|are not|not|un)\s*available\b|\bstop retrying\b|\btool catalog\b|\bwithout (?:that|the|this|any) tools?\b|\b(?:can'?t|cannot|unable to) (?:use|call|access) (?:the |that |this )?tools?\b/i;
+
 /** Everything the check can see after the worker's final answer → findings (empty = looks right). */
 export function checkWork({ reply, turnResults, finished, calendar, changeRequest = false, dictated = false, provided = false }: {
   reply: string; turnResults: ToolResult[]; finished: boolean; calendar?: { before: Block[]; after: Block[]; now: number };
@@ -223,11 +226,13 @@ export function checkWork({ reply, turnResults, finished, calendar, changeReques
   const lastChange = turnResults.filter((r) => /orion-reschedule|orion-tasks/.test(r.canonical)).at(-1)?.stdout ?? "";
   if (/NOT BOOKED|did not fit|NOTHING WAS|usage:|error/i.test(lastChange)) findings.push("last change incomplete");
   if (calendar) findings.push(...checkCalendar({ ...calendar, commands: turnResults.map((r) => r.canonical) }));
+  if (TOOL_TALK.test(reply)) findings.push("talks about its tools");
   return findings;
 }
 
 const FIX: Record<string, string> = {
   "did not finish": "You stopped before replying. Finish the job, then reply.",
+  "talks about its tools": "Nick never hears about tools, retries or what is available. A script is a command for the exec tool: run it that way, then say in plain words what happened, or what you could not do.",
   "promised but did not act": "You said you would do it but ran no command that does it. Do it now with the right tool (orion-reschedule for his calendar), then tell him what you did; if no tool can, say so plainly.",
   "claims a lookup it did not do": "Your reply reports something looked up (checked, found, a status, minutes left) but you ran no tool this turn. Look it up now with the right tool and answer from what it prints, or say you don't know.",
   "said it can't without checking": "You said you can't see or reach that, but you ran no tool. Check with the right tool first (health log, memory, calendar, tasks, messages); only if none can, say so plainly.",

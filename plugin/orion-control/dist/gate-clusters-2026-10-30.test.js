@@ -135,7 +135,8 @@ describe("cluster 5: vague reality and replies to ORION's own pushes", () => {
     it("rea-class-late-c 'marketing is running 30 min over, shift my stuff after it by 30': his minutes", async () => {
         const r = route({ script: () => ({ stdout: "Changed Monday:\n  moved Gym: 17:00 → 17:30", code: 0 }) });
         await r.turn("marketing is running 30 min over, shift my stuff after it by 30");
-        expect(r.scripts[0]).toEqual(["overrun", "30", "--what", "MKTG2201"]);
+        // 2026-11-01 (wave 5): "shift my stuff after it by 30" asks for the push itself, so the overrun carries --shift.
+        expect(r.scripts[0]).toEqual(["overrun", "30", "--what", "MKTG2201", "--shift"]);
     });
     it("loop-morning-brief-v: 'yeah' right after the morning brief is never 'Didn't catch that'; code makes the items concrete (pending-reply.ts)", async () => {
         const dir = mkdtempSync(join(tmpdir(), "gate-push-"));

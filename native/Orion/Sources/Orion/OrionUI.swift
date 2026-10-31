@@ -160,17 +160,15 @@ struct OrionTile<Content: View>: View {
             VStack(alignment: .leading, spacing: spacing) { content }
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(padding)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(LinearGradient(colors: [Color.white.opacity(0.075), Color.white.opacity(0.028)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.75)
-                }
-                .shadow(color: .black.opacity(0.18), radius: 14, y: 7)
-        }
+        // Horizontal padding is dropped: with no plate behind it, an inset only
+        // pushes the content off the column edge it should share with its
+        // neighbours. Vertical padding stays as air above and below.
+        .padding(.vertical, padding * 0.5)
+        // 2026-10-30 polish: this was a filled, bordered, shadowed rounded
+        // rectangle — a card, on every Health, Finance and Brand section, in a
+        // file whose first rule is "nothing is in a box". Now the group is held
+        // by a hairline above it that fades out, and by the space around it.
+        .overlay(alignment: .top) { FadingRule().offset(y: -padding * 0.5) }
     }
 }
 
@@ -431,7 +429,7 @@ struct LogButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }
 
@@ -455,7 +453,7 @@ struct StepButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }
 
@@ -490,7 +488,7 @@ struct InlineAction: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }
 

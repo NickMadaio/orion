@@ -330,6 +330,6 @@ struct ParkedBriefCard: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }

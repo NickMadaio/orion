@@ -182,7 +182,7 @@ struct ConsoleButton: View {
         }
         .buttonStyle(ConsolePressStyle())
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.18), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }
 

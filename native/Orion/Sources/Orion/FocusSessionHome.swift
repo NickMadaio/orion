@@ -1052,7 +1052,7 @@ private struct FocusTransportButton: View {
         .buttonStyle(.plain)
         .help(help)
         .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: hovering)
+        .animation(OrionMotion.hover, value: hovering)
     }
 }
 

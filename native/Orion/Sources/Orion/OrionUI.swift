@@ -168,7 +168,8 @@ struct OrionTile<Content: View>: View {
         // rectangle — a card, on every Health, Finance and Brand section, in a
         // file whose first rule is "nothing is in a box". Now the group is held
         // by a hairline above it that fades out, and by the space around it.
-        .overlay(alignment: .top) { FadingRule().offset(y: -padding * 0.5) }
+        // Not both: a top rule meeting a leading accent draws the corner of a box.
+        .overlay(alignment: .top) { if accent == nil { FadingRule().offset(y: -padding * 0.5) } }
     }
 }
 

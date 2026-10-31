@@ -29,39 +29,46 @@ struct HomeTab: View {
     var onPreviewBreak: () -> Void
 
     @FocusState private var composerFocused: Bool
+    @Namespace private var orbSpace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             if state.chatMode {
                 VStack(alignment: .trailing, spacing: 0) {
                     HStack {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.3)) {
+                        InlineAction(title: "BACK TO HOME", systemImage: "arrow.left", tint: OrionTheme.textSoft) {
+                            OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) {
                                 state.chatMode = false
                                 presentation = .parked
                             }
-                        } label: {
-                            Label("Back to Home", systemImage: "arrow.left")
                         }
-                        .buttonStyle(.plain)
                         .help("Return to the main Home view; keep this conversation")
                         Spacer()
-                        HologramView(model: state.hologram, style: coreStyle).frame(width: 100, height: 100).transition(.move(edge: .trailing))
+                        // The same orb, flown from the centre of Home into the
+                        // corner, so opening chat reads as one movement.
+                        HologramView(model: state.hologram, style: coreStyle)
+                            .frame(width: 100, height: 100)
+                            .matchedGeometryEffect(id: "home.orb", in: orbSpace)
                     }
                     SharedChatView(state: state).frame(height: max(420, availableHeight - 110))
-                }.transition(.opacity)
+                        .transition(OrionMotion.rise(reduceMotion: reduceMotion, distance: 14))
+                }
+                .transition(.opacity)
             } else if presentation == .full, let brief {
                 MorningBriefPanel(facts: brief, writer: writer) {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) {
                         presentation = .parked
                     }
                 }
                 .frame(maxWidth: .infinity)
+                .transition(OrionMotion.rise(reduceMotion: reduceMotion))
             } else {
                 scene
+                    .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: state.chatMode)
+        .animation(OrionMotion.resolved(OrionMotion.page, reduceMotion: reduceMotion), value: state.chatMode)
         .onAppear { composerFocused = true }
         // Bumped every time the window is summoned, so a second click on the
         // menu bar re-focuses the field instead of doing nothing visible.
@@ -100,7 +107,7 @@ struct HomeTab: View {
 
                 if showsRail, let brief {
                     ParkedBriefCard(facts: brief) {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) {
                             presentation = .full
                         }
                     }
@@ -137,6 +144,7 @@ struct HomeTab: View {
                     }
                 }
                 .frame(width: coreSize, height: coreSize)
+                .matchedGeometryEffect(id: "home.orb", in: orbSpace)
                 .allowsHitTesting(false)
                 // Launchers deliberately sit above the visual core so an app can
                 // cross the front of a black hole rather than disappearing as
@@ -184,7 +192,7 @@ struct HomeTab: View {
                     .onSubmit(submit)
 
                 Button {
-                    withAnimation(.easeInOut(duration: 0.3)) { state.chatMode = true }
+                    OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) { state.chatMode = true }
                 } label: {
                     Image(systemName: "bubble.left.and.text.bubble.right")
                         .font(.system(size: 12, weight: .medium))
@@ -220,18 +228,13 @@ struct HomeTab: View {
             sessionCard
             previewControls
         }
-        .padding(16)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.025)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(composerFocused ? OrionTheme.accent.opacity(0.45) : Color.white.opacity(0.10), lineWidth: 0.8)
-                }
-        }
-        .animation(.easeOut(duration: 0.18), value: composerFocused)
-        .animation(.easeOut(duration: 0.18), value: canSend)
+        .padding(.vertical, 16)
+        // 2026-10-30 polish: the comment above said "a ruled line, not a filled
+        // capsule" while a gradient-filled, bordered rounded box sat behind it.
+        // The rule now does the job alone, and lights on focus.
+        .animation(OrionMotion.hover, value: composerFocused)
+        .animation(OrionMotion.hover, value: canSend)
+        .animation(OrionMotion.fade, value: state.phase)
     }
 
     private var phaseLine: some View {

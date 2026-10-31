@@ -83,7 +83,7 @@ enum ScreenCapture {
         CGRequestScreenCaptureAccess()
     }
 
-    private static func frontmostWindowID(pid: pid_t) -> (id: CGWindowID, bounds: CGRect)? {
+    static func frontmostWindowID(pid: pid_t) -> (id: CGWindowID, bounds: CGRect)? {
         let listing = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID,
         ) as? [[String: Any]] ?? []
@@ -106,7 +106,9 @@ enum ScreenCapture {
         return nil
     }
 
-    static func capture() throws -> ScreenCaptureResult {
+    /// The guarded pixel grab both `capture()` (writes a PNG) and `ScreenAct.ocr()` (keeps it in memory) share:
+    /// every refusal below runs before a single pixel is read.
+    static func captureImage() throws -> (image: CGImage, front: (pid: pid_t, name: String, bundleID: String), windowTitle: String?) {
         guard isGranted() else { throw ScreenCaptureError.screenRecordingNotGranted }
         guard !ScreenPrivacy.isScreenLockedOrAsleep() else { throw ScreenCaptureError.screenLocked }
         guard let front = ScreenObserve.frontmostApp() else { throw ScreenCaptureError.noFrontmostApp }
@@ -143,6 +145,11 @@ enum ScreenCapture {
             throw ScreenCaptureError.captureFailed
         }
 
+        return (image, front, windowTitle)
+    }
+
+    static func capture() throws -> ScreenCaptureResult {
+        let (image, front, windowTitle) = try captureImage()
         let filename = "\(UUID().uuidString).png"
         let fileURL = captureRoot().appendingPathComponent(filename)
         guard let destination = CGImageDestinationCreateWithURL(

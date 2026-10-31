@@ -32,6 +32,8 @@
 //   orion-reschedule move "<title>" --to HH:MM                        "move study to 4": same length, the rest cascades
 //        also --after "<block>" (starts after it), --until HH:MM or --before "<block>" [--gap N] (where it ends; changes its length):
 //        "directly after CS lab, ending 20 before DS" = move "X" --after "CS lab" --before "DS" --gap 20 — one call, no arithmetic
+//        A class or plan with people refuses unless --named: the plugin passes it only after checking that his own message names
+//        that block as the thing he is moving (own-event-writes.ts). Never pass --named for him: without his words it is refused.
 //   orion-reschedule swap "<title>" "<title>"                         "swap study and the side project" (any lengths)
 //   orion-reschedule early [--now HH:MM] [--check] [--dry-run] [--date YYYY-MM-DD]
 //        "Done early": he finished what is under way, whatever it is (the old [block|out-of-class] hint is ignored).
@@ -110,7 +112,7 @@ const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--minutes", "--no-replan", "--notify", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--minutes", "--named", "--no-replan", "--notify", "--now", "--plan",
   "--only", "--replace", "--say", "--shift", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -137,7 +139,7 @@ const OWN_OPTIONS = {
   rename: ["--date", "--dry-run"],
   skip: ["--date", "--dry-run"],
   "classes-off": ["--keep", "--date", "--dry-run"],
-  move: ["--to", "--by", "--after", "--before", "--gap", "--until", "--date", "--dry-run"],
+  move: ["--to", "--by", "--after", "--before", "--gap", "--until", "--named", "--date", "--dry-run"],
   show: ["--json", "--date"],
   log: ["--from", "--to", "--where", "--instead", "--no-replan", "--date", "--dry-run"],
   displace: ["--why", "--notify", "--date", "--dry-run"],
@@ -597,8 +599,10 @@ if (command === "late") {
   const name = rest[0];
   if (!name) fail('usage: orion-reschedule move "<title>" --to HH:MM | --by <minutes>');
   const found = findBlock(name, { allowPast: false }) ?? notFound(name);
-  // 2026-11-01 (gate sch-move-fixed-named): a class or plan with people moves when he names it — this command is him naming it.
-  // That one occurrence is rewritten (move-own.mjs), never the repeating series.
+  // 2026-11-01 (gate sch-move-fixed-named): a class or plan with people moves when he names it. REV5 (2026-10-31): this command alone
+  // is not him naming it (the worker, injected text or any exec can run it), so it refuses unless --named says the plugin checked his
+  // words (own-event-writes.ts movesThisOne). That one occurrence is rewritten (move-own.mjs), never the repeating series.
+  if (!nameableBy(found) && !args.includes("--named")) fail(`NOTHING WAS CHANGED: "${found.title}" is one of his own calendar events (a class or a plan with people); it moves only when his own message names it and its new time`, 1);
   const ownEvent = !nameableBy(found) && !!found.calendarId;
   if (!nameableBy(found) && !ownEvent) fail(`NOTHING WAS CHANGED: "${found.title}" is one of his own calendar events and ORION cannot find it on the calendar to move it`, 1);
   const target = freeNamed(found);

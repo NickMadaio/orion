@@ -4,8 +4,13 @@
  When the form misreads a request, the turn falls back to the worker model, which can run orion-reschedule itself. The scheduler protects
  classes and plans with people, but not gym (the daily anchor) or a study block (deadline work). A drop / move / resize / swap / rename of
  one of those, or a `drop --after` that sweeps one up, runs only when his message names it. Pure: the caller supplies the day.
+
+ REV5 MUST 1 (2026-10-31): since wave 5 the scheduler moves a class or plan with people for one day when the call says --named, so the
+ worker could pass that flag itself. A worker write that touches one of his fixed events is refused unless it is a move and his own
+ message names that event as the thing he is moving (movesThisOne, the same check compile makes before it adds --named).
 */
 import type { DayBlock } from "./schedule-flow.js";
+import { movesThisOne } from "./own-event-writes.js";
 
 const VERBS = new Set(["drop", "move", "resize", "swap", "rename", "displace"]);
 const STOP = new Set(["the", "and", "for", "with", "block", "session", "time", "today", "tonight"]);
@@ -38,5 +43,5 @@ export function unnamedAnchorWrite(message: string, args: string[], blocks: DayB
   } else if (VERBS.has(verb)) {
     touched = (verb === "rename" || verb === "resize" || verb === "move" || verb === "displace" ? titles.slice(0, 1) : titles).map((t) => find(t, blocks)).filter((b): b is DayBlock => !!b);
   }
-  return touched.find((b) => kindOf(b) && !namesBlock(message, b)) ?? null;
+  return touched.find((b) => (b.fixed ? !(verb === "move" && movesThisOne(message, b, blocks)) : kindOf(b) && !namesBlock(message, b))) ?? null;
 }

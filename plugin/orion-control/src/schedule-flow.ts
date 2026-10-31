@@ -334,8 +334,10 @@ export function compile(input: Intent, day: Day, message?: string, opts: { singl
   for (const k of ["after", "before", "with"] as const) if (step[k] && !byId(step[k])) return { error: `${step[k]} is not a block on his day` };
   const what = byId(step.what);
   if (what && (step.what === step.after || step.what === step.before)) return { error: "the block to place cannot be one of its own anchors" };
-  // A class or plan with people moves only when his own words name it (own-event-writes.ts, gate sch-move-fixed-named).
+  // A class or plan with people moves only when his own words name it as the thing he moves (own-event-writes.ts, gate
+  // sch-move-fixed-named, REV5); only then does the move carry --named, without which orion-reschedule refuses his events.
   const named = step.do === "move" && !!what && !!message && movesThisOne(message, what, day.blocks);
+  const own = what?.fixed && named ? ["--named"] : [];
   if (what?.fixed && !named && ["fill_between", "move", "resize", "drop", "swap"].includes(step.do)) return { error: `${what.title} is a class or a plan with people — it does not move` };
   const time = (t?: string) => (t && /^\d{1,2}:\d{2}$/.test(t) ? t.padStart(5, "0") : undefined);
   switch (step.do) {
@@ -387,11 +389,11 @@ export function compile(input: Intent, day: Day, message?: string, opts: { singl
       const endsAt = day.blocks.findIndex((b) => b !== what && time(step.to) === b.end);
       const startsAt = day.blocks.findIndex((b) => b !== what && time(step.until) === b.start);
       if (endsAt >= 0 && startsAt >= 0) return compile({ do: "fill_between", what: step.what, after: `B${endsAt + 1}`, before: `B${startsAt + 1}` }, day, "between");
-      if (Number.isFinite(step.by) && step.by !== 0) return { args: ["move", what.title, "--to", hhmm(toMin(what.start) + Math.round(step.by!))] };
-      if (time(step.to) && time(step.until)) return { args: ["move", what.title, "--to", time(step.to)!, "--until", time(step.until)!] };
-      if (time(step.to)) return { args: ["move", what.title, "--to", time(step.to)!] };
-      if (time(step.until)) return { args: ["move", what.title, "--until", time(step.until)!] };
-      if (byId(step.after)) return { args: ["move", what.title, "--after", byId(step.after)!.title, ...(byId(step.before) ? ["--before", byId(step.before)!.title] : [])] };
+      if (Number.isFinite(step.by) && step.by !== 0) return { args: ["move", what.title, "--to", hhmm(toMin(what.start) + Math.round(step.by!)), ...own] };
+      if (time(step.to) && time(step.until)) return { args: ["move", what.title, "--to", time(step.to)!, "--until", time(step.until)!, ...own] };
+      if (time(step.to)) return { args: ["move", what.title, "--to", time(step.to)!, ...own] };
+      if (time(step.until)) return { args: ["move", what.title, "--until", time(step.until)!, ...own] };
+      if (byId(step.after)) return { args: ["move", what.title, "--after", byId(step.after)!.title, ...(byId(step.before) ? ["--before", byId(step.before)!.title] : []), ...own] };
       return { error: "move needs to, until or after" };
     }
     case "resize":

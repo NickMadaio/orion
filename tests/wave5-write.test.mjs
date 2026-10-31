@@ -58,7 +58,7 @@ test("rea-class-late-c: --shift keeps a fixed plan as a wall (what would land on
 });
 
 test("sch-move-fixed-named: move on a class he names moves that day's occurrence; ORION's blocks reflow; undo restores", () => {
-  const r = sandboxRun(["move", "MKTG2201", "--to", "14:00"], { now: at("10:00") });
+  const r = sandboxRun(["move", "MKTG2201", "--to", "14:00", "--named"], { now: at("10:00") });
   assert.equal(r.code, 0, r.out);
   const mk = find(r.events, "MKTG2201");
   assert.deepEqual(mk.map((e) => [e.start, e.end]), [[at("14:00"), at("16:00")]], "one occurrence, same length, at 14:00");
@@ -71,14 +71,14 @@ test("sch-move-fixed-named: move on a class he names moves that day's occurrence
 
 test("sch-move-fixed-named: a moved class pushes an ORION block it would now overlap", () => {
   const events = [ev("seed-0", "MKTG2201", "13:30", "15:30"), ev("seed-1", "Study econ", "16:00", "17:00", "study"), ev("seed-2", "Gym", "17:00", "18:30", "gym")];
-  const r = sandboxRun(["move", "MKTG2201", "--to", "14:30"], { now: at("10:00"), events });
+  const r = sandboxRun(["move", "MKTG2201", "--to", "14:30", "--named"], { now: at("10:00"), events });
   assert.equal(r.code, 0, r.out);
   const study = find(r.events, "Study econ")[0];
   assert.ok(study.start >= at("16:30"), JSON.stringify(study));
 });
 
 test("sch-move-fixed-named: a class already over is not moved", () => {
-  const r = sandboxRun(["move", "MKTG2201", "--to", "16:00"], { now: at("16:10") });
+  const r = sandboxRun(["move", "MKTG2201", "--to", "16:00", "--named"], { now: at("16:10") });
   assert.notEqual(r.code, 0);
   assert.match(r.out, /NOTHING WAS CHANGED/);
   assert.deepEqual(find(r.events, "MKTG2201").map((e) => e.start), [at("13:30")]);
@@ -92,4 +92,37 @@ test("sandbox bridge: delete with an occurrence start refuses a start that is no
   const ask = (payload) => JSON.parse(spawnSync(process.execPath, [bridge], { input: JSON.stringify({ id: "t", action: "delete_calendar_event", payload }), encoding: "utf8", env: { ...process.env, ORION_SANDBOX_CALENDAR: file } }).stdout);
   assert.equal(ask({ identifier: "seed-0", start: at("09:00") }).ok, false);
   assert.equal(ask({ identifier: "seed-0", start: at("13:30") }).ok, true);
+});
+
+// REV5 MUST 1: the script refuses a class or plan with people unless the caller says he named it (only compile does, after checking
+// his words). A direct exec, the worker's or injected, writes nothing.
+test("REV5: a direct move of a class without --named refuses and writes nothing", () => {
+  const r = sandboxRun(["move", "MKTG2201", "--to", "14:00"], { now: at("10:00") });
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /NOTHING WAS CHANGED/);
+  assert.deepEqual(r.events, MONDAY);
+});
+
+test("REV5: a direct move of a plan with people without --named refuses too", () => {
+  const events = [...MONDAY, ev("seed-3", "Dinner with Sam", "19:00", "20:00")];
+  const r = sandboxRun(["move", "Dinner with Sam", "--to", "20:30"], { now: at("10:00"), events });
+  assert.notEqual(r.code, 0, r.out);
+  assert.deepEqual(r.events, events);
+});
+
+test("REV5: ORION's own blocks still move without the flag", () => {
+  const r = sandboxRun(["move", "Gym", "--to", "18:00"], { now: at("10:00") });
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(find(r.events, "Gym").map((e) => e.start), [at("18:00")]);
+});
+
+// REV5 SHOULD 5: undo puts the class back in its OWN calendar with its own location and notes, never in ORION's calendar bare.
+test("REV5: undo of a one-day class move restores it in its original calendar with its details", () => {
+  const events = [{ ...ev("seed-0", "MKTG2201", "13:30", "15:30"), calendar: "School", location: "Richards Hall 300", notes: "Bring the case study" }, ...MONDAY.slice(1)];
+  const r = sandboxRun(["move", "MKTG2201", "--to", "14:00", "--named"], { now: at("10:00"), events });
+  assert.equal(r.code, 0, r.out);
+  const u = r.undo();
+  assert.equal(u.status, 0, u.stdout + u.stderr);
+  const back = find(r.read(), "MKTG2201");
+  assert.deepEqual(back.map((e) => [e.start, e.end, e.calendar, e.location, e.notes]), [[at("13:30"), at("15:30"), "School", "Richards Hall 300", "Bring the case study"]]);
 });

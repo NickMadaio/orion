@@ -460,7 +460,13 @@ enum OrionMacBridge {
         // move them later ("[orion:study]", "[orion:side_project]").
         if let kind = payload["orionKind"], kind.range(of: #"^[a-z_]{1,20}$"#, options: .regularExpression) != nil {
             event.notes = OrionTags.notes(kind: kind, tags: OrionTags.parse(payload: payload["orionTags"]))
+        } else if let notes = payload["notes"], !notes.isEmpty {
+            // REV5 (2026-10-31): undo putting one of HIS events back (a class moved for one day) restores its own notes, location and
+            // link. Never with an ORION marker: that would make his event movable.
+            event.notes = String(notes.prefix(4000))
         }
+        if let location = payload["location"], !location.isEmpty { event.location = String(location.prefix(500)) }
+        if let link = payload["url"], let url = URL(string: link), ["http", "https"].contains(url.scheme?.lowercased() ?? "") { event.url = url }
         try store.save(event, span: .thisEvent, commit: true)
         return ["status": "created", "identifier": event.calendarItemIdentifier]
     }
@@ -559,7 +565,9 @@ enum OrionMacBridge {
             }
             let title = occurrence.title ?? "(untitled)"
             try store.remove(occurrence, span: .thisEvent, commit: true)
-            return ["status": "deleted", "span": "this", "title": title]
+            // REV5 (2026-10-31): where it lived and what it said, so undo can put it back in its own calendar with its details.
+            return ["status": "deleted", "span": "this", "title": title, "calendar": occurrence.calendar.title,
+                    "location": occurrence.location ?? "", "notes": occurrence.notes ?? "", "url": occurrence.url?.absoluteString ?? ""]
         }
         let title = event.title ?? "(untitled)"
         try store.remove(event, span: .thisEvent, commit: true)

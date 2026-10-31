@@ -53,7 +53,7 @@ function route(opts: { now: string; day?: Day; decide?: Decision; out?: (script:
 
 describe("sch-move-fixed-named: a class he names moves to the time he says", () => {
   it("v 'marketing is moved to 2pm today thx': the form's move of the named class is compiled, not refused", () => {
-    expect(compile({ do: "move", what: "B1", to: "14:00" }, day("10:00"), "marketing is moved to 2pm today thx")).toEqual({ args: ["move", "MKTG2201", "--to", "14:00"] });
+    expect(compile({ do: "move", what: "B1", to: "14:00" }, day("10:00"), "marketing is moved to 2pm today thx")).toEqual({ args: ["move", "MKTG2201", "--to", "14:00", "--named"] });
   });
   it("a class he did NOT name is still never moved by the form", () => {
     expect(compile({ do: "move", what: "B1", to: "14:00" }, day("10:00"), "move my stuff to 2pm")).toHaveProperty("error");
@@ -62,7 +62,7 @@ describe("sch-move-fixed-named: a class he names moves to the time he says", () 
     expect(compile({ do: "move", what: "B1", to: "16:00" }, day("10:00"), "move marketing pls")).toHaveProperty("error");
   });
   it("c 'move my MKTG2201 class today from 1:30 to 2pm, its running late': the form's overrun is the move he asked for", () => {
-    expect(compile({ do: "overrun", what: "B1", minutes: 30 }, day("10:00"), "move my MKTG2201 class today from 1:30 to 2pm, its running late")).toEqual({ args: ["move", "MKTG2201", "--to", "14:00"] });
+    expect(compile({ do: "overrun", what: "B1", minutes: 30 }, day("10:00"), "move my MKTG2201 class today from 1:30 to 2pm, its running late")).toEqual({ args: ["move", "MKTG2201", "--to", "14:00", "--named"] });
   });
   it.each([
     ["prof pushed marketing to 3 today", "15:00"],
@@ -71,7 +71,7 @@ describe("sch-move-fixed-named: a class he names moves to the time he says", () 
   ])("held-out: %s", (m, to) => {
     expect(namesOwnEvent(m, MKTG)).toBe(true);
     expect(newStartFor(m, MKTG)).toBe(to);
-    expect(overrunIsMove(m, MKTG)).toEqual(["move", "MKTG2201", "--to", to]);
+    expect(overrunIsMove(m, MKTG)).toEqual(["move", "MKTG2201", "--to", to, "--named"]);
   });
   it("the long live title is named the same way, and a different class is not", () => {
     const live = { ...MKTG, title: "MKTG2201 Introduction to Marketing — Lecture" };

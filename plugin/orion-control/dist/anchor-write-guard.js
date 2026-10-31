@@ -1,3 +1,4 @@
+import { movesThisOne } from "./own-event-writes.js";
 const VERBS = new Set(["drop", "move", "resize", "swap", "rename", "displace"]);
 const STOP = new Set(["the", "and", "for", "with", "block", "session", "time", "today", "tonight"]);
 const kindOf = (b) => (b.kind === "gym" || /\bgym\b|\bworkout\b/i.test(b.title) ? "gym"
@@ -30,5 +31,5 @@ export function unnamedAnchorWrite(message, args, blocks) {
     else if (VERBS.has(verb)) {
         touched = (verb === "rename" || verb === "resize" || verb === "move" || verb === "displace" ? titles.slice(0, 1) : titles).map((t) => find(t, blocks)).filter((b) => !!b);
     }
-    return touched.find((b) => kindOf(b) && !namesBlock(message, b)) ?? null;
+    return touched.find((b) => (b.fixed ? !(verb === "move" && movesThisOne(message, b, blocks)) : kindOf(b) && !namesBlock(message, b))) ?? null;
 }

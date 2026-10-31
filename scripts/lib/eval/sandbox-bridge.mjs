@@ -15,6 +15,7 @@ const reminders = state.reminders ?? [];
 const reply = (result) => process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, result })}\n`);
 const refuse = (error) => process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error })}\n`);
 const find = (id) => events.find((e) => e.identifier === id);
+const DETAILS = ["calendar", "location", "notes", "url"];
 
 switch (request.action) {
   case "list_upcoming_calendar_events": reply({ events_json: JSON.stringify(events) }); break;
@@ -22,14 +23,18 @@ switch (request.action) {
   case "list_incomplete_reminders": reply({ reminders_json: JSON.stringify((state.reminders ?? []).filter((r) => !r.completed)) }); break;
   case "create_calendar_event": {
     const identifier = `sb-${events.length}-${Math.random().toString(36).slice(2, 8)}`;
-    save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.orionKind ? { orion: p.orionKind } : {}) }]);
+    // As the Mac bridge: the calendar it names, and the location / notes / link it was given.
+    const details = Object.fromEntries(DETAILS.filter((k) => p[k]).map((k) => [k, p[k]]));
+    save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...details, ...(p.orionKind ? { orion: p.orionKind } : {}) }]);
     reply({ identifier }); break;
   }
   case "delete_calendar_event":
     if (!find(p.identifier)) { refuse("no such event"); break; }
     // As the Mac bridge: a `start` names one occurrence, and an event that does not start then is refused, never deleted anyway.
     if (p.start && Date.parse(find(p.identifier).start) !== Date.parse(p.start)) { refuse(`No occurrence of that event starts at ${p.start}.`); break; }
-    save(events.filter((e) => e.identifier !== p.identifier)); reply({ deleted: true }); break;
+    // As the Mac bridge: the removed event's calendar, location, notes and link come back, so undo can put it back where it was.
+    save(events.filter((e) => e.identifier !== p.identifier));
+    reply({ deleted: true, ...Object.fromEntries(DETAILS.map((k) => [k, find(p.identifier)[k] ?? ""])) }); break;
   case "move_calendar_event":
     if (!find(p.identifier)) { refuse("no such event"); break; }
     save(events.map((e) => (e.identifier === p.identifier ? { ...e, start: p.start, end: p.end } : e))); reply({ moved: true }); break;

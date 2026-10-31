@@ -2,8 +2,9 @@ import type { DayBlock } from "./schedule-flow.js";
 /** His words name this event: a word of its title, its course code (or the code's letters: "marketing" for MKTG2201). */
 export declare function namesOwnEvent(message: string, block: DayBlock): boolean;
 /**
- * He is moving THIS event: he names it, names no other block of the day ("move gym to 4 after marketing" moves the gym, never the
- * class), and gives its new time.
+ * He is moving THIS event: it is the object of his move verb ("move marketing to 2pm", "push my dinner with sam to 8", "marketing
+ * got moved to 2"), that phrase names no other block of the day, and it has a new time. A block he only mentions elsewhere in the
+ * message ("push workout to 6 and dinner after", "move gym to 4 after marketing") is never moved.
  */
 export declare function movesThisOne(message: string, block: DayBlock, others?: readonly DayBlock[]): boolean;
 /** The new start he gave for that event ("HH:MM"), the hour read as the one nearer the event's own start; else undefined. */

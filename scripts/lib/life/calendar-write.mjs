@@ -71,7 +71,11 @@ async function reverseSteps(steps) {
       }
     }
     if (step.op === "delete") {
-      const payload = { title: step.title, start: step.start, end: step.end, calendar: loadConfig().eventCalendar };
+      // REV5 SHOULD 5: one of HIS events (a class moved for one day) goes back in its own calendar with its own details, as the
+      // bridge reported them when it came off; ORION's blocks and older steps fall back to ORION's calendar.
+      const payload = { title: step.title, start: step.start, end: step.end, calendar: step.calendar || loadConfig().eventCalendar,
+        ...(step.location ? { location: step.location } : {}), ...(step.url ? { url: step.url } : {}),
+        ...(step.notes && !step.orionKind ? { notes: step.notes } : {}) };
       if (step.orionKind) payload.orionKind = step.orionKind;
       if (step.orionTags) payload.orionTags = step.orionTags;
       const result = await bridge("create_calendar_event", payload);

@@ -35,12 +35,12 @@ import { tomorrowProposal, awakeLateFlag, goToBedMessage } from "../scripts/lib/
 const night = [b("cs2100", "class", 540, 630, true), b("study", "study", 600, 720), b("gym", "gym", 1260, 1350), b("sp", "side_project", 1200, 1260)];
 const popts = { sleptMinutes: 270, wake: 465, window: { start: 465, end: 1380 }, recovery: { level: "low" } };
 
-test("proposal: the class stays, a nap follows it, heavy study moves later, gym shrinks", () => {
+test("proposal: the class stays, a nap follows it, heavy study moves later, gym keeps its 90 (2026-10-31 policy)", () => {
   const r = tomorrowProposal(night, popts);
   assert.equal(r.blocks.find((x) => x.id === "cs2100").start, 540);
   assert.equal(r.blocks.find((x) => x.title === "Nap").start, 630);
   assert.ok(r.blocks.find((x) => x.id === "study").start >= 900);
-  const gym = r.blocks.find((x) => x.id === "gym"); assert.equal(gym.end - gym.start, 45);
+  const gym = r.blocks.find((x) => x.id === "gym"); assert.equal(gym.end - gym.start, 90);
   assert.deepEqual(r.protect, [{ title: "cs2100", start: 540 }]);
   assert.match(r.text, /cs2100 at 9:00 AM stays, alarm and leave time too/);
   assert.match(r.text, /keep it/);

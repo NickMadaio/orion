@@ -40,12 +40,14 @@ export function adjustForShortSleep(blocks, { sleptMinutes, wake, window, minimu
   return { blocks: working.sort(byStart), changes };
 }
 
-const GYM_EASY_MINUTES = 45;
+const STUDY_TRIM_MINUTES = 30;    // a tired day takes this much off each long study block...
+const STUDY_FLOOR_MINUTES = 45;   // ...never below this
 
 /**
  * Tomorrow after a night that is gone or going (an all-nighter, or awake past the sleep plan). A PROPOSAL, said plainly in
- * the morning brief: classes stay with their alarm and leave time, a nap goes in after class, heavy study moves later, and
- * the gym shrinks to an easy 45 when recovery is low. Nothing is written to the calendar; Nick says yes or "keep it".
+ * the morning brief: classes stay with their alarm and leave time, a nap goes in after class, heavy study moves later. When
+ * he is tired the gym keeps its full length (his rule: 90 min every day) as an easier session, and study shrinks instead
+ * (2026-10-31 policy). Nothing is written to the calendar; Nick says yes or "keep it".
  * @returns {{ blocks, changes: string[], protect: {title,start}[], text: string, sleptMinutes: number }}
  */
 export function tomorrowProposal(blocks, { sleptMinutes, wake, window, recovery = null, minimums = {}, heavyAfter = 15 * 60 }) {
@@ -53,9 +55,12 @@ export function tomorrowProposal(blocks, { sleptMinutes, wake, window, recovery 
   const tired = recovery?.level === "low" || sleptMinutes < 300;
   const changes = [...base.changes];
   const out = base.blocks.map((b) => {
-    if (!tired || b.fixed || b.kind !== "gym" || b.end - b.start <= GYM_EASY_MINUTES) return b;
-    changes.push(`Shortened ${b.title} to ${GYM_EASY_MINUTES} min, easy`);
-    return { ...b, end: b.start + GYM_EASY_MINUTES };
+    if (!tired || b.fixed) return b;
+    if (b.kind === "gym") { changes.push(`${b.title} stays full length as an easier session`); return b; }
+    if (b.kind !== "study" || b.end - b.start <= STUDY_FLOOR_MINUTES) return b;
+    const length = Math.max(STUDY_FLOOR_MINUTES, b.end - b.start - STUDY_TRIM_MINUTES);
+    changes.push(`Shortened ${b.title} to ${length} min`);
+    return { ...b, end: b.start + length };
   });
   const protect = out.filter((b) => b.fixed && b.kind === "class").sort(byStart).map((b) => ({ title: b.title, start: b.start }));
   const classLine = protect.length ? `${protect.map((c) => `${c.title} at ${clock12(c.start)}`).join(" and ")} stays, alarm and leave time too.` : "Nothing fixed is touched.";

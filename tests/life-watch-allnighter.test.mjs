@@ -31,7 +31,7 @@ test("03:10 awake on a class night: flagged, a proposal for the day, nothing sen
   const flag = JSON.parse(readFileSync(join(dir, "awake-late.json"), "utf8"));
   assert.equal(flag.targetDate, "2026-11-02"); assert.deepEqual(flag.evidence, ["mac active"]);
   assert.match(flag.message, /3:10 AM and CS2100 Lab is at 9:00 AM/); assert.match(flag.message, /Go to bed\./);
-  assert.match(flag.proposal.text, /CS2100 Lab at 9:00 AM stays/); assert.match(flag.proposal.text, /nap/i); assert.match(flag.proposal.text, /Gym to 45 min/);
+  assert.match(flag.proposal.text, /CS2100 Lab at 9:00 AM stays/); assert.match(flag.proposal.text, /nap/i); assert.match(flag.proposal.text, /Gym stays full length as an easier session/);   // 2026-10-31 policy: the gym keeps its 90
 });
 
 test("08:00 after that night: the brief states the proposal and the dead phone once", () => {

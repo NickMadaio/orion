@@ -124,7 +124,7 @@ const plans = (list) => list.map((b) => `${short_(b.title)} at ${hhmm(b.start)}`
 
 // 1b. Awake past the sleep plan (2026-10-30: the 10-25 all-nighter, a 9:00 class, and nothing said). Past bedtime with the
 // Mac or the phone in use is flagged here; the plan for the coming day is a PROPOSAL (class and alarm stay, a nap after
-// class, heavy study later, an easy short gym) that the morning brief states. The go-to-bed words are written to
+// class, heavy study later and shorter, the gym full length as an easier session) that the morning brief states. The go-to-bed words are written to
 // awake-late.json for the bedtime guard, which owns whether and when a message goes.
 const readJson = (f) => read(join(CONTROLLED, f), null);
 const bedPlan = (() => {
@@ -244,7 +244,7 @@ if (awake && minute >= 300 && minute < 780 && day.calendar === "ok" && !day.aske
     deadlines, sleep: { hours: record.sleepHours ?? null, recovery: record.recovery ?? null },
     sideProjectLabel: config.sideProjectLabel, candidates, history,
     proposal: proposalLive?.proposal?.text ?? null,
-    gym: gymBlock && !proposalLive ? { start: gymBlock.start, minutes: gymBlock.end - gymBlock.start, easy: lowRecovery && gymBlock.end - gymBlock.start <= 45 } : null,
+    gym: gymBlock && !proposalLive ? { start: gymBlock.start, minutes: gymBlock.end - gymBlock.start, easy: lowRecovery } : null,   // low recovery: the full 90, an easier session (2026-10-31 policy)
     sensorNotices: sensorSaid.notices.map((n) => n.text),
   });
   brief = made.text;

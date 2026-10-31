@@ -88,6 +88,8 @@ const NAP = /\b(?:took|had|did|just had)\s+(?:a\s+)?(?:quick\s+|little\s+|long\s
 const SLEPT = new RegExp(String.raw`\bi\s+(?:slept|napped|was asleep|passed out)\s+from\s+${CLK}\s*(?:to|till|until|-|–)\s*${CLK}`, "i");
 const PLAN_REST = /\b(?:plan|redo|rebuild|replan|re-?do|fix|sort(?: out)?|reshuffle|rework)\s+(?:out\s+)?(?:my|the)\s+(?:evening|night|afternoon|rest of (?:the|my) day|rest of (?:today|tonight)|day)\b|\bfrom now\b/i;
 const NOT_DONE_THING = /^(?:i|im|i'm|it|that|this|we|you|everything|all|day|today|my day|session|focus|the session|it all|mine|one|nap|class|the class)$/;
+// REV2 finding 2: "i just finished my coffee" captured "i just" as the thing done. A capture with a pronoun or an adverb is not a block name.
+const PRONOUN_OR_ADVERB = /\b(?:i|im|i'm|me|we|you|he|she|they|it|its|it's|this|that|just|really|finally|already|actually|totally|basically|literally|so|now)\b/;
 const NOT_A_PLACE = /^(?:home|library|uni|campus|work|school|bed|my room|office|cafe|town)$/;
 const ATTENDED = /\bi (?:was|went|did go|made it)\s+(?:literally\s+|actually\s+|totally\s+|definitely\s+)?(?:in|at|to)\s+(?:the\s+|my\s+)?([a-z][a-z0-9 ]{1,25}?)(?=\s*(?:class|lecture|today|lol|tho|though|,|\.|!|$|fix|but|so|the whole))/i;
 const SAID_MISSED = /\byou (?:said|thought|marked|logged)\s+(?:that\s+)?i (?:missed|skipped|didn'?t (?:go to|make it to|go))\s+(?:the\s+|my\s+)?([a-z0-9]+)/i;
@@ -99,7 +101,7 @@ function readDone(m: string): Reality | null {
   if (NAP.test(m)) return { kind: "done", what: "nap", fill: PLAN_REST.test(m) };
   const hit = BACK_FROM.exec(m) ?? IS_DONE.exec(m) ?? FINISHED.exec(m);
   const what = hit?.[1]?.trim().replace(/\s+(?:now|already|finally)$/, "");
-  if (!what || NOT_DONE_THING.test(what) || NOT_A_PLACE.test(what) || /\b(?:is|are|was|running|going|dragging|taking|almost|not)\b/.test(what) || /\b(?:not|never|almost|nearly)\b/.test(m.slice(0, hit!.index))) return null;
+  if (!what || NOT_DONE_THING.test(what) || PRONOUN_OR_ADVERB.test(what) || NOT_A_PLACE.test(what) || /\b(?:is|are|was|running|going|dragging|taking|almost|not)\b/.test(what) || /\b(?:not|never|almost|nearly)\b/.test(m.slice(0, hit!.index))) return null;
   const times = DONE_TIMES.exec(m);
   return { kind: "done", what, ...(times ? { from: times[1]!, to: times[2]! } : {}), fill: PLAN_REST.test(m) };
 }
@@ -355,6 +357,8 @@ async function doneIt(r: Extract<Reality, { kind: "done" }>, deps: RealityDeps):
       return { flow: say(id ? `Nice, noted: ${shortTitle(y.title)} done last night. It's after midnight, so yesterday's calendar stays as it was.` : REALITY_SAVE_FAILED), facts: id ? [id] : [], writes: 0 };
     }
   }
+  // REV2 finding 2: "the movie is over" / "dinner is done" with no such block planned is not his day to rewrite: nothing is logged (gym, his daily anchor, still is).
+  if (!block && !nap && !/\bgym\b/.test(r.what)) return { flow: say(`Nice. ${r.what.replace(/^./, (c) => c.toUpperCase())} isn't on today's plan, so I left your calendar alone. Tell me the times if you want it on there.`), facts: [], writes: 0 };
   if (block?.fixed) {
     const id = await declare(deps, "note", ["--title", block.title]);
     return { flow: say(id ? `Noted: ${shortTitle(block.title)} done.` : REALITY_SAVE_FAILED), facts: id ? [id] : [], writes: 0 };

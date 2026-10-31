@@ -3,7 +3,8 @@
 // orion-brain call that went through the old names failed with "No such command". Kept in one place, pure, testable.
 const PROJECT = ["--project", "orion"];
 export const bmArgs = {
-  search: (q) => ["tool", "search", q, ...PROJECT, "--json", "--compact"],
+  // REV2 BRAIN: no --compact, so each result carries its matched chunk and the reply can quote it.
+  search: (q) => ["tool", "search", q, ...PROJECT, "--json"],
   read: (title) => ["tool", "read", title, ...PROJECT],
   context: (title) => ["tool", "context", `memory://${title}`, ...PROJECT],
   recent: () => ["tool", "project", "recent", "--since", "7d", ...PROJECT],

@@ -43,6 +43,8 @@ const rankedSearch = async (q) => {
   return (JSON.parse(stdout).results ?? []).map((r) => ({ title: r.title, file_path: r.file_path, excerpt: r.matched_chunk ?? r.content ?? "" }));
 };
 const clean = (s, max) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
+// REV2 BRAIN: a note title is a name, never an option ("--help", "-rf") or a path ("../x", "a/b") for basic-memory to act on.
+const badTitle = (t) => /^-/.test(t) || /[/\\]/.test(t) || /\.\./.test(t);
 
 try {
   if (command === "canvas-courses" || command === "canvas-refresh") {
@@ -86,12 +88,14 @@ try {
     console.log(await brainSearch(q, { graph: loadGraph(controlled), vaultDir, ranked: rankedSearch }));
   } else if (command === "read" || command === "context") {
     const title = clean(rest[0], 120); if (!title) fail(`usage: orion-brain ${command} "<note title>"`);
+    if (badTitle(title)) fail(`orion-brain: "${title}" is not a note title (no leading "-", "/" or ".."); nothing was read.`);
     process.stdout.write(command === "read" ? bm(bmArgs.read(title)) : bm(bmArgs.context(title)));
   } else if (command === "learn") {
     const [rawTitle, rawCategory, ...fact] = rest;
     const title = clean(rawTitle, 80); const category = clean(rawCategory, 30).toLowerCase().replace(/[^a-z -]/g, "");
     const text = clean(fact.join(" "), 400);
     if (!title || !category || !text) fail('usage: orion-brain learn "<note title>" "<category>" "<fact>"');
+    if (badTitle(title)) fail(`orion-brain: "${title}" is not a note title (no leading "-", "/" or ".."); nothing was saved.`);
     const line = `- [${category}] ${text} (${new Date().toISOString().slice(0, 10)})`;
     let existing = null;
     try { existing = bm(bmArgs.read(title)); } catch { /* new note */ }

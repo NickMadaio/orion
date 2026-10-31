@@ -37,7 +37,7 @@ describe("schedule flow", () => {
     expect(compile({ do: "fill_between", what: "B4", after: "B9", before: "B3" }, monday)).toMatchObject({ error: expect.any(String) });
     expect(compile({ do: "drop", what: "B1" }, monday)).toMatchObject({ error: expect.stringMatching(/movable|does not move/) });
     const late = { ...monday, now: "15:20" };
-    expect(compile({ do: "fill_between", what: "B4", after: "B2", before: "B3" }, late)).toMatchObject({ say: "cannot" });
+    expect(compile({ do: "fill_between", what: "B4", after: "B2", before: "B3" }, late, "put it between them")).toMatchObject({ say: "cannot" });
   });
 
   it("titles with & are passed as one argv item (no shell), so they reach the scheduler intact", () => {

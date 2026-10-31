@@ -131,17 +131,34 @@ async function cancelPlan(message: string, now: Date, list: ReminderInput["list"
   return { kind: "call", action: "reminder_cancel", args: JSON.stringify({ steps: [{ action: "reminder_cancel", id: r.id }] }), reply: `Cancelled your ${spokenDue(r.dueAt, now)} reminder: ${r.label}.` };
 }
 
+const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const WEEKDAY_ON = /\b(?:(on|this|next)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|(?<=\b(?:on|this|next)\s+)(?:mon|tues?|wed|thu|thurs|fri|sat|sun))\b(?!'s)/i;
+
+/** "ill leave at 1:05 for marketing" (loop-leave-nudge-c): a time he will leave is a leave reminder, said as one. Undefined otherwise. */
+const LEAVE_AT = /^(?:(?:ok(?:ay)?|so|yeah|fine|alright|orion)[,\s]+)*(?:i'?ll|ill|i will|i'?m gonna|im gonna|gonna|i'?m going to|im going to|i'?m leaving|im leaving|leaving)\s+(?:leave\s+)?(?:at|by|around)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)(?:\s+(?:for|to)\s+(?:the\s+|my\s+)?([a-z0-9][a-z0-9 ]{1,30}?))?\s*[.!]*$/i;
+export function leaveAsReminder(message: string): string | undefined {
+  const m = LEAVE_AT.exec(message.trim());
+  return m ? `remind me to leave${m[2] ? ` for ${m[2]}` : ""} at ${m[1]}` : undefined;
+}
+
 /** The exact due time: relative times by arithmetic, a time already past today moved to the next day. */
 function dueFor(message: string, time: string | null, now: Date, baseDay?: string): { at: string; day: Date } | { past: string } | undefined {
   const rel = relativeTime(message, now);
   if (rel) return { at: `${ymdOf(rel)}T${hhmmOf(rel)}`, day: rel };
   if (!time) return undefined;
-  const [h, m] = time.split(":").map(Number);
-  const base = baseDay && !meansTomorrow(message, now) ? new Date(`${baseDay}T00:00`) : new Date(now.getTime() + (meansTomorrow(message, now) ? 86400000 : 0));
+  let [h, m] = time.split(":").map(Number) as [number, number];
+  // 2026-10-31 gate (cha-phone-call-c): "remind me to call my mom on sunday at 6" was filed for Saturday: the weekday was never read.
+  const wd = RECURRING.test(message) ? null : WEEKDAY_ON.exec(message);
+  const target = wd ? WEEKDAY_NAMES.findIndex((d) => d.startsWith(wd[2]!.toLowerCase().slice(0, 3))) : -1;
+  const ahead = target >= 0 ? ((target - now.getDay() + 7) % 7) || (/^next/i.test(wd![1] ?? "") ? 7 : 0) : 0;
+  // A bare clock with no am/pm that already passed this morning is this afternoon ("ill leave at 1:05" at 12:47 is 1:05 PM).
+  const meridiem = /\d\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message) || /\b(?:1[3-9]|2[0-3]):\d{2}\b/.test(message);
+  if (!meridiem && target < 0 && !baseDay && !meansTomorrow(message, now) && h < 12 && h * 60 + m <= now.getHours() * 60 + now.getMinutes() && (h + 12) * 60 + m > now.getHours() * 60 + now.getMinutes()) h += 12;
+  const base = baseDay && !meansTomorrow(message, now) ? new Date(`${baseDay}T00:00`) : new Date(now.getTime() + (meansTomorrow(message, now) ? 86400000 : ahead * 86400000));
   const day = new Date(base.getFullYear(), base.getMonth(), base.getDate(), h ?? 0, m ?? 0);
   if (day.getTime() <= now.getTime()) {
-    if (TODAY.test(message)) return { past: time };
-    day.setDate(day.getDate() + 1);
+    if (TODAY.test(message)) return { past: `${pad(h)}:${pad(m)}` };
+    day.setDate(day.getDate() + (target >= 0 ? 7 : 1));
   }
   return { at: `${ymdOf(day)}T${hhmmOf(day)}`, day };
 }

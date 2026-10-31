@@ -54,7 +54,12 @@ export function plainScreenReply(data: ScreenData): string {
 export function failureReply(error: unknown, doing: "see" | "control"): string {
   if (error instanceof BridgeFailure) {
     switch (error.kind) {
+      case "app_down":
+        return /isn't answering|didn't answer/.test(error.message)
+          ? `I can't ${doing} the screen right now: ${error.message}.`
+          : `I can't ${doing} the screen right now: the Orion app isn't running, and it's the process that holds Accessibility for me.`;
       case "no_access":
+        if (/Orion app/.test(error.message)) return `I can't ${doing} the screen yet: ${error.message.replace(/^Accessibility is not granted(?: here)?[:,]\s*/, "")}`;
         return `I can't ${doing} the screen yet: macOS hasn't given the process I run in Accessibility. Turn it on in System Settings > Privacy & Security > Accessibility.`;
       case "no_screen_recording":
         return "I can't read the pixels on screen: Screen Recording isn't granted to the process I run in.";

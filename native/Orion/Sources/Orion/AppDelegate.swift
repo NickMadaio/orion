@@ -41,6 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The iPhone link helper embedded in this bundle (PhoneLink.swift).
         PhoneLink.ensureRunning()
 
+        // Screen requests from the gateway run here, under this app's Accessibility grant (ComputerRelayHost.swift).
+        ComputerRelayHost.shared.start()
+
         // Updates. The check is deliberately not part of launching: it starts
         // half a minute in, and it asks first whether a focus session is
         // running, so neither the network nor an install can interrupt the work

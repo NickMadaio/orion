@@ -6,6 +6,9 @@
 //
 //   hard  no block ORION places or moves may overlap anything;
 //         every block starts before it ends and is at least 5 minutes.
+//   scope when the caller marks blocks `touched` (the ones this request creates or moves) and passes
+//         { onlyTouched: true }, only those blocks are judged: a stale or degenerate block the request never
+//         touched (an ORION-made 3-minute leftover, say) neither blocks the change nor is blamed on him.
 //   soft  (reported, not refused) two of his own fixed events overlapping —
 //         his call, not ours.
 
@@ -17,12 +20,14 @@ const mine = (b) => b.source === "orion" || b.fixed === false;
  * @param from      minute of "now": only the day from here on is judged
  * @returns { ok, problems: string[], notes: string[] }
  */
-export function checkDay(allBlocks, { from = 0 } = {}) {
+export function checkDay(allBlocks, { from = 0, onlyTouched = false } = {}) {
   if (!Array.isArray(allBlocks)) throw new TypeError("checkDay needs the day's blocks");
   // Only what is still ahead can be wrong: the part of the day before `from` already happened.
   const blocks = allBlocks.filter((b) => b.end > from).map((b) => ({ ...b, start: Math.max(b.start, from) }));
   const problems = []; const notes = [];
+  const judged = (b) => !onlyTouched || b.touched === true;
   for (const b of blocks) {
+    if (!judged(b)) continue;
     if (!(Number.isFinite(b.start) && Number.isFinite(b.end)) || b.end <= b.start) problems.push(`${b.title} has no length`);
     else if (mine(b) && b.end - b.start < 5) problems.push(`${b.title} is shorter than 5 minutes`);
   }
@@ -31,6 +36,7 @@ export function checkDay(allBlocks, { from = 0 } = {}) {
     for (let j = i + 1; j < sorted.length && sorted[j].start < sorted[i].end; j++) {
       const [a, b] = [sorted[i], sorted[j]];
       if (!overlaps(a, b)) continue;
+      if (onlyTouched && !judged(a) && !judged(b)) continue;
       if (mine(a) || mine(b)) problems.push(`${a.title} (${clock(a.start)}–${clock(a.end)}) overlaps ${b.title} (${clock(b.start)}–${clock(b.end)})`);
       else notes.push(`two of his own plans overlap: ${a.title} and ${b.title}`);
     }

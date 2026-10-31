@@ -44,6 +44,28 @@ export function placedAt(day: Day | undefined, title: string, asked: number): nu
     .sort((a, b) => Math.abs(toMin(a.start) - asked) - Math.abs(toMin(b.start) - asked));
   return near[0] ? toMin(near[0].start) : undefined;
 }
+/**
+ W5 (gate loop-bedtime-reschedule-v): the start AND the length the calendar shows. A 30 min nap was asked for and his learned minimum
+ made it 75, but the reply said "a 30 min nap" from the command. Undefined as placedAt.
+*/
+export function placedSpan(day: Day | undefined, title: string, asked: number): { start: number; minutes: number } | undefined {
+  const start = placedAt(day, title, asked);
+  if (start === undefined) return undefined;
+  const want = norm(title);
+  const b = (day?.blocks ?? []).find((x) => (norm(x.title) === want || norm(x.title).includes(want)) && toMin(x.start) === start);
+  return b ? { start, minutes: toMin(b.end) - toMin(b.start) } : undefined;
+}
+
+/** The write went through but the calendar does not show the block where it was asked for: no time is claimed. */
+export const unseen = (title: string): string => `The calendar took the change, but I can't see ${title} where I asked for it, so check it before you count on the time.`;
+
+/** How long after it started a block still counts as the one he is putting off ("gonna eat first" with no nudge on record). */
+export const JUST_STARTED_MIN = 30;
+/** The block his calendar started in the last half hour that is still on: not fixed, not sleep, the latest start. Undefined when none. */
+export function justStarted(day: Day | undefined, nowMin: number): DayBlock | undefined {
+  return (day?.blocks ?? []).filter((b) => !b.fixed && b.kind !== "class" && !isSleep(b) && toMin(b.start) <= nowMin && toMin(b.end) > nowMin && nowMin - toMin(b.start) <= JUST_STARTED_MIN)
+    .sort((a, b) => toMin(b.start) - toMin(a.start))[0];
+}
 
 /** A class or a plan with people (the scheduler marks both fixed); a title "with <someone>" counts when there is no block to read. */
 export const isProtected = (title: string, block?: DayBlock): boolean =>

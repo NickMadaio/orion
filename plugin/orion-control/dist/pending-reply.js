@@ -11,7 +11,7 @@ const QUESTION_MS = 90 * 60_000;
 const OFFER_TAKES = {
     start: ["defer", "done", "resume", "accept", "indifferent", "decline", "counter", "awake"],
     leave: ["defer", "accept", "indifferent"],
-    bedtime: ["awake", "workload", "defer"],
+    bedtime: ["awake", "workload", "defer", "bed"],
     catchup: ["accept", "indifferent", "counter", "decline"],
     slipped: ["accept", "indifferent", "decline", "counter"],
     brief: ["accept", "indifferent", "counter"],
@@ -20,7 +20,7 @@ const OFFER_TAKES = {
 };
 const MEMO_TAKES = {
     resume: ["resume", "done", "accept"],
-    bedtime: ["awake", "workload", "defer"],
+    bedtime: ["awake", "workload", "defer", "bed"],
     booked: ["accept", "indifferent"],
     brief: ["accept", "counter"],
     next: ["next", "accept"],
@@ -37,6 +37,7 @@ export class PendingMemory {
     memos = new Map();
     replies = new Map();
     crises = new Map();
+    /** Without a state dir: every answered outreach. With one: only those whose write failed (the file is the record otherwise). */
     answered = [];
     memo(key, nowMs) { const m = this.memos.get(key); return m && nowMs - m.at < MEMO_MS ? m : undefined; }
     setMemo(key, memo) { if (memo)
@@ -61,12 +62,16 @@ export class PendingMemory {
         return { ...(lastReplyAt !== undefined ? { lastReplyAt } : {}), afterCrisis };
     }
     wasAnswered(text, sentAt, nowMs, dir) {
-        return answeredIn(dir ? readAnswered(dir) : this.answered, text, sentAt, nowMs) || answeredIn(this.answered, text, sentAt, nowMs);
+        return (dir ? answeredIn(readAnswered(dir), text, sentAt, nowMs) : false) || answeredIn(this.answered, text, sentAt, nowMs);
     }
+    /**
+     W5 (2026-10-31, gate run-1031224700): the state file is the record. A copy kept in memory as well outlived the file, so a state
+     restored to before the answer (an undo, the gate's per-item restore) still read "answered" and the next reply bound to nothing.
+    */
     markAnswered(text, sentAt, nowMs, dir) {
+        if (dir && writeAnswered(dir, withAnswered(readAnswered(dir), text, sentAt, nowMs)))
+            return;
         this.answered = withAnswered(this.answered, text, sentAt, nowMs);
-        if (dir)
-            writeAnswered(dir, withAnswered(readAnswered(dir), text, sentAt, nowMs));
     }
 }
 const QUESTION_KINDS = ["catchup", "plan-check", "brief", "slipped"];
@@ -103,14 +108,17 @@ export function readPendingTurn(input) {
     const fromLabel = outreach ? { text: outreach.text, at: now.getTime() - outreach.minutes * 60_000 } : undefined;
     const push = !fromLabel && lastPush ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
     const source = fromLabel ?? push;
+    const planned = planDefer(said, reply);
     if (!source || Number.isNaN(source.at) || input.answered?.(source.text, source.at))
-        return undefined;
-    // ORION spoke in this chat after the outreach went: his reply answers that turn (a question asked in chat beats an older push).
-    if (input.lastReplyAt !== undefined && source.at <= input.lastReplyAt)
-        return undefined;
+        return planned;
     const offer = offerOf(source.text);
+    // ORION spoke in this chat after the outreach went: his reply answers that turn (a question asked in chat beats an older push), unless
+    // his words can only answer the outreach ("fine going to bed now" after "ok one more thing" → "What is it?" answers the bedtime line).
+    const onlyThatOffer = reply.kind === "bed" && offer?.kind === "bedtime";
+    if (input.lastReplyAt !== undefined && source.at <= input.lastReplyAt && !onlyThatOffer)
+        return planned;
     if (!offer || !OFFER_TAKES[offer.kind].includes(reply.kind))
-        return undefined;
+        return planned;
     if (offer.kind === "start" && reply.kind === "counter" && CHANGE_VERB.test(message))
         return undefined; // "move gym to 8" is the calendar's
     if (ownRequest(message, reply, offerNames(offer)))
@@ -122,6 +130,15 @@ export function readPendingTurn(input) {
     }
     // A memo about a different thing is replaced by the outreach he is answering now.
     return { said, reply, offer, sentAt: source.at, outreachText: source.text };
+}
+/**
+ W5 (gate loop-eat-first): "im starving gonna eat first" with no nudge on record. A pause for something named (eating, a shower, a call)
+ is him putting off what his calendar has on now; pending-reply-act.ts finds that block (started in the last half hour, not fixed) and
+ grants the grace on it, or does nothing when there is none. A bare "5 more min" is not read this way (a running session's own).
+*/
+function planDefer(said, reply) {
+    // "meal prepping for 40 min then ill do gym" names its own next step: that is a plan he is telling (reality.ts), not this.
+    return reply.kind === "defer" && reply.activity && reply.typical !== undefined && !/\bthen\b/i.test(said) ? { said, reply, plan: true } : undefined;
 }
 /** Carries the pending reply out; undefined when there is nothing code can do with it (the normal turn follows). */
 export function runPendingTurn(turn, deps) {

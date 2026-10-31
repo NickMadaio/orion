@@ -1,0 +1,251 @@
+// W5 (2026-10-31, gate run-1031224700): Nick's replies to ORION's nudges must do something. Through the routing hooks, over a fake
+// calendar the fake scheduler writes to. Phrasings marked "held out" do not appear in the gate scenarios. No real paths.
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { registerLocalRouting } from "./local-routing.js";
+import { PendingMemory, readPendingTurn } from "./pending-reply.js";
+import { offerOf, readReply } from "./pending-reply-read.js";
+const APP = `[Orion app context — factual state supplied by the native app]
+Focus session: inactive.
+
+User message:
+`;
+const label = (text, minutes = 0) => `[ORION context: you messaged him first, ${minutes} min ago: "${text}". This message MAY be his answer.]\n`;
+const b = (title, start, end, fixed = false, kind) => ({ title, start, end, fixed, ...(kind ? { kind } : {}) });
+const at = (d, hhmm) => { const [h, m] = hhmm.split(":").map(Number); const [y, mo, da] = d.split("-").map(Number); return new Date(y, mo - 1, da, h, m); };
+const toMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const hhmm = (min) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+const cmdMin = (t) => { const [, h, m, mer] = t.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)$/) ?? []; return ((Number(h) % 12) + (mer === "pm" ? 12 : 0)) * 60 + Number(m ?? 0); };
+const MON = () => ({ date: "2026-11-02", now: null, blocks: [b("MKTG2201", "13:30", "15:30", true, "class"), b("Gym", "17:00", "18:30"), b("CS lab", "18:00", "19:00"), b("Side project", "19:30", "20:30")] });
+const TUE = () => ({ date: "2026-11-03", now: null, blocks: [b("CS2100", "09:00", "10:30", true, "class"), b("ECON1115", "11:00", "12:30", true, "class"), b("Gym", "17:00", "18:30")] });
+function harness(o) {
+    const handlers = new Map();
+    const flows = [];
+    const checkins = [];
+    const sessions = [];
+    const wakes = [];
+    const remembered = [];
+    const days = { today: o.today ?? MON(), tomorrow: o.tomorrow ?? TUE() };
+    const clock = { now: o.now };
+    const write = (message) => {
+        const add = message.match(/^add a (\d+) min (.+?)( tomorrow)? at (\S+)$/);
+        if (!add)
+            return;
+        const which = add[3] ? "tomorrow" : "today";
+        // Before 5 AM "tomorrow" is today's date: the harness keeps the wake day in `tomorrow` either way.
+        const key = which === "tomorrow" || clock.now.getHours() < 5 ? (clock.now.getHours() < 5 ? "tomorrow" : which) : which;
+        const s = cmdMin(add[4]);
+        const len = /^nap$/i.test(add[2]) && o.napMin ? Math.max(o.napMin, Number(add[1])) : Number(add[1]);
+        days[key] = { ...days[key], blocks: [...days[key].blocks, b(add[2], hhmm(s), hhmm(s + len))] };
+    };
+    registerLocalRouting({ on: (name, fn) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) }, {
+        warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "w5-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Mon 12:00", now: () => clock.now,
+        ...(o.stateDir ? { stateDir: o.stateDir } : {}),
+        decideImpl: async () => ({ move: "escalate", tier: "standard" }),
+        scheduleFlow: async (message) => { flows.push(message); write(message); return { outcome: "done", calls: [`exec orion-reschedule (${message})`], outputs: ["Done."], marks: [`m${flows.length}`], reply: "Done." }; },
+        sessionFlow: async (message) => { sessions.push(message); return { outcome: "done", calls: ["exec orion-session start"], outputs: ["{}"], reply: "Focus session on CS lab started: 50 min." }; },
+        readDayJson: async (args) => (args.includes("tomorrow") || clock.now.getHours() < 5 ? days.tomorrow : days.today),
+        checkinRun: async (args) => { checkins.push(args); return args[0] === "find" ? { stdout: '{"open":false}', code: 1 } : { stdout: "ok ci-abc123", code: 0 }; },
+        wakeExec: async (args) => { wakes.push(args); return { stdout: "Sent to Nick's iPhone: alarm for Tuesday 08:00.", code: 0 }; },
+        rememberRun: async (args) => { remembered.push(args); return o.remember ?? { stdout: "remembered -> ~/.openclaw/workspace/USER.md", code: 0 }; },
+    });
+    const fire = async (name, event, ctx) => { const out = []; for (const fn of handlers.get(name) ?? [])
+        out.push(await fn(event, ctx)); return out; };
+    let n = 0;
+    const turn = async (prompt, session = "w5") => {
+        const ctx = { runId: `w${n += 1}-${Math.random()}`, sessionKey: `agent:main:orion-chat-${session}` };
+        await fire("before_model_resolve", { prompt }, ctx);
+        const [direct] = (await fire("before_agent_reply", { prompt }, ctx));
+        if (direct?.reply?.text)
+            return `DRAFT: ${direct.reply.text}`;
+        const [built] = (await fire("before_prompt_build", { prompt, messages: [] }, ctx));
+        return built?.appendContext?.match(/Your whole reply must be exactly: ([\s\S]*)\]$/)?.[1] ?? `WORKER: ${built?.systemPrompt?.slice(0, 80) ?? ""}`;
+    };
+    return { turn, flows, checkins, sessions, wakes, remembered, days, clock };
+}
+const stateWith = (rows) => {
+    const dir = mkdtempSync(join(tmpdir(), "w5-state-"));
+    for (const r of rows)
+        appendFileSync(join(dir, "outreach.jsonl"), `${JSON.stringify({ id: `o${r.sent.getTime()}`, text: r.text, at: r.sent.toISOString(), channel: "mac-bubble" })}\n`);
+    return dir;
+};
+const adds = (h) => h.checkins.filter((a) => a[0] === "add" || a[0] === "defer");
+describe("the answered record is the state file (gate: the second item of a pair bound to nothing)", () => {
+    it("an outreach answered, then the state restored to before the answer, is answerable again", () => {
+        const dir = mkdtempSync(join(tmpdir(), "w5-ans-"));
+        const memory = new PendingMemory();
+        memory.markAnswered("Bed now.", 1000, 2000, dir);
+        expect(memory.wasAnswered("Bed now.", 1000, 2500, dir)).toBe(true);
+        rmSync(join(dir, "pending-answered.json"));
+        expect(memory.wasAnswered("Bed now.", 1000, 2500, dir)).toBe(false);
+    });
+    it("without a state dir it is still kept in memory", () => {
+        const memory = new PendingMemory();
+        memory.markAnswered("Bed now.", 1000, 2000);
+        expect(memory.wasAnswered("Bed now.", 1000, 2500)).toBe(true);
+    });
+});
+describe("a start rung's 'still not started' line, with any dash", () => {
+    const LINE = "Econ problem set - still not started. Start now; just the first five minutes.";
+    it("reads the title whichever dash the line carries", () => {
+        expect(offerOf(LINE)).toEqual({ kind: "start", title: "Econ problem set" });
+        expect(offerOf("Econ problem set – still not started.")).toEqual({ kind: "start", title: "Econ problem set" });
+    });
+    const ECON = () => ({ date: "2026-11-02", now: null, blocks: [b("Econ problem set", "18:00", "19:00")] });
+    it.each(["ya in a sec", "yeah one sec", "ok hang on"])("'%s' is a stall: 5 min, stated, and a check-in on the loop", async (said) => {
+        const h = harness({ now: at("2026-11-02", "18:15"), today: ECON() });
+        const reply = await h.turn(`${label(LINE, 15)}${APP}${said}`);
+        expect(reply).toBe("5 min, not more. I'll come back at 6:20 PM and we start Econ problem set.");
+        expect(adds(h)).toEqual([["add", "5", "Econ problem set", "--because", said]]);
+    });
+    it.each([["starting in 10", 10, "6:25 PM"], ["gonna start in 15", 15, "6:30 PM"], ["ill get on it in 5", 5, "6:20 PM"]])("'%s' sets the start nudge at +N and says so", async (said, minutes, back) => {
+        const h = harness({ now: at("2026-11-02", "18:15"), today: ECON() });
+        const reply = await h.turn(`${label("Econ problem set - still not started.", 15)}${APP}${said}`);
+        expect(reply).toBe(`Okay, ${minutes} min. I'll come back at ${back} and we start Econ problem set.`);
+        expect(adds(h)[0]?.slice(0, 3)).toEqual(["add", String(minutes), "Econ problem set"]);
+        expect(h.sessions).toEqual([]);
+    });
+});
+describe("going to bed answers the bedtime line, even after ORION asked something in between", () => {
+    const BED = "Still up at 12:43 AM. 8h to your alarm. Go now and I'll protect it.";
+    it("'ok one more thing' → worker; 'fine going to bed now' → goodnight, alarm checked against CS2100, one quiet check", async () => {
+        const sent = at("2026-11-03", "00:43");
+        const dir = stateWith([{ text: BED, sent }]);
+        const h = harness({ now: sent, stateDir: dir });
+        expect(await h.turn(`${label(BED)}${APP}ok one more thing`)).toMatch(/^(?:WORKER|DRAFT)/);
+        h.clock.now = at("2026-11-03", "00:44");
+        const reply = await h.turn(`${APP}fine going to bed now`);
+        expect(reply).toBe("Good — goodnight. Your alarm's on automatic, so it goes off before CS2100. CS2100 at 9:00 AM stays, nothing before it. If you're still up at 1:04 AM, I'll check in.");
+        expect(adds(h)).toEqual([["add", "20", "bed", "--because", "fine going to bed now"]]);
+        expect(h.flows).toEqual([]);
+    });
+    it.each(["ok ok heading to bed", "gnight", "fine im off to sleep"])("held out: '%s'", async (said) => {
+        const sent = at("2026-11-03", "00:43");
+        const h = harness({ now: sent, stateDir: stateWith([{ text: BED, sent }]) });
+        expect(await h.turn(`${label(BED)}${APP}${said}`)).toMatch(/^Good — goodnight\./);
+    });
+    it("a manual alarm too late for the first class is moved earlier, and the reply says so", async () => {
+        const sent = at("2026-11-03", "00:43");
+        const dir = stateWith([{ text: BED, sent }]);
+        writeFileSync(join(dir, "wake-request.json"), JSON.stringify({ at: at("2026-11-03", "09:30").toISOString(), setAt: sent.toISOString() }));
+        const h = harness({ now: sent, stateDir: dir });
+        const reply = await h.turn(`${label(BED)}${APP}going to bed`);
+        expect(h.wakes).toEqual([["08:00"]]);
+        expect(reply).toContain("I moved your alarm to 8:00 AM — 9:30 AM was too late for CS2100.");
+    });
+    it("a manual alarm in good time is confirmed, not touched", async () => {
+        const sent = at("2026-11-03", "00:43");
+        const dir = stateWith([{ text: BED, sent }]);
+        writeFileSync(join(dir, "wake-request.json"), JSON.stringify({ at: at("2026-11-03", "07:45").toISOString(), setAt: sent.toISOString() }));
+        const h = harness({ now: sent, stateDir: dir });
+        expect(await h.turn(`${label(BED)}${APP}going to bed`)).toContain("Your alarm's set for 7:45 AM.");
+        expect(h.wakes).toEqual([]);
+    });
+    it("'going to bed, wake me at 8' is the wake alarm's, not this", () => {
+        expect(readReply("ok im going to bed, wake me at 8")?.kind).not.toBe("bed");
+        expect(readReply("not going to bed yet")?.kind).not.toBe("bed");
+    });
+});
+describe("a short delay at bedtime books no nap; a short night does, and says the length the calendar shows", () => {
+    it("'5 more min' at 12:43 AM: a 5 min cap and a check, no nap", async () => {
+        const h = harness({ now: at("2026-11-03", "00:43") });
+        expect(await h.turn(`${label("Still up at 12:43 AM.")}${APP}5 more min`)).toBe("Okay — 5 min, then bed. I'll check at 12:48 AM. CS2100 at 9:00 AM stays.");
+        expect(h.flows).toEqual([]);
+    });
+    it("'cant sleep' at 3 AM: the nap's real length is said (his minimum made it 75)", async () => {
+        const h = harness({ now: at("2026-11-03", "03:00"), napMin: 75 });
+        const reply = await h.turn(`${label("Its 3 AM. CS2100 is at 9. Bed now.")}${APP}cant sleep`);
+        expect(reply).toContain("I put a 75 min nap at 12:35 PM");
+    });
+    it("'im up working on econ' at 3 AM → 30 min cap, check at 3:30, nap; '30 more min then bed' → deal", async () => {
+        const h = harness({ now: at("2026-11-03", "03:00") });
+        const first = await h.turn(`${label("Its 3 AM. CS2100 is at 9. Bed now.")}${APP}im up working on econ`);
+        expect(first).toMatch(/^Okay — 30 min on econ \(that's the cap\), then bed\. I'll check at 3:30 AM\. I put a 30 min nap at 12:35 PM/);
+        h.clock.now = at("2026-11-03", "03:01");
+        expect(await h.turn(`${APP}i need to finish this econ set first, 30 more min then bed`)).toBe("Deal — 3:30 AM, then bed. I'll check then. CS2100 at 9:00 AM stays.");
+    });
+});
+describe("no nudge on record: a pause for something named puts off the block that just started", () => {
+    it("'im starving gonna eat first' at 6:05 → 25 min grace on CS lab; 'ok im done eating' → CS lab's focus session", async () => {
+        const h = harness({ now: at("2026-11-02", "18:05") });
+        expect(await h.turn(`${APP}im starving gonna eat first`)).toBe("Okay, eating first — 25 min (my guess; say if it's longer). I'll come back at 6:30 PM and we start CS lab.");
+        expect(adds(h)[0]?.slice(0, 3)).toEqual(["add", "25", "CS lab"]);
+        h.clock.now = at("2026-11-02", "18:31");
+        const back = await h.turn(`${APP}ok im done eating`);
+        expect(h.sessions).toEqual(["start a focus session on CS lab"]);
+        expect(back).toContain("now we start");
+    });
+    it.each(["brb grabbing a bite first", "gonna shower real quick first", "lemme cook first"])("held out: '%s'", async (said) => {
+        const h = harness({ now: at("2026-11-02", "18:10") });
+        expect(await h.turn(`${APP}${said}`)).toMatch(/we start CS lab\.$/);
+    });
+    it("with nothing just started, it is the normal turn's", async () => {
+        const h = harness({ now: at("2026-11-02", "10:00") });
+        expect(await h.turn(`${APP}gonna eat first`)).toMatch(/^(?:WORKER|DRAFT)/);
+        expect(h.checkins).toEqual([]);
+    });
+});
+describe("the morning brief: its real wording, and a carried-over item is never booked on a plain yes", () => {
+    const SLIP = "First thing: CS2100 at 9:00 AM. Student oyster card has been first on my list 11 days running and hasn't moved - this keeps slipping. Give it a time today, or drop it?";
+    it("reads 'First on my list: X.' and the slipping line as brief offers", () => {
+        expect(offerOf("Nothing fixed today. First on my list: Panopto presentation. Gym at 5:00 PM, 90 min.")).toEqual({ kind: "brief", items: ["Panopto presentation"] });
+        expect(offerOf(SLIP)).toEqual({ kind: "brief", items: ["Student oyster card"], stale: true });
+    });
+    it("'yeah do it' to the slipping line books nothing and asks for a time; asked again, 'yeah' still books nothing", async () => {
+        const h = harness({ now: at("2026-11-02", "08:05") });
+        const first = await h.turn(`${label(SLIP, 5)}${APP}yeah do it`);
+        expect(h.flows).toEqual([]);
+        expect(first).toContain("When for Student oyster card?");
+        h.clock.now = at("2026-11-02", "08:06");
+        await h.turn(`${APP}yeah`);
+        expect(h.flows).toEqual([]);
+    });
+    it("'you pick' books it; an item already on today is not booked twice", async () => {
+        const today = { ...MON(), blocks: [...MON().blocks, b("Panopto presentation", "10:00", "11:00")] };
+        const h = harness({ now: at("2026-11-02", "08:05"), today });
+        const reply = await h.turn(`${label("Top of your list: Panopto presentation and finish resume.", 5)}${APP}you pick`);
+        expect(h.flows).toEqual(["add a 45 min finish resume at 8:20am"]);
+        expect(reply).toContain("finish resume at 8:20 AM");
+    });
+    it("the gate's pair: the same brief answered in one chat, state restored, then answered with times in another books both", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "w5-pair-"));
+        const brief = "Top of your list: finish resume and Student oyster card.";
+        const h = harness({ now: at("2026-11-02", "08:05"), stateDir: dir }); // ONE plugin, two chats: what the gate runs
+        await h.turn(`${label(brief, 5)}${APP}yeah`, "first");
+        rmSync(join(dir, "pending-answered.json"), { force: true });
+        h.flows.length = 0;
+        await h.turn(`${label(brief, 5)}${APP}do the oyster card first thing, 9am, resume at 4`, "second");
+        expect([...h.flows].sort()).toEqual(["add a 45 min Student oyster card at 9am", "add a 45 min finish resume at 4pm"]);
+    });
+});
+describe("a stated preference is kept and said back (held-out phrasings)", () => {
+    it.each([
+        ["stop being so formal with me", "Preference: Nick wants ORION to stop being so formal with him.", "Got it — I'll remember you want me to stop being so formal with you."],
+        ["i like gym in the evening", "Preference: Nick likes gym in the evening.", "Got it — I'll remember you like gym in the evening."],
+        ["remember i hate early mornings", "Preference: Nick doesn't like early mornings.", "Got it — I'll remember you don't like early mornings."],
+    ])("'%s'", async (said, fact, reply) => {
+        const h = harness({ now: at("2026-11-02", "12:00") });
+        expect(await h.turn(`${APP}${said}`)).toBe(reply);
+        expect(h.remembered).toEqual([["--user", fact]]);
+        expect(h.flows).toEqual([]);
+    });
+    it("a failed write says it isn't kept", async () => {
+        const h = harness({ now: at("2026-11-02", "12:00"), remember: { stdout: "orion-remember: USER.md is missing", code: 2 } });
+        expect(await h.turn(`${APP}dont call me bro`)).toMatch(/couldn't save that/);
+    });
+    it("a reaction or a request with a time is not kept", async () => {
+        const h = harness({ now: at("2026-11-02", "12:00") });
+        await h.turn(`${APP}i love that`);
+        await h.turn(`${APP}id rather do gym at 6 today`);
+        expect(h.remembered).toEqual([]);
+    });
+});
+it("readPendingTurn: a bed reply binds to the card's bedtime push after ORION replied in between", () => {
+    const sent = at("2026-11-03", "00:43");
+    const t = readPendingTurn({ message: "fine going to bed now", now: at("2026-11-03", "00:44"), lastPush: { text: "Still up at 12:43 AM. Go now.", at: sent.toISOString() }, lastReplyAt: sent.getTime() + 30_000 });
+    expect(t?.offer).toEqual({ kind: "bedtime" });
+    const other = readPendingTurn({ message: "yeah", now: at("2026-11-03", "00:44"), lastPush: { text: "Still up at 12:43 AM. Go now.", at: sent.toISOString() }, lastReplyAt: sent.getTime() + 30_000 });
+    expect(other).toBeUndefined();
+});

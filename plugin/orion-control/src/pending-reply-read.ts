@@ -14,7 +14,7 @@ export type Offer =
   | { kind: "bedtime" }
   | { kind: "catchup"; subject?: string }
   | { kind: "slipped"; title: string }
-  | { kind: "brief"; items: string[] }
+  | { kind: "brief"; items: string[]; stale?: boolean }
   | { kind: "session-done"; next?: string }
   | { kind: "plan-check"; title: string };
 
@@ -29,7 +29,8 @@ export type Reply =
   | { kind: "done" }
   | { kind: "resume" }
   | { kind: "changed" }
-  | { kind: "defer"; minutes?: number; activity?: string; typical?: number }
+  | { kind: "defer"; minutes?: number; activity?: string; typical?: number; stall?: boolean }
+  | { kind: "bed" }
   | { kind: "awake"; activity?: string; minutes?: number; sleepless: boolean; workload: boolean }
   | { kind: "workload" }
   | { kind: "next" }
@@ -45,6 +46,10 @@ const CATCHUP = /\b(?:fit|find|make|book|put) (?:in )?(?:some )?time to catch up
 const MISSED = /^(?:looks like )?(.+?) didn'?t happen\b/i;
 const GAVE_UP = /\bstop pinging (?:you )?about (.+?)(?:[.\-–—!]|$)/i;
 const BRIEF = /\btop of (?:your|the) list:\s*(.+?)(?:\.|$)/i;
+// The brief's own wording (scripts/lib/life/morning-brief.mjs topOfList): "First on my list: X." and, the third day running,
+// "X has been first on my list N days running and hasn't moved - this keeps slipping. Give it a time today, or drop it?".
+const FIRST_ON = /\bfirst on my list:\s*(.+?)(?:\.(?:\s|$)|$)/i;
+const SLIPPING = /(?:^|[.!?]\s+)([^.!?]+?) has been first on my list \d+ days running\b/i;
 const SESSION_DONE = /^session done\b/i;
 const NEXT_IN = /\bnext: (.+?) at (\d{1,2}:\d{2}\s*(?:am|pm)?)/i;
 const PLAN_CHECK = /\bis (.+?) still (?:happening|on)\b/i;
@@ -68,7 +73,9 @@ export function offerOf(text: string): Offer | undefined {
   if (gave) return { kind: "slipped", title: gave[1]!.trim() };
   const missed = t.match(MISSED);
   if (missed && /\b(?:tonight|tomorrow|later today|today off|skip)\b/i.test(t)) return { kind: "slipped", title: missed[1]!.trim() };
-  const brief = t.match(BRIEF);
+  const slipping = t.match(SLIPPING);
+  if (slipping) return { kind: "brief", items: [slipping[1]!.trim()], stale: true };
+  const brief = t.match(BRIEF) ?? t.match(FIRST_ON);
   if (brief) { const items = brief[1]!.split(/\s*(?:,|\band\b|&|\+)\s*/i).map((s) => s.trim()).filter(Boolean); if (items.length) return { kind: "brief", items }; }
   const plan = t.match(PLAN_CHECK);
   if (plan) return { kind: "plan-check", title: plan[1]!.replace(/^(?:your|the|my)\s+/i, "").trim() };
@@ -83,6 +90,17 @@ const NUMBER_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, thre
 const N = String.raw`(\d{1,3}|a few|a couple|half an|an|a|one|two|three|four|five|ten|fifteen|twenty|thirty|forty five)`;
 const LENGTH = new RegExp(String.raw`\b${N}\s*(?:more\s+)?(min|mins|minutes|m|hr|hrs|hour|hours|h)\b`, "i");
 const BARE_MORE = /\b(\d{1,3}|five|ten|fifteen|twenty|thirty)\s+more\b/i;
+/** "starting in 10", "on it in 5" (a bare "in 10" stays the outreach line's own, outreach-reply.ts): a bare count after "in" is minutes when the words around it are about starting or holding. */
+const IN_BARE = /\bin\s+(\d{1,3}|five|ten|fifteen|twenty|thirty|a few|a couple)(?:\s*(?:min|mins|minutes|m))?\b(?!\s*(?::|am\b|pm\b|a\.m|p\.m|o'?clock|hr|hrs|hours?|h\b|days?|weeks?))/i;
+const START_WORD = /^(?:(?:ok(?:ay)?|ya|yea|yeah|yes|yep|sure|k|fine|alright)\s+)?(?:i'?ll\s+|ill\s+|i will\s+|gonna\s+|will\s+|im\s+|i'?m\s+)?(?:start(?:ing)?|begin(?:ning)?|on it|do(?:ing)? it|get(?:ting)? (?:on|to|started)(?: on)?(?: it)?|be there|leav(?:e|ing)|head(?:ing)? out)\b/i;
+/** Minutes in "starting in 10" / "ok on it in 5"; undefined when the message is not a start a few minutes out. */
+export const startsIn = (m: string): number | undefined => {
+  if (!START_WORD.test(m)) return undefined;
+  const x = m.match(IN_BARE);
+  if (!x) return undefined;
+  const n = /^\d+$/.test(x[1]!) ? Number(x[1]) : NUMBER_WORDS[x[1]!.toLowerCase()] ?? NaN;
+  return n > 0 && n <= 120 ? n : undefined;
+};
 const lengthOf = (m: string): number | undefined => {
   const x = m.match(LENGTH);
   if (x) {
@@ -150,7 +168,15 @@ const ACTIVITY: Array<[RegExp, string, number]> = [
   [/\blaundry\b/, "laundry", 20],
 ];
 const FIRST_OR_INTENT = /\b(?:first|before|gonna|going to|gna|need to|have to|gotta|let me|lemme|im|i'?m|real quick|quickly)\b|^(?:need|want)\b/;
-const HOLD = /^(?:hold on|hang on|wait|one sec|1 sec|gimme|give me|not yet|in a (?:bit|sec|min|minute)|soon|later|nearly|almost)\b/;
+const HOLD = /^(?:hold on|hang on|wait|one sec|1 sec|a sec|sec|one min|1 min|gimme|give me|not yet|in a (?:bit|sec|second|min|minute|moment)|soon|later|nearly|almost)\b/;
+/** "ya in a sec", "ok hang on": a yes in front of a hold is still a hold. */
+const YES_FIRST = /^(?:y|ya|yah|yea|yeah|yes|yep|yup|ok|okay|k|kk|sure|alright|fine|mhm)\s+/;
+/**
+ "fine going to bed now", "ok goodnight", "heading to sleep": he is going to bed, which only the bedtime line asked for. Not when he names
+ a time or the alarm ("going to bed, wake me at 8" is the wake alarm's), a length ("bed in 20" is a cap), or says he is not.
+*/
+const BED = /\b(?:going|goin|gonna go|gna go|heading|headed|off|getting|get(?:ting)? in(?:to)?)\s+(?:to\s+)?(?:bed|sleep)\b|\bgood ?night\b|\bg'?night\b|\bnight night\b|\bturning in\b|\bcalling it a night\b|\bhitting the (?:hay|sack)\b|^(?:(?:ok(?:ay)?|fine|alright|k|yeah|ya)\s+)*(?:bed|sleep|sleeping|bedtime)(?:\s+now)?$/;
+const NOT_BED = /\b(?:not|can'?t|cant|won'?t|wont|never|don'?t|dont)\b|\bwake\b|\balarm\b/;
 const SLEEPLESS = /\b(?:can'?t|cant|cannot|couldn'?t) (?:sleep|fall asleep|get to sleep)\b|\bnot (?:tired|sleepy)\b|\bwide awake\b|\binsomnia\b|\bbrain won'?t (?:stop|shut off)\b/;
 const WORKLOAD = /\b(?:a lot|so much|too much|tons|loads|a ton|heaps)\b.{0,12}\b(?:to do|of work|of stuff|due|left)\b|\bso behind\b|\bfalling behind\b|\bhave to finish\b|\bneed to finish\b|\bgot work\b|\bstill have work\b/;
 const UP_DOING = /\b(?:i'?m|im|i am|still|just)\s+(?:up\s+|still\s+)?(?:working on|doing|finishing|studying|writing|reading|coding)\s+([a-z][a-z ]{1,30}?)(?=\s+(?:rn|right now|now|first|then)\b|\s+\d|[,.!]|$)|\b(?:finish|finishing)\s+(?:this|my|the)\s+([a-z][a-z ]{1,30}?)(?=\s+(?:first|then|rn)\b|[,.!]|$)/;
@@ -181,6 +207,7 @@ export function readReply(message: string): Reply | undefined {
   if (NO.test(plain)) return { kind: "decline" };
   if (DONE.test(plain)) return { kind: "done" };
   if (RESUME.test(plain) && !/\b(?:gonna|going to|need to|first)\b/.test(plain)) return { kind: "resume" };
+  if (BED.test(plain) && !NOT_BED.test(plain) && !clockTimes(plain).length && lengthOf(plain) === undefined && startsIn(plain) === undefined) return { kind: "bed" };
   const sleepless = SLEEPLESS.test(plain); const workload = WORKLOAD.test(plain);
   const doing = plain.match(UP_DOING); const activityWord = (doing?.[1] ?? doing?.[2])?.replace(/^(?:my|the|this|some)\s+/, "").trim();
   const minutes = lengthOf(plain);
@@ -189,7 +216,10 @@ export function readReply(message: string): Reply | undefined {
   const act = ACTIVITY.find(([re]) => re.test(plain));
   const own = plain.match(OWN_GERUND)?.[1];
   if (act && (FIRST_OR_INTENT.test(plain) || words(plain) <= 3)) return { kind: "defer", activity: own && act[0].test(own) && !/\b(?:starving|famished|dying)\b/.test(own) ? own : act[1], typical: act[2], ...(minutes ? { minutes } : {}) };
-  if (HOLD.test(plain) || (minutes && /\bmore\b/.test(plain) && words(plain) <= 6)) return { kind: "defer", ...(minutes ? { minutes } : {}) };
+  const startIn = startsIn(plain);
+  if (startIn !== undefined && words(plain) <= 6) return { kind: "defer", minutes: startIn };
+  const held = HOLD.test(plain) || HOLD.test(plain.replace(YES_FIRST, ""));
+  if (held || (minutes && /\bmore\b/.test(plain) && words(plain) <= 6)) return { kind: "defer", ...(minutes ? { minutes } : held ? { stall: true } : {}) };
   if (doing && activityWord) return { kind: "defer", activity: activityWord };
   if (CHANGED.test(plain) && words(plain) <= 6) return { kind: "changed" };
   const details = detailsOf(plain);

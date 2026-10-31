@@ -9,10 +9,23 @@ import { anchorsFrom } from "./config.mjs";
 /**
  * @returns [{ title, kind, minutes, at?, before?, anchor?, rank?, tags? }] — asks for the planner, most important first.
  */
-export function fillDay(blocks, { now, window, weekday, config, deadlines = [], studyPlan = null, skippedAnchors = [] }) {
+export function fillDay(blocks, { now, window, weekday, config, deadlines = [], studyPlan = null, skippedAnchors = [], recovery = null }) {
+  // Low recovery (lib/life/recovery.mjs) shrinks study and the gym session; unknown or normal changes nothing.
+  const low = recovery?.level === "low";
+  const lighter = (minutes) => (low ? Math.max(25, Math.round((minutes * (recovery.studyScale ?? 0.6)) / 5) * 5) : minutes);
   const has = (kind, from = 0, to = 1440) => blocks.some((b) => b.kind === kind && b.end > from && b.start < to);
   const minutesOf = (kind) => blocks.filter((b) => b.kind === kind).reduce((a, b) => a + b.end - b.start, 0);
   const asks = [];
+  // Daily anchors (the gym) come FIRST, flagged `early` so the planner gives them the best slot before the day fills
+  // (2026-10-30: the gym kept being bumped to the last slot). Must-haves, tagged so the weight survives the calendar, and exempt from freeMinutesKept.
+  // An anchor he gave up for the day ("only these two things today": anchor-skips.mjs) is never booked back.
+  const skipped = new Set(skippedAnchors.map((t) => String(t).trim().toLowerCase()));
+  for (const a of anchorsFrom(config)) {
+    if (a.days.includes(weekday) && !has(a.kind) && !skipped.has(a.title.trim().toLowerCase())) {
+    const easy = low && recovery.gymMinutes && a.kind === "gym";
+    asks.push({ title: a.title, kind: a.kind, minutes: easy ? Math.min(a.minutes, recovery.gymMinutes) : a.minutes, rank: a.rank ?? "must", tags: easy ? ["anchor", "easy"] : ["anchor"], anchor: true, early: true, ...(easy ? { easy: true } : {}) });
+  }
+  }
   // Study for what is coming up soonest (a quiz or exam within ten days), once a day.
   // With a ramp (deadline-ramp: more study the closer each deadline is), book
   // today's share per deadline, less what is already on the calendar.
@@ -21,17 +34,11 @@ export function fillDay(blocks, { now, window, weekday, config, deadlines = [], 
     for (const item of studyPlan) {
       const minutes = Math.max(0, item.minutes - booked);
       booked = Math.max(0, booked - item.minutes);
-      if (minutes >= 15) asks.push({ title: `Study for ${item.title}`.slice(0, 80), kind: "study", minutes });
+      if (minutes >= 15) asks.push({ title: `Study for ${item.title}`.slice(0, 80), kind: "study", minutes: lighter(minutes) });
     }
   } else {
     const soon = deadlines.filter((d) => d.daysAway >= 0 && d.daysAway <= 10).sort((a, b) => a.daysAway - b.daysAway)[0];
-    if (soon && !has("study")) asks.push({ title: `Study for ${soon.title}`.slice(0, 80), kind: "study", minutes: config.studyMinutes });
-  }
-  // Daily anchors (the gym): must-haves, tagged so the weight survives the calendar, and exempt from freeMinutesKept.
-  // An anchor he gave up for the day ("only these two things today": anchor-skips.mjs) is never booked back.
-  const skipped = new Set(skippedAnchors.map((t) => String(t).trim().toLowerCase()));
-  for (const a of anchorsFrom(config)) {
-    if (a.days.includes(weekday) && !has(a.kind) && !skipped.has(a.title.trim().toLowerCase())) asks.push({ title: a.title, kind: a.kind, minutes: a.minutes, rank: a.rank ?? "must", tags: ["anchor"], anchor: true });
+    if (soon && !has("study")) asks.push({ title: `Study for ${soon.title}`.slice(0, 80), kind: "study", minutes: lighter(config.studyMinutes) });
   }
   const side = config.sideProjectMinutes - minutesOf("side_project");
   if (side >= 15) asks.push({ title: config.sideProjectLabel, kind: "side_project", minutes: side });

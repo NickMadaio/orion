@@ -10,6 +10,8 @@
 // A message dropped here is recorded with a cooldown and given up after a few tries: never re-tried every tick.
 // Pure: history rows in, a verdict out.
 
+import { URGENT_KINDS } from "./quiet.mjs";
+
 export const COUNTED_WHY = /^(proactive|plan|curiosity):/;
 export const BLANK_TYPES = Object.freeze(["home-gap", "away-gap", "unknown-place", "save-place", "fill-blank", "blank"]);
 export const TIERS = Object.freeze(["protected", "low", "blank", "normal"]);
@@ -24,7 +26,8 @@ export const mayBeProtected = ({ why: reason = "" } = {}) =>
 
 export function tierOf({ why: reason = "", urgentKind = null, bypass = false, tier = null, askType = null, kind = null } = {}) {
   const w = String(reason ?? "");
-  if (bypass || urgentKind) return "protected";
+  // a plan ladder's time-sensitive L2 (urgentKind "plan") is not a bypass: its tier is the block's own (--tier)
+  if (bypass || URGENT_KINDS.includes(urgentKind)) return "protected";
   if (/^curiosity: review-/.test(w) || /^morning:/.test(w)) return "protected";
   if (TIERS.includes(tier) && (tier !== "protected" || mayBeProtected({ kind, why: w }))) return tier;
   if (/^plan:/.test(w)) return "low";

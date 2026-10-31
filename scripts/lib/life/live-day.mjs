@@ -57,9 +57,25 @@ export function tagsOf(e) {
 }
 
 /** Calendar events as blocks. Fixed unless ORION planned it or it is something he does alone. */
+/** A block's id from the event itself, never its position (2026-10-31 review: an event added earlier renumbered every block,
+ *  so a loop's blockId pointed at another block). The calendar identifier, else the title and start; a repeat gets a suffix. */
+const slug = (t, n) => String(t ?? "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, n);
+function blockIds(events) {
+  const seen = new Map();
+  return events.map((e) => {
+    const start = new Date(e.start);
+    const core = e.identifier ? slug(e.identifier, 24) : `${slug(e.title, 16)}${String(start.getHours()).padStart(2, "0")}${String(start.getMinutes()).padStart(2, "0")}`;
+    const base = `cal-${core || "event"}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n ? `${base}-${n + 1}` : base;
+  });
+}
+
 export function toBlocks(events, date, written = writtenIdentifiers()) {
-  return events
-    .filter((e) => e.allDay !== "true" && localDate(new Date(e.start)) === date)
+  const todays = events.filter((e) => e.allDay !== "true" && localDate(new Date(e.start)) === date);
+  const ids = blockIds(todays);
+  return todays
     .map((e, i) => {
       const start = new Date(e.start); const end = new Date(e.end);
       const title = e.title ?? "Event";
@@ -77,7 +93,7 @@ export function toBlocks(events, date, written = writtenIdentifiers()) {
       // nameable: he may still move it himself by name ("move gym to 7"), unless it is a class, a deadline or a plan with people. Automatic
       // changes (re-plans, bumps, fill, push everything) never touch it: it stays fixed for them (review of 6fc2b13).
       const nameable = ours || (kind !== "class" && kind !== "deadline" && !isSocial(title));
-      return { id: `cal-${i}-${String(e.identifier ?? i).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 24) || i}`,
+      return { id: ids[i],
                title: title.slice(0, 120), kind, date, start: minuteOf(start),
                end: Math.max(minuteOf(start) + 1, endMinute), fixed, nameable, source: ours ? "orion" : "calendar",
                calendarId: e.identifier ?? null, tags, logged: tags.includes("logged"), ...(rank ? { rank } : {}) };

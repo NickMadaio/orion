@@ -98,7 +98,7 @@ test("1: orion-reach delivers the gym at 20 of 20 when it is protected, and drop
   assert.equal(w2.run("orion-reach", gym, 17, 8).status, 3);
 });
 
-test("2: a plan loop whose ladder is dropped backs off with a cooldown and gives up silently after 3 (no per-tick retry)", () => {
+test("2: a plan loop whose ladder is dropped backs off with a cooldown, and after 3 drops goes to the protected closing message (no per-tick retry, no silent give-up)", () => {
   const created = at(17, 17, 8).toISOString();
   const w = world({ day: 17, checkins: [planCheckin("ci-gym", "Gym", "cal-4-adf0e6", { createdAt: created, nextCheckAt: Math.floor(at(17, 17, 8).getTime() / 60000), blockWindow: { date: "2026-10-17", start: 1028, end: 1300 } })] });
   w.put(17, 8);
@@ -108,7 +108,11 @@ test("2: a plan loop whose ladder is dropped backs off with a cooldown and gives
   const calls = w.lines("reach.log").length;
   assert.equal(calls, 3, `three tries in two hours, not one per tick (got ${calls})`);
   const c = w.checkins().find((x) => x.id === "ci-gym");
-  assert.equal(c.drops, 3); assert.equal(c.loop.phase, "given_up");
+  assert.equal(c.drops, 3); assert.equal(c.alerts, 4, "the next message is the closing one");
+  // the closing message is protected (lib/reach/plan-effects.mjs): a real orion-reach lets it through the ceiling
+  const real = w.run("orion-checkin", ["tick", "--json"], 21, 30, { extra: { ORION_REACH_BIN: reach } });
+  assert.equal(real.status, 0);
+  assert.match(w.lines("reach.log").at(-1), /^Gym didn't happen at 5:08 PM\..* --tier protected/);
 });
 
 test("6: a blank ask dropped by the budget is recorded and backs off: the 25 regenerations of 10-18 become one per 60+ minutes", () => {

@@ -4,6 +4,8 @@
 // talk to me… tell me i have these things to do today, and what the weather is
 // like." Pure: the gate and the words. scripts/orion-morning does the reading.
 
+import { topOfList } from "../life/morning-brief.mjs";
+
 export const SIGNALS = ["unplugged", "used", "up"];
 const EARLIEST = 4 * 60;          // 04:00 — before this, unplugging is a trip to the bathroom
 const LATEST = 13 * 60;           // 13:00 — after this it is not a morning any more
@@ -151,7 +153,17 @@ export function rainLabel(rain) {
  * due, the weather, and a question so he can answer.
  * @param {{ now: Date, day: object[], travel: object[], todos: object[], today: string, weather?: object|null, calendar?: "ok"|"unknown", missed?: object[] }} input
  */
-export function composeBriefing({ now, day = [], travel = [], todos = [], today, weather, calendar = "ok", missed = [] }) {
+/**
+ * What heads his to-do list in the spoken brief, against the heads of earlier days (lib/reach/brief-heads.mjs): the same item
+ * three days running is said as slipping, with the choice, not repeated (2026-10-30). Pure.
+ * @returns {{ head: { title, key } | null, streak, text: string | null }}
+ */
+export function briefingTop({ todos = [], headHistory = [], today }) {
+  const candidates = todos.filter((t) => !t.waiting).map((t) => ({ title: cleanTitle(t.title), ...(t.dueDate ? { due: t.dueDate } : {}) }));
+  return topOfList({ candidates, history: headHistory, now: { date: today } });
+}
+
+export function composeBriefing({ now, day = [], travel = [], todos = [], today, weather, calendar = "ok", missed = [], headHistory = [] }) {
   const nowMinute = minuteOf(now);
   const greeting = nowMinute < 12 * 60 ? "Morning, Nick." : "Hey Nick, you're up.";
   const real = day.filter((b) => !/^commute|^getting (to|back)/i.test(b.title));
@@ -180,8 +192,8 @@ export function composeBriefing({ now, day = [], travel = [], todos = [], today,
   const due = todos.filter((t) => t.dueDate === today && !t.booked).map((t) => cleanTitle(t.title));
   if (due.length) parts.push(`Due today: ${listOf(due.slice(0, 3))}${due.length > 3 ? ` and ${due.length - 3} more` : ""}.`);
   else {
-    const open = todos.filter((t) => !t.waiting).map((t) => cleanTitle(t.title));
-    if (open.length) parts.push(`Top of your list: ${listOf(open.slice(0, 2))}.`);
+    const top = briefingTop({ todos, headHistory, today });
+    if (top.text) parts.push(top.text);
   }
   const sky = weatherLine(weather, nowMinute);
   // weather === null means it was asked for and failed (undefined: not asked): say so instead of dropping it silently.

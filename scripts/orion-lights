@@ -16,6 +16,7 @@ import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { outboxed, toOutbox } from "./lib/clock.mjs";
 
 const STATUS = join(process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled"), "lights-status.json");
 const COLORS = { warm: "ffa040", white: "ffffff", red: "ff0000", green: "00ff00", blue: "0000ff", purple: "8000ff", orange: "ff6000", pink: "ff3080" };
@@ -38,6 +39,8 @@ for (const w of rest) {
 if (verb === "brightness" && !query.has("brightness")) fail("orion-lights brightness 0-100");
 if (verb === "color" && !query.has("color")) fail("orion-lights color warm|white|red|…|RRGGBB");
 
+// A state copy (lib/clock.mjs) never touches the real lights.
+if (outboxed(process.env, "ORION_REACH_OPEN_BIN")) { toOutbox("lights", { url: `orion://lights?${query}` }, { by: "orion-lights" }); console.log("Isolated run: written to the outbox, the lights were not touched."); process.exit(0); }
 const before = (() => { try { return statSync(STATUS).mtimeMs; } catch { return 0; } })();
 try { execFileSync(process.env.ORION_REACH_OPEN_BIN || "/usr/bin/open", ["-g", `orion://lights?${query}`], { timeout: 5000 }); }
 catch { console.log("The ORION app isn't running, so the lights can't be reached."); process.exit(1); }

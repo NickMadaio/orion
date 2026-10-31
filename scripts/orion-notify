@@ -46,11 +46,12 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
+import { controlledDir, clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
 
 const run = promisify(execFile);
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const STATE = join(homedir(), ".openclaw/orion-controlled/remote.json");
+const STATE = join(controlledDir(), "remote.json");
 const OPENCLAW = join(homedir(), ".openclaw/bin/openclaw");
 const CONFIG = join(homedir(), ".openclaw/openclaw.json");
 const DISCORD = process.env.ORION_DISCORD_ALERT_BIN || join(ROOT, "scripts/orion-discord-alert");
@@ -232,6 +233,12 @@ async function deliver(transport, text, dryRun, { urgentReminder = false } = {})
     console.log(`--- DRY RUN (${where}) ---\n${text}\n--- END ---`);
     return { delivered: false, dryRun: true };
   }
+  // A state copy (lib/clock.mjs): the message goes to the isolated outbox, never to Discord, OpenClaw or the phone.
+  const seam = transport.kind === "openclaw" ? null : "ORION_DISCORD_ALERT_BIN";
+  if (outboxed(process.env, seam)) {
+    toOutbox(transport.kind === "openclaw" ? "openclaw" : "discord", { text, ...(transport.kind === "openclaw" ? { channel: transport.channel } : {}) }, { by: "orion-notify" });
+    return { delivered: true, via: "isolated-outbox" };
+  }
   try {
     if (transport.kind === "openclaw") {
       await run(OPENCLAW, [
@@ -347,7 +354,7 @@ function suppressionReason(state, { event, missionId, message, at }) {
 
 const { flags, positional } = parseArgs(process.argv.slice(2));
 const [command, ...rest] = positional;
-const now = flags.now ? new Date(flags.now) : new Date();
+const now = flags.now ? new Date(flags.now) : clockNow();
 if (Number.isNaN(now.getTime())) fail("--now must be an ISO timestamp");
 const at = now.getTime();
 const dryRun = flags["dry-run"] === true;

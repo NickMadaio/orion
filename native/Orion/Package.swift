@@ -30,7 +30,8 @@ let package = Package(
     name: "Orion",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "Orion", targets: ["Orion"])
+        .executable(name: "Orion", targets: ["Orion"]),
+        .executable(name: "orion-relay-probe", targets: ["OrionRelayProbe"])
     ],
     dependencies: [
         // Pinned to a major version, not a commit: Sparkle's 2.x line is
@@ -77,9 +78,24 @@ let package = Package(
                 .swiftLanguageMode(.v5)
             ]
         ),
+        // The computer relay (2026-10-31): signed screen requests from the plugin, run here
+        // under Orion.app's own Accessibility grant. Foundation + CryptoKit only, so the
+        // security checks are testable without the app.
+        .target(
+            name: "ComputerRelay",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        // Runs the relay core from a terminal against any directory and bridge binary:
+        // the integration proof, and a way to exercise the relay without installing the app.
+        .executableTarget(
+            name: "OrionRelayProbe",
+            dependencies: ["ComputerRelay"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "Orion",
             dependencies: [
+                "ComputerRelay",
                 "SessionDomain",
                 "SessionService",
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -108,6 +124,13 @@ let package = Package(
             name: "TodayPlanAppTests",
             dependencies: ["Orion", "SessionService", "SessionDomain", .product(name: "MobileCore", package: "OrionMobile")],
             path: "Tests/TodayPlanAppTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "ComputerRelayTests",
+            dependencies: ["ComputerRelay"],
+            path: "Tests/ComputerRelayTests",
+            exclude: ["Fixtures"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

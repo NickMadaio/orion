@@ -69,7 +69,7 @@ if node --test "$REPO/tests/connect.test.mjs" "$REPO/tests/canvas-brain.test.mjs
 else
     bad "Canvas brain checks failed"; tail -25 "$LOGS"/orion-ci-canvas.log
 fi
-if node --test "$REPO"/tests/pattern-*.test.mjs "$REPO"/tests/awareness-*.test.mjs "$REPO"/tests/curiosity-*.test.mjs >"$LOGS"/orion-ci-patterns.log 2>&1; then
+if node --test "$REPO"/tests/pattern-*.test.mjs "$REPO"/tests/awareness-*.test.mjs "$REPO"/tests/curiosity-*.test.mjs "$REPO"/tests/life-now-record.test.mjs "$REPO"/tests/clock-isolation.test.mjs >"$LOGS"/orion-ci-patterns.log 2>&1; then
     ok "learned routines, awareness and curiosity checks"
 else
     bad "learned routine / awareness checks failed"; tail -25 "$LOGS"/orion-ci-patterns.log

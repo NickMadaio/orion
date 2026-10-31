@@ -49,7 +49,7 @@ test("the briefing says the day, when to leave, what's due, and the weather", ()
 test("an empty day still gets a briefing, with the top of the list", () => {
   const text = composeBriefing({ now: at(9), today: "2026-10-08", day: [], todos: [{ title: "Cert course" }, { title: "Laundry" }, { title: "Waits", waiting: true }] });
   // 2026-10-16: an empty read is unknown, not "nothing on the calendar" (said on 10-15 with four blocks planned).
-  assert.equal(text, "Morning, Nick. I'm not seeing anything on your calendar, but I can't be sure the read was complete. Top of your list: Cert course and Laundry. Anything you want to change?");
+  assert.equal(text, "Morning, Nick. I'm not seeing anything on your calendar, but I can't be sure the read was complete. First on my list: Cert course. Anything you want to change?");
 });
 
 test("weather and clock wording", () => {

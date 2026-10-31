@@ -6,6 +6,7 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { readAwareness, controlledDir } from "../awareness/state.mjs";
+import { clockNow } from "../clock.mjs";
 
 /** A pause this young still counts as focus; Nick confirmed 3 minutes. */
 export const PAUSE_GRACE_MS = 3 * 60_000;
@@ -29,7 +30,7 @@ export function isSessionActive(s) {
 
 function fromAwareness(env) {
   const dir = env.ORION_CONTROLLED_DIR || controlledDir();
-  const now = env.ORION_REACH_NOW ? new Date(env.ORION_REACH_NOW) : new Date();
+  const now = clockNow(env, ["ORION_REACH_NOW"]);
   const { session } = readAwareness({ dir, now });
   if (session.state === "unknown") return undefined;
   const status = { focus: { status: "running", phase: "focus" }, rest: { status: "running", phase: "rest" },

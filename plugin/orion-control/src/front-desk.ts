@@ -36,7 +36,8 @@ export type Decision = {
 };
 
 type Turn = { role: "user" | "assistant"; content: string };
-export type FrontDeskInput = { message: string; clock: string; history?: Turn[] };
+/** context: one line of Nick's state (state-card.ts deskLine) and, for speech, that the microphone heard it (2026-10-30). */
+export type FrontDeskInput = { message: string; clock: string; history?: Turn[]; context?: string };
 
 const SCHEMA = {
   type: "object",
@@ -53,9 +54,9 @@ const SCHEMA = {
 };
 
 /** The Ollama /api/chat body, identical in shape to the evaluation's front-desk call. */
-export function frontDeskRequest({ message, clock, history = [] }: FrontDeskInput, model = FRONT_DESK_MODEL) {
+export function frontDeskRequest({ message, clock, history = [], context }: FrontDeskInput, model = FRONT_DESK_MODEL) {
   const earlier = history.slice(-8).map((m) => `${m.role === "assistant" ? "ORION" : "Nick"}: ${m.content}`).join("\n");
-  const content = [`Now: ${clock}.`, earlier ? `Earlier:\n${earlier}` : null, `Message:\nNick: ${message}`].filter(Boolean).join("\n\n");
+  const content = [`Now: ${clock}.`, context ? `Context: ${context}` : null, earlier ? `Earlier:\n${earlier}` : null, `Message:\nNick: ${message}`].filter(Boolean).join("\n\n");
   return {
     model,
     stream: false,

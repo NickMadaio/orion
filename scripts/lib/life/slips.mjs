@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { sandbox } from "./bridge-path.mjs";
 
-export const controlledDir = () => process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+export { controlledDir } from "../clock.mjs";
+import { controlledDir } from "../clock.mjs";
 export const slipsFile = () => join(controlledDir(), "slips.jsonl");
 
 /** @param rows [{ date, at, planned: {title,start,end,kind,rank}, missedMinutes, replacedBy, reason, txn? }] */

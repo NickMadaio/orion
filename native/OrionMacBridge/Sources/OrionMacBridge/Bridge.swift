@@ -111,6 +111,25 @@ enum OrionMacBridge {
             let key = try requirePayload(request, "key")
             let result = try ScreenControl.key(expectedBundleID: expected, name: key)
             return try encode(result)
+        // 2026-10-30. Accessibility actions (ScreenAct.swift): press / set value on an element addressed by
+        // the path, role and label screen_observe reported; a menu item by title path; one menu's items;
+        // and on-device OCR of the window. Same frontmost/denylist/lock guards as the three above.
+        case "screen_press":
+            let expected = try requirePayload(request, "expected_bundle_id")
+            return try ScreenAct.press(payload: request.payload ?? [:], expectedBundleID: expected)
+        case "screen_set_value":
+            let expected = try requirePayload(request, "expected_bundle_id")
+            return try ScreenAct.setValue(payload: request.payload ?? [:], expectedBundleID: expected)
+        case "screen_menu":
+            let expected = try requirePayload(request, "expected_bundle_id")
+            _ = try requirePayload(request, "menu_path")
+            return try ScreenAct.menu(payload: request.payload ?? [:], expectedBundleID: expected)
+        case "screen_menu_items":
+            let expected = try requirePayload(request, "expected_bundle_id")
+            _ = try requirePayload(request, "menu")
+            return try ScreenAct.menuItems(payload: request.payload ?? [:], expectedBundleID: expected)
+        case "screen_ocr":
+            return try ScreenAct.ocr()
         case "request_notifications":
             let granted = try await requestNotificationPermission()
             return ["granted": String(granted)]

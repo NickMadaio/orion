@@ -43,15 +43,21 @@ export function speakingVolume(current, { muted = false, headphones = false } = 
   return current;
 }
 
-/** Don't nag: the same text within `windowMs`, or more than `perHour` messages in an hour, is held. */
-export function allowed(text, history, { now = Date.now(), windowMs = 2 * 3600_000, perHour = 6 } = {}) {
+/**
+ * Don't nag: the same text within `windowMs`, or more than `perHour` messages in an hour, is held.
+ * `capExempt`: a plan loop's closing message (it says what happened to his calendar) is never held by the hourly cap, only by
+ * an exact repeat. The Mac voice copy of an L2 (askId "…-voice") is the same message said aloud, never a second one (2026-10-31 review).
+ */
+export function allowed(text, history, { now = Date.now(), windowMs = 2 * 3600_000, perHour = 6, capExempt = false } = {}) {
   const norm = (t) => String(t).toLowerCase().replace(/\W+/g, " ").trim();
   // Held and failed attempts never reached him, so they neither block a retry
   // as a "repeat" nor use up the hourly allowance (2026-10-16 audit, finding 6).
   const failed = new Set(history.filter((h) => h.status === "failed").map((h) => h.id));
   const reached = history.filter((h) => h.channel !== "hold" && h.status !== "failed" && !failed.has(h.id));
   if (reached.some((h) => norm(h.text) === norm(text) && now - Date.parse(h.at) < windowMs)) return { ok: false, duplicate: true, reason: "already told him that recently" };
-  if (reached.filter((h) => now - Date.parse(h.at) < 3600_000).length >= perHour) return { ok: false, reason: `already reached him ${perHour} times this hour` };
+  if (capExempt) return { ok: true };
+  const voiceCopy = (h) => /-voice$/.test(String(h.askId ?? h.ask?.askId ?? ""));
+  if (reached.filter((h) => !voiceCopy(h) && now - Date.parse(h.at) < 3600_000).length >= perHour) return { ok: false, reason: `already reached him ${perHour} times this hour` };
   return { ok: true };
 }
 

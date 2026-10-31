@@ -24,6 +24,28 @@ const PHONE_FRESH_MS = 45 * MIN;
 const PHONE_IN_USE_MS = 5 * MIN;
 const MOVING = ["walking", "running", "cycling", "vehicle", "automotive"];
 export const ACK_FILE = "bedtime-ack.json";
+/** orion-watch's flag that he is up past his sleep plan, with the words to say (lib/life/after-late-night.mjs goToBedMessage). */
+export const AWAKE_LATE_FILE = "awake-late.json";
+const AWAKE_LATE_FRESH_MS = 60 * MIN;
+
+/**
+ * Tonight's awake-late flag, or null: its `night` must be this night (the evening's date; orion-watch turns its day at
+ * 04:00, this module at 06:00, so either key matches), it must carry a message, and orion-watch must have seen him up in
+ * the last hour. The 03:10 all-nighter case (2026-10-25 into 10-26: nothing was said all night).
+ */
+export function awakeLateFor({ dir, now }) {
+  const flag = readJson(join(dir, AWAKE_LATE_FILE));
+  if (!flag || typeof flag.message !== "string" || !flag.message.trim()) return null;
+  const keys = [nightOf(now), new Date(now.getTime() - 4 * 3600_000).toLocaleDateString("en-CA")];
+  const at = Date.parse(flag.at);
+  if (!keys.includes(flag.night) || !Number.isFinite(at) || now.getTime() - at > AWAKE_LATE_FRESH_MS || at - now.getTime() > MIN) return null;
+  return flag;
+}
+
+/** The words of a bedtime line: tonight's awake-late message when there is one, else the caller's. */
+/** Only ORION's own bed-* lines take the awake-late words; a reminder (his, or the late "Session done") keeps its own (2026-10-31 review). */
+export const rewritesBedtime = ({ why }) => /^proactive: bed-(?:wind|now|late)\b/.test(String(why ?? ""));
+export const bedtimeText = ({ dir, now, text }) => awakeLateFor({ dir, now })?.message ?? text;
 
 /** The night a moment belongs to: the evening's date until 06:00, by the wall clock (a fixed 6-hour subtraction slips an hour
  *  across a DST change, review 2026-10-23). */
@@ -51,7 +73,9 @@ export function bedtimeVerdict(e) {
   const night = nightOf(now);
   if (e.declaredAt && t - Date.parse(e.declaredAt) >= -MIN && t - Date.parse(e.declaredAt) < 10 * 3600_000) return { ok: false, reason: "he said goodnight" };
   if (e.ack?.night === night) return { ok: false, reason: "he already answered a bedtime message tonight" };
-  if ((e.sentTonight ?? 0) >= NIGHTLY_CAP) return { ok: false, reason: `already ${NIGHTLY_CAP} bedtime messages tonight` };
+  // up past bed with the Mac or phone in use (awake-late.json): one line more than the cap, the one that names tomorrow
+  const cap = NIGHTLY_CAP + (e.awakeLate ? 1 : 0);
+  if ((e.sentTonight ?? 0) >= cap) return { ok: false, reason: `already ${cap} bedtime messages tonight` };
   const screenAt = Date.parse(e.screen?.at);
   const phoneInUse = e.screen?.locked === false && Number.isFinite(screenAt) && t - screenAt <= PHONE_IN_USE_MS;
   const phoneAt = Date.parse(e.phone?.at);
@@ -93,6 +117,7 @@ export function readBedtimeEvidence({ dir, now, bed, mac }) {
     phone: Array.isArray(log.phoneSignals) ? log.phoneSignals.at(-1) ?? null : null,   // a malformed log is "nothing known"
     screen,
     sentTonight: bedtimeSentTonight(readLines(join(dir, "outreach.jsonl")), now),
+    awakeLate: !!awakeLateFor({ dir, now }),
   };
 }
 

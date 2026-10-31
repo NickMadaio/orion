@@ -258,6 +258,11 @@ describe("cluster 6: focus phrases", () => {
       const t = await r.turn(said, { command: `~/Desktop/ORION/scripts/orion-session ${verb}` });
       expect(t.tool).toBeUndefined();
     });
+  it.each([["clear some space tonight", "drop Gym"], ["make room for a nap", "drop --after \"MKTG2201 Lecture\""], ["sort out my evening man", "move Gym --to 21:00"]])(
+    "REV2 18: the worker's '%s' write (%s) of an unnamed gym is refused", async (said, args) => {
+      const r = route(() => ({ move: "escalate" }));
+      expect((await r.turn(said, { command: `orion-reschedule ${args}` })).tool).toMatchObject({ block: true });
+    });
   it("REV2 14: a finished session still blocks a pause", async () => {
     const r = route(() => ({ move: "escalate" }), { session: { ok: true, status: "finished" } });
     expect((await r.turn("pause it", { command: "~/Desktop/ORION/scripts/orion-session pause" })).tool).toMatchObject({ block: true });

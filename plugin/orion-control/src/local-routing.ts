@@ -46,6 +46,7 @@ import { runsFirst } from "./intent-run.js";
 import { asksDayRead, asksHabit, habitAnswer } from "./day-questions.js";
 import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne, type EditTarget } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
+import { unnamedAnchorWrite } from "./anchor-write-guard.js";
 import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
 import { maybeRunComputerTask, type ComputerDeps } from "./computer-loop.js";
 import { detectComputerIntent } from "./computer-intent.js";
@@ -1741,6 +1742,27 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }));
     const off = checks.find(Boolean);
     return off ? { block: true, blockReason: `Orion time check: ${off} Do not run another command; tell Nick exactly this.` } : undefined;
+  });
+
+  // REV2 finding 18: a misread form falls back to the worker, which can run orion-reschedule. Gym and study are not protected by the
+  // scheduler the way classes are, so a worker write that takes or moves one he did not name is refused (anchor-write-guard.ts).
+  if (on) api.on("before_tool_call", async (event, ctx) => {
+    if (pick(event, ctx, "toolName") !== "exec") return undefined;
+    const run = runFor(event, ctx);
+    const writes = writesIn(str((event.params as Record<string, unknown> | undefined)?.command) ?? "").filter((a) => /^(?:drop|move|resize|swap|rename|displace)$/.test(a[0] ?? ""));
+    const readJson = options.readDayJson;
+    if (!run || !writes.length || !readJson) return undefined;
+    // The same per-turn day read as the time backstop above (one read per turn, however many writes).
+    const days = (run.dayReads ??= new Map<string, Promise<Day | undefined>>());
+    for (const args of writes) {
+      const date = args.includes("--date") ? ["--date", args[args.indexOf("--date") + 1]!] : [];
+      const k = date.join(" ");
+      if (!days.has(k)) days.set(k, withTimeout(readJson(date).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS));
+      const day = await days.get(k)!;
+      const hit = day ? unnamedAnchorWrite(run.message, args, day.blocks) : null;
+      if (hit) return { block: true, blockReason: `Orion anchor check: ${hit.title} is ${/gym/i.test(hit.kind ?? hit.title) ? "his daily gym" : "study for a deadline"}, and he did not name it, so it is not dropped or moved. Do not run another command; tell Nick nothing changed and ask whether he meant ${hit.title}.` };
+    }
+    return undefined;
   });
 
   // 2026-10-19 backstop: the worker reached for `orion-reschedule <write>` by name (the tool guard refuses it). The run remembers it, so

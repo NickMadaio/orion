@@ -75,6 +75,7 @@ import { askKind, ownAnswer, readGraphFile, readHealthFile } from "./code-answer
 import { declareOnly, readReality, runReality, undoReality } from "./reality.js";
 import { pluginNow } from "./plugin-clock.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn } from "./pending-reply.js";
+import { readDayDefault, runDayDefault } from "./day-defaults.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
 const markRead = (run, name) => { if (!(run.reads ?? []).includes(name))
@@ -1100,7 +1101,8 @@ export function registerLocalRouting(api, options) {
         const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
         const knowledge = on && !quietTurn && isKnowledgeAsk(message);
         const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
-        const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove || !!health;
+        const dayDefault = free && !pendingYes && !lighten && !focusMove && !health && !reality && options.realityRun ? readDayDefault(message, parseOutreach(raw)?.text) ?? undefined : undefined;
+        const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove || !!health || !!dayDefault;
         const intentRead = on && !cutOff && !quietTurn && !realityWhole && !guarded && options.scheduleFlow ? readIntent(message, { now: (options.now ?? pluginNow)(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey) } : {}) }) : undefined;
         // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
         const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
@@ -1131,7 +1133,7 @@ export function registerLocalRouting(api, options) {
         const pending = on && !cutOff && !quietTurn && !isCrisis(message) && sessionKey ? readPendingTurn({ message, now: (options.now ?? pluginNow)(), ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, Date.now()), answered: (t) => pendingMemory.wasAnswered(sessionKey, t, Date.now()) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (runId)
             runs.set(runId, run);
@@ -1199,7 +1201,7 @@ export function registerLocalRouting(api, options) {
             // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
             if (run && isCrisis(run.message) && !run.afterCrisis)
                 return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
-            if (run && (run.room || run.hushed || run.pending || run.pendingYes || run.lighten || run.focusMove || run.health || run.knowledge))
+            if (run && (run.room || run.hushed || run.pending || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge))
                 return undefined; // 2026-10-31: code's, or the worker's textbook answer
             if (run?.ownText)
                 return { handled: true, reply: { text: run.ownText }, reason: "code answered from data" };
@@ -1274,6 +1276,22 @@ export function registerLocalRouting(api, options) {
                 const prompt = await ownTurn(run, now);
                 if (prompt)
                     return prompt;
+            }
+            // Wave 4 (day-defaults.ts): a defaultable request is acted on with its assumption said; "what now" is read from the day.
+            if (!run.flow && !run.cutOff && run.dayDefault && options.realityRun) {
+                const out = await runDayDefault(run.dayDefault, { run: options.realityRun, now: (options.now ?? pluginNow)(), ...(options.readDeadlines ? { deadlines: options.readDeadlines } : {}),
+                    readDay: (a) => (options.readDayJson ? withTimeout(options.readDayJson(a).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) : Promise.resolve(undefined)) });
+                run.flow = out.flow;
+                out.reads.forEach((r) => markRead(run, r));
+                if ("calls" in out.flow && out.flow.calls) {
+                    const f = out.flow;
+                    f.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: f.outputs?.[i] ?? "", exit: null }));
+                }
+                if (out.writes) {
+                    recordChange(run.sessionKey, []);
+                    if (run.sessionKey)
+                        lastReality.set(run.sessionKey, { facts: [], writes: out.writes, at: Date.now() });
+                }
             }
             // 2026-10-31 (cha-thinking-aloud-c): a textbook question gets the worker with a prompt for the standard answer, not the desk's draft.
             if (!run.flow && !run.cutOff && run.knowledge && run.settled.move !== "tool" && run.settled.move !== "ignore") {

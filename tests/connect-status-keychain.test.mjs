@@ -19,7 +19,7 @@ function fakeSecurity(exitCode) {
 
 function status(fake) {
   const dir = mkdtempSync(join(tmpdir(), "connect-status-"));
-  const r = spawnSync(process.execPath, [CLI, "status"], { encoding: "utf8", env: { ...process.env, PATH: `${fake.bin}:${process.env.PATH}`, ORION_CONNECTORS_DIR: dir } });
+  const r = spawnSync(process.execPath, [CLI, "status"], { encoding: "utf8", env: { ...process.env, ORION_SECURITY_BIN: join(fake.bin, "security"), ORION_CONNECTORS_DIR: dir } });
   rmSync(dir, { recursive: true, force: true });
   return r;
 }

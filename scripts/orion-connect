@@ -51,7 +51,9 @@ function specs() {
 // REV3 11: whether a key EXISTS, without -w, so no value enters memory and no per-item Keychain prompt is raised.
 // Exit 0 means the item is there; its attributes on stdout are discarded. `security` from PATH so a test can stand in for it.
 function hasSecret(item) {
-  try { execFileSync("security", ["find-generic-password", "-a", "openclaw", "-s", item], { stdio: ["ignore", "ignore", "ignore"] }); return true; }
+// Credential tooling never follows PATH; tests point ORION_SECURITY_BIN at a fake (existence check only, never -w).
+const SECURITY_BIN = process.env.ORION_SECURITY_BIN || "/usr/bin/security";
+  try { execFileSync(SECURITY_BIN, ["find-generic-password", "-a", "openclaw", "-s", item], { stdio: ["ignore", "ignore", "ignore"] }); return true; }
   catch { return false; }
 }
 

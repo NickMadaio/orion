@@ -34,3 +34,27 @@ describe("finding 9: every cut he names is read, and one that isn't there is sai
     expect(p.text).toMatch(/Gym stays at 4:30 PM.*30 instead of 90|30 minutes instead of 90/);
   });
 });
+
+describe("finding 12: stressed with an explicit cut does what he said", () => {
+  it.each(["im stressed, cancel study tonight", "so stressed rn, drop the study", "im freaking out, cut study tonight"])("%s", (m) => {
+    const p = plan(m);
+    expect(p.steps.map((s) => s.args)).toEqual([["drop", "Study for econ midterm"]]);
+    expect(p.pending).toBeUndefined();
+  });
+  it("stressed with nothing named still offers the smallest step", () => {
+    expect(plan("im so stressed about everything").pending).toBeDefined();
+  });
+});
+
+describe("finding 13: people, coursework and whole words", () => {
+  const evening = (title: string): Day => ({ date: "2026-10-30", blocks: [{ title, start: "20:00", end: "22:00", fixed: false }] } as Day);
+  it.each(["Game night at Sam's", "Coffee w/ Jess", "Dinner with Annika"])("the default lightening never takes %s off", (title) => {
+    expect(drops("im wrecked, fix my day", evening(title))).toEqual([]);
+  });
+  it.each(["Edit AE1 video", "Video edit for MKTG2201", "Edit the AE1 deck"])("%s is coursework, not the side project", (title) => {
+    expect(drops("im wrecked, fix my day", evening(title))).toEqual([]);
+  });
+  it.each([["im tired, drop me", "Homework"], ["im so tired, cut back today", "Back workout"], ["im exhausted, cut down tonight", "Downtown walk"]])("%s does not hit %s", (m, title) => {
+    expect(drops(m, evening(title))).toEqual([]);
+  });
+});

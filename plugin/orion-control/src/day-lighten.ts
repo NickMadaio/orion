@@ -70,7 +70,7 @@ export function readLighten(message: string): LightenRead | null {
   if (!kind) return null;
   const rank = RANK.test(m);
   if (!rank && (OTHER_CHANGE.test(m) || SKIPS_A_BLOCK.test(m))) return null;
-  const cut = [...m.matchAll(CUT)].flatMap((x) => cutNames(x[1]!)).filter((t) => !/^(?:it|that|this|everything|all)$/i.test(t));
+  const cut = [...m.matchAll(CUT)].flatMap((x) => cutNames(x[1]!)).filter((t) => !/^(?:it|that|this|everything|all|me|back|down|out|stuff|things|some|a bit|it back)$/i.test(t));
   const nap = readNap(m);
   return { kind, doIt: DO_IT.test(m), rank, cut, ...(nap ? { nap } : {}) };
 }
@@ -83,7 +83,7 @@ export const saysYes = (message: string): boolean => YES.test(message.trim());
 const toMin = (t: string): number => { const [h, mm] = t.split(":").map(Number); return (h ?? 0) * 60 + (mm ?? 0); };
 const hhmm = (n: number): string => `${String(Math.floor(n / 60) % 24).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 export const ampm = (t: string): string => { const n = toMin(t); const h = Math.floor(n / 60) % 24; return `${(h + 11) % 12 + 1}:${String(n % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`; };
-const kindOf = (b: DayBlock): string => b.kind ?? (/\b(lecture|seminar|lab|class|tutorial)\b|\b[a-z]{2,4}\d{3,4}\b/i.test(b.title) ? "class" : /\bgym|workout/i.test(b.title) ? "gym" : /\byoutube|side project|video|edit/i.test(b.title) ? "side_project" : /\bstudy|revis|homework|problem set/i.test(b.title) ? "study" : /\bnap|rest|break/i.test(b.title) ? "rest" : /\bbreakfast|lunch|dinner|meal/i.test(b.title) ? "meal" : "other");
+const kindOf = (b: DayBlock): string => b.kind ?? (/\b(lecture|seminar|lab|class|tutorial)\b|\b[a-z]{2,4}\d{3,4}\b/i.test(b.title) ? "class" : /\bgym|workout/i.test(b.title) ? "gym" : /\b(?:youtube|side project|channel)\b/i.test(b.title) ? "side_project" : /\bstudy|revis|homework|problem set/i.test(b.title) ? "study" : /\bnap|rest|break/i.test(b.title) ? "rest" : /\bbreakfast|lunch|dinner|meal/i.test(b.title) ? "meal" : "other");
 const isClass = (b: DayBlock) => kindOf(b) === "class";
 const isGym = (b: DayBlock) => kindOf(b) === "gym";
 const KEEP = new Set(["class", "gym", "study", "deadline", "meal", "rest", "sleep", "commute", "nap"]);
@@ -91,8 +91,15 @@ const KEEP = new Set(["class", "gym", "study", "deadline", "meal", "rest", "slee
  *  deadline work, so it is never the one taken off (found replaying his real 10-31 day). */
 const LOW_OTHER = /\b(?:laundry|groceries|grocery|shopping|errands?|clean(?:ing)?|tidy(?:ing)?|chores?|games?|gaming|tv|netflix|admin|inbox|emails?|organi[sz]e|declutter)\b/i;
 /** Removal order, lowest priority first: chores/leisure, then side project. Never fixed, never already started. */
-function lowestBlock(day: Day, nowMin: number): DayBlock | undefined {
-  const movable = day.blocks.filter((b) => !b.fixed && toMin(b.start) >= nowMin && !KEEP.has(kindOf(b)) && !/\b(?:with|meet|commute|travel|home)\b/i.test(b.title));
+// REV2 finding 13: a plan with people reads as one by "with", "w/", "meet", or a name's place ("Game night at Sam's").
+const WITH_PEOPLE = /\b(?:with|meet(?:ing|up)?|commute|travel|home)\b|\bw\//i;
+const NAMES_PLACE = /\b[A-Z][a-z]+'s\b/;
+const withPeople = (b: DayBlock) => WITH_PEOPLE.test(b.title) || NAMES_PLACE.test(b.title);
+/** A block that is coursework for a deadline he has ("Edit AE1 video" for "AE1 Marketing Presentation"), or carries a course code. */
+const deadlineWork = (b: DayBlock, deadlines: string[]) => /\b[A-Z]{2,5}\d{1,5}\b/.test(b.title)
+  || deadlines.some((d) => d.split(/[^A-Za-z0-9]+/).some((w) => w.length >= 3 && /\d/.test(w) && new RegExp(`\\b${w}\\b`, "i").test(b.title)));
+function lowestBlock(day: Day, nowMin: number, deadlines: string[] = []): DayBlock | undefined {
+  const movable = day.blocks.filter((b) => !b.fixed && toMin(b.start) >= nowMin && !KEEP.has(kindOf(b)) && !withPeople(b) && !deadlineWork(b, deadlines));
   return movable.find((b) => kindOf(b) === "other" && LOW_OTHER.test(b.title)) ?? movable.find((b) => kindOf(b) === "side_project");
 }
 const nextClass = (day: Day, nowMin: number) => day.blocks.filter(isClass).find((b) => toMin(b.end) > nowMin);
@@ -106,10 +113,13 @@ function napSlot(day: Day | undefined, nowMin: number, nap: NonNullable<LightenR
   const start = Math.ceil((nowMin + 5) / 5) * 5;
   return { args: ["--at", hhmm(start)], at: hhmm(start) };
 }
+// REV2 finding 13: whole words only ("drop me" is not Homework, "cut back" is not Back workout).
 const fuzzy = (day: Day, said: string): DayBlock | undefined => {
-  const s = said.toLowerCase().replace(/\s+(?:block|session|time)$/, "");
-  const side = /\b(?:side project|youtube|video|editing|content)\b/.test(s);
-  return day.blocks.find((b) => !b.fixed && !isClass(b) && (b.title.toLowerCase().includes(s) || (side && kindOf(b) === "side_project")));
+  const s = said.toLowerCase().replace(/\s+(?:block|session|time)$/, "").trim();
+  const side = /\b(?:side project|youtube|editing|content)\b/.test(s);
+  const ws = s.split(/[^a-z0-9']+/).filter(Boolean);
+  const whole = (title: string) => ws.length > 0 && ws.every((w) => new RegExp(`\\b${w.replace(/'/g, "'?")}\\b`, "i").test(title));
+  return day.blocks.find((b) => !b.fixed && !isClass(b) && whole(b.title)) ?? (side ? day.blocks.find((b) => !b.fixed && kindOf(b) === "side_project") : undefined);
 };
 
 // ---- deadlines ----
@@ -157,7 +167,8 @@ export function planLighten(read: LightenRead, ctx: { day?: Day; deadlines?: Dea
   const context = realDay(ctx.day, soon, nowMin);
   const first = soon[0]?.title ?? (ctx.day ? ctx.day.blocks.find((b) => kindOf(b) === "study" && toMin(b.end) > nowMin)?.title : undefined);
   if (read.rank) return { text: rankReply(ctx.day, soon), steps: [], ...(first ? { pending: { session: `start a 25 min focus session on ${first}` } } : {}) };
-  if (read.kind === "stressed") {
+  // REV2 finding 12: stressed with an explicit cut ("im stressed, cancel study tonight") is done as he said, not a study suggestion.
+  if (read.kind === "stressed" && !(read.doIt && read.cut.length)) {
     const step = first ? `Smallest step: 25 minutes on ${first}, right now. Want me to start that?` : "Smallest step: pick the one thing due first and give it 25 minutes. Want me to start a focus session?";
     return { text: [`That's a lot at once.`, context, step].filter(Boolean).join(" "), steps: [], pending: { session: `start a 25 min focus session${first ? ` on ${first}` : ""}` } };
   }
@@ -166,7 +177,7 @@ export function planLighten(read: LightenRead, ctx: { day?: Day; deadlines?: Dea
   const nap = read.nap ?? (read.doIt && !read.cut.length ? { minutes: 30 } : undefined);
   const slot = nap ? napSlot(day, nowMin, nap) : null;
   const napStep = (n: { minutes: number }, s: NonNullable<typeof slot>): LightenStep => ({ args: ["add", "Nap", String(n.minutes), ...s.args], said: `${n.minutes}-minute nap at ${ampm(s.at)}${s.after ? ` after ${s.after}` : ""}` });
-  const low = day ? lowestBlock(day, nowMin) : undefined;
+  const low = day ? lowestBlock(day, nowMin, soon.map((d) => d.title)) : undefined;
   const gym = day ? gymAhead(day, nowMin) : undefined;
   const easyGym: LightenStep | undefined = gym && !/\(easy\)/i.test(gym.title) ? { args: ["rename", gym.title, `${gym.title} (easy)`], said: `${gym.title} stays at ${ampm(gym.start)}, as an easy session` } : undefined;
   if (read.doIt) {

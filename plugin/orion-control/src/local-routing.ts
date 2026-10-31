@@ -65,6 +65,7 @@ import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopAr
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
+import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, roomQuiet, roomTalk } from "./chatter.js";
 import { planLighten, readLighten, runLighten, saysYes, type LightenPending, type LightenRead } from "./day-lighten.js";
 import { readFocusMove, runFocusMove, type FocusMove } from "./focus-moves.js";
@@ -862,23 +863,29 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     run.tools.push({ canonical: `exec orion-reschedule add "${gym.title}" 90 ${at.length ? `${at.join(" ")} ` : ""}--date tomorrow`, stdout: add.stdout, exit: add.code });
     const when = /(\d{2}:\d{2})[–-](\d{2}:\d{2})/.exec(add.stdout) ?? (at.length ? [at[1]!, at[1]!] : null);
     const assumed = skip.kind === "tomorrow" && skip.assumed ? ` (I took ${skip.assumed} as ${ampm12(skip.at!)})` : "";
-    if (add.code !== 0 || /NOTHING WAS|NOT BOOKED|did not fit/i.test(add.stdout)) { say(`There's no room for 90 minutes of gym tomorrow${at.length ? ` at ${ampm12(at[1]!)}` : ""}, so I left today's gym at ${ampm12(gym.start)}. Tell me what to move tomorrow and I'll fit it.`); return; }
+    // REV2 finding 1: only the gym's own NOT BOOKED (or a refusal) is "no room"; what else that run wrote is undone at once.
+    if (refused(add) || notBooked(add.stdout, gym.title)) {
+      if (wrote(add)) { const back = await options.realityRun("orion-reschedule", ["undo"]).catch(() => ({ stdout: "", code: 1 })); run.tools.push({ canonical: "exec orion-reschedule undo", stdout: back.stdout, exit: back.code }); }
+      say(`There's no room for 90 minutes of gym tomorrow${at.length ? ` at ${ampm12(at[1]!)}` : ""}, so I left today's gym at ${ampm12(gym.start)}. Tell me what to move tomorrow and I'll fit it.`); return;
+    }
+    const tomorrowAlso = sideNotes(gym.title, [add.stdout]);
+    const alsoLine = tomorrowAlso.length ? ` To fit it tomorrow: ${tomorrowAlso.join("; ")}.` : "";
     // 2026-10-31 (loop-gym-ladder-ignored-c): today's gym already over is a slip, not a block to take off.
     const nowD = (options.now ?? (() => new Date()))();
     if (gym.end <= `${String(nowD.getHours()).padStart(2, "0")}:${String(nowD.getMinutes()).padStart(2, "0")}`) {
       recordChange(run.sessionKey, []);
       if (run.sessionKey) lastReality.set(run.sessionKey, { facts: [], writes: 1, at: Date.now() });
       run.flow = { outcome: "done", calls: run.tools.map((t) => t.canonical), outputs: run.tools.map((t) => t.stdout),
-        reply: `Booked: gym tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""}, 90 minutes${assumed}. Today's ${ampm12(gym.start)} gym slipped; I'll come back to you when tomorrow's starts. Say "undo" to take it back.` };
+        reply: `Booked: gym tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""}, 90 minutes${assumed}.${alsoLine} Today's ${ampm12(gym.start)} gym slipped; I'll come back to you when tomorrow's starts. Say "undo" to take it back.` };
       return;
     }
     const drop = await options.realityRun("orion-reschedule", ["drop", gym.title]).catch(() => ({ stdout: "", code: 1 }));
     run.tools.push({ canonical: `exec orion-reschedule drop "${gym.title}"`, stdout: drop.stdout, exit: drop.code });
-    const dropped = drop.code === 0 && !/NOTHING WAS/.test(drop.stdout);
+    const dropped = !refused(drop);
     recordChange(run.sessionKey, []);
     if (run.sessionKey) lastReality.set(run.sessionKey, { facts: [], writes: dropped ? 2 : 1, at: Date.now() });
     run.flow = { outcome: "done", calls: run.tools.map((t) => t.canonical), outputs: run.tools.map((t) => t.stdout),
-      reply: dropped ? `Moved: gym is off today and on tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""}, 90 minutes${assumed}. Say "undo" to put it back.`
+      reply: dropped ? `Moved: gym is off today and on tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""}, 90 minutes${assumed}.${alsoLine} Say "undo" to put it back.`
         : `I booked gym tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""} but couldn't take today's off, so you have both for now. Say "undo" to take tomorrow's back.` };
   };
   /** 2026-10-31 (day-lighten.ts, focus-moves.ts): carries out his yes, a lightening of the day, or a focus phrase. A prompt only when the worker

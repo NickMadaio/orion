@@ -16,6 +16,7 @@
    doomscroll   a 25-minute session on what he should be doing, now (an intervention, reversible: "end the session")
    side-missed  an hour of the side project tonight (his daily rule), or first thing tomorrow when tonight has no room
 */
+import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import type { FlowResult } from "./schedule-flow.js";
 import type { SessionExec } from "./session-flow.js";
 import type { ScriptRun } from "./reality.js";
@@ -101,12 +102,22 @@ export async function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOu
     const args = ["add", move.label, "60", ...(late ? ["--date", "tomorrow"] : [])];
     const out = await deps.run("orion-reschedule", args).catch(() => ({ stdout: "", code: 1 }));
     ran.calls.push(`exec orion-reschedule add "${move.label}" 60${late ? " --date tomorrow" : ""}`); ran.outputs.push(out.stdout);
-    const when = /(\d{1,2}:\d{2})\s*(?:–|-|to)\s*(\d{1,2}:\d{2})/.exec(out.stdout);
-    if (out.code !== 0 || /NOTHING WAS|NOT BOOKED|did not fit|no room/i.test(out.stdout) || !when) {
-      return { flow: say(`There's no hour left for ${move.label} ${late ? "tomorrow" : "tonight"} without moving gym or study, so nothing changed. Want it first thing tomorrow instead?`, ran.calls, ran.outputs) };
+    // REV2 finding 1: its own block not fitting is the failure; anything else the run moved to fit it is said, never hidden.
+    const own = notBooked(out.stdout, move.label);
+    const placed = new RegExp(String.raw`${move.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\n]*?(\d{1,2}:\d{2})\s*(?:–|-|to)\s*(\d{1,2}:\d{2})`, "i").exec(out.stdout);
+    const when = placed ?? /(\d{1,2}:\d{2})\s*(?:–|-|to)\s*(\d{1,2}:\d{2})/.exec(out.stdout);
+    if (refused(out) || own || !when) {
+      let left = 0;
+      if (wrote(out)) {
+        const back = await deps.run("orion-reschedule", ["undo"]).catch(() => ({ stdout: "", code: 1 }));
+        ran.calls.push("exec orion-reschedule undo"); ran.outputs.push(back.stdout);
+        if (back.code !== 0) left = 1;
+      }
+      return { flow: say(`There's no hour left for ${move.label} ${late ? "tomorrow" : "tonight"} without moving gym or study, so ${left ? "I tried and couldn't fully put it back; check your calendar" : "nothing changed"}. Want it first thing tomorrow instead?`, ran.calls, ran.outputs), ...(left ? { writes: 1 } : {}) };
     }
     const at = (t: string) => { const [h, mm] = t.split(":").map(Number); return clock(new Date(2000, 0, 1, h ?? 0, mm ?? 0)); };
-    return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Still time ${late ? "tomorrow" : "tonight"}: ${move.label} booked ${at(when[1]!)}–${at(when[2]!)}, your hour for the day. Say "undo" to take it off.` }, writes: 1 };
+    const also = sideNotes(move.label, [out.stdout]);
+    return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Still time ${late ? "tomorrow" : "tonight"}: ${move.label} booked ${at(when[1]!)}–${at(when[2]!)}, your hour for the day.${also.length ? ` To fit it: ${also.join("; ")}.` : ""} Say "undo" to take it off.` }, writes: 1 };
   }
   if (!deps.exec) return {};
   const status = await call(deps.exec, ["status"], ran) ?? {};

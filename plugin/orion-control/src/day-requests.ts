@@ -20,6 +20,7 @@
 import { ampm, ceil5, CLOCK, hhmm, parseClock, resolveStart, takeLength, toMin } from "./intent-time.js";
 import { blocksNamed } from "./day-replan.js";
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
+import { notBooked, refused, sideNotes, wrote, writesIn } from "./scheduler-out.js";
 
 export type Clause =
   | { verb: "remove"; names: string[] }
@@ -55,7 +56,6 @@ const cap = (t: string) => t.replace(/^./, (c) => c.toUpperCase());
 const label = (b: DayBlock) => b.title.replace(/\s+—.*$/, "");
 const isFixed = (b: DayBlock) => b.fixed || b.kind === "class";
 const canon = (args: string[]) => args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
-const failed = (o: { stdout: string; code: number }) => o.code !== 0 || /NOTHING WAS|NOT BOOKED|did not fit|didn't fit/i.test(o.stdout);
 const listed = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const LATE_NIGHT = 5;
@@ -208,23 +208,6 @@ export function readDayRequest(message: string, now: Date = new Date()): DayRequ
 
 // ---- carrying out ----
 const say = (text: string, calls: string[] = [], outputs: string[] = []): FlowResult => ({ outcome: "say", kind: "plain", text, calls, outputs });
-/** What else the scheduler moved, shortened or took off that the reply does not already name (demo: meal prep then gym shortened the
- *  side project silently). Said before the undo line, so "Done" never hides a change to his calendar. */
-function sideNotes(reply: string, outputs: string[]): string[] {
-  const said = reply.toLowerCase();
-  const notes = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()).flatMap((l): Array<[string, string]> => {
-    let m = /^moved (.+?): (\d{2}:\d{2}) → (\d{2}:\d{2})/.exec(l);
-    if (m) return [[m[1]!, `${m[1]} ${ampm(toMin(m[2]!))} → ${ampm(toMin(m[3]!))}`]];
-    m = /^(.+?) now ends at (\d{2}:\d{2})$/.exec(l);
-    if (m) return [[m[1]!, `${m[1]} now ends at ${ampm(toMin(m[2]!))}`]];
-    m = /^bumped (.+?) \(/.exec(l);
-    if (m) return [[m[1]!, `${m[1]} is off today (no room)`]];
-    m = /^cleared \d+ prior schedule blocks?: (.+)$/.exec(l);
-    if (m) return m[1]!.split(/,\s+/).map((t): [string, string] => [t, `${t} is off`]);
-    return [];
-  })).filter(([title]) => !said.includes(title.toLowerCase())).map(([, n]) => n);
-  return [...new Set(notes)].slice(0, 4);
-}
 const done = (reply: string, calls: string[], outputs: string[]): FlowResult => {
   const notes = sideNotes(reply, outputs);
   const text = !notes.length ? reply : / Say "undo"[\s\S]*$|\s*(?:Each day is its own change[\s\S]*)$/.test(reply)
@@ -242,13 +225,23 @@ function findBlock(name: string, day: Day | undefined, now: number, opts: { ahea
   return ahead ?? (opts.ahead ? undefined : [...found].sort((a, b) => toMin(b.end) - toMin(a.end))[0]);
 }
 type Runner = { calls: string[]; outputs: string[]; writes: number; exec: (args: string[], script?: "orion-reschedule" | "orion-tasks") => Promise<{ stdout: string; code: number; ok: boolean }> };
+/** Runs one scheduler call. REV2 finding 1: success is exit 0 with no NOTHING WAS header, and every run that wrote is one undo entry
+ *  (orion-tasks: one per day it booked). An add whose own block is NOT BOOKED while the run still moved other things is undone at once,
+ *  so "it didn't fit" never sits on top of a calendar that silently changed. */
 function runner(deps: RequestDeps): Runner {
   const r: Runner = { calls: [], outputs: [], writes: 0, exec: async (args, script = "orion-reschedule") => {
     const out = await deps.run(script, args).catch(() => ({ stdout: "", code: 1 }));
     r.calls.push(`exec ${script} ${canon(args)}`); r.outputs.push(out.stdout);
-    const ok = !failed(out);
-    if (ok && script === "orion-reschedule") r.writes += 1;
-    return { ...out, ok };
+    if (script === "orion-tasks") { r.writes += writesIn(out.stdout); return { ...out, ok: !refused(out) }; }
+    const own = args[0] === "add" && args[1] ? notBooked(out.stdout, args[1]) : false;
+    if (!wrote(out)) return { ...out, ok: !refused(out) && !own };
+    if (!own) { r.writes += 1; return { ...out, ok: true }; }
+    const back = await deps.run("orion-reschedule", ["undo"]).catch(() => ({ stdout: "", code: 1 }));
+    // What that run moved is no longer true: its lines are kept for the record but never read as changes.
+    r.outputs[r.outputs.length - 1] = out.stdout.split("\n").map((l) => `undone: ${l}`).join("\n");
+    r.calls.push("exec orion-reschedule undo"); r.outputs.push(back.stdout);
+    if (back.code !== 0) r.writes += 1;
+    return { ...out, ok: false };
   } };
   return r;
 }
@@ -256,7 +249,7 @@ function runner(deps: RequestDeps): Runner {
  *  option names and script names are cut, so no tool internals reach him. Undefined when there is nothing safe to say. */
 export function whyNot(stdout: string): string | undefined {
   const raw = /NOTHING WAS (?:CHANGED|BOOKED)(?: on [^:.]+)?: (.+)/.exec(stdout)?.[1];
-  if (!raw) return undefined;
+  if (!raw) return /NOT BOOKED: .+? (?:did not fit|no longer fits)/.test(stdout) ? "there wasn't room for it" : undefined;
   const why = raw.split(/\s+[—–]\s+|;\s+|\.\s+/)[0]!.replace(/\s*\((?:[A-Z][a-z]+day )?\d{4}-\d{2}-\d{2}\)/g, "").replace(/\.$/, "").replace(/(\d{2}:\d{2})/g, (t) => ampm(toMin(t))).trim();
   return !why || /--|orion-|\brun again\b|\busage\b|\bhe\b|\bhis\b/i.test(why) ? undefined : why;
 }
@@ -296,7 +289,7 @@ async function runDeadline(r: Extract<DayRequest, { kind: "deadline" }>, deps: R
   if (!lines.length) return { flow: say(`When on ${when} is the ${r.title.toLowerCase()}? Tell me the time and I'll put it on your calendar.`), facts: [], writes: 0 };
   const changed = x.writes > 0 || (r.book && x.outputs.some((o) => /^Added /m.test(o)));
   // What booking the sessions moved is said too (the demo moved Gym 5:00 → 5:20 PM to fit Monday's session).
-  const moved = [...new Set(x.outputs.flatMap((o) => [...o.matchAll(/moved (.+?): (\d{2}:\d{2}) → (\d{2}:\d{2})/g)].map((mv) => `${mv[1]} ${ampm(toMin(mv[2]!))} → ${ampm(toMin(mv[3]!))}`)))].slice(0, 4);
+  const moved = [...new Set(x.outputs.flatMap((o) => [...o.matchAll(/^\s*moved (.+?): (\d{2}:\d{2}) → (\d{2}:\d{2})/gm)].map((mv) => `${mv[1]} ${ampm(toMin(mv[2]!))} → ${ampm(toMin(mv[3]!))}`)))];
   const text = `${changed ? "Done: " : ""}${cap(lines.join(". "))}.${moved.length ? ` To make room: ${moved.join("; ")}.` : ""}${x.writes ? ` ${UNDO.replace("it", "the calendar change")}` : ""}`;
   return { flow: changed ? done(text, x.calls, x.outputs) : say(text, x.calls, x.outputs), facts: [], writes: x.writes };
 }
@@ -360,7 +353,8 @@ async function runClauses(r: Extract<DayRequest, { kind: "clauses" }>, deps: Req
   }
   const keepLine = r.keep ? ` ${cap(r.keep)} stays on.` : "";
   const lead = r.ill ? "Feel better. " : "";
-  if (!said.length) return { flow: say(`${lead}Nothing changed: ${notes.join("; ")}.${keepLine}`, x.calls, x.outputs), facts: [], writes: 0 };
+  if (!said.length && !x.writes) return { flow: say(`${lead}Nothing changed: ${notes.join("; ")}.${keepLine}`, x.calls, x.outputs), facts: [], writes: 0 };
+  if (!said.length) return { flow: done(`${lead}Not done: ${notes.join("; ")}.${keepLine} The scheduler still changed your calendar. ${UNDO}`, x.calls, x.outputs), facts: [], writes: x.writes };
   return { flow: done(`${lead}Done: ${said.join("; ")}.${notes.length ? ` Not done: ${notes.join("; ")}.` : ""}${keepLine} ${UNDO}`, x.calls, x.outputs), facts: [], writes: x.writes };
 }
 

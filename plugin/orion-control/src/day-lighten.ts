@@ -17,6 +17,7 @@
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import type { DeadlineRead } from "./deadline-read.js";
 import type { ScriptRun } from "./reality.js";
+import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 
 export type LightenKind = "tired" | "sick" | "slept" | "stressed";
 export type LightenRead = { kind: LightenKind; doIt: boolean; rank: boolean; nap?: { minutes: number; at?: string; afterClass?: boolean }; cut: string[] };
@@ -187,18 +188,29 @@ export function planLighten(read: LightenRead, ctx: { day?: Day; deadlines?: Dea
   return { text: [lead, context, `${ask} Yes or no.`].filter(Boolean).join(" "), steps: [], pending: { steps: [proposal] } };
 }
 
-/** Runs the steps in order and says only what worked. A failed step stops the rest. */
+/** Runs the steps in order and says what worked and everything else the scheduler changed to make it fit (REV2 finding 1). A failed step
+ *  stops the rest. A step that wrote is one undo entry; an add whose own block did not fit is undone at once. */
 export async function runLighten(steps: LightenStep[], run: ScriptRun, context = ""): Promise<{ flow: FlowResult; writes: number }> {
   const calls: string[] = []; const outputs: string[] = []; const said: string[] = [];
-  let failed: LightenStep | undefined;
+  let failed: LightenStep | undefined; let writes = 0;
   for (const step of steps) {
     const out = await run("orion-reschedule", step.args).catch(() => ({ stdout: "", code: 1 }));
     calls.push(`exec orion-reschedule ${step.args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`); outputs.push(out.stdout);
-    if (out.code !== 0 || /NOTHING WAS|NOT BOOKED|did not fit|no such block|not found/i.test(out.stdout)) { failed = step; break; }
+    const own = step.args[0] === "add" && notBooked(out.stdout, step.args[1] ?? "");
+    if (own && wrote(out)) {
+      outputs[outputs.length - 1] = out.stdout.split("\n").map((l) => `undone: ${l}`).join("\n");
+      const back = await run("orion-reschedule", ["undo"]).catch(() => ({ stdout: "", code: 1 }));
+      calls.push("exec orion-reschedule undo"); outputs.push(back.stdout);
+      if (back.code !== 0) writes += 1;
+    }
+    if (refused(out) || own) { failed = step; break; }
+    if (wrote(out)) writes += 1;
     said.push(step.said);
   }
-  const keep = said.length ? " Classes untouched. Say \"undo\" to put it back." : "";
-  const miss = failed ? ` I couldn't do the ${failed.said.replace(/ off (?:today|tonight)$/, " change")}${said.length ? "" : ", so nothing changed"}.` : "";
-  const text = `${said.length ? `Done: ${listed(said)}.` : ""}${miss}${keep}${context && said.length ? ` ${context}` : ""}`.trim();
-  return { flow: said.length ? { outcome: "done", calls, outputs, reply: text } : { outcome: "say", kind: "plain", text: text || "I couldn't change your day just now, so nothing changed.", calls, outputs }, writes: said.length };
+  const reply0 = `${said.length ? `Done: ${listed(said)}.` : ""}`;
+  const also = sideNotes(`${reply0} ${said.join(" ")} ${steps.map((s) => s.args[1] ?? "").join(" ")}`, outputs);
+  const keep = said.length || writes ? ` Classes untouched. Say "undo" to put it back.` : "";
+  const miss = failed ? ` I couldn't do the ${failed.said.replace(/ off (?:today|tonight)$/, " change")}${said.length || writes ? "" : ", so nothing changed"}.` : "";
+  const text = `${reply0}${also.length ? ` Also: ${also.join("; ")}.` : ""}${miss}${keep}${context && said.length ? ` ${context}` : ""}`.trim();
+  return { flow: said.length ? { outcome: "done", calls, outputs, reply: text } : { outcome: "say", kind: "plain", text: text || "I couldn't change your day just now, so nothing changed.", calls, outputs }, writes };
 }

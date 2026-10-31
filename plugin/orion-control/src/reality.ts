@@ -20,6 +20,7 @@
  ladder read: the ladder is what cancels the leave nudges).
 */
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
+import { noteOf } from "./scheduler-out.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf, type DayRequest } from "./day-requests.js";
 
 export type Reality =
@@ -190,8 +191,9 @@ const say = (text: string, calls: string[] = [], outputs: string[] = []): FlowRe
 const done = (reply: string, calls: string[], outputs: string[]): FlowResult => ({ outcome: "done", calls, outputs, reply });
 const canon = (args: string[]) => args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
 /** The "Changed …:" lines a script printed, as plain clauses ("moved Study: 18:00 → 19:00"). */
-const changeLines = (stdout: string) => stdout.split("\n").map((l) => l.trim()).filter((l) => /^(?:moved|bumped|re-entered|logged)\b/.test(l) || / has no room today$/.test(l));
-const clause = (l: string) => l.replace(/(\d{1,2}:\d{2})/g, (t) => ampm(t)).replace(/ \(([^)]*)\): lower weight than what it made room for/, " to make room");
+// REV2 finding 1: a block shrunk or taken off to make room ("SHRUNK to fit", "NOT BOOKED … no longer fits") is a change too.
+const changeLines = (stdout: string) => stdout.split("\n").map((l) => l.trim()).filter((l) => /^(?:moved|bumped|re-entered|logged)\b/.test(l) || / has no room today$/.test(l) || /^(?:SHRUNK to fit|NOT BOOKED|SKIPPED OPTIONAL|SHIFTED):/.test(l));
+const clause = (l: string) => /^[A-Z]{4,}/.test(l) ? noteOf(l)?.[1] ?? l.replace(/\s+[—(].*$/, "") : l.replace(/(\d{1,2}:\d{2})/g, (t) => ampm(t)).replace(/ \(([^)]*)\): lower weight than what it made room for/, " to make room");
 
 async function noClasses(r: Extract<Reality, { kind: "no-classes" }>, deps: RealityDeps): Promise<RealityOutcome | null> {
   const day = await deps.readDay().catch(() => undefined);

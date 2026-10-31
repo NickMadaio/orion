@@ -17,6 +17,7 @@
 */
 import { execFile } from "node:child_process";
 import { isEdit } from "./edit-followup.js";
+import { parseSessionJson } from "./session-json.js";
 export const ORION_SESSION = "/Users/nickmadaio/Desktop/ORION/scripts/orion-session";
 const DEFAULT_TASK = "Focus";
 const RUNNING_STATES = new Set(["running", "paused", "waiting-for-return"]);
@@ -105,15 +106,7 @@ export function parseSessionRequest(message, hint = {}) {
     const task = readTask(message);
     return { task: task === DEFAULT_TASK && hint.task && message.toLowerCase().includes(hint.task.toLowerCase()) ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
 }
-const parse = (stdout) => {
-    try {
-        const value = JSON.parse(stdout);
-        return value && typeof value === "object" ? value : null;
-    }
-    catch {
-        return null;
-    }
-};
+const parse = parseSessionJson;
 const reason = (stdout) => stdout.trim().split("\n")[0]?.replace(/^orion-session:\s*/, "").slice(0, 160) || "no reply from Orion";
 const minutesOf = (seconds) => Math.max(1, Math.round(Number(seconds ?? 0) / 60));
 const listed = (names) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "");

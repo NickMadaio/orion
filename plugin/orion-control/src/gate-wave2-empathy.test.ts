@@ -186,11 +186,12 @@ describe("cluster 6: focus phrases", () => {
   it.each([["ya in a sec", 5], ["gimme 5 min", 5], ["ok ok in 15", 15], ["after this video", 10], ["give me 20 minutes", 20]])("a stall: %s", (said, minutes) => {
     expect(readFocusMove(said)).toEqual({ kind: "stall", minutes });
   });
-  it("foc-pomodoro-break-v: 'need a break' is a timed break that hands back to work", async () => {
+  it("foc-pomodoro-break-v: 'need a break' sets a return reminder, starts no session, and says its default length", async () => {
     const r = route(() => ({ move: "tool", tool: "session", args: { do: "pause" } }), { now: MON(10, 0) });
     const t = await r.turn("need a break");
-    expect(r.sessionCalls).toContainEqual(["start", "Focus", "--sequence", "10 break, 50 work", "--json"]);
-    expect(t.exact).toBe("Break till 10:10 AM. Then Focus starts again by itself, 50 minutes.");
+    expect(r.sessionCalls.map((c) => c[0])).toEqual(["status"]);
+    expect(t.built?.systemPrompt).toMatch(/alarm_set[\s\S]*2026-11-02T10:10/);
+    expect(t.built?.systemPrompt).toMatch(/Break till 10:10 AM \(10 minutes is my default/);
   });
   it("foc-pomodoro-break-c: 'take a 10 min break then restart the session' with a session running finishes it first", async () => {
     const r = route(() => ({ move: "tool", tool: "session", args: { do: "pause" } }), { now: MON(10, 0), session: { ok: true, status: "running", task: "econ", remainingSeconds: 120 } });
@@ -227,12 +228,12 @@ describe("cluster 6: focus phrases", () => {
   it.each(["block instagram and youtube for the next hour", "lock my apps", "stop me from opening tiktok"])("block: %s", (said) => {
     expect(readFocusMove(said)).toEqual({ kind: "block" });
   });
-  it("foc-doomscroll-v: 'im on tiktok instead of studying' starts 25 minutes now, logs nothing", async () => {
+  it("foc-doomscroll-v: 'im on tiktok instead of studying' nudges back to the block, starts nothing, logs nothing", async () => {
     const r = route(() => ({ move: "answer", answer: "Sounds like a break." }), { now: MON(10, 0) });
     const t = await r.turn("im on tiktok instead of studying");
     expect(r.flows).toEqual([]);
-    expect(r.sessionCalls).toContainEqual(["start", "Study", "--minutes", "25", "--json"]);
-    expect(t.exact).toBe("Put tiktok down. Study for 25 minutes, starting now: done at 10:25 AM.");
+    expect(r.sessionCalls.some((c) => c[0] === "start")).toBe(false);
+    expect(t.exact).toMatch(/^Put tiktok down and get back to .*No focus session is running right now; want 25 minutes/);
   });
   it("foc-doomscroll-c / foc-shush-c: the length he gave the session wins", () => {
     expect(parseSessionRequest("ive been on tiktok for 20 mins. start a 25 min focus session on econ right now and be strict", { start: true, task: "econ", minutes: 25 })).toMatchObject({ minutes: 25, task: "econ" });

@@ -70,6 +70,7 @@ import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, roomQuiet, roomTalk } from "./chatter.js";
 import { planLighten, readLighten, runLighten, saysYes, type LightenPending, type LightenRead } from "./day-lighten.js";
 import { readFocusMove, runFocusMove, type FocusMove } from "./focus-moves.js";
+import { readHealthIntent, runHealthIntent, sleepLine, type HealthRead } from "./health-log.js";
 import { KNOWLEDGE_PROMPT, isKnowledgeAsk } from "./knowledge-ask.js";
 import { askKind, ownAnswer, readGraphFile, readHealthFile, type AskKind, type ConnectorRow, type HealthLog } from "./code-answers.js";
 import { declareOnly, readReality, runReality, undoReality, type RealityRead, type ScriptRun } from "./reality.js";
@@ -240,6 +241,8 @@ type Run = {
   lighten?: LightenRead;
   /** 2026-10-31: a focus phrase mapped to its one call (focus-moves.ts). */
   focusMove?: FocusMove;
+  /** 2026-10-31 (health-log.ts): a meal to log, a gym-history question, or a bedtime. */
+  health?: HealthRead;
   /** 2026-10-31: a textbook question (knowledge-ask.ts): the worker answers it, never the desk's draft. */
   knowledge?: boolean;
   /** 2026-10-31 (code-answers.ts): sleep, who-is, secrets, connector status and draft asks are answered by code; ownText is that answer. */
@@ -930,10 +933,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (out.pendingSession) offer({ session: out.pendingSession });
       if (out.flow) { wrote(out.flow, out.writes ?? 0); if (out.flow.outcome === "done" && /orion-session start/.test(out.flow.calls.join(" "))) recordOther(key, "focus"); }
       if (out.reminder) {
+        (out.calls ?? []).forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs?.[i] ?? "", exit: null }));
         run.reminder = { args: out.reminder.args, say: out.reminder.say, action: "alarm_set", label: out.reminder.label, at: out.reminder.at };
         return { systemPrompt: `${LOCAL_IDENTITY}\n\nDo this for Nick now with ${taskRunCall(out.reminder.args)}\nThen, only if the result shows it worked, reply: "${out.reminder.say}" If it did not, say so plainly.\n\n${now}`,
           appendContext: `[ORION: ${taskRunNow(out.reminder.args)}]` };
       }
+      return undefined;
+    }
+    if (run.health && options.stateDir) {
+      const flow = await runHealthIntent(run.health, { stateDir: options.stateDir, now: at });
+      wrote(flow, 0); run.provided = true;
       return undefined;
     }
     if (run.lighten) {
@@ -945,8 +954,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (day) markRead(run, "day");
       if (deadlines) markRead(run, "deadlines");
       const plan = planLighten(read, { ...(day ? { day } : {}), deadlines: deadlines ?? null, now: at });
-      if (plan.steps.length && options.realityRun) { const out = await runLighten(plan.steps, options.realityRun, plan.text); wrote(out.flow, out.writes); return undefined; }
-      run.flow = { outcome: "say", kind: plan.pending ? "ask" : "plain", text: plan.text || "I couldn't change your day just now, so nothing changed." };
+      // 2026-10-31 (health-log.ts): a lightened day after a bad night states the real sleep numbers first.
+      const sleep = options.stateDir && (read.kind === "slept" || read.kind === "tired") ? await sleepLine(options.stateDir, at) : "";
+      const withSleep = (f: FlowResult): FlowResult => (!sleep ? f : f.outcome === "done" && f.reply ? { ...f, reply: `${sleep} ${f.reply}` } : f.outcome === "say" ? { ...f, text: `${sleep} ${f.text}` } : f);
+      if (plan.steps.length && options.realityRun) { const out = await runLighten(plan.steps, options.realityRun, plan.text); wrote(withSleep(out.flow), out.writes); return undefined; }
+      run.flow = withSleep({ outcome: "say", kind: plan.pending ? "ask" : "plain", text: plan.text || "I couldn't change your day just now, so nothing changed." });
       offer(plan.pending);
     }
     return undefined;
@@ -1104,9 +1116,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // A stall ("in 10") answering ORION's own line is that line's loop (outreach-reply.ts); a bare time after "What time?" is the reminder's.
     const move = free && !pendingYes && !lighten ? readFocusMove(message) ?? undefined : undefined;
     const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
+    const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
     const knowledge = on && !quietTurn && isKnowledgeAsk(message);
     const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
-    const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove;
+    const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove || !!health;
     const intentRead = on && !cutOff && !quietTurn && !realityWhole && !guarded && options.scheduleFlow ? readIntent(message, { now: (options.now ?? pluginNow)(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey)! } : {}) }) : undefined;
     // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
     const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
@@ -1133,7 +1146,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         .then((d) => { deskHealth.record(d, call); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -1180,7 +1193,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const run = runFor(event, ctx);
       // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
       if (run && isCrisis(run.message) && !run.afterCrisis) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
-      if (run && (run.room || run.hushed || run.pendingYes || run.lighten || run.focusMove || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
+      if (run && (run.room || run.hushed || run.pendingYes || run.lighten || run.focusMove || run.health || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
       if (run?.ownText) return { handled: true, reply: { text: run.ownText }, reason: "code answered from data" };
       if (run && isOverwhelmed(run.message)) return undefined;
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
@@ -1219,7 +1232,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (!run.flow && run.hushed) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
       if (!run.flow && !run.cutOff && run.ownText) { run.provided = true; run.flow = { outcome: "say", kind: "plain", text: run.ownText }; }
       // 2026-10-31: tired / sick / stressed, a focus phrase, or his yes to what one of them proposed: code's (ownTurn below).
-      if (!run.flow && !run.cutOff && (run.pendingYes || run.lighten || run.focusMove)) {
+      if (!run.flow && !run.cutOff && (run.pendingYes || run.lighten || run.focusMove || run.health)) {
         const prompt = await ownTurn(run, now);
         if (prompt) return prompt;
       }

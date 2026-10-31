@@ -1,0 +1,46 @@
+import type { FlowResult } from "./schedule-flow.js";
+import type { SessionExec } from "./session-flow.js";
+import { type BreakMove } from "./break-intent.js";
+import type { ScriptRun } from "./reality.js";
+export type FocusMove = {
+    kind: "stall";
+    minutes: number;
+} | BreakMove | {
+    kind: "extend";
+    minutes: number;
+} | {
+    kind: "block";
+} | {
+    kind: "doomscroll";
+    app: string;
+    instead?: string;
+} | {
+    kind: "side-missed";
+    label: string;
+};
+/** What the turn does: a fixed reply (flow), or a reminder the worker must set, plus what a "yes" next turn starts. */
+export type FocusOutcome = {
+    calls?: string[];
+    outputs?: string[];
+    flow?: FlowResult;
+    reminder?: {
+        args: string;
+        say: string;
+        action: "alarm_set";
+        label: string;
+        at: string;
+    };
+    pendingSession?: string;
+    writes?: number;
+};
+/** The focus phrase in his message, or null. Never a request that also names a session start ("start a 25 min session…"). */
+export declare function readFocusMove(message: string): FocusMove | null;
+type Deps = {
+    exec?: SessionExec;
+    run?: ScriptRun;
+    now: Date;
+    task?: string;
+};
+/** Carries the move out and says only what the session or the scheduler shows. */
+export declare function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOutcome>;
+export {};

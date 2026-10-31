@@ -50,6 +50,7 @@ export interface HealthLogFile {
 export declare function defaultHealthLogPath(configured?: string): string;
 export declare function today(now?: Date): string;
 export declare function readHealthLog(file: string): Promise<HealthLogFile>;
+export declare function mutate(file: string, change: (log: HealthLogFile) => void): Promise<HealthLogFile>;
 export declare function addSupplement(file: string, name: string, dose?: string, timeOfDay?: string): Promise<{
     added: boolean;
     supplement?: Supplement;

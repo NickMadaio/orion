@@ -9,7 +9,6 @@
  generic failure line is returned only when nothing readable survives.
 */
 import { stripExecFailed } from "./memory-facts.js";
-import { acknowledgement, acknowledgesFailure, failedTools, wroteSomething } from "./tool-failure.js";
 const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
 const GMAIL_OTHER = "I couldn't read your Gmail just now.";
@@ -31,8 +30,6 @@ const SPANS = [
     /(?:⚠️\s*)?(?:🛠️\s*)?\bExec failed\b:?[^\n]*/gi,
     /`[^`\n]*(?:\/scripts\/|~\/Desktop\/ORION|\borion-[a-z-]+)[^`\n]*`/g,
     /--[a-z-]+\s+\d{4}-\d{2}-\d{2}/g,
-    /--[a-z][a-z-]*\s+(?:HH:MM|YYYY-MM-DD|<[^>\n]+>)/g,
-    /\(Command exited with code \d+\)/g,
     /\bIf he meant\b[^\n]*/gi,
 ];
 // A known scheduler/tool banner label ("NOTHING WAS BOOKED: …"), not any ALL-CAPS label. Review 6 H-B (2026-10-16): the
@@ -54,14 +51,11 @@ export function mailReadFailed(tools) {
  tool isn't available in the current tool catalog." (hea-sleep-debt-c). A sentence that talks about ORION's plumbing is dropped
  whole; what is left is the honest part of the reply, or REPLY_FAILED when nothing is.
 */
-const LEAK_SENTENCE = /\b(?:the command failed|command (?:failed|didn'?t work|returned an error)|try (?:this|running)\s*:|tools? (?:isn'?t|is not|aren'?t|are not) available|(?:current |my )?tool catalog|exec(?:ution)? (?:failed|denied|error)|allowlist|exit code|stderr|stack trace|orion-[a-z]+(?:-[a-z]+)*|orion_task_run|tool_call|traceback \(most recent)\b|\(Command exited with code \d+\)|"status"\s*:\s*"error"|^\s+at\s+\S.*:\d+(?::\d+)?\)?\s*$|^(?:Type|Reference|Syntax)?Error: (?:spawn|ENOENT|EACCES)|\/scripts\/|~\/Desktop\/ORION|\/Users\/[^/\s]+\/Desktop\/ORION/i;
+const LEAK_SENTENCE = /\b(?:the command failed|command (?:failed|didn'?t work|returned an error)|try (?:this|running)\s*:|tools? (?:isn'?t|is not|aren'?t|are not) available|(?:current |my )?tool catalog|exec(?:ution)? (?:failed|denied|error)|allowlist|exit code|stderr|stack trace|orion-[a-z]+(?:-[a-z]+)*|orion_task_run|tool_call)\b|\/scripts\/|~\/Desktop\/ORION|\/Users\/[^/\s]+\/Desktop\/ORION/i;
 const FAILED_WORDS = /\b(?:fail(?:ed|s|ure)?|didn'?t work|returned an error|error|denied|couldn'?t|could not|can'?t|cannot|unable|isn'?t available|not available)\b/i;
 export const ONE_PART_FAILED = "One part didn't work.";
-// Only on a turn with a failed tool: a path, a long flag, a JSON key or a stack frame there is tool output (elsewhere it can be the answer).
-const STRICT_LEAK = /(?:^|[\s(])(?:~|\/Users\/[^/\s]+)\/\S+|(?<![\w-])--[a-z][a-z-]{2,}\b|^\s*[[{]\s*"[\w-]+"\s*:|\{\s*"[\w-]+"\s*:|\bat\s+\S+\s*\(\S+:\d+:\d+\)|\bspawn \S+ ENOENT/;
-const leaks = (text, strict) => LEAK_SENTENCE.test(text) || (strict && STRICT_LEAK.test(text));
-function dropLeaks(line, strict = false) {
-    if (!leaks(line, strict))
+function dropLeaks(line) {
+    if (!LEAK_SENTENCE.test(line))
         return line;
     // "Try this: <command>" carries the command after the colon: the rest of the line goes with it.
     const pieces = line.split(/(?<=[.!?])\s+(?=[A-Z"'])/);
@@ -70,7 +64,7 @@ function dropLeaks(line, strict = false) {
     // failed for the reminder." must not read as a plain "Done").
     let failed = false;
     for (const p of pieces) {
-        if (leaks(p, strict)) {
+        if (LEAK_SENTENCE.test(p)) {
             if (FAILED_WORDS.test(p) && !failed && kept.length) {
                 failed = true;
                 kept.push(ONE_PART_FAILED);
@@ -120,7 +114,7 @@ export function sanitizeReply(reply, ctx = {}) {
         for (const re of SPANS)
             line = line.replace(re, () => { changed = true; if (re === SPANS[0])
                 execCut = true; return ""; });
-        const kept = dropLeaks(line, ctx.strict === true);
+        const kept = dropLeaks(line);
         if (kept !== line) {
             changed = true;
             execCut = true;
@@ -141,27 +135,4 @@ export function sanitizeReply(reply, ctx = {}) {
     if (execCut && CHANGE_CLAIM.test(text) && !NEGATED.test(text) && text.split(/\s+/).length <= 12)
         return REPLY_FAILED;
     return text || REPLY_FAILED;
-}
-/*
- The last line of defence (gate run-1031202318 cluster 4). Raw tool text is cut (sanitizeReply, strict on a turn with a failed tool);
- when a tool the host ran failed, the reply must own it in words the host accepts as an acknowledgement, which also stops the host
- appending its own "Exec failed" payload, and a bare "Done" with no successful write behind it is replaced rather than left standing.
- Never silently drops a failure: the plain sentence says what did not happen.
-*/
-export function finalizeReply(reply, tools, ctx = {}) {
-    const failed = ctx.codeAuthored ? [] : failedTools(tools);
-    const clean = sanitizeReply(reply, { ...(ctx.mailFailed ? { mailFailed: true } : {}), ...(failed.length ? { strict: true } : {}) });
-    if (ctx.codeAuthored || !failed.length || !(ctx.hostTools && ctx.hostTools > 0))
-        return clean;
-    const changeRequest = ctx.changeRequest === true;
-    const nothingLeft = !clean.trim() || clean === REPLY_FAILED;
-    const claimsChange = CHANGE_CLAIM.test(clean) && !NEGATED.test(clean) && !/\?\s*$/.test(clean);
-    if (nothingLeft || (claimsChange && !wroteSomething(tools)))
-        return acknowledgement(failed, changeRequest);
-    if (acknowledgesFailure(clean))
-        return clean;
-    // Something else did change: the acknowledgement must not say nothing did.
-    if (wroteSomething(tools))
-        return `${clean} ${ONE_PART_FAILED} I couldn't run one of those changes.`;
-    return `${acknowledgement(failed, changeRequest, false)} ${clean}`;
 }

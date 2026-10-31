@@ -63,7 +63,7 @@ import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocu
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
-import { WIPE_CONFIRM, gymPushback, isWipe, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
+import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, roomQuiet, roomTalk } from "./chatter.js";
@@ -858,6 +858,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     // "move it to tomorrow": tomorrow's 90 minutes first, and today's comes off only once that is booked. One "undo" takes both back.
     if (!options.realityRun || !gym) { say(gym ? "I couldn't move gym just now, so it's still on today." : "Gym isn't on today's calendar, so there's nothing to move. Want me to put 90 minutes in tomorrow?", gym ? "plain" : "ask"); return; }
+    const nowD = (options.now ?? (() => new Date()))();
+    const nowHm = `${String(nowD.getHours()).padStart(2, "0")}:${String(nowD.getMinutes()).padStart(2, "0")}`;
+    // REV2 finding 8: "ill do gym tmrw" before today's gym is over would delete a gym day on a whim: pushback and one question.
+    if (skip.kind === "tomorrow" && skip.deferred && gym.end > nowHm) { say(deferAsk(gym.start), "ask"); return; }
     const at = skip.kind === "tomorrow" && skip.at ? ["--at", skip.at] : [];
     const add = await options.realityRun("orion-reschedule", ["add", gym.title, "90", ...at, "--date", "tomorrow"]).catch(() => ({ stdout: "", code: 1 }));
     run.tools.push({ canonical: `exec orion-reschedule add "${gym.title}" 90 ${at.length ? `${at.join(" ")} ` : ""}--date tomorrow`, stdout: add.stdout, exit: add.code });
@@ -871,8 +875,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const tomorrowAlso = sideNotes(gym.title, [add.stdout]);
     const alsoLine = tomorrowAlso.length ? ` To fit it tomorrow: ${tomorrowAlso.join("; ")}.` : "";
     // 2026-10-31 (loop-gym-ladder-ignored-c): today's gym already over is a slip, not a block to take off.
-    const nowD = (options.now ?? (() => new Date()))();
-    if (gym.end <= `${String(nowD.getHours()).padStart(2, "0")}:${String(nowD.getMinutes()).padStart(2, "0")}`) {
+    if (gym.end <= nowHm) {
       recordChange(run.sessionKey, []);
       if (run.sessionKey) lastReality.set(run.sessionKey, { facts: [], writes: 1, at: Date.now() });
       run.flow = { outcome: "done", calls: run.tools.map((t) => t.canonical), outputs: run.tools.map((t) => t.stdout),

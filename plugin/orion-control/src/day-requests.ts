@@ -19,6 +19,7 @@
 */
 import { ampm, ceil5, CLOCK, hhmm, parseClock, resolveStart, takeLength, toMin } from "./intent-time.js";
 import { blocksNamed } from "./day-replan.js";
+import { gymPushback } from "./anchor-guards.js";
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import { notBooked, refused, sideNotes, wrote, writesIn } from "./scheduler-out.js";
 
@@ -27,7 +28,7 @@ export type Clause =
   | { verb: "add"; name: string; minutes?: number; at?: string; after?: string; fixed?: boolean; until?: string }
   | { verb: "move-after"; name: string; after?: string };
 export type DayRequest =
-  | { kind: "clauses"; clauses: Clause[]; ill: boolean; keep?: string }
+  | { kind: "clauses"; clauses: Clause[]; ill: boolean; keep?: string; gymKept?: boolean }
   | { kind: "deadline"; title: string; day: string; at?: string; book: boolean; sessions: number; minutes: number }
   | { kind: "to-tomorrow"; name: string; at?: string; part?: "morning" | "afternoon" | "evening"; minutes?: number; defer: boolean }
   | { kind: "then"; activity: string; minutes: number; next: string }
@@ -48,8 +49,11 @@ const clean = (m: string) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can i|could i|what|when|why|how|which)\b/i;
 /** REV2 finding 3: a line about someone else's day ("my brother got a midterm friday", "she has a quiz") is never put on his calendar. */
 const SOMEONE_ELSES = /^(?:(?:so|ok(?:ay)?|btw|fyi|yeah|lol|omg|ugh)[,\s]+)*(?:my\s+(?:little\s+|big\s+|older\s+|younger\s+)?(?:brother|bro|sister|sis|mom|mum|dad|friend|mate|roommate|flatmate|housemate|girlfriend|boyfriend|gf|bf|partner|cousin|classmate)|he|she|they|his|her|their)\b(?!'s\s)/i;
+/** Tired, wrecked, not feeling it: how he feels, not a reason gym comes off (REV2 finding 7). */
+const EXCUSE = /\b(?:tired|exhausted|wrecked|knackered|shattered|drained|dead|fried|lazy|not feeling it|not in the mood|can'?t be bothered|cba|don'?t (?:want|feel like)|dont (?:want|feel like)|meh|ugh)\b/i;
 const HYPOTHETICAL = /\b(?:if|unless|what if|wish|pretend|imagine|would it)\b/i;
-const ILL = /\b(?:sick|ill|unwell|fever|flu|throwing up|migraine|wrecked|exhausted|knackered|dead tired|so tired)\b/i;
+// REV2 finding 7: real illness only. Tired / exhausted / wrecked is an excuse as far as gym goes (anchor-guards.ts pushes back on it).
+const ILL = /\b(?:sick(?!\s+of)|ill|unwell|fever|feverish|flu|throwing up|vomiting|migraine|covid)\b/i;
 const WEEKDAY_RE = "monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun|tomorrow|tmrw";
 const FULL_DAY: Record<string, string> = { mon: "monday", tue: "tuesday", tues: "tuesday", wed: "wednesday", weds: "wednesday", thu: "thursday", thur: "thursday", thurs: "thursday", fri: "friday", sat: "saturday", sun: "sunday", tmrw: "tomorrow" };
 const dayWord = (w: string) => FULL_DAY[w] ?? w;
@@ -136,9 +140,14 @@ function readClauses(m: string): DayRequest | null {
   // A lone single-name remove or a lone add is the intent layer's ("cancel gym", "add gym at 6"); this is for the combinations.
   if (list.length === 1 && !(removes.length === 1 && removes[0]!.names.length > 1)) return null;
   const ill = ILL.test(m);
-  // Gym is never dropped for an excuse: without a health reason a gym removal is the gym guard's (anchor-guards.ts).
-  if (!ill && removes.some((r) => r.names.some((n) => /\bgym\b/.test(n)))) return null;
-  return { kind: "clauses", clauses: list, ill, ...(keep ? { keep: keep[1]!.trim() } : {}) };
+  // Gym is never dropped for an excuse: without a health reason gym stays (with pushback and a shorter offer) and the rest of what he
+  // named still comes off; gym alone is the gym guard's (anchor-guards.ts).
+  const isGym = (n: string) => /\bgym\b/.test(n);
+  if (ill || !removes.some((r) => r.names.some(isGym))) return { kind: "clauses", clauses: list, ill, ...(keep ? { keep: keep[1]!.trim() } : {}) };
+  if (!EXCUSE.test(m)) return null;   // a plain "cancel gym and X" is the gym guard's and the intent layer's, as before
+  const rest = list.map((c) => (c.verb === "remove" ? { ...c, names: c.names.filter((n) => !isGym(n)) } : c)).filter((c) => c.verb !== "remove" || c.names.length);
+  if (!rest.length) return null;
+  return { kind: "clauses", clauses: rest, ill, gymKept: true, ...(keep ? { keep: keep[1]!.trim() } : {}) };
 }
 
 const TOMORROW_PART = String.raw`(?:tomorrow|tmrw|tmr)(?:\s+(?<part>morning|afternoon|evening|night))?`;
@@ -355,7 +364,8 @@ async function runClauses(r: Extract<DayRequest, { kind: "clauses" }>, deps: Req
     const out = await x.exec(["add", "Rest", "60"]);
     if (out.ok) said.push(`put an hour of rest in (${placedAt(out.stdout, "Rest") ?? "where it fits"})`);
   }
-  const keepLine = r.keep ? ` ${cap(r.keep)} stays on.` : "";
+  const gym = r.gymKept ? findBlock("gym", day, now, { ahead: true }) : undefined;
+  const keepLine = `${r.keep ? ` ${cap(r.keep)} stays on.` : ""}${r.gymKept ? ` ${gymPushback({ skipsThisWeek: deps.slipsOf?.("gym") ?? 0, firm: false, ...(gym ? { gymAt: gym.start } : {}) })}` : ""}`;
   const lead = r.ill ? "Feel better. " : "";
   if (!said.length && !x.writes) return { flow: say(`${lead}Nothing changed: ${notes.join("; ")}.${keepLine}`, x.calls, x.outputs), facts: [], writes: 0 };
   if (!said.length) return { flow: done(`${lead}Not done: ${notes.join("; ")}.${keepLine} The scheduler still changed your calendar. ${UNDO}`, x.calls, x.outputs), facts: [], writes: x.writes };

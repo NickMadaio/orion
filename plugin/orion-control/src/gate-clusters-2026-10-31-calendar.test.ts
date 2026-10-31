@@ -99,12 +99,19 @@ describe("cluster 2: a natural default is acted on and said back, never 'What ti
   });
 
   it("loop-gym-ladder-ignored-c 'ill do gym tmrw morning': gym is booked tomorrow at 9 AM; today's, already over, is a slip", async () => {
-    expect(readGymSkip("ill do gym tmrw morning")).toEqual({ kind: "tomorrow", at: "09:00", assumed: "morning" });
-    expect(readGymSkip("ok ill hit the gym tomorrow at 7am")).toEqual({ kind: "tomorrow", at: "07:00" });
+    expect(readGymSkip("ill do gym tmrw morning")).toEqual({ kind: "tomorrow", at: "09:00", assumed: "morning", deferred: true });
+    expect(readGymSkip("ok ill hit the gym tomorrow at 7am")).toEqual({ kind: "tomorrow", at: "07:00", deferred: true });
     const r = route({ now: "19:30", out: () => "Changed Tuesday 2026-11-03:\n  added Gym 09:00–10:30" });
     const t = await r.turn("ill do gym tmrw morning");
     expect(r.writes()).toEqual([["orion-reschedule", "add", "Gym", "90", "--at", "09:00", "--date", "tomorrow"]]);
     expect(t.exact).toBe("Booked: gym tomorrow at 9:00 AM, 90 minutes (I took morning as 9:00 AM). Today's 5:00 PM gym slipped; I'll come back to you when tomorrow's starts. Say \"undo\" to take it back.");
+  });
+
+  it.each(["not feeling it, ill do gym tmrw morning", "nah ill hit the gym tomorrow", "meh ill go to the gym tomorrow evening"])("REV2 8: %s at 8 AM, today's gym ahead: pushback and a question, nothing written", async (m) => {
+    const r = route({ now: "08:00" });
+    const t = await r.turn(m);
+    expect(r.writes()).toEqual([]);
+    expect(t.exact).toMatch(/^Today's gym is still on at 5:00 PM, and tomorrow has its own\. Keep today's .*30 minutes instead of 90.*Nothing's changed yet\.$/);
   });
 
   it("rea-task-twice-c 'econ problem set needs another hour, push whatever is after it': the block runs an hour longer", async () => {
@@ -195,7 +202,8 @@ describe("cluster 3: what happened is logged first, against the real day, then t
     const r = route({ now: "13:00", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added nap 16:00–16:30" : "Changed Monday:\n  dropped side project") });
     const t = await r.turn("add a 30 min nap at 4 today and cut side project tonight im wrecked");
     expect(r.writes()).toEqual([["orion-reschedule", "add", "Nap", "30", "--at", "16:00"], ["orion-reschedule", "drop", "side project"]]);
-    expect(t.exact).toBe("Feel better. Done: nap 4:00 PM–4:30 PM; took side project (7:30 PM) off. Say \"undo\" to put it back.");
+    // REV2 7: wrecked is tired, not ill (no "Feel better." and no rest block added).
+    expect(t.exact).toBe("Done: nap 4:00 PM–4:30 PM; took side project (7:30 PM) off. Say \"undo\" to put it back.");
   });
   it("hea-sleep-adjust-c 'only slept 4 and a half hours, add a nap after class and cut side project': the nap after class, the side project off", async () => {
     expect(readDayRequest("only slept 4 and a half hours, add a nap after class and cut side project", at("10:00"))).toMatchObject({ kind: "clauses", clauses: [{ verb: "add", name: "nap", after: "class" }, { verb: "remove", names: ["side project"] }] });

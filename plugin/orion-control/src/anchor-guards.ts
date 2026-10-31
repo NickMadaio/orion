@@ -15,7 +15,9 @@
 import { ordinal } from "./state-card.js";
 
 /** tomorrow: at is the start he named, or the part of the day he gave ("tmrw morning" = 09:00, assumed: said back as an assumption). */
-export type GymSkip = { kind: "excuse" } | { kind: "legit"; reason: string; at?: string } | { kind: "tomorrow"; at?: string; assumed?: string };
+/** deferred: "ill do gym tmrw" (his plan), not "move gym to tomorrow" (an instruction). REV2 finding 8: a deferral while today's gym is
+ *  still ahead deletes a gym day on an excuse, so the gym turn pushes back and asks instead of moving it. */
+export type GymSkip = { kind: "excuse" } | { kind: "legit"; reason: string; at?: string } | { kind: "tomorrow"; at?: string; assumed?: string; deferred?: boolean };
 
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion)[,\s]+)*(?:should|can|could|do|is|what|when|why|how)\b/i;
 const PAST = /\b(?:didn'?t|didnt|did not|never|skipped|missed)\b/i;
@@ -36,9 +38,9 @@ function readGymDefer(m: string): GymSkip | null {
     let h = Number(d[2]); const min = Number(d[3] ?? 0);
     if (h > 23 || min > 59) return null;
     if (d[4]?.toLowerCase() === "pm" && h < 12) h += 12; else if (!d[4] && d[1]?.toLowerCase() !== "morning" && h >= 1 && h <= 7) h += 12;
-    return { kind: "tomorrow", at: `${pad2(h)}:${pad2(min)}` };
+    return { kind: "tomorrow", at: `${pad2(h)}:${pad2(min)}`, deferred: true };
   }
-  return d[1] ? { kind: "tomorrow", at: PART_START[d[1].toLowerCase()]!, assumed: d[1].toLowerCase() } : { kind: "tomorrow" };
+  return d[1] ? { kind: "tomorrow", at: PART_START[d[1].toLowerCase()]!, assumed: d[1].toLowerCase(), deferred: true } : { kind: "tomorrow", deferred: true };
 }
 
 /** He is putting gym off. Null when it is not that (a question, a past report the reality flow owns, an explicit move with a time). */
@@ -70,6 +72,8 @@ export function gymPushback({ skipsThisWeek, firm, gymAt }: { skipsThisWeek: num
     : `Gym's still on${gymAt ? ` at ${ampm(gymAt)}` : ""}.${nth} ${shorter} If something real came up, tell me and I'll move it instead of dropping it.`;
 }
 
+/** "ill do gym tmrw" while today's gym is still ahead: pushback and one question; nothing is written. */
+export const deferAsk = (gymAt: string) => `Today's gym is still on at ${ampm(gymAt)}, and tomorrow has its own. Keep today's (even 30 minutes instead of 90 counts), or move today's to tomorrow? Nothing's changed yet.`;
 export const legitAsk = (reason: string) => `Okay, the ${reason} comes first. When will you be free after it? I'll move gym there instead of dropping it.`;
 export const legitLead = (reason: string) => `Okay, the ${reason} comes first.`;
 

@@ -57,7 +57,7 @@ import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply, type LateExec } from "./late-flow.js";
 import { parseMessagesRead, readNote, type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { isBareTime, isReminderTurn, leaveAsReminder, planReminder, type StoredReminder } from "./reminder-flow.js";
-import { mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
+import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
 import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
@@ -1969,9 +1969,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // H4 (r8b2, 2026-10-16) q069/q070: raw CLI text (URLs, "Exec failed", script paths, tool banners) never reaches him; only
       // here can it be fixed on the Mac chat / phone route (reply_payload_sending never runs there).
-      if (on && !owed && reply.trim()) {
-        const clean = sanitizeReply(reply, { mailFailed: mailReadFailed(run.tools) });
-        if (clean !== reply) { owed = clean; remember([runId, sessionKeyNow], owed); }
+      // Wave 4: code-authored lines (owed) are cleaned too (the scheduler's "orion-reschedule extend … --until HH:MM" hint rode in one); a failed
+      // host tool must be owned in the reply, or the host appends its raw "Exec failed" payload (finalizeReply, tool-failure.ts).
+      if (on && (owed ?? reply).trim()) {
+        const before: string = owed ?? reply;
+        const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), codeAuthored: owed !== undefined });
+        if (clean !== before) { owed = clean; remember([runId, sessionKeyNow], owed); }
       }
       if (on && owed) putReplyInPlace(event.messages, owed);
       await record();

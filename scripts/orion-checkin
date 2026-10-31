@@ -119,13 +119,19 @@ function displace(c, why) {
 }
 
 /** The outward steps of a plan loop (lib/reach/plan-effects.mjs): orion-reach, orion-reschedule displace, orion-ontask. */
-const effects = () => planEffects({ here: HERE, env: process.env, nowMs: NOW_MS, evaluating,
+const effects = () => planEffects({ here: HERE, env: process.env, nowMs: NOW_MS, evaluating, dir: CONTROLLED,
   outcome: (row) => { recordOutcome(row); try { summarize(JSON.parse(readFileSync(join(CONTROLLED, "health-log.json"), "utf8"))); } catch { summarize({}); } } });
 /** --reply-to <msgId>: the ladder message his answer is about (ladders.json messages[].msgId); default the last one sent. */
 const replyTo = () => flag("--reply-to") ?? null;
 /** A plan loop's own day: closed loops of today are kept so ladders.json and the daily cap still see them. */
 const todays = (c) => !!c.block && (c.blockWindow?.date ?? new Date(c.createdAt).toLocaleDateString("en-CA")) === new Date(NOW_MS).toLocaleDateString("en-CA");
 const keep = (c) => open(c) || todays(c);
+/** What other loops for the same title already did today: a displace (never twice a day) and a missed sample (one a day). */
+function titlesToday(checkins, self) {
+  const others = checkins.filter((x) => x.id !== self.id && x.block && todays(x));
+  const key = (x) => String(x.what ?? "").trim().toLowerCase();
+  return { replannedTitles: others.filter((x) => ladderOf(x).replan).map(key), sampledTitles: others.filter((x) => ladderOf(x).sampled).map(key) };
+}
 
 /** What every plan ladder reads this tick: the now record, his declared facts, patterns, workouts, consent, his ears. */
 function planContext(aw) {
@@ -148,19 +154,23 @@ switch (command) {
     // A block that was moved and re-entered gets a new calendar id: the same title on the same day is the same block, and
     // does not start a second not-started loop.
     const today = new Date(NOW_MS).toLocaleDateString("en-CA");
-    // A ladder that closed (replanned, declared off) does not restart for the same slot; the block re-entered later by the
-    // replan (another start) gets its own ladder (2026-10-30).
+    // A ladder that closed (replanned, declared off) does not restart for the same slot. The block a replan re-entered
+    // (another start) gets ONE reprise loop: L0, then the closing question, never a second full ladder or a second displace
+    // (2026-10-31 review, finding 1: one ignored Gym became an evening of ladders and calendar rewrites).
     const sameSlot = (x) => !x.blockWindow || !flag("--start") || x.blockWindow.start === Number(flag("--start"));
-    if (flag("--block") && state.checkins.some((x) => x.block && x.what === what && new Date(x.createdAt).toLocaleDateString("en-CA") === today
-        && (open(x) || ladderOf(x).resolution?.status === "declared" || (x.loop?.phase !== "cancelled" && sameSlot(x))))) {
+    const sameToday = state.checkins.filter((x) => x.block && x.what === what && new Date(x.createdAt).toLocaleDateString("en-CA") === today);
+    const replanned = sameToday.some((x) => !!ladderOf(x).replan);
+    if (flag("--block") && sameToday.some((x) => open(x) || ladderOf(x).resolution?.status === "declared" || (x.loop?.phase !== "cancelled" && sameSlot(x))
+        || (replanned && x.reprise))) {
       console.log(`Already following "${what}" today.`); break;
     }
+    const reprise = !!flag("--block") && replanned;
     const id = `ci-${randomBytes(3).toString("hex")}`;
     const because = flag("--because");
     const c = { id, what, dueAt: now + minutes, createdAt: new Date(NOW_MS).toISOString(), alerts: 0, by: flag("--by") === "orion" ? "orion" : "nick",
                 ...(flag("--block") ? { block: String(flag("--block")).slice(0, 80), window: flag("--window") ?? null,
                     blockWindow: windowOf({ date: flag("--day"), start: flag("--start"), end: flag("--end") }),
-                    ...(flag("--tier") === "protected" ? { tier: "protected" } : {}) } : {}),
+                    ...(flag("--tier") === "protected" ? { tier: "protected" } : {}), ...(reprise ? { reprise: true } : {}) } : {}),
                 returning: because && classifyDeferral(because).kind === "pause" ? returning(because) : null,
                 loop: startLoop({ id, start: now + minutes }, now) };
     state.checkins = [...state.checkins.filter(keep), c].slice(-30);
@@ -280,7 +290,7 @@ switch (command) {
       // the closing message; never dropped silently while the day is still on (2026-10-30).
       if (c.block) {
         const next = tickPlanLoop(c, { ...plan, held: duringClass || held(c), graceWake: grace, sentToday: sentToday(state.checkins, NOW_MS),
-          habit: lateHabit(plan.patterns, kindOf(c)) }, fx);
+          habit: lateHabit(plan.patterns, kindOf(c)), ...titlesToday(state.checkins, c) }, fx);
         if (next.attended) state.attended = [...(state.attended ?? []).slice(-30), { date: localDate(new Date(NOW_MS)), blockId: c.block, title: c.what, ...next.attended }];
         const { attended: _a, ...rest } = next;
         state.checkins = state.checkins.map((x) => (x.id === c.id ? rest : x));

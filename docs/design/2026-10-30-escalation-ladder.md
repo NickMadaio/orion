@@ -85,6 +85,27 @@ min instead of coming out in a merged flush. While a ladder is open no blank or 
   `brief-heads.json` (`{ schemaVersion: 1, heads: [{ date, head }] }`, written by orion-morning when a brief is delivered),
   so the same item three days running is said as slipping with the choice, not repeated.
 
+## After the 2026-10-31 review
+
+The reviewer's run (one ignored Gym at 17:00, nothing answered all evening) produced 23 pushes, 4 replans, blocks re-entered
+as 5 min and the Gym deleted on the second ladder. Now (lib/reach/plan-loop.mjs, orion-checkin, lib/life/reality.mjs):
+
+- **One displace per title per day.** A later END for the same title says "didn't happen ... either. I won't move it again
+  today" and asks. The block a replan re-entered gets one **reprise** loop (`reprise: true`): L0, then that END question at
+  +60 or the block's end, nothing between. A third loop for the title is refused ("Already following").
+- **One missed sample per title per day** (`ladder.sampled`). A declared skip with a real reason (ill, injured, an emergency,
+  a rest day: `plan-ladder.mjs legitSkip`) is not a miss; an excuse or no reason is.
+- **The Gym is never removed by a replan.** If it cannot come back whole even with lower blocks bumped, displace writes
+  nothing (`kept`), prints "has no room today", and the END asks. A block he gave up on comes back whole or not at all.
+- **END names every change**: `replanFrom` reads every moved, bumped and no-room line ("Also: Go over Orion learning plan
+  is off today (bumped)."). The END is exempt from orion-reach's hourly cap (route.mjs `allowed` `capExempt`), and the L2
+  voice copy is not counted. An END that never got through before the loop lapsed queues a "Calendar update: ..." line in
+  held.jsonl for the next open moment (orion-proactive drains it).
+- **END waits out a grace**; a block he **started** gets one plain "Still going with Gym? Say done when you finish." at its
+  planned end (within an hour of it), no ask, never urgent.
+- checkins.json saves merge by id under a short lock (lib/reach/checkin-store.mjs): a reply landing mid-tick wins.
+- Reviewer's simulation after: 19 pushes, 1 displace per title, the Gym still on the calendar.
+
 ## Open
 
 - **TODO (health/planning worker, lib/life/fill-day.mjs and orion-reschedule displace)**: the END replan re-enters the gym

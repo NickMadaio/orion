@@ -8,8 +8,9 @@
 //   L1   +10                         firmer, specific, and a smaller version: "Just 30 min then."
 //   L2   +20                         time-sensitive phone push, and the Mac aloud when he is home or has headphones in
 //   L3   +40                         firm: "No. You've been avoiding this for an hour. Get up." and, only with the grant, restriction
-//   END  +60, or the block is over   the day is re-weighed (orion-reschedule displace) and he is told what happens now; when the
-//                                    replan could not place it, a question. A loop never ends without this message.
+//   END  +60, or the block is over   the day is re-weighed (orion-reschedule displace, once per title a day) and he is told what
+//                                    happens now and every other block it moved or bumped; when the replan could not place it,
+//                                    or the title was already re-planned today, a question. A loop never ends without this message.
 //
 // A legitimate reason (eating, meal prep, a call) is a grace of 20-30 min and a comeback ("Okay, you ate. Now we're starting."),
 // not a dead end. The caps are a safety net, never the schedule: 4 rungs per block in any hour, 25 a day; the closing message
@@ -90,26 +91,55 @@ export const voiceText = ({ title, smaller = 30 }) => `Nick. ${cap(title)}. Now.
 /** After a grace: "Time to start: Gym. Okay, you ate. Now we're starting." */
 export const comebackText = ({ title, returning }) => `Time to start: ${title}. Okay, ${returning || "break's over"}. Now we're starting.`;
 
+/** The other blocks a replan touched, in words: "Study for CS Midterm moved to 7:00 PM; Go over Orion learning plan is off today". */
+export function changesLine(changes = []) {
+  const parts = (changes ?? []).map((x) => x.type === "moved" ? `${x.title} moved to ${hm(x.to)}`
+    : x.type === "bumped" ? `${x.title} is off today (bumped)` : `${x.title} has no room today`);
+  return parts.join("; ");
+}
+
 /**
- * The closing message, after the day was re-weighed. replan: { kind: "moved", start, end } (minutes), "no-room" or "failed".
- * It always says what happens now; "moved" is a tell, the other two are the question.
+ * The closing message, after the day was re-weighed. replan: { kind: "moved", start, end, changes } (minutes), "no-room",
+ * "failed", or "repeat" (this title was already re-planned today: never displaced twice, so it is the question).
+ * It always says what happens now, and every other block the replan moved or bumped: the calendar never changes silently.
  */
 export function endText({ title, start, smaller = 30, replan = { kind: "failed" } }) {
   const t = cap(title);
   const when = Number.isFinite(start) ? ` at ${hm(start)}` : "";
-  if (replan?.kind === "moved") return `${t} didn't happen${when}. I've moved it to ${hm(replan.start)}–${hm(replan.end)}; that's the plan now. If today's off, say skip.`;
-  if (replan?.kind === "no-room") return `${t} didn't happen${when}, and there's no room left today for all of it. Want ${smaller} min tonight, or first thing tomorrow?`;
-  return `${t} didn't happen${when}. Should I move it to later today, or is today off?`;
+  const also = changesLine(replan?.changes);
+  const tail = also ? ` Also: ${also}.` : "";
+  if (replan?.kind === "moved") return `${t} didn't happen${when}. I've moved it to ${hm(replan.start)}–${hm(replan.end)}; that's the plan now.${tail} If today's off, say skip.`;
+  if (replan?.kind === "no-room") return `${t} didn't happen${when}, and there's no room left today for all of it.${tail} Want ${smaller} min tonight, or first thing tomorrow?`;
+  if (replan?.kind === "repeat") return `${t} didn't happen${when} either. I won't move it again today: want ${smaller} min tonight, or is today off?`;
+  return `${t} didn't happen${when}.${tail} Should I move it to later today, or is today off?`;
 }
 
-/** orion-reschedule displace's own output, read for the closing message. */
+/** The short line queued for his next open moment when the closing message never reached him. No running count in it. */
+export function noteText({ title, replan }) {
+  const head = replan?.kind === "moved" ? `${cap(title)} moved to ${hm(replan.start)}–${hm(replan.end)}` : `${cap(title)} is off its slot today`;
+  const also = changesLine(replan?.changes);
+  return `Calendar update: ${head}${also ? `; ${also}` : ""}.`;
+}
+
+const toMin = (h, m) => Number(h) * 60 + Number(m);
+/** orion-reschedule displace's own output, read for the closing message: the block itself and every other line it changed. */
 export function replanFrom({ status, stdout = "" }, title) {
   const out = String(stdout);
   const esc = String(title).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const same = (x) => x.trim().toLowerCase() === String(title).trim().toLowerCase();
+  const changes = [];
+  for (const line of out.split("\n")) {
+    const moved = line.match(/^\s+moved (.+?): (\d{2}):(\d{2}) → (\d{2}):(\d{2})\s*$/);
+    if (moved && !same(moved[1])) { changes.push({ type: "moved", title: moved[1], from: toMin(moved[2], moved[3]), to: toMin(moved[4], moved[5]) }); continue; }
+    const bumped = line.match(/^\s+bumped (.+?) \(\d{2}:\d{2}–\d{2}:\d{2}\)/);
+    if (bumped && !same(bumped[1])) { changes.push({ type: "bumped", title: bumped[1] }); continue; }
+    const off = line.match(/^\s+(.+?) has no room today\s*$/);
+    if (off && !same(off[1])) changes.push({ type: "off", title: off[1] });
+  }
   const placed = out.match(new RegExp(`re-entered ${esc}: (\\d{2}):(\\d{2})–(\\d{2}):(\\d{2})`, "i"));
-  if (status === 0 && placed) return { kind: "moved", start: Number(placed[1]) * 60 + Number(placed[2]), end: Number(placed[3]) * 60 + Number(placed[4]) };
-  if (status === 0 && new RegExp(`${esc} has no room today`, "i").test(out)) return { kind: "no-room" };
-  return { kind: "failed" };
+  if (status === 0 && placed) return { kind: "moved", start: toMin(placed[1], placed[2]), end: toMin(placed[3], placed[4]), changes };
+  if (status === 0 && new RegExp(`${esc} has no room today`, "i").test(out)) return { kind: "no-room", changes };
+  return { kind: "failed", changes: status === 0 ? changes : [] };
 }
 
 const REASONS = [
@@ -120,6 +150,11 @@ const REASONS = [
   [/\b(?:bathroom|toilet|loo)\b/i, "you're back"],
   [/\blaundry\b/i, "laundry's sorted"],
 ];
+// A skip he declares for one of these is not a missed block in his record (2026-10-31 policy); any other reason is.
+const LEGIT_SKIP = /\b(?:sick|ill|unwell|fever|flu|covid|injur\w*|hurt|pulled|sprain\w*|doctor|hospital|emergency|funeral|migraine|rest day|recovery day|deload)\b/i;
+/** A declared skip with a real reason (ill, injured, an emergency, a planned rest day); an excuse or no reason is false. */
+export const legitSkip = (text) => LEGIT_SKIP.test(String(text ?? "")) && !AVOIDING_WORDS.test(String(text ?? ""));
+const AVOIDING_WORDS = /\b(?:can'?t be bothered|don'?t feel like|lazy|meh)\b/i;
 const AVOIDING = /\b(?:later|in a bit|not now|tomorrow|one more|five more|5 more|don'?t feel like|can'?t be bothered|meh)\b/i;
 
 /** A legitimate pause: { minutes (20-30), returning } ; avoidance or no reason is null (the ladder goes on). */

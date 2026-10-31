@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { isolated, toOutbox } from "../clock.mjs";
 import { validUntilOf } from "./block-window.mjs";
 import { END_RUNG, rungName } from "./plan-ladder.mjs";
+import { appendHeld } from "./held.mjs";
 
 const SENT = /^(Sent|Already said)/;
 const DROPPED = /^NOT SENT: (ceiling|budget|blank-budget|dropped|expired)/;
@@ -14,6 +15,8 @@ const endOfDay = (nowMs) => { const d = new Date(nowMs); return new Date(d.getFu
 
 /** orion-reach's argv for one ladder message. The closing message is always protected: a loop must be able to close. */
 export function reachArgs(c, msg, { nowMs, channel = null, text = msg.text, askId = msg.msgId } = {}) {
+  // "Still going?" after a block he started is a plain line, not a not-started ask (its label would say "not started")
+  if (msg.still) return [text, "--kind", "checkin", "--why", `plan: ${c.block}`, "--valid-until", endOfDay(nowMs)];
   const ask = { type: "mismatch", blockId: c.block, title: c.what, window: c.blockWindow ?? null, level: msg.rung + 1, rung: rungName(msg.rung), askId };
   const end = msg.rung >= END_RUNG;
   const until = end ? endOfDay(nowMs) : validUntilOf(c.blockWindow);
@@ -32,7 +35,7 @@ const outcomeOf = (r) => {
  * @param env    process.env (the seams: ORION_REACH_BIN, ORION_RESCHEDULE_BIN, ORION_ONTASK_BIN)
  * @param record(what) -> void   recordOutcome + summarize, or null during an evaluation
  */
-export function planEffects({ here, env = process.env, nowMs, evaluating = false, outcome = null }) {
+export function planEffects({ here, env = process.env, nowMs, evaluating = false, outcome = null, dir = null }) {
   const spawn = (bin, args) => { try { return spawnSync(bin, args, { encoding: "utf8", timeout: 30_000, env }); } catch { return { status: 1, stdout: "" }; } };
   const reach = (args) => spawn(env.ORION_REACH_BIN || join(here, "orion-reach"), args);
   return {
@@ -52,6 +55,11 @@ export function planEffects({ here, env = process.env, nowMs, evaluating = false
       if (isolated(env) && !env.ORION_ONTASK_BIN) { toOutbox("focus-restrict", { step: plan.step, app: plan.app ?? null, block: c.block, title: c.what }, { env, by: "orion-checkin" }); return true; }
       const r = spawn(env.ORION_ONTASK_BIN || join(here, "orion-ontask"), ["act", plan.step, ...(plan.app ? ["--app", plan.app] : [])]);
       return r.status === 0;
+    },
+    /** The closing message never got through: a short "what changed" line waits for his next open moment (held.jsonl). */
+    queue(c, text) {
+      if (evaluating || !dir) return;
+      try { appendHeld(dir, { id: `replan-${c.id}-${nowMs}`, at: new Date(nowMs).toISOString(), text, kind: "update", why: `replan: ${c.block}`, heldFor: "replan" }); } catch { /* best effort */ }
     },
     outcome(row) { if (!evaluating && outcome) { try { outcome(row); } catch { /* the loop still closes */ } } },
   };

@@ -124,19 +124,28 @@ function displacedTags(created, displaced) {
 }
 
 /** The same re-weigh for a block that will not happen (cancelled, given up on): it leaves its slot and re-enters by weight.
- *  A give-up is his doing whether or not it re-enters (reason gave-up); no-room is only for what ORION could not place. */
+ *  A give-up is his doing whether or not it re-enters (reason gave-up); no-room is only for what ORION could not place.
+ *  A must (the Gym) is never removed by a replan (2026-10-31 review): if it cannot come back whole, even with every lower
+ *  block bumped, nothing is written (`kept`) and he is asked. */
 export function planDisplace(blocks, block, opts) {
   const { date, now, window, soft = [], config = {}, buffer = 0, why, txn, at } = opts;
   const missed = Math.min(block.end - block.start, Math.max(block.end - Math.max(block.start, now), minimumFor(block.title, config.minimums ?? {})));
   // A must (the Gym) goes back WHOLE, at the length its block had: only what is left of it is "missed", but the scheduler does not trim it to that (2026-10-20: gave-up Gym came back 50 min).
+  // A block he gave up on did not happen at all: it comes back whole or not at all, never as the 5 minutes "left" at its end (2026-10-31 review).
   const must = weightOf(block, config).rank === "must";
-  const displaced = [{ block, minutes: must ? block.end - block.start : Math.max(MIN_PIECE, missed) }];
+  const whole = must || why === "gave-up";
+  const displaced = [{ block, minutes: whole ? block.end - block.start : Math.max(MIN_PIECE, missed) }];
   const kept = blocks.filter((b) => b.id !== block.id);
   const { result } = reweigh({ blocks: kept, displaced, now, window, soft, config, buffer });
   const byId = new Map(kept.map((b) => [b.id, b]));
   const back = result.created.filter((c) => c.id.startsWith("displaced-")).map((c) => ({ ...c, tags: block.tags ?? [], ...(block.rank ? { rank: block.rank } : {}) }));
   const bumped = result.unplaced.filter((u) => !u.displaced && byId.has(u.id)).map((u) => byId.get(u.id));
   const off = result.unplaced.some((u) => u.displaced);
+  if (must && off) {
+    return { created: [], moves: [], removed: [], slips: [slipRow({ date, at, block, missed: Math.max(MIN_PIECE, missed), replacedBy: null, reason: why === "gave-up" ? "gave-up" : "no-room", txn, config })],
+      bumped: [], placedAgain: [], offToday: [block], kept: true,
+      summary: `${cap(block.title)} has no room to move today, so it stays where it was.` };
+  }
   const slips = [...bumped.map((b) => slipRow({ date, at, block: b, missed: b.end - b.start, replacedBy: block.title, reason: `bumped:${block.title}`, txn, config })),
     slipRow({ date, at, block, missed: Math.max(MIN_PIECE, missed), replacedBy: null, reason: why === "gave-up" ? "gave-up" : off ? "no-room" : why, txn, config })];
   return { created: back, moves: result.moves.filter((m) => byId.has(m.id)), removed: [block, ...bumped], slips, bumped, placedAgain: back, offToday: off ? [block] : [],

@@ -117,7 +117,8 @@ if (!dry) refuseDuringEval("reaching Nick");
 mkdirSync(DIR, { recursive: true });
 const history = existsSync(LOG) ? readFileSync(LOG, "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : [];
 
-const burst = allowed(text, history, { now: now.getTime() });
+// a plan loop's closing message (its rung END) is never held by the hourly cap: the calendar must never change silently
+const burst = allowed(text, history, { now: now.getTime(), capExempt: ask?.rung === "END" });
 if (!burst.ok && burst.duplicate) { console.log(`Already said: ${burst.reason}.`); process.exit(0); }
 
 const urgent = args.includes("--urgent");

@@ -997,6 +997,8 @@ if (command === "late") {
     head = [`${target.title} ${hhmm(target.start)}–${hhmm(target.end)} will not happen (${why}); it is off its slot`];
   }
   if (plan.refused) { console.log(`NOTHING WAS CHANGED: ${plan.refused}.`); process.exit(1); }
+  // a must with no room to come back is kept where it was, never removed (lib/life/reality.mjs planDisplace)
+  if (plan.kept) head = [`${plan.offToday[0].title} ${hhmm(plan.offToday[0].start)}–${hhmm(plan.offToday[0].end)} stays where it was: kept, nothing was moved`];
   const byId = new Map(blocks.map((b) => [b.id, b]));
   const checkFrom = command === "log" ? Math.min(minute(flag("--from")), nowMinute) : nowMinute;
   refuseIfBroken(projectDay(blocks, { moves: plan.moves, created: plan.created, removed: plan.removed }), checkFrom, "this change");

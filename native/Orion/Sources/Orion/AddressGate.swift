@@ -86,7 +86,7 @@ enum AddressGate {
     /// any whole line he could have said. Overheard speech joins mid-sentence
     /// or trails off, and that is all this refuses.
     static func classifyWake(_ heard: String, text: String, words: [String]) -> AddressDecision {
-        if hasCommandCue(text, wordCount: words.count) { return .init(addressed: true, reason: "command", isWeak: false) }
+        if hasCommandCue(text, wordCount: words.count, afterWake: true) { return .init(addressed: true, reason: "command", isWeak: false) }
         if isShortInterruption(words) { return .init(addressed: true, reason: "interruption", isWeak: false) }
         if looksOverheard(heard) { return .init(addressed: false, reason: "overheard after a wake", isWeak: false) }
         return .init(addressed: true, reason: "wake", isWeak: false)
@@ -107,20 +107,43 @@ enum AddressGate {
     /// Speech the microphone caught partway through. Deepgram punctuates and
     /// capitalises what it hears, so in a punctuated line a lowercase first
     /// letter means it joined someone mid-sentence ("views with clicking
-    /// conversation rates shown on the slides."; a question is exempt), and a
-    /// missing full stop means they were still going ("…and somebody").
+    /// conversation rates shown on the slides."; a question or a number-led
+    /// line is exempt), and a longer line with no full stop that does not open
+    /// the way he talks means they were still going.
     /// Apple's on-device ear does neither, so for an unpunctuated line only the
     /// trailing word counts.
     static func looksOverheard(_ heard: String) -> Bool {
         let raw = normalizedKeepingCase(heard)
-        if endsMidClause(AddressLexicon.words(raw)) { return true }
+        let words = AddressLexicon.words(raw)
+        if endsMidClauseAfterWake(raw, words: words) { return true }
         let punctuated = raw.contains { ".,?!…".contains($0) }
         guard punctuated else { return false }
-        if !AdaptiveEndpointModel.hasTerminalPunctuation(raw) { return true }
+        // REV3 #2: "2pm works.", "30 minutes before class, …" have no first
+        // letter to be cased — a number-led line is never "joined mid-sentence".
+        if raw.first?.isNumber == true { return false }
         // A whole question after his name is for ORION however it was cased.
         if raw.hasSuffix("?") { return false }
-        guard let first = raw.first(where: { $0.isLetter }) else { return false }
-        return first.isLowercase
+        if let first = raw.first(where: { $0.isLetter }), first.isLowercase { return true }
+        guard !AdaptiveEndpointModel.hasTerminalPunctuation(raw) else { return false }
+        // No full stop: the endpoint can cut before Deepgram adds one ("Okay,
+        // thanks"; "Hey, I need to move gym to seven"), so a short line or one
+        // that opens the way he talks to ORION is not someone still going.
+        if words.count <= 4 { return false }
+        return !(words.first.map(AddressLexicon.selfAddressStarts.contains) ?? false)
+    }
+
+    /// The wake path's "half a sentence" (REV3 #1). A line Deepgram closed
+    /// with terminal punctuation is finished, whatever its last word ("Thank
+    /// you.", "Who am I talking to?"). An unpunctuated question may still end
+    /// on a pronoun or a preposition, so it is held only to the words no
+    /// sentence ends on; and "thank you" / "same to you" are whole.
+    static func endsMidClauseAfterWake(_ raw: String, words: [String]) -> Bool {
+        if AdaptiveEndpointModel.hasTerminalPunctuation(raw) { return false }
+        guard let last = words.last else { return false }
+        if last == "you", words.count >= 2, AddressLexicon.closingYou.contains(words[words.count - 2]) { return false }
+        guard let first = words.first, AddressLexicon.questionStarts.contains(first) else { return endsMidClause(words) }
+        if AddressLexicon.hardTrailers.contains(last) { return true }
+        return endsMidClause(words) && ["somebody", "someone"].contains(last)
     }
 
     /// `normalized` without the lowercasing.
@@ -156,17 +179,18 @@ enum AddressGate {
     /// A sentence that starts the way a request to ORION starts. Only the first
     /// two sentences are read in a long utterance, because a monologue will
     /// eventually start a sentence with almost any verb.
-    static func hasCommandCue(_ text: String, wordCount: Int) -> Bool {
+    static func hasCommandCue(_ text: String, wordCount: Int, afterWake: Bool = false) -> Bool {
         let sentences = AddressLexicon.sentences(text)
         let considered = wordCount <= AddressLexicon.readAllSentencesUpTo ? sentences : Array(sentences.prefix(2))
-        return considered.contains { sentenceIsRequest($0) }
+        return considered.contains { sentenceIsRequest($0, afterWake: afterWake) }
     }
 
-    static func sentenceIsRequest(_ sentence: String) -> Bool {
+    static func sentenceIsRequest(_ sentence: String, afterWake: Bool = false) -> Bool {
         let words = AddressLexicon.strippingLeadingFillers(AddressLexicon.words(sentence))
         guard let head = words.first else { return false }
         let rest = Array(words.dropFirst())
         if AddressLexicon.requestOpeners.contains(where: { opener in words.starts(with: opener) }) { return true }
+        if afterWake, AddressLexicon.wakeRequestOpeners.contains(where: { opener in words.starts(with: opener) }) { return true }
         if head == "let's" || head == "lets" { return rest.first.map(AddressLexicon.commandVerbs.contains) ?? false }
         if head == "turn" { return rest.first.map { ["on", "off", "up", "down"].contains($0) } ?? false }
         if head == "tell" || head == "give" { return rest.first == "me" }

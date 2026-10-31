@@ -20,6 +20,20 @@ export declare const dayWord: (which: Which, now: Date) => string;
 export declare function clockOn(at: number, meridiem: boolean | undefined, which: Which, now: Date): number | undefined;
 /** After a write: where the block called `title` now starts on the day, read back; undefined when no such block sits near `asked`. */
 export declare function placedAt(day: Day | undefined, title: string, asked: number): number | undefined;
+/**
+ W5 (gate loop-bedtime-reschedule-v): the start AND the length the calendar shows. A 30 min nap was asked for and his learned minimum
+ made it 75, but the reply said "a 30 min nap" from the command. Undefined as placedAt.
+*/
+export declare function placedSpan(day: Day | undefined, title: string, asked: number): {
+    start: number;
+    minutes: number;
+} | undefined;
+/** The write went through but the calendar does not show the block where it was asked for: no time is claimed. */
+export declare const unseen: (title: string) => string;
+/** How long after it started a block still counts as the one he is putting off ("gonna eat first" with no nudge on record). */
+export declare const JUST_STARTED_MIN = 30;
+/** The block his calendar started in the last half hour that is still on: not fixed, not sleep, the latest start. Undefined when none. */
+export declare function justStarted(day: Day | undefined, nowMin: number): DayBlock | undefined;
 /** A class or a plan with people (the scheduler marks both fixed); a title "with <someone>" counts when there is no block to read. */
 export declare const isProtected: (title: string, block?: DayBlock) => boolean;
 /** The block on the day he named: the exact title, else one whose title holds every word he used ("marketing" → "MKTG2201 Marketing"). */

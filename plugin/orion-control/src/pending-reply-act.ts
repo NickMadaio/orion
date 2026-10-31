@@ -9,14 +9,13 @@ import type { Memo, PendingDeps, PendingOutcome, PendingTurn } from "./pending-r
 import { clockTimes, type Details, type Offer, type Reply } from "./pending-reply-read.js";
 import {
   DAY_END, addCommand, blockNamed, clockOn, dayArgs, dayWord, firstFixed, flowText, flowWrote, freeSlot, h12, isProtected, moveCommand, nowAndNext,
-  nowMinOf, placedAt, safeTitle, toMin, wakeDayIsToday, type Which,
+  justStarted, nowMinOf, placedAt, safeTitle, toMin, unseen, wakeDayIsToday, type Which,
 } from "./pending-reply-day.js";
+import { bedtime } from "./pending-reply-bed.js";
 import { namesBlock } from "./anchor-write-guard.js";
 
 /** He said a time that has already gone today: nothing is written. */
 const PAST_LINE = "That time's already gone today, so nothing changed. Give me a later one.";
-/** The write went through but the calendar does not show the block where it was asked for: no time is claimed. */
-const unseen = (title: string): string => `The calendar took the change, but I can't see ${title} where I asked for it, so check it before you count on the time.`;
 /** His own words name this block (a class or a plan with people moves only then). */
 const named = (said: string | undefined, title: string): boolean => !!said && namesBlock(said, { title, start: "00:00", end: "00:00", fixed: true });
 const PROTECTED_LINE = (title: string): string => `${title} is a class or a plan with people, so I won't move or rebook it on a guess. Tell me what to do with it, by name, and I will.`;
@@ -24,7 +23,7 @@ const PROTECTED_LINE = (title: string): string => `${title} is a class or a plan
 type Acc = { tools: ToolResult[]; marks: string[]; wrote: boolean };
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
-class Ctx {
+export class Ctx {
   readonly acc: Acc = { tools: [], marks: [], wrote: false };
   constructor(readonly deps: PendingDeps, readonly turn: PendingTurn) {}
   get now(): Date { return this.deps.now; }
@@ -118,10 +117,12 @@ async function start(c: Ctx, title: string, r: Reply): Promise<PendingOutcome | 
   }
   if (r.kind === "defer" || r.kind === "awake") {
     const activity = r.activity;
-    const minutes = r.minutes ?? (r.kind === "defer" ? r.typical : undefined) ?? (activity ? 25 : 15);
-    const assumed = r.kind === "defer" && r.minutes === undefined;
+    // W5 (gate foc-not-started-v): "ya in a sec" is a stall, so the grace is short and said as the limit, not a fresh 15 min.
+    const stall = r.kind === "defer" && !!r.stall && !activity;
+    const minutes = r.minutes ?? (r.kind === "defer" ? r.typical : undefined) ?? (stall ? STALL_MIN : activity ? 25 : 15);
+    const assumed = r.kind === "defer" && r.minutes === undefined && !stall;
     const back = await c.comeBack(title, minutes, c.turn.said ?? (activity ? `${activity} first` : "not yet"));   // his words: orion-checkin reads the reason from them
-    const lead = activity ? `Okay, ${activity} first — ${minutes} min${assumed ? " (my guess; say if it's longer)" : ""}.` : `Okay, ${minutes} min.`;
+    const lead = activity ? `Okay, ${activity} first — ${minutes} min${assumed ? " (my guess; say if it's longer)" : ""}.` : stall ? `${minutes} min, not more.` : `Okay, ${minutes} min.`;
     if (!back) return c.done(`${lead} I couldn't set the check-in, so tell me when you're back and we start ${title}.`, { kind: "resume", title, ...(activity ? { activity } : {}), at: c.now.getTime() });
     if (back.refused) return c.done(`That's putting it off again, so ${title} stays on — start now, even 30 min counts.`, null);
     return c.done(`${lead} I'll come back at ${h12(back.at)} and we start ${title}.`, { kind: "resume", title, ...(activity ? { activity } : {}), at: c.now.getTime() });
@@ -135,6 +136,9 @@ async function start(c: Ctx, title: string, r: Reply): Promise<PendingOutcome | 
   if (r.kind === "decline") return c.done(`Okay, not right now. When instead? Give me a time and I'll move ${title} there — it doesn't just drop.`, null);
   return undefined;
 }
+
+/** "in a sec": how long a vague hold on a start line gets. */
+const STALL_MIN = 5;
 
 /** He is starting (or back from the pause): the loop is marked started, and a work block gets its focus session. */
 async function begin(c: Ctx, title: string, activity: string | undefined, back: boolean): Promise<PendingOutcome> {
@@ -161,58 +165,6 @@ async function leave(c: Ctx, o: Extract<Offer, { kind: "leave" }>, r: Reply): Pr
   const at = o.classAt !== undefined ? ` at ${h12(o.classAt)}` : "";
   if (late <= 0) return c.done(`Okay — ${h12(leaveBy)}, hard stop. That still gets you to ${o.title}${at}.${ping}`, null);
   return c.done(`${h12(leaveBy)} at the latest — that has you about ${late} min late to ${o.title}${at}, so move fast.${ping}`, null);
-}
-
-async function bedtime(c: Ctx, r: Reply, memo?: Extract<Memo, { kind: "bedtime" }>): Promise<PendingOutcome | undefined> {
-  const wake = await c.day("tomorrow");
-  const anchor = firstFixed(wake);
-  const anchorLine = anchor ? ` ${anchor.title} at ${h12(toMin(anchor.start))} stays.` : "";
-  const when = dayWord("tomorrow", c.now) || "";
-  let napped = memo?.napped ?? false;
-  const nap = async (): Promise<string> => {
-    if (napped) return "";
-    const from = anchor ? toMin(anchor.end) + 5 : 12 * 60;
-    const start = freeSlot(wake, 30, Math.max(from, 12 * 60), 18 * 60);
-    if (start === undefined) return "";
-    const flow = await c.schedule(addCommand("nap", 30, "tomorrow", start, c.now));
-    if (flowWrote(flow)) {
-      napped = true;
-      const seen = await c.readBack("tomorrow", "nap", start);
-      return seen === undefined ? ` ${unseen("the nap")}` : ` I put a 30 min nap at ${h12(seen)}${when} so the short night doesn't wreck the day.`;
-    }
-    return "";
-  };
-  const memoOut = (extra: Partial<Extract<Memo, { kind: "bedtime" }>> = {}): Memo => ({ kind: "bedtime", at: c.now.getTime(), ...(memo?.checkinId ? { checkinId: memo.checkinId } : {}), ...(memo?.checkinAt !== undefined ? { checkinAt: memo.checkinAt } : {}), napped, ...extra });
-  if (r.kind === "workload" || (r.kind === "awake" && r.workload && !r.activity && r.minutes === undefined)) {
-    const from = anchor ? toMin(anchor.end) + 5 : 10 * 60;
-    const start = freeSlot(wake, 60, from, DAY_END);
-    if (start === undefined) return c.done(`It'll keep till tomorrow — sleep matters more tonight.${anchorLine} Tell me what's due and I'll find it a slot.`, memoOut());
-    const flow = await c.schedule(addCommand("catch-up work", 60, "tomorrow", start, c.now));
-    if (!flowWrote(flow)) return c.done(`${flowText(flow) ?? "I couldn't book the catch-up just now."} Either way, it keeps till tomorrow — sleep now.`, memoOut());
-    const seen = await c.readBack("tomorrow", "catch-up work", start);
-    if (seen === undefined) return c.done(`${unseen("the catch-up work")} Either way, it keeps till tomorrow — sleep now.`, memoOut());
-    const right = anchor && seen === toMin(anchor.end) + 5 ? `, right after ${anchor.title}` : "";
-    return c.done(`It'll keep — I put 60 min of catch-up work at ${h12(seen)}${when}${right}. Sleep now.${anchorLine}`, memoOut());
-  }
-  if (r.kind === "awake" && r.sleepless && !r.activity && r.minutes === undefined) {
-    const napLine = await nap();
-    return c.done(`Then don't fight it — lights off, phone away, just lie down; rest still counts.${napLine}${anchorLine}`, memoOut());
-  }
-  if (r.kind === "awake" || r.kind === "defer") {
-    const minutes = r.minutes ?? 30;
-    const assumed = r.minutes === undefined;
-    const target = c.nowMin + minutes;
-    const what = r.activity ? ` on ${r.activity}` : "";
-    if (memo?.checkinAt !== undefined && Math.abs(memo.checkinAt - target) <= 10) {
-      return c.done(`Deal — ${h12(memo.checkinAt)}, then bed. I'll check then.${anchorLine}`, memoOut());
-    }
-    const out = memo?.checkinId ? await c.checkin(["defer", String(minutes), memo.checkinId, "--because", r.activity ?? "staying up"]) : await c.checkin(["add", String(minutes), "bed", "--because", r.activity ?? "staying up"]);
-    const id = memo?.checkinId ?? out?.stdout.match(/\b(ci-[0-9a-f]+)\b/)?.[1];
-    const napLine = await nap();
-    const check = out && out.code === 0 ? ` I'll check at ${h12(target)}.` : " I couldn't set the check-back, so set yourself a timer.";
-    return c.done(`Okay — ${minutes} min${what}${assumed ? " (that's the cap)" : ""}, then bed.${check}${napLine}${anchorLine}`, memoOut({ ...(id ? { checkinId: id } : {}), ...(out?.code === 0 ? { checkinAt: target } : {}) }));
-  }
-  return undefined;
 }
 
 async function catchup(c: Ctx, o: Extract<Offer, { kind: "catchup" }>, r: Reply): Promise<PendingOutcome | undefined> {
@@ -268,6 +220,11 @@ async function slipped(c: Ctx, title: string, r: Reply): Promise<PendingOutcome 
 }
 
 const KEYWORD_SKIP = /^(?:finish|finishing|do|get|the|and|for|my|your|student|start|work|on)$/i;
+/** A brief item already on today's calendar: every word of it that names the thing ("resume", "oyster card") is in the block's title. */
+function onToday(today: Day | undefined, item: string): Day["blocks"][number] | undefined {
+  const keys = item.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !KEYWORD_SKIP.test(w));
+  return keys.length ? today?.blocks.find((b) => { const t = b.title.toLowerCase(); return keys.every((k) => t.includes(k)); }) : undefined;
+}
 async function brief(c: Ctx, items: string[], r: Reply, fromMemo: boolean): Promise<PendingOutcome | undefined> {
   const text = c.turn.outreachText ?? "";
   if (r.kind === "indifferent" || (r.kind === "accept" && !r.pick)) {
@@ -283,10 +240,13 @@ async function brief(c: Ctx, items: string[], r: Reply, fromMemo: boolean): Prom
     const idx = keys.map((k) => said.indexOf(k)).filter((i) => i >= 0);
     return { item, index: idx.length ? Math.min(...idx) : -1 };
   });
-  const booked: string[] = []; const failed: string[] = []; const written: Array<{ item: string; title: string; at: number }> = [];
+  const booked: string[] = []; const kept: string[] = []; const failed: string[] = []; const written: Array<{ item: string; title: string; at: number }> = [];
   let cursor = c.nowMin + 15;
-  const today = r.kind === "counter" ? undefined : await c.day("today");
+  const today = await c.day("today");
   for (const p of places) {
+    // W5: the brief's items come from his to-do list (scripts/lib/life/morning-brief.mjs); one already on today's calendar is not booked twice.
+    const there = onToday(today, p.item);
+    if (there && (r.kind !== "counter" || p.index >= 0)) { kept.push(`${p.item} is already on today at ${h12(toMin(there.start))}`); continue; }
     let at: number | undefined;
     if (r.kind === "counter") {
       if (p.index < 0) continue;
@@ -311,7 +271,7 @@ async function brief(c: Ctx, items: string[], r: Reply, fromMemo: boolean): Prom
     if (seen === undefined) failed.push(`${w.item} (the calendar took it, but I can't see it at the time I asked, so check it)`);
     else booked.push(`${w.item} at ${h12(seen)}`);
   }
-  if (!booked.length && !failed.length) return undefined;   // his words named none of the items: a request of his own, not this answer
+  if (!booked.length && !failed.length && !kept.length) return undefined;   // his words named none of the items: a request of his own, not this answer
   const okLine = booked.length ? `Booked today: ${booked.join(", ")} (45 min each — say if one needs longer).` : "";
   const badLine = failed.length ? ` Not booked: ${failed.join("; ")}.` : "";
   return c.done(`${okLine}${badLine}`.trim(), null);
@@ -365,13 +325,18 @@ export async function runTurn(turn: PendingTurn, deps: PendingDeps): Promise<Pen
       case "resume": return r.kind === "done" || r.kind === "resume" || r.kind === "accept" ? begin(c, m.title, m.activity, true) : undefined;
       case "bedtime": return bedtime(c, r, m);
       case "booked": return c.done(`Then it stays: ${m.title} ${m.when}. I'll check in when it starts.`, null);
-      case "brief": return brief(c, m.items, r.kind === "accept" ? { kind: "accept", pick: true } : r, true);
+      // W5: a plain "yeah do it" to "which first?" asks again; only "you pick" (or times) books the brief's items.
+      case "brief": return brief(c, m.items, r, true);
       case "next": return whatsNext(c);
       case "move-offer":
         if (r.kind === "decline") return c.done(`Okay, leaving ${m.title} as it is.`, null);
         if (r.kind === "counter") return moveTo(c, m.title, r.details);
         return moveTo(c, m.title, { at: m.to, meridiem: true, day: m.which });
     }
+  }
+  if (turn.plan) {
+    const block = justStarted(await c.day("today"), c.nowMin);
+    return block ? start(c, block.title, r) : undefined;
   }
   const o = turn.offer;
   if (!o) return undefined;

@@ -75,6 +75,7 @@ import { askKind, ownAnswer, readGraphFile, readHealthFile } from "./code-answer
 import { declareOnly, readReality, runReality, undoReality } from "./reality.js";
 import { pluginNow } from "./plugin-clock.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn } from "./pending-reply.js";
+import { readPreference, savePreference } from "./preference-remember.js";
 import { readDayDefault, runDayDefault } from "./day-defaults.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
@@ -1099,12 +1100,13 @@ export function registerLocalRouting(api, options) {
         const move = free && !pendingYes && !lighten ? readFocusMove(message) ?? undefined : undefined;
         const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
         const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        const preference = free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
         const knowledge = on && !quietTurn && isKnowledgeAsk(message);
         const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
         const pendingAt = (options.now ?? pluginNow)();
         const prior = sessionKey ? pendingMemory.beginTurn(sessionKey, pendingAt.getTime(), { crisis: isCrisis(message), replied: !hushed }, options.stateDir) : undefined;
         const dayDefault = free && !prior?.afterCrisis && !pendingYes && !lighten && !focusMove && !health && !reality && options.realityRun ? readDayDefault(message, parseOutreach(raw)?.text, pendingAt) ?? undefined : undefined;
-        const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove || !!health || !!dayDefault;
+        const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove || !!health || !!dayDefault || !!preference;
         const intentRead = on && !cutOff && !quietTurn && !realityWhole && !guarded && options.scheduleFlow ? readIntent(message, { now: (options.now ?? pluginNow)(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey) } : {}) }) : undefined;
         // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
         const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
@@ -1139,7 +1141,7 @@ export function registerLocalRouting(api, options) {
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (runId)
             runs.set(runId, run);
@@ -1207,7 +1209,7 @@ export function registerLocalRouting(api, options) {
             // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
             if (run && isCrisis(run.message) && !run.afterCrisis)
                 return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
-            if (run && (run.room || run.hushed || run.pending || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge))
+            if (run && (run.room || run.hushed || run.pending || run.preference || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge))
                 return undefined; // 2026-10-31: code's, or the worker's textbook answer
             if (run?.ownText)
                 return { handled: true, reply: { text: run.ownText }, reason: "code answered from data" };
@@ -1261,8 +1263,10 @@ export function registerLocalRouting(api, options) {
             // 2026-10-31 (pending-reply.ts): his short reply to ORION's own nudge does what the nudge offered, before any template or chatter guard.
             if (!run.flow && !run.cutOff && run.pending && (run.addAnswer || run.late) && run.sessionKey)
                 pendingMemory.setMemo(run.sessionKey, null); // REV4: ORION's own question here comes first
-            if (!run.flow && !run.cutOff && run.pending && !run.addAnswer && !run.late) {
-                const out = await runPendingTurn(run.pending, { now: (options.now ?? pluginNow)(), ...(options.scheduleFlow ? { schedule: (m) => options.scheduleFlow(m, clock(), { deadlineAt: flowDeadline(run.started) }) } : {}), ...(options.sessionFlow ? { session: options.sessionFlow } : {}), ...(options.checkinRun ? { checkin: options.checkinRun } : {}), ...(options.readDayJson ? { readDay: options.readDayJson } : {}) }).catch(() => undefined);
+            // W5: "gonna eat first" read against the block that just started steps aside for a focus or health phrase code already has.
+            if (!run.flow && !run.cutOff && run.pending && !run.addAnswer && !run.late && !(run.pending.plan && (run.focusMove || run.health || run.reality || run.dayDefault))) {
+                const out = await runPendingTurn(run.pending, { now: (options.now ?? pluginNow)(), ...(options.scheduleFlow ? { schedule: (m) => options.scheduleFlow(m, clock(), { deadlineAt: flowDeadline(run.started) }) } : {}), ...(options.sessionFlow ? { session: options.sessionFlow } : {}), ...(options.checkinRun ? { checkin: options.checkinRun } : {}), ...(options.readDayJson ? { readDay: options.readDayJson } : {}),
+                    ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.wakeExec ? { wake: options.wakeExec } : {}) }).catch(() => undefined);
                 if (run.sessionKey) {
                     pendingMemory.setMemo(run.sessionKey, out?.memo ?? null);
                     if (out && run.pending.outreachText && run.pending.sentAt !== undefined)
@@ -1273,6 +1277,13 @@ export function registerLocalRouting(api, options) {
                     run.tools.push(...out.tools);
                     if (out.marks.length)
                         recordChange(run.sessionKey, out.marks);
+                }
+            }
+            if (!run.flow && !run.cutOff && run.preference && options.rememberRun) { // W5 (preference-remember.ts)
+                run.flow = await savePreference(run.preference, options.rememberRun);
+                if (run.flow.outcome === "done") {
+                    const outs = run.flow.outputs;
+                    run.flow.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outs[i] ?? "", exit: 0 }));
                 }
             }
             if (!run.flow && !run.cutOff && run.ownText) {

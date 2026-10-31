@@ -97,6 +97,16 @@ export type LocalRoutingOptions = {
     sessionFlow?: (message: string, hint?: SessionHint) => Promise<FlowResult>;
     /** Moves his phone's wake alarm (scripts/orion-wake) for "push my alarm to 12" (tests pass a stub; wired from index.ts). */
     wakeFlow?: (message: string, decision?: Decision) => Promise<FlowResult>;
+    /** W5: orion-wake with fixed arguments, for the bedtime reply's alarm check (pending-reply-bed.ts). Wired in by index.ts only. */
+    wakeExec?: (args: string[]) => Promise<{
+        stdout: string;
+        code: number;
+    }>;
+    /** W5: orion-remember with fixed arguments, for a stated preference (preference-remember.ts). Wired in by index.ts only. */
+    rememberRun?: (args: string[]) => Promise<{
+        stdout: string;
+        code: number;
+    }>;
     /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
     todoDoneFlow?: (message: string) => Promise<FlowResult>;
     /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */

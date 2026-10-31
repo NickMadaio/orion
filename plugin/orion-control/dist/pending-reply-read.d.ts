@@ -17,6 +17,7 @@ export type Offer = {
 } | {
     kind: "brief";
     items: string[];
+    stale?: boolean;
 } | {
     kind: "session-done";
     next?: string;
@@ -52,6 +53,9 @@ export type Reply = {
     minutes?: number;
     activity?: string;
     typical?: number;
+    stall?: boolean;
+} | {
+    kind: "bed";
 } | {
     kind: "awake";
     activity?: string;
@@ -69,6 +73,8 @@ export type Reply = {
 };
 /** The offer in ORION's own message; undefined when it is not one this module carries out. */
 export declare function offerOf(text: string): Offer | undefined;
+/** Minutes in "starting in 10" / "ok on it in 5"; undefined when the message is not a start a few minutes out. */
+export declare const startsIn: (m: string) => number | undefined;
 /** Every clock time in his words, in order, with where it was said: "9am", "at 4", "8:30", "at eight". A length ("25 min") is not a time. */
 export declare function clockTimes(m: string): Array<{
     at: number;

@@ -34,7 +34,10 @@ export type Memo = {
     which: "today" | "tomorrow";
     at: number;
 };
-/** said: his words, trimmed (the reason orion-checkin reads for a grace). */
+/**
+ said: his words, trimmed (the reason orion-checkin reads for a grace). plan: no outreach to answer, but he is putting off something
+ ("gonna eat first"): the block his calendar has just started is what he is putting off (pending-reply-act.ts reads it).
+*/
 export type PendingTurn = {
     reply: Reply;
     offer?: Offer;
@@ -42,6 +45,7 @@ export type PendingTurn = {
     sentAt?: number;
     outreachText?: string;
     said?: string;
+    plan?: true;
 };
 export type PendingDeps = {
     now: Date;
@@ -52,6 +56,13 @@ export type PendingDeps = {
         code: number;
     }>;
     readDay?: (dateArgs: string[]) => Promise<Day | undefined>;
+    /** orion-wake with fixed arguments: none reads, "HH:MM" sets (wake-flow.ts). */
+    wake?: (args: string[]) => Promise<{
+        stdout: string;
+        code: number;
+    }>;
+    /** ORION's state dir: wake-request.json says which manual wake alarm is set, and for when. */
+    stateDir?: string;
 };
 export type PendingOutcome = {
     flow: FlowResult;
@@ -73,6 +84,7 @@ export declare class PendingMemory {
     private memos;
     private replies;
     private crises;
+    /** Without a state dir: every answered outreach. With one: only those whose write failed (the file is the record otherwise). */
     private answered;
     memo(key: string, nowMs: number): Memo | undefined;
     setMemo(key: string, memo: Memo | null): void;
@@ -85,6 +97,10 @@ export declare class PendingMemory {
         replied: boolean;
     }, dir?: string): PriorTurn;
     wasAnswered(text: string, sentAt: number, nowMs: number, dir?: string): boolean;
+    /**
+     W5 (2026-10-31, gate run-1031224700): the state file is the record. A copy kept in memory as well outlived the file, so a state
+     restored to before the answer (an undo, the gate's per-item restore) still read "answered" and the next reply bound to nothing.
+    */
     markAnswered(text: string, sentAt: number, nowMs: number, dir?: string): void;
 }
 export type PendingInput = {

@@ -11,7 +11,7 @@
  in code. Pure: no I/O.
 */
 const BEDTIME = /\b(?:bedtime|past bedtime|bed at \d|still up at|sleep now|go to (?:bed|sleep))\b/i;
-const START = /^(?:time to start: |.+ — still not started|it'?s been \d+ min\. .+, now\.|you'?ve been avoiding .+ for \d+ min)/i;
+const START = /^(?:time to start: |.+ (?:—|–|-{1,2}) still not started|it'?s been \d+ min\. .+, now\.|you'?ve been avoiding .+ for \d+ min)/i;
 export function kindOf(text, hint) {
     if (hint === "bedtime" || hint === "start" || hint === "question" || hint === "info")
         return hint;
@@ -30,7 +30,7 @@ export function titleOf(text, label = "") {
     const fromLabel = label.match(/"([^"]+)", planned \d{1,2}:\d{2}/)?.[1] ?? label.match(/\(([^()"]+?), planned \d{1,2}:\d{2}/)?.[1];
     if (fromLabel)
         return fromLabel.trim();
-    const m = text.match(/^time to start: (.+?)(?:\.\s|\.?$)/i) ?? text.match(/^(.+?) — still not started/i)
+    const m = text.match(/^time to start: (.+?)(?:\.\s|\.?$)/i) ?? text.match(/^(.+?) (?:—|–|-{1,2}) still not started/i)
         ?? text.match(/^it'?s been \d+ min\. (.+?), now\./i) ?? text.match(/avoiding (.+?) for \d+ min/i)
         ?? text.match(/^(.+?) didn'?t happen\b/i);
     return m?.[1]?.trim();

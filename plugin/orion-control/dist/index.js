@@ -6,6 +6,8 @@ import { probeOllama } from "./model-outage.js";
 import { createMacBridge } from "./computer-bridge.js";
 import { createComputerWorker } from "./computer-worker.js";
 import { tellsFactAloud } from "./memory-facts.js";
+import { liveWakeExec } from "./pending-reply-bed.js";
+import { liveRememberRun } from "./preference-remember.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
@@ -1400,6 +1402,8 @@ export function installProvenanceHooks(api) {
             sessionStatus: liveSessionStatus,
             sessionExec: liveSessionExec,
             wakeFlow: liveWakeFlow,
+            wakeExec: liveWakeExec,
+            rememberRun: liveRememberRun,
             lateFlow: (minutes) => liveLateFlow(minutes, () => undoJournalTop()),
             messagesRead: liveMessagesRead,
             todoDoneFlow: liveTodoDoneFlow,

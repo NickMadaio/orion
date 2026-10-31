@@ -56,7 +56,7 @@ enum ScreenControl {
     /// app-specific. `expectedBundleID` is required, never optional -- a
     /// caller that has not observed the screen has nothing to name, and
     /// naming nothing is not an allowed spelling of "click something".
-    private static func guardFrontmost(expectedBundleID: String) throws -> (pid: pid_t, name: String, bundleID: String) {
+    static func guardFrontmost(expectedBundleID: String) throws -> (pid: pid_t, name: String, bundleID: String) {
         guard AXIsProcessTrusted() else { throw ScreenControlError.accessibilityNotTrusted }
         guard !ScreenPrivacy.isScreenLockedOrAsleep() else { throw ScreenControlError.screenLocked }
         guard let front = ScreenObserve.frontmostApp() else { throw ScreenControlError.noFrontmostApp }
@@ -156,6 +156,9 @@ enum ScreenControl {
         "return": 36, "tab": 48, "space": 49, "delete": 51, "escape": 53,
         "left": 123, "right": 124, "down": 125, "up": 126,
         "cmd+a": 0, "cmd+c": 8, "cmd+v": 9, "cmd+x": 7, "cmd+z": 6,
+        // 2026-10-30, the computer loop's keyboard alternatives to a menu item (File > New, File > Close)
+        // and its scroll fallback. Still a closed table of names a person would recognise.
+        "cmd+n": 45, "cmd+w": 13, "pageup": 116, "pagedown": 121,
     ]
 
     static func key(expectedBundleID: String, name: String) throws -> KeyResult {

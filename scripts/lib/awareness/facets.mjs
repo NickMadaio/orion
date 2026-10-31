@@ -210,6 +210,17 @@ export function audioFacet(activity, phoneSignals, now) {
 
 /** A sensor that should be live and has not reported for this long is stale (2026-10-30: the phone was dead from 10-26 and nobody was told). */
 export const SENSOR_LIVE_LIMIT = 2 * 3600_000;
+/** The phone reports when iOS lets it, not on a clock: hours of quiet are a phone in a pocket (2026-10-31 review). */
+export const PHONE_LIVE_LIMIT = 12 * 3600_000;
+/** "None all day": nothing from the phone since the day began (04:00) and it is this far into the day. */
+const NONE_ALL_DAY_MS = 8 * 3600_000;
+
+/** Whether the Mac app should be reporting: he is up, and the Mac was not locked or asleep when it last spoke (then it is off). */
+export function macExpected({ awake, activity }) {
+  if (!awake) return false;
+  const a = activity && typeof activity === "object" ? activity : null;
+  return !(a?.locked === true || a?.displayAsleep === true);
+}
 
 /**
  * Whether each sensor that SHOULD be live is. `at`: the time of its newest sample (ISO) or null. `expected`: which sensors
@@ -217,12 +228,18 @@ export const SENSOR_LIVE_LIMIT = 2 * 3600_000;
  * A missing sample on an expected sensor is stale with `lastAt: null`.
  * @returns {{ phone, mac, whoop }} each { state: "live"|"stale"|"off", lastAt, ageMs }
  */
-export function sensorHealth({ now, at = {}, expected = { phone: true, mac: true, whoop: true }, limit = SENSOR_LIVE_LIMIT }) {
+export function sensorHealth({ now, at = {}, expected = { phone: true, mac: true, whoop: true }, limit = SENSOR_LIVE_LIMIT, phoneLimit = PHONE_LIVE_LIMIT, dayStart = null }) {
   const one = (name) => {
     const t = ms(at[name]);
     const ageMs = t === null ? null : now.getTime() - t;
     const lastAt = t === null ? null : at[name];
     if (!expected[name]) return { state: "off", lastAt, ageMs };
+    if (name === "phone") {
+      // the phone: 12 h with no sample, or none since the day began once it is well under way
+      const start = dayStart ? dayStart.getTime() : null;
+      const noneToday = start !== null && now.getTime() - start >= NONE_ALL_DAY_MS && (t === null || t < start);
+      return { state: t !== null && ageMs <= phoneLimit && !noneToday ? "live" : "stale", lastAt, ageMs };
+    }
     return { state: t !== null && ageMs <= limit ? "live" : "stale", lastAt, ageMs };
   };
   return { phone: one("phone"), mac: one("mac"), whoop: one("whoop") };

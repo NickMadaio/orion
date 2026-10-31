@@ -26,7 +26,7 @@ test("told once: the same outage is not repeated, a new one is", () => {
   const health = sensorHealth({ now, at: { phone: phoneThen, mac: at(0.01), whoop: at(1) } });
   const first = sensorNotices({ health, now });
   assert.equal(sensorNotices({ health, told: first.told, now }).notices.length, 0);
-  const later = sensorHealth({ now, at: { phone: at(5), mac: at(0.01), whoop: at(1) } });
+  const later = sensorHealth({ now, at: { phone: at(13), mac: at(0.01), whoop: at(1) } });   // the phone: 12 h is its line (2026-10-31)
   assert.equal(sensorNotices({ health: later, told: first.told, now }).notices.length, 1);
 });
 test("WHOOP only speaks after half a day without a sync", () => {

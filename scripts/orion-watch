@@ -22,7 +22,7 @@ import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
 import { adjustForShortSleep, tomorrowProposal, awakeLateFlag, goToBedMessage } from "./lib/life/after-late-night.mjs";
 import { recoveryFromLog } from "./lib/life/recovery.mjs";
-import { sensorHealth, macFacet, phoneFacet } from "./lib/awareness/facets.mjs";
+import { sensorHealth, macExpected, macFacet, phoneFacet } from "./lib/awareness/facets.mjs";
 import { sensorNotices, noticeLine } from "./lib/life/stale-sensors.mjs";
 import { sleepPlanFor, readNowRecord } from "./lib/life/now-state.mjs";
 import { readSlips } from "./lib/life/slips.mjs";
@@ -207,7 +207,7 @@ if (awake && !day.tasksPlanned && minute < 780) {
 // he is up and before 1 PM — sleep, the first fixed thing, the nearest deadline,
 // the side-project hour. On an empty day it leads into the question below.
 let brief = null;
-// What ORION cannot see (facets.sensorHealth: stale past 2 h while it should be live), said ONCE per outage, in the brief when
+// What ORION cannot see (facets.sensorHealth: the Mac or WHOOP stale past 2 h, the phone past 12 h, while it should be live), said ONCE per outage, in the brief when
 // there is one this tick and as its own message otherwise.
 const sensorTimes = (() => {
   const days = log.days ?? {}; const lastDay = Object.keys(days).sort().at(-1);
@@ -216,7 +216,10 @@ const sensorTimes = (() => {
     mac: newest(readJson("focus-activity.json")?.at),
     whoop: newest(evidence.nights.at(-1)?.wokeAt, lastDay ? days[lastDay]?.updatedAt : null) };
 })();
-const sensorsSeen = sensorHealth({ now, at: sensorTimes, expected: { phone: true, mac: awake, whoop: awake } });
+// Asleep, nothing is expected; a locked or sleeping Mac is off, not stale; the phone only after 12 h quiet or none all day (2026-10-31 review).
+const dayStartAt = new Date(`${today}T04:00:00`);
+const sensorsSeen = sensorHealth({ now, at: sensorTimes, dayStart: dayStartAt,
+  expected: { phone: awake, mac: macExpected({ awake, activity: readJson("focus-activity.json") }), whoop: awake } });
 const toldBefore = Object.assign({}, ...Object.values(state).map((d) => d?.sensorTold ?? {}), day.sensorTold ?? {});
 const sensorSaid = sensorNotices({ health: sensorsSeen, told: toldBefore, now });
 let sensorsInBrief = false;

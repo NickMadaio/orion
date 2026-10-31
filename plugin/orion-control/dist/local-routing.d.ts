@@ -1,12 +1,16 @@
 import { type Decision } from "./front-desk.js";
-import { type SessionHint } from "./session-flow.js";
+import { type SessionExec, type SessionHint } from "./session-flow.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { parseEdit, type EditTarget } from "./edit-followup.js";
+import { type ComputerDeps } from "./computer-loop.js";
 import { type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { type StoredReminder } from "./reminder-flow.js";
 import { type DeadlineRead } from "./deadline-read.js";
 import { type FocusRow } from "./focus-status.js";
 import { type PendingRun } from "./schedule-pending.js";
+import { type Probe, type QueuedMessage } from "./model-outage.js";
+import { type ConnectorRow, type HealthLog } from "./code-answers.js";
+import { type ScriptRun } from "./reality.js";
 import { type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -20,6 +24,8 @@ type HookApi = {
     };
 };
 export type LocalRoutingOptions = {
+    /** 2026-10-31: the computer-use loop (computer-loop.ts): "close my safari tabs", "whats on my screen". Progress is wired here; absent means the loop never runs. */
+    computer?: Omit<ComputerDeps, "progress">;
     mode: LocalRoutingMode;
     logPath: string;
     decideImpl?: (input: {
@@ -30,7 +36,24 @@ export type LocalRoutingOptions = {
             role: "user" | "assistant";
             content: string;
         }>;
+        context?: string;
     }) => Promise<Decision>;
+    /** ORION's state directory (now.json, declared facts, slips, routines, outreach): the state card's source (state-card.ts).
+     *  Unset (tests that do not name one): no card, and nothing is read from or written to any state dir. index.ts wires the live one. */
+    stateDir?: string;
+    /** USER.md, for the card's few essentials about him. */
+    userMdPath?: string;
+    /** Runs scripts/orion-declare or scripts/orion-reschedule with fixed arguments (no shell), for reality statements (reality.ts).
+     *  Unset: reality statements route as before. index.ts wires the real scripts; tests pass a stub. */
+    realityRun?: ScriptRun;
+    /** Whether the local model answers (index.ts: probeOllama). Unset: no outage gate and no replay (model-outage.ts). */
+    modelProbe?: Probe;
+    /** Loads the local models (keepWarm), tried once before a turn is given up as "model down". */
+    modelWarm?: () => Promise<unknown>;
+    /** How long to wait after warming before asking again (default 1500 ms; tests shorten it). */
+    warmWaitMs?: number;
+    /** Replays a message queued while the model was down, in its session, and delivers the reply (index.ts). */
+    replay?: (row: QueuedMessage) => Promise<boolean>;
     /** Runs orion-checkin with these arguments (index.ts wires the real script); a reply to a start line sets its check-in through it (2026-10-23). */
     checkinRun?: (args: string[]) => Promise<{
         stdout: string;
@@ -76,6 +99,8 @@ export type LocalRoutingOptions = {
     wakeFlow?: (message: string, decision?: Decision) => Promise<FlowResult>;
     /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
     todoDoneFlow?: (message: string) => Promise<FlowResult>;
+    /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
+    sessionExec?: SessionExec;
     /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
     sessionStatus?: () => Promise<FlowResult>;
     /** The focus history rows, for "how long have i been focusing today" (tests pass a stub; default reads the real file, read-only). */
@@ -97,6 +122,9 @@ export type LocalRoutingOptions = {
     dayReadMs?: number;
     /** Reads the calendar's deadlines and dated to-dos for "whats due this week"; null when it fails (tests pass a stub; wired from index.ts) (q041, 2026-10-16 r8). */
     readDeadlines?: () => Promise<DeadlineRead | null>;
+    /** 2026-10-31 (code-answers.ts): the health log for sleep questions (default: health-log.json in stateDir) and connector key status (names and set / not set only). */
+    readHealth?: () => Promise<HealthLog | undefined>;
+    connectorStatus?: () => Promise<ConnectorRow[] | undefined>;
     /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
     brainSearch?: (query: string) => Promise<string>;
     /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
@@ -123,6 +151,10 @@ export declare function isCalendarTurn(message: string, settled: Decision, askOp
  *  hour, leetcode" right — session start, task leetcode — and the calendar flow booked "focus mode"). */
 export declare function sessionHint(d: Decision | undefined): SessionHint;
 export declare const NOT_CAUGHT = "Didn't catch that \u2014 what do you need?";
+/** A "say" from the schedule flow that is only the scheduler refusing a log it should never have been asked for. */
+export declare const misreadLog: (flow: FlowResult | undefined) => boolean;
+/** 2026-10-30: the front desk is told a turn came through the microphone, so room speech is "ignore" (R2: 30 replies to a rehearsal). */
+export declare const SPOKEN_DESK_NOTE = "Heard through the Mac microphone, maybe not said to ORION: if it is not a request or question for ORION (talk to someone in the room, a call, TV, rehearsing, thinking aloud), the move is ignore.";
 export declare function isNotForOrion(message: string, spoken: boolean): boolean;
 /** Nick's own words: the part after a channel brief, if the message carries one. */
 export declare function userText(prompt: string): string;
@@ -175,6 +207,13 @@ export declare const liveCheckinRun: (args: string[]) => Promise<{
     stdout: string;
     code: number;
 }>;
+/** orion-declare / orion-reschedule with fixed arguments (no shell), for reality statements (2026-10-30). Wired in by index.ts only. */
+export declare const liveRealityRun: ScriptRun;
+/** Loads both local models at the context each is called with (2026-10-30: the outage gate's one warm-and-retry). Wired in by index.ts only. */
+export declare const liveModelWarm: () => Promise<string[]>;
+/** Replays a message queued while the model was down (model-outage.ts): one agent turn in its own session, and the reply is
+ *  pushed to him through orion-reach as a real message, marked as a replay. Wired in by index.ts only. */
+export declare const liveReplay: (row: QueuedMessage) => Promise<boolean>;
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export declare const liveExtractReminder: (message: string, clock?: string) => Promise<{
     time: string | null;

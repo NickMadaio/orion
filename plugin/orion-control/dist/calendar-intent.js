@@ -205,7 +205,10 @@ function readUntil(raw, day, now, ask) {
 }
 // Live run 3 (2026-10-21): "ok and push everything 30 min" went to the form, then the worker's own `day --rebuild`
 // (no such option), whose failure the host appended to the reply. `late N` only clears the next N minutes, so this is its own move (intent-run.ts).
-const PUSH_ALL = /^(?:(?:ok(?:ay)?|so|and|yeah|yea|yes|please|pls|can you|can u|could you|just|actually)[,\s]+)*(?:push|move|shift|slide|bump)\s+(?:everything|it all|all of it|the rest(?:\s+of\s+(?:my|the)\s+day)?|everything else|my (?:whole )?day|the whole day)(?:\s+(?:back|later|along|down))?\s+(?:by\s+)?(?<len>(?:\d{1,3}|an?|half an?|one|two)\s*(?:-\s*)?(?:min(?:ute)?s?|m|hours?|hrs?|h)|half an hour|an hour and a half)(?:\s+(?:back|later))?(?:\s+(?:please|pls))?[.!]*$/i;
+// 2026-10-31 gate (sch-fixed-plan-protect-v/c): "push everything back like an hour" and "push all your blocks back an hour but leave classes
+// and dinner where they are" ran `late 60` or a one-block move. Classes and plans with people never move in this shape anyway, so the
+// "leave X where they are" tail is what it already does.
+const PUSH_ALL = /^(?:(?:ok(?:ay)?|so|and|yeah|yea|yes|please|pls|can you|can u|could you|just|actually)[,\s]+)*(?:push|move|shift|slide|bump)\s+(?:everything|it all|all of it|the rest(?:\s+of\s+(?:my|the)\s+day)?|everything else|my (?:whole )?day|the whole day|all (?:of )?(?:my|your|ur|the|orion'?s?) (?:blocks|stuff|things)|(?:my|your|ur) (?:blocks|stuff))(?:\s+(?:back|later|along|down))?\s+(?:by\s+)?(?:(?:like|about|around|roughly|maybe|say)\s+)?(?<len>(?:\d{1,3}|an?|half an?|one|two)\s*(?:-\s*)?(?:min(?:ute)?s?|m|hours?|hrs?|h)|half an hour|an hour and a half)(?:\s+(?:back|later))?(?:\s*,?\s*(?:(?:but|and)\s+)?(?:leave|keep)\s+(?:my\s+|the\s+)?(?:classes|class|lectures)(?:\s+(?:and|&)\s+(?:my\s+|the\s+)?[a-z ]{2,30}?)?(?:\s+where\s+(?:they|it)\s+(?:are|is))?)?(?:\s+(?:please|pls))?[.!]*$/i;
 /** "push everything 30 min", "ok and push the rest of my day back an hour": the minutes, or null. Today only; never a question or a hedge. */
 export function pushAllMinutes(message) {
     const m = message.trim();

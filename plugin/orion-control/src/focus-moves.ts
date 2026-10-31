@@ -19,21 +19,22 @@
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import type { FlowResult } from "./schedule-flow.js";
 import type { SessionExec } from "./session-flow.js";
+import { parseSessionJson } from "./session-json.js";
+import { readBreak, runBreak, type BreakMove } from "./break-intent.js";
 import type { ScriptRun } from "./reality.js";
 
 export type FocusMove =
   | { kind: "stall"; minutes: number }
-  | { kind: "break"; minutes: number; work: number }
+  | BreakMove
   | { kind: "extend"; minutes: number }
   | { kind: "block" }
   | { kind: "doomscroll"; app: string; instead?: string }
   | { kind: "side-missed"; label: string };
 /** What the turn does: a fixed reply (flow), or a reminder the worker must set, plus what a "yes" next turn starts. */
-export type FocusOutcome = { flow?: FlowResult; reminder?: { args: string; say: string; action: "alarm_set"; label: string; at: string }; pendingSession?: string; writes?: number };
+export type FocusOutcome = { calls?: string[]; outputs?: string[]; flow?: FlowResult; reminder?: { args: string; say: string; action: "alarm_set"; label: string; at: string }; pendingSession?: string; writes?: number };
 
 const ACK = String.raw`^(?:(?:ya|yah|yeah|yea|yep|yup|ok(?:ay)?|k|sure|fine|alright|aight|mhm|uh huh|hmm)[,.!\s]+)*`;
 const STALL = new RegExp(`${ACK}(?:(?:i'?ll\\s+|im\\s+|i'?m\\s+|gonna\\s+)?(?:start(?:ing)?(?:\\s+it)?|get(?:ting)?\\s+(?:on it|started|going)|on it|doing it|do it|be there)\\s+)?(?:in\\s+(?:a\\s+)?(sec|second|min|minute|bit|moment|few|(\\d{1,2}))(?:\\s*(?:mins?|minutes?|m|secs?))?|(\\d{1,2})\\s*more\\s*(?:mins?|minutes?)|after this(?:\\s+(?:video|episode|one|game|round))?|(?:give me|gimme|gimmie) (?:a (?:sec|second|minute|min)|(\\d{1,2})\\s*(?:mins?|minutes?)?))\\s*(?:lol|haha)?[.!]*$`, "i");
-const BREAK = /^(?:(?:ok(?:ay)?|yeah|ugh|actually|i think)[,\s]+)*(?:i\s+)?(?:need|want|gonna take|going to take|taking|take|have|can i (?:get|have|take)|time for)\s+(?:a\s+)?(?:quick\s+|short\s+)?(?:(\d{1,2})\s*(?:-\s*)?(?:min(?:ute)?s?|m)\s+)?break(?:\s+(?:now|pls|please))?(?:,?\s*(?:then|and(?: then)?)\s+(?:restart|start(?: it)? again|resume|continue|come back|go again|back to (?:it|work))(?:\s+(?:the|my)\s+(?:session|focus(?: session)?|timer))?)?\s*[.!]*$|^break time\s*[.!]*$/i;
 const EXTEND = /^(?:(?:actually|ok(?:ay)?|yeah|nah|wait|hmm|no)[,\s]+)*(?:keep (?:going|it going|the (?:session|timer|focus(?: session)?) going)|(?:give me |i need |i want )?(?:another|a few more|(\d{1,3}) more)(?:\s*(?:min(?:ute)?s?|m))?|extend (?:it|this|the session|my session|my focus(?: session)?)(?: by (\d{1,3})\s*(?:min(?:ute)?s?|m))?|(?:a )?(?:bit|little) longer|not done yet)(?:\s+(?:for a bit|a bit longer|a little longer|longer|please|pls|on this))*\s*[.!]*$/i;
 const EXTEND_NEEDS = /\b(?:for a bit|a bit longer|a little longer|longer|more|another|extend|not done yet)\b/i;
 const BLOCK = /\b(?:block|lock|hide|shut off|cut off|stop me (?:from )?(?:using|opening|going on))\b[^.?!]{0,40}\b(?:apps?|distract\w*|instagram|insta|tiktok|youtube|reddit|twitter|social media|games?|websites?|sites?|stuff|my phone)\b/i;
@@ -52,8 +53,8 @@ export function readFocusMove(message: string): FocusMove | null {
     const n = Number(stall[2] ?? stall[3] ?? stall[4]);
     return { kind: "stall", minutes: Number.isFinite(n) && n > 0 ? Math.min(60, n) : (stall[1] ? WORD_MIN[stall[1].toLowerCase()] ?? 5 : /\b(?:sec|second|min|minute)\b/i.test(stall[0]) ? 5 : 10) };   // REV2 NICE: "give me a sec" is 5
   }
-  const brk = BREAK.exec(m);
-  if (brk) return { kind: "break", minutes: Math.min(60, Math.max(1, Number(brk[1] ?? 10))), work: /\bpomodoro\b/i.test(m) ? 25 : 50 };
+  const brk = readBreak(m);
+  if (brk) return brk;
   const ext = EXTEND.exec(m);
   if (ext && EXTEND_NEEDS.test(m)) return { kind: "extend", minutes: Math.min(120, Number(ext[1] ?? ext[2] ?? 25)) };
   if (BLOCK.test(m) && !NOT_BLOCK.test(m)) return { kind: "block" };
@@ -67,7 +68,7 @@ export function readFocusMove(message: string): FocusMove | null {
   return null;
 }
 
-const parse = (stdout: string): Record<string, unknown> | null => { try { const v: unknown = JSON.parse(stdout.trim().split("\n").at(-1) ?? ""); return v && typeof v === "object" ? (v as Record<string, unknown>) : null; } catch { return null; } };
+const parse = parseSessionJson;
 const RUNNING = new Set(["running", "paused", "waiting-for-return"]);
 const ARMED = new Set(["gentle", "guided", "firm", "shield"]);
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -120,6 +121,8 @@ export async function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOu
     return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Still time ${late ? "tomorrow" : "tonight"}: ${move.label} booked ${at(when[1]!)}–${at(when[2]!)}, your hour for the day.${also.length ? ` To fit it: ${also.join("; ")}.` : ""} Say "undo" to take it off.` }, writes: 1 };
   }
   if (!deps.exec) return {};
+  // break: break-intent.ts reads the session itself (pause + return reminder; a restart only when he asked for it)
+  if (move.kind === "break") return runBreak(move, { exec: deps.exec, now, ...(deps.task ? { task: deps.task } : {}) });
   const status = await call(deps.exec, ["status"], ran) ?? {};
   const running = RUNNING.has(String(status.status ?? ""));
   const task = taskOf(status, deps.task);
@@ -128,11 +131,13 @@ export async function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOu
     return { flow: say(`I can't block single apps from chat, so nothing's blocked yet. ${running ? `Your ${task} session is running; in Orion, firm mode on it only lets your work apps through.` : "Want me to start a focus session now? In Orion, firm mode on it only lets your work apps through."}`, ran.calls, ran.outputs), ...(running ? {} : { pendingSession: `start a focus session on ${task}` }) };
   }
   if (move.kind === "doomscroll") {
-    const on = move.instead && !GENERIC.test(move.instead.trim()) ? move.instead.trim() : deps.task ?? (move.instead ? "Study" : "Focus");
+    // A confession is a nudge back to the current block, never a new session unless he asks for one (gate cluster 2).
+    const block = move.instead && !GENERIC.test(move.instead.trim()) ? move.instead.trim() : deps.task;
     if (running) return { flow: say(`Your ${task} session is still running, ${Math.max(1, Math.round(Number(status.remainingSeconds ?? 0) / 60))} minutes left. Put ${move.app} down and get back to it.`, ran.calls, ran.outputs) };
-    const state = await call(deps.exec, ["start", on, "--minutes", "25"], ran);
-    if (!started(state)) return { flow: say(`Put ${move.app} down. I couldn't start a focus session just now, so nothing is running.`, ran.calls, ran.outputs) };
-    return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Put ${move.app} down. ${on} for 25 minutes, starting now: done at ${clock(plus(now, 25))}.` } };
+    const known = Object.keys(status).length > 0;
+    const back = block ? `get back to ${block}` : "get back to your block";
+    if (!known) return { flow: say(`Put ${move.app} down and ${back}.`, ran.calls, ran.outputs) };
+    return { flow: say(`Put ${move.app} down and ${back}. No focus session is running right now; want 25 minutes on ${block ?? "it"}? Say yes and I'll start it.`, ran.calls, ran.outputs), pendingSession: `start a 25 min focus session${block ? ` on ${block}` : ""}` };
   }
   if (move.kind === "extend") {
     if (!running) return { flow: say(`No focus session is running, so there's nothing to extend. Want ${move.minutes} more minutes on ${task === "Focus" ? "it" : task}? Say yes and I'll start it.`, ran.calls, ran.outputs), pendingSession: `start a ${move.minutes} min focus session on ${task}` };
@@ -144,9 +149,5 @@ export async function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOu
     if (!started(state)) return { flow: say(`I couldn't restart ${task} for longer, so the session has ended; your focus time so far is saved. Say "start a focus session" to go again.`, ran.calls, ran.outputs) };
     return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Extended: ${task} now runs until ${clock(plus(now, total))}, ${move.minutes} minutes more.` } };
   }
-  // break
-  if (running && !(await call(deps.exec, ["finish"], ran))) return { flow: say("I couldn't stop the session for a break just now, so it's still running.", ran.calls, ran.outputs) };
-  const state = await call(deps.exec, ["start", task, "--sequence", `${move.minutes} break, ${move.work} work`], ran);
-  if (!started(state)) return { flow: say(`I couldn't set the break timer just now${running ? ", and your session has ended; its focus time is saved" : ", so nothing is running"}. Take ${move.minutes} and say "start a focus session" when you're back.`, ran.calls, ran.outputs) };
-  return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Break till ${clock(plus(now, move.minutes))}. Then ${task} starts again by itself, ${move.work} minutes.` } };
+  return {};
 }

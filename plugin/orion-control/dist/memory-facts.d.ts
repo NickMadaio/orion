@@ -1,5 +1,8 @@
 /** He is telling ORION a fact to keep (not a question, not a reminder at a time). */
 export declare function tellsFact(message: string): boolean;
+/** Said out loud, a fact is kept only when he asked for it in so many words ("remember …", "orion note that …"):
+ *  room speech ("frozen is honestly a good movie") became "Saved: Frozen." (2026-10-25). */
+export declare function tellsFactAloud(message: string): boolean;
 /** A question about something he told ORION or keeps in his notes. */
 export declare function asksRecall(message: string): boolean;
 export declare const FACT_NOTE: string;

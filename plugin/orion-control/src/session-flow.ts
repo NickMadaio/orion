@@ -18,6 +18,7 @@
 import { execFile } from "node:child_process";
 import type { FlowResult } from "./schedule-flow.js";
 import { isEdit } from "./edit-followup.js";
+import { parseSessionJson } from "./session-json.js";
 
 export type SessionExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 export type SessionRequest = { task: string; minutes?: number; until?: string; apps: string[] };
@@ -117,14 +118,7 @@ export function parseSessionRequest(message: string, hint: SessionHint = {}): Se
   return { task: task === DEFAULT_TASK && hint.task && message.toLowerCase().includes(hint.task.toLowerCase()) ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
 }
 
-const parse = (stdout: string): Record<string, unknown> | null => {
-  try {
-    const value: unknown = JSON.parse(stdout);
-    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-};
+const parse = parseSessionJson;
 const reason = (stdout: string) => stdout.trim().split("\n")[0]?.replace(/^orion-session:\s*/, "").slice(0, 160) || "no reply from Orion";
 const minutesOf = (seconds: unknown) => Math.max(1, Math.round(Number(seconds ?? 0) / 60));
 const listed = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "");

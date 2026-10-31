@@ -532,8 +532,9 @@ describe("local routing — distress (2026-10-16 live sweep)", () => {
         await f.fire("before_model_resolve", { prompt: said }, ctx);
         expect(await f.fire("before_agent_reply", { cleanedBody: said }, ctx)).toEqual([undefined]);
         const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx));
-        expect(built?.systemPrompt).toMatch(/overwhelmed[\s\S]*ONE small first step[\s\S]*Do not call any tools/);
-        expect(built?.systemPrompt).not.toMatch(/orion-agenda|orion-brain/);
+        // 2026-10-31 (gate cluster 4, day-lighten.ts): code's own reply, one concrete step and a yes/no, never "take a slow breath".
+        expect(built?.appendContext).toMatch(/Your whole reply must be exactly: That's a lot at once\.[\s\S]*25 minutes[\s\S]*\?\]$/);
+        expect(built?.systemPrompt).not.toMatch(/orion-agenda|orion-brain|slow breath/);
         expect(flows).toEqual([]);
     });
     it("an ordinary 'I can't do this' about a task is still a calendar change", async () => {
@@ -574,8 +575,9 @@ describe("local routing — review of the 2026-10-16 sweep fixes", () => {
     it("overwhelm alone gets the warm note, and a warm 'I'll be here' reply is delivered as is", async () => {
         const { f, ctx } = setup({ move: "answer", answer: "hang in there" });
         const built = await build(f, ctx, "im so overwhelmed i dont even know where to start");
-        expect(built?.systemPrompt).toMatch(/Do not call any tools/);
-        const reply = "I hear you, Nick. Take one slow breath and write down the one thing due first — I'll be right here.";
+        expect(built?.appendContext).toMatch(/That's a lot at once/); // 2026-10-31: code's reply (day-lighten.ts)
+        // The worker repeats code's line: delivered as is.
+        const reply = /exactly: ([\s\S]*)\]$/.exec(built?.appendContext ?? "")?.[1] ?? "";
         expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply, messages: [{ role: "user", content: "x" }, { role: "assistant", content: [{ type: "text", text: reply }] }] }, ctx)).toEqual([undefined]);
     });
     it("an answer from the day code read is not sent back to 'look it up', and never told to undo", async () => {
@@ -623,8 +625,11 @@ describe("local routing — review of the 2026-10-16 sweep fixes", () => {
     it("an overwhelm reply is never sent back for tools: the note forbade them (HIGH 1)", async () => {
         const { f, ctx } = setup({ move: "answer", answer: "hang in there" });
         await build(f, ctx, "im so overwhelmed i dont even know where to start");
+        // 2026-10-31: the reply is code's (day-lighten.ts); a paraphrase is sent back for code's exact words, never for tools.
         const reply = "That sounds like a lot, Nick. Write down the one thing due first, and I'll check in with you in a bit.";
-        expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply }, ctx)).toEqual([undefined]);
+        const [out] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply }, ctx));
+        expect(out?.retry?.instruction).toMatch(/exactly this text[\s\S]*That's a lot at once/);
+        expect(out?.retry?.instruction).not.toMatch(/tool_call|orion_task_run/);
     });
     it("the live-data 'can't check' sentence with a small tail is still the honest answer (HIGH 2c)", async () => {
         const { f, ctx } = setup({ move: "escalate", tier: "standard" });
@@ -700,15 +705,21 @@ describe("local routing — sweep round 2 polish (2026-10-16)", () => {
         const h = setup({ move: "ask", answer: "I don't have access to your gym locker code. Is there anything else I can help you with?" });
         expect(await h.build("whats my gym locker code")).not.toMatch(/front desk/i);
     });
-    it("q094/q095: filler and gibberish get a fixed short question, typed or spoken; nothing about his session", async () => {
-        for (const said of ["asdf jkl qwer", "Nick SAID this out loud:\n--- Nick's message follows ---\nhm"]) {
+    it("q094/q095: typed filler and gibberish get a fixed short question; nothing about his session", async () => {
+        const h = setup({ move: "ignore" });
+        expect(await h.build("asdf jkl qwer")).toMatch(/exactly this text[\s\S]*Didn't catch that — what do you need\?/);
+    });
+    it("2026-10-30: SPOKEN speech the desk calls ignore, with no 'orion' in it, gets no reply at all (R2: rehearsal, calls, TV)", async () => {
+        for (const said of ["Nick SAID this out loud:\n--- Nick's message follows ---\nhm", "Nick SAID this out loud:\n--- Nick's message follows ---\nno I mean, I can unlock it manually if I want"]) {
             const h = setup({ move: "ignore" });
-            expect(await h.build(said)).toMatch(/exactly this text[\s\S]*Didn't catch that — what do you need\?/);
+            const prompt = await h.build(said);
+            expect(prompt).toMatch(/exactly this text[\s\S]*…/);
+            expect(prompt).not.toMatch(/Didn't catch that/);
         }
     });
-    it("a longer 'ignore' still goes to the worker, told to ask rather than report his day or session", async () => {
+    it("a longer typed 'ignore' still goes to the worker, told to ask rather than report his day or session", async () => {
         const h = setup({ move: "ignore" });
-        const prompt = await h.build("Nick SAID this out loud:\n--- Nick's message follows ---\nno I mean, I can unlock it manually if I want");
+        const prompt = await h.build("no I mean, I can unlock it manually if I want");
         expect(prompt).not.toMatch(/Didn't catch that/);
         expect(prompt).toMatch(/not his session or his day/);
     });

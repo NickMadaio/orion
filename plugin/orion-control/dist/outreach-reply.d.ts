@@ -23,7 +23,11 @@ export type ShortReply = {
     activity: string;
 };
 export declare function kindOf(text: string, hint?: string): OutreachKind;
-/** The planned block a "start" line is about: "Time to start: Gym." / "Gym — still not started" / "It's been 30 min. Gym, now." */
+/**
+ * The planned block a "start" line is about: "Time to start: Gym." / "Time to start: Gym. Gym: 0 of the last 6 happened." /
+ * "Gym — still not started" / "It's been 30 min. Gym, now." / "Gym didn't happen at 5:00 PM." (the ladder's own texts,
+ * scripts/lib/reach/plan-ladder.mjs). The label wins: the phone's `"Gym", planned 17:00-18:30`, the Mac's `(Gym, planned 17:00`.
+ */
 export declare function titleOf(text: string, label?: string): string | undefined;
 /** What ORION said first, from the Mac label or the phone's context line; undefined when the prompt carries neither. */
 export declare function parseOutreach(prompt: string): Outreach | undefined;

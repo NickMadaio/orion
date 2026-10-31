@@ -139,7 +139,7 @@ async function writeHealthLog(file, log) {
     await rename(temporary, file);
     return stamped;
 }
-async function mutate(file, change) {
+export async function mutate(file, change) {
     return withHealthLock(file, async () => {
         // Re-read INSIDE the lock. This is the half that is easy to skip and the
         // only half that matters: a copy fetched before the lock was held is

@@ -21,13 +21,18 @@ export function kindOf(text, hint) {
         return "start";
     return /\?\s*$/.test(text.trim()) ? "question" : "info";
 }
-/** The planned block a "start" line is about: "Time to start: Gym." / "Gym — still not started" / "It's been 30 min. Gym, now." */
+/**
+ * The planned block a "start" line is about: "Time to start: Gym." / "Time to start: Gym. Gym: 0 of the last 6 happened." /
+ * "Gym — still not started" / "It's been 30 min. Gym, now." / "Gym didn't happen at 5:00 PM." (the ladder's own texts,
+ * scripts/lib/reach/plan-ladder.mjs). The label wins: the phone's `"Gym", planned 17:00-18:30`, the Mac's `(Gym, planned 17:00`.
+ */
 export function titleOf(text, label = "") {
-    const fromLabel = label.match(/\(([^()]+?), planned \d{1,2}:\d{2}/)?.[1];
+    const fromLabel = label.match(/"([^"]+)", planned \d{1,2}:\d{2}/)?.[1] ?? label.match(/\(([^()"]+?), planned \d{1,2}:\d{2}/)?.[1];
     if (fromLabel)
         return fromLabel.trim();
-    const m = text.match(/^time to start: (.+?)\.?$/i) ?? text.match(/^(.+?) — still not started/i)
-        ?? text.match(/^it'?s been \d+ min\. (.+?), now\./i) ?? text.match(/avoiding (.+?) for \d+ min/i);
+    const m = text.match(/^time to start: (.+?)(?:\.\s|\.?$)/i) ?? text.match(/^(.+?) — still not started/i)
+        ?? text.match(/^it'?s been \d+ min\. (.+?), now\./i) ?? text.match(/avoiding (.+?) for \d+ min/i)
+        ?? text.match(/^(.+?) didn'?t happen\b/i);
     return m?.[1]?.trim();
 }
 /** What ORION said first, from the Mac label or the phone's context line; undefined when the prompt carries neither. */

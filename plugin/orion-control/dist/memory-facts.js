@@ -33,6 +33,12 @@ export function tellsFact(message) {
         return !/\b(?:remind me|alarm)\b/i.test(m);
     return (MY_FACT.test(m) || STANDING.test(m)) && !AT_A_TIME.test(m) && !isCalendarStatement(m);
 }
+/** Said out loud, a fact is kept only when he asked for it in so many words ("remember …", "orion note that …"):
+ *  room speech ("frozen is honestly a good movie") became "Saved: Frozen." (2026-10-25). */
+export function tellsFactAloud(message) {
+    const m = message.trim().replace(/^(?:(?:hey|ok(?:ay)?|so|also|and|btw)[,\s]+)*orion[,\s]+/i, "");
+    return !/\?\s*$/.test(m) && TELLS.test(m) && !/\b(?:remind me|alarm)\b/i.test(m);
+}
 // "what did i say about…", "who's my lab partner", "whats my allergy", "what time do i usually take it".
 const RECALL = /\bwhat (?:did|have) i (?:say|said|tell you|told you|mention)\b|\b(?:what|who|where)(?:'?s| is| are| was)\s+my\b|\bwhats\s+my\b|\bwhos\s+my\b|\bdo you (?:know|remember)\b|\bwhat time do i (?:usually|normally|always)\b|\bhow (?:do|did) i usually\b|\bwhere did i (?:put|leave)\b/i;
 // inbox/gmail/mail/imessage/phone time added: "whats my inbox look like" got a brain search (review, 2026-10-16).

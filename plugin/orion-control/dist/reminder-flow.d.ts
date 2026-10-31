@@ -41,5 +41,6 @@ export declare function isReminderTurn(message: string): boolean;
 export declare const ampm12: (t: string) => string;
 /** "in like 10 min" → now + 10 minutes; undefined when he gave no relative time. */
 export declare function relativeTime(message: string, now: Date): Date | undefined;
+export declare function leaveAsReminder(message: string): string | undefined;
 /** What to do with a reminder turn, or undefined when it is not one (or the extractor is unavailable). */
 export declare function planReminder(input: ReminderInput): Promise<ReminderPlan | undefined>;

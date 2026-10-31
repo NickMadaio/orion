@@ -269,7 +269,7 @@ describe("cluster 8: a read-only question is answered, never 'I couldn't make th
     expect(habitAnswer("gym", dir, at("20:00"))).toBe("In the last 7 days gym happened on 3 of the 5 days it was planned (Tue, Thu, Fri); it didn't on Wed, Sat.");
     const r = route({ now: "20:00", stateDir: dir, decide: { move: "tool", tool: "agenda", args: { day: "today" } } as Decision });
     const t = await r.turn("have i been going to the gym");
-    expect(t.exact).toMatch(/^In the last 7 days gym happened on 3 of the 5 days/);
+    expect(t.exact).toMatch(/^Gym in the last 7 days: 3 of 7 days \(Tue, Thu, Fri\)/);   // wave 4: health-log.ts answers it (union of workouts, plan history, logged)
     expect(r.flows).toEqual([]);
   });
   it("nothing tracked is said honestly", () => expect(habitAnswer("gym", mkdtempSync(join(tmpdir(), "gate31-none-")), at("20:00"))).toMatch(/^I don't have gym tracked for the last week/));

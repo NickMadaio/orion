@@ -238,7 +238,7 @@ async function writeHealthLog(file: string, log: HealthLogFile): Promise<HealthL
   return stamped;
 }
 
-async function mutate(
+export async function mutate(
   file: string,
   change: (log: HealthLogFile) => void,
 ): Promise<HealthLogFile> {

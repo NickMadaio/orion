@@ -1157,7 +1157,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       traceLine("before_agent_reply", event, ctx, { move: d?.move ?? null });
       const run = runFor(event, ctx);
       // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
-      if (run && isCrisis(run.message) && !run.afterCrisis && run.room !== "room") return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
+      if (run && isCrisis(run.message) && !run.afterCrisis) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
       if (run && (run.room || run.hushed || run.pendingYes || run.lighten || run.focusMove || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
       if (run && isOverwhelmed(run.message)) return undefined;
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
@@ -1189,8 +1189,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
       // Only in "on" mode: in shadow, or once the testing window closes, the configured (cloud) model answers
       // him itself, which is intended: the fixed reply exists to guard the small local models.
-      // 2026-10-31 (cha-tv-v): a line said to someone else, or TV audio inside a run of it, is not his distress; "orion ..." always is heard.
-      if (isCrisis(run.message) && !run.afterCrisis && run.room !== "room") run.flow = { outcome: "say", kind: "plain", text: CRISIS_REPLY };
+      // REV2 5 (orchestrator decision): crisis words always get the safety reply, whatever room classification says.
+      if (isCrisis(run.message) && !run.afterCrisis) run.flow = { outcome: "say", kind: "plain", text: CRISIS_REPLY };
       // 2026-10-30 (chatter.ts): his quiet request gets a short ack; a spoken turn inside the window gets nothing. Safety (above) still wins.
       if (!run.flow && run.quietStart !== undefined) { quiet.start(nowMs(), run.quietStart, run.message); run.flow = { outcome: "say", kind: "plain", text: quietAck(run.quietStart) }; }
       if (!run.flow && run.hushed) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };

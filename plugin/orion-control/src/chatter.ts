@@ -12,6 +12,7 @@
 */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isCrisis } from "./distress.js";
 
 /** What a turn that should be silent sends. The Mac app treats an empty reply as an error, so it is an ellipsis, said as nothing. */
 export const QUIET_REPLY = "…";
@@ -90,7 +91,8 @@ export class RepeatGuard {
  inside a streak only a flow that acts may answer it (roomQuiet).
 */
 export const ROOM_STREAK_MS = 3 * 60_000;
-const PERSON = String.raw`(?:mom|mum|mam|mommy|ma|dad|daddy|pops|bro|brother|sis|man|dude|mate|babe|baby|grandma|grandpa|nan|nana|granny)`;
+// REV2 finding 5: "man", "dude", "bro", "mate" are his casual register with ORION too ("dude remind me…", "move gym to 7, man"), not a person.
+const PERSON = String.raw`(?:mom|mum|mam|mommy|ma|dad|daddy|pops|brother|sis|babe|baby|grandma|grandpa|nan|nana|granny)`;
 const SOMEONE_ELSE = new RegExp([
   String.raw`^(?:(?:yeah|yea|ya|yes|no|nah|ok|okay|hi|hey|hello|bye|thanks|sorry|listen|look)[,\s]+)+${PERSON}\b`,
   String.raw`^${PERSON}[,\s]`,
@@ -105,8 +107,12 @@ const SOMEONE_ELSE = new RegExp([
 export const talksToSomeoneElse = (message: string): boolean => SOMEONE_ELSE.test(message.trim());
 
 // Shaped like a request to an assistant: these still go through inside a streak.
-const REQUEST_SHAPE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|um+|uh+)[,\s]+)*(?:remind me|set (?:a|an|my|the)\b|start|stop|pause|resume|end|finish|turn (?:on|off|up|down)|lights?\b|play|skip|open|close|move|push|put|add|book|schedule|cancel|drop|clear|text|email|send|log|mark|what(?:'s|s| is| are| time)?\b|when(?:'s| is| does| do)\b|how (?:long|much|many|did|was|is)\b|where(?:'s| is)\b|is (?:my|it going)\b|do i\b|did i\b|can you|could you|would you|will you|show me|tell me|read me|read my|check)\b/i;
+const REQUEST_SHAPE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|um+|uh+|yo|dude|man|bro|mate|orion)[,\s]+)*(?:remind me|fix|lighten|sort out|replan|set (?:a|an|my|the)\b|start|stop|pause|resume|end|finish|turn (?:on|off|up|down)|lights?\b|play|skip|open|close|move|push|put|add|book|schedule|cancel|drop|clear|text|email|send|log|mark|what(?:'s|s| is| are| time)?\b|when(?:'s| is| does| do)\b|how (?:long|much|many|did|was|is)\b|where(?:'s| is)\b|is (?:my|it going)\b|do i\b|did i\b|can you|could you|would you|will you|show me|tell me|read me|read my|check)\b/i;
 export const requestShaped = (message: string): boolean => REQUEST_SHAPE.test(message.trim());
+/** REV2 finding 5: a status he tells ORION ("im running late", "gym done", "im sick", "i slept badly", "i have a quiz thursday", "i need
+ *  to leave at 5") is not room chatter either, inside a streak. */
+const STATUS_SHAPE = /\b(?:i'?m|im|i am)\s+(?:so\s+|really\s+|kinda\s+|feeling\s+)?(?:running late|late|sick|ill|tired|exhausted|wrecked|done|going to|gonna|leaving|heading|off to|back)\b|\brunning (?:\d+\s*(?:min(?:ute)?s?\s*)?)?late\b|^(?:the\s+|my\s+)?(?:gym|class|lecture|study|studying|lab|workout|it)\s+(?:is\s+|was\s+)?(?:done|over|finished)\b|\bi\s+slept\b|\bslept (?:badly|bad|terribly|like)\b|\bi\s+(?:have|need|got|'?ve got|ve got)\b|\b(?:fix|lighten|sort out|replan)\s+(?:my|the)\b/i;
+export const statusShaped = (message: string): boolean => STATUS_SHAPE.test(message.trim());
 
 /** Per session: when a spoken turn last went unanswered as not for ORION. */
 export class RoomStreak {
@@ -121,10 +127,13 @@ export class RoomStreak {
 
 /** How a spoken line without "orion" is read: "room" (silent, nothing runs), "streak" (only a flow that acts may answer), or null. */
 export function roomTalk(message: string, ctx: { spoken: boolean; streak: boolean }): "room" | "streak" | null {
-  if (!ctx.spoken || addressed(message)) return null;
+  // Orchestrator decision (REV2 5): a crisis signal is never silenced, spoken or typed, addressed or not.
+  if (!ctx.spoken || addressed(message) || isCrisis(message)) return null;
+  // A request reads as one before any goodbye or vocative in it ("turn off the lights, bye", "remind me to call you back tomorrow").
+  if (requestShaped(message)) return ctx.streak ? "streak" : null;
   if (talksToSomeoneElse(message)) return "room";
   if (!ctx.streak) return null;
-  return requestShaped(message) ? "streak" : "room";
+  return statusShaped(message) ? "streak" : "room";
 }
 
 /** Inside a streak, a code reply that only asks or reports a failure is not said to a room that was not talking to ORION. */

@@ -92,15 +92,19 @@ describe("cluster 7: chatter", () => {
       expect((await r.turn(`${SPOKEN}${said}`)).exact, said).toBe(QUIET_REPLY);
     }
   });
-  it("cha-tv-v: TV audio in a run of it: no reminder question, no crisis reply", async () => {
+  it("cha-tv-v: TV audio in a run of it: no reminder question; crisis words still get the safety reply (orchestrator decision, REV2 5)", async () => {
     const r = route((m) => (/^i am going/.test(m) ? { move: "ignore" } : /alarm/.test(m) ? { move: "tool", tool: "alarm", args: { at: "06:00", label: "the army is coming" } } : { move: "escalate", tier: "deep" }));
     expect((await r.turn(`${SPOKEN}i am going to kill you if you do not give me the key`)).exact).toBe(QUIET_REPLY);
     expect((await r.turn(`${SPOKEN}set the alarm for dawn the army is coming`)).exact).toBe(QUIET_REPLY);
-    const dying = await r.turn(`${SPOKEN}i think im dying`);
-    expect(dying.exact).toBe(QUIET_REPLY);
+    // Never silenced, addressed or not, in a room streak or not: a false alarm from the TV costs one gentle line; a missed one costs far more.
     const fiction = await r.turn(`${SPOKEN}i want to kill myself, said the knight`);
-    expect(fiction.exact).toBe(QUIET_REPLY);
-    expect(fiction.direct).not.toBe(CRISIS_REPLY);
+    expect(fiction.direct ?? fiction.exact).toBe(CRISIS_REPLY);
+  });
+  it.each(["man i want to kill myself", "i dont want to be alive anymore, bye", "bro i want to end it all"])("REV2 5: crisis inside a room streak is answered: %s", async (said) => {
+    const r = route((m) => (/^yeah mom/.test(m) ? { move: "ignore" } : { move: "escalate" }));
+    expect((await r.turn(`${SPOKEN}yeah mom im fine`)).exact).toBe(QUIET_REPLY);
+    const t = await r.turn(`${SPOKEN}${said}`);
+    expect(t.direct ?? t.exact).toBe(CRISIS_REPLY);
   });
   it("crisis safety holds for anything addressed to ORION, typed, or said out of the blue", async () => {
     const r = route(() => ({ move: "ignore" }));

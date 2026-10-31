@@ -43,6 +43,8 @@ export function awakeLateFor({ dir, now }) {
 }
 
 /** The words of a bedtime line: tonight's awake-late message when there is one, else the caller's. */
+/** Only ORION's own bed-* lines take the awake-late words; a reminder (his, or the late "Session done") keeps its own (2026-10-31 review). */
+export const rewritesBedtime = ({ why }) => /^proactive: bed-(?:wind|now|late)\b/.test(String(why ?? ""));
 export const bedtimeText = ({ dir, now, text }) => awakeLateFor({ dir, now })?.message ?? text;
 
 /** The night a moment belongs to: the evening's date until 06:00, by the wall clock (a fixed 6-hour subtraction slips an hour

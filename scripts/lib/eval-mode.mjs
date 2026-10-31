@@ -7,7 +7,8 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const EVAL_MARKER = process.env.ORION_EVAL_MARKER || join(homedir(), ".openclaw/orion-controlled/eval-mode");
+// A state copy (ORION_CONTROLLED_DIR) has its own marker: a live evaluation never silences it, and its own never reaches live.
+export const EVAL_MARKER = process.env.ORION_EVAL_MARKER || join(process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled"), "eval-mode");
 
 export function evalMode(now = Date.now()) {
   try { return now - statSync(EVAL_MARKER).mtimeMs < 2 * 3600_000; } catch { return false; }

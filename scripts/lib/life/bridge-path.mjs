@@ -14,7 +14,7 @@ import { evalMode } from "../eval-mode.mjs";
 import { clockNow as baseClock, outboxed, toOutbox } from "../clock.mjs";
 
 const run = promisify(execFile);
-export const SANDBOX_CALENDAR = process.env.ORION_SANDBOX_CALENDAR || join(homedir(), ".openclaw/orion-controlled/eval-calendar.json");
+export const SANDBOX_CALENDAR = process.env.ORION_SANDBOX_CALENDAR || join(process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled"), "eval-calendar.json");
 const SANDBOX_BRIDGE = join(dirname(fileURLToPath(import.meta.url)), "../eval/sandbox-bridge.mjs");
 const REAL_BRIDGE = [join(homedir(), ".openclaw/orion-remote/bin/orion-mac-bridge"),
   join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge")].find((p) => existsSync(p))

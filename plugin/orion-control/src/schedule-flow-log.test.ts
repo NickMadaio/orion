@@ -67,7 +67,9 @@ describe("schedule flow: log step", () => {
     const result = await runScheduleFlow({ message: "gym 2-4 tomorrow", clock: "Thu 16:30",
       exec: async (a) => { calls.push(a); return { stdout: JSON.stringify({ ...day, now: null }), code: 0 }; }, ask: async () => ({ steps: [{ do: "log", what: "gym", from: "14:00", to: "16:00" }] }) });
     expect(calls.some((c) => c[0] === "log")).toBe(false);
-    expect(result.outcome).toBe("say");
+    // 2026-10-31 gate: a log for another day is the form's misread; never "I can only log what happened today" for a plan.
+    expect(result.outcome).not.toBe("done");
+    expect(JSON.stringify(result)).not.toMatch(/only log what happened today/);
   });
 
   it("the reply is the scheduler's own one-line summary", async () => {

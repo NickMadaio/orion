@@ -85,10 +85,11 @@ describe("swaps are allowed; a refusal never says a block is missing when it is 
       expect(writes.map((w) => w[0])).toEqual(["drop", "add"]);
     });
   }
-  it("refusal wording is 'I didn't make that change' and true when the block is on the day", async () => {
-    const { r } = await run("skip lunch", [{ do: "add", what: "walk", minutes: 20, to: "18:00" }]);
-    expect(r).toMatchObject({ text: expect.stringMatching(/^I didn't make that change/) });
-    expect((r as any).text).not.toMatch(/no lunch/);
+  it("a form that adds for a removal of a block on the day is declined (typed), never blamed on him, never 'no lunch'", async () => {
+    const { r, writes } = await run("skip lunch", [{ do: "add", what: "walk", minutes: 20, to: "18:00" }]);
+    expect(writes).toEqual([]);
+    expect(r).toMatchObject({ outcome: "fallback", reason: expect.stringMatching(/^declined: /) });
+    expect(JSON.stringify(r)).not.toMatch(/no lunch/);
   });
   it("q019 still refuses and says there is no gym", async () => {
     const { r } = await run("skip gym today", [{ do: "add", what: "gym", minutes: 20, to: "15:05" }]);

@@ -729,7 +729,8 @@ describe("phases 57/58: automation is proposed, never installed", () => {
       trigger: { kind: "hourly" as const, atMinute: 0 },
       riskLimits: { maxRunsPerDay: 24, maxMessagesPerDay: 24 },
     };
-    const forecast = simulate(hourly, { windowDays: 10 });
+    // Pinned to local midnight: from "now" late in the day, the per-day message cap splits the window differently (failed at 23:26 on 2026-10-31).
+    const forecast = simulate(hourly, { windowDays: 10, from: new Date(2026, 9, 12, 0, 0, 0) });
     expect(forecast.fireCount).toBe(240);
     expect(forecast.suppressedCount).toBe(90);
     expect(forecast.messageCount).toBe(150);

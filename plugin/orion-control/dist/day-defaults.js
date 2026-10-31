@@ -1,3 +1,22 @@
+/*
+ Defaults instead of a clarifier, and "what now" from the real day (2026-10-31, gate run-1031202318 clusters 6 and 7).
+
+ "tmrw needs to be chill" got "I'll keep tomorrow light. What's the one thing to skip?" and nothing changed; "annika just asked
+ if i wanna get food rn" got "What are you thinking of grabbing?"; "throw in something before my class" got a study block at
+ 6:37 PM, hours after the class; "thanks, what do i do now" got "You're all caught up. Go get some rest." with gym still ahead,
+ and a stale "Next: CS2100 at 9:00 AM" was never corrected.
+
+ Each of these has a safe default, so code acts and says the assumption in one clause:
+   lighten       a day he wants easy: optional chores come off, the side project goes to 30 minutes only when nothing else could,
+                 an hour of rest goes in. Classes, gym, study and plans with people are never touched.
+   with-person   someone asked him out now: about two hours from now is held (orion-reschedule busy), ORION's own blocks slide out
+                 of it. The plan itself is not booked: he named no times.
+   before-class  "something before my class": 30 minutes ending a buffer before the class, in time that is already free.
+   whats-now     what is under way or next, from the calendar, with times; never "all caught up" over a day that is not.
+   ack-claim     "ok" to ORION's own "Next: X at T": checked against the calendar and corrected when it was wrong.
+ Anything destructive, or a class or a person's plan he did not name, is never a default (those stay with the schedule flow).
+*/
+import { meansTomorrow } from "./schedule-flow.js";
 import { soonDeadlines } from "./day-lighten.js";
 import { ampm, ceil5, hhmm, span, toMin } from "./intent-time.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
@@ -16,6 +35,8 @@ const ASKED_ME = /\b([a-z]+)\s+(?:just\s+)?(?:asked|invited|wants|wanted|is aski
 const WITH = /\bwith\s+(?:my\s+)?([a-z]+)\b/i;
 const GROUP = /\b(?:my\s+)?(friends|mates|roommates?|flatmates?|housemates?|the boys|the girls|the group)\b/i;
 const NOT_WHO = new Set(["i", "im", "i'm", "it", "this", "that", "he", "she", "they", "someone", "somebody", "everyone", "who", "you", "u", "we", "just", "and", "so", "my", "me", "if", "she's", "he's", "theyre", "there"]);
+/** Not a decision yet: asking, unsure, or still thinking. A hedge is a question back, never a hold on his calendar. */
+const HEDGE = /\bidk\b|\bi don'?t know\b|\bmaybe\b|\bperhaps\b|\bshould i\b|\bthinking (?:about|of)\b|\bnot sure\b|\bunsure\b|\?/i;
 const BEFORE_CLASS = /\bbefore\s+(?:my|the|this|today'?s)?\s*(?:next\s+|first\s+|afternoon\s+|morning\s+)?(?:([a-z]{2,5}\s?\d{3,4}|[a-z]+)\s+)?(?:class|lecture|lab|seminar|tutorial)\b|\bbefore\s+(?:my|the)\s+([a-z]{2,5}\s?\d{3,4})\b/i;
 const PUT_IN = /\b(?:throw|put|add|fit|squeeze|sneak|slot|book|schedule|stick|cram|get|do|plan|pop|block)\b/i;
 const STUDY_WORD = [[/\breview/i, "Review"], [/\brevis/i, "Revision"], [/\bread(?:ing)?\b/i, "Reading"], [/\bprep/i, "Prep"], [/\bhomework\b/i, "Homework"], [/\bpractice\b/i, "Practice"], [/\bgo(?:ing)? over\b/i, "Review"], [/\bstud(?:y|ying)\b/i, "Study"], [/\b(?:something|work)\b/i, "Study"]];
@@ -39,7 +60,7 @@ function readWithPerson(m) {
     if (!who)
         return null;
     const what = (FOOD.exec(m)?.[0] ?? "food").toLowerCase().replace(/^(?:eat|a bite|bite to eat)$/, "food").replace(/^(?:go(?:ing)? out|hang(?:ing)? out)$/, "plans");
-    return { kind: "with-person", who: who.toLowerCase(), what };
+    return { kind: "with-person", who: who.toLowerCase(), what, ...(HEDGE.test(m) ? { hedged: true } : {}) };
 }
 function readBeforeClass(m) {
     const b = BEFORE_CLASS.exec(m);
@@ -52,7 +73,7 @@ function readBeforeClass(m) {
     return { kind: "before-class", title: thing[1], minutes: 30, ...(/\b(?:quick|short)\b/i.test(m) ? { quick: true } : {}), ...(named && !GENERIC_NAME.has(named) ? { named } : {}) };
 }
 /** A request with a safe default, or a "what now", or null (the turn goes on as before). outreach: the line ORION sent first, if any. */
-export function readDayDefault(message, outreach) {
+export function readDayDefault(message, outreach, now = new Date()) {
     const m = message.trim();
     if (!m)
         return null;
@@ -63,7 +84,7 @@ export function readDayDefault(message, outreach) {
     if (WHATS_NOW.test(core))
         return { kind: "whats-now", ...(claim ? { claim } : {}) };
     if (DAY_WORD.test(m) && CHILL.test(m) && WANTS.test(m) && !SPECIFIC.test(m) && !STATED.test(m) && !ASKS_ABOUT.test(m) && !OTHER_JOB.test(m))
-        return { kind: "lighten", tomorrow: TOMORROW.test(m) };
+        return { kind: "lighten", tomorrow: TOMORROW.test(m) && meansTomorrow("tmrw", now) };
     return readWithPerson(m) ?? readBeforeClass(m);
 }
 // ---- the day ----
@@ -143,6 +164,8 @@ async function lighten(d, deps) {
 }
 const PLAN_MINUTES = 120;
 async function withPerson(d, deps) {
+    if (d.hedged)
+        return { flow: say(`Do you want to go with ${d.who}? Say so and I'll clear about two hours for it; until then I haven't touched your day.`, "ask"), writes: 0, reads: [] };
     const day = await deps.readDay([]).catch(() => undefined);
     if (!day)
         return { flow: say(NO_DAY), writes: 0, reads: [] };

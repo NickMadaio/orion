@@ -59,7 +59,6 @@ export type PendingOutcome = {
     marks: string[];
     memo: Memo | null;
 };
-/** How long after the crisis reply a short reply is never read as answering a nudge (the normal turn and its support line have it). */
 export declare const CRISIS_HOLD_MS: number;
 /** What came before this turn in the chat: when ORION last replied here, and whether the crisis reply is still recent. */
 export type PriorTurn = {
@@ -84,7 +83,7 @@ export declare class PendingMemory {
     beginTurn(key: string, nowMs: number, turn: {
         crisis: boolean;
         replied: boolean;
-    }): PriorTurn;
+    }, dir?: string): PriorTurn;
     wasAnswered(text: string, sentAt: number, nowMs: number, dir?: string): boolean;
     markAnswered(text: string, sentAt: number, nowMs: number, dir?: string): void;
 }

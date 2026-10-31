@@ -16,7 +16,7 @@
    ack-claim     "ok" to ORION's own "Next: X at T": checked against the calendar and corrected when it was wrong.
  Anything destructive, or a class or a person's plan he did not name, is never a default (those stay with the schedule flow).
 */
-import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
+import { meansTomorrow, type Day, type DayBlock, type FlowResult } from "./schedule-flow.js";
 import type { DeadlineRead } from "./deadline-read.js";
 import type { ScriptRun } from "./reality.js";
 import { soonDeadlines } from "./day-lighten.js";
@@ -26,7 +26,7 @@ import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 type Claim = { title: string; at: string };
 export type DayDefault =
   | { kind: "lighten"; tomorrow: boolean }
-  | { kind: "with-person"; who: string; what: string }
+  | { kind: "with-person"; who: string; what: string; hedged?: boolean }
   | { kind: "before-class"; title: string; minutes: number; named?: string; quick?: boolean }
   | { kind: "whats-now"; claim?: Claim }
   | { kind: "ack-claim"; claim: Claim };
@@ -51,6 +51,9 @@ const WITH = /\bwith\s+(?:my\s+)?([a-z]+)\b/i;
 const GROUP = /\b(?:my\s+)?(friends|mates|roommates?|flatmates?|housemates?|the boys|the girls|the group)\b/i;
 const NOT_WHO = new Set(["i", "im", "i'm", "it", "this", "that", "he", "she", "they", "someone", "somebody", "everyone", "who", "you", "u", "we", "just", "and", "so", "my", "me", "if", "she's", "he's", "theyre", "there"]);
 
+/** Not a decision yet: asking, unsure, or still thinking. A hedge is a question back, never a hold on his calendar. */
+const HEDGE = /\bidk\b|\bi don'?t know\b|\bmaybe\b|\bperhaps\b|\bshould i\b|\bthinking (?:about|of)\b|\bnot sure\b|\bunsure\b|\?/i;
+
 const BEFORE_CLASS = /\bbefore\s+(?:my|the|this|today'?s)?\s*(?:next\s+|first\s+|afternoon\s+|morning\s+)?(?:([a-z]{2,5}\s?\d{3,4}|[a-z]+)\s+)?(?:class|lecture|lab|seminar|tutorial)\b|\bbefore\s+(?:my|the)\s+([a-z]{2,5}\s?\d{3,4})\b/i;
 const PUT_IN = /\b(?:throw|put|add|fit|squeeze|sneak|slot|book|schedule|stick|cram|get|do|plan|pop|block)\b/i;
 const STUDY_WORD: Array<[RegExp, string]> = [[/\breview/i, "Review"], [/\brevis/i, "Revision"], [/\bread(?:ing)?\b/i, "Reading"], [/\bprep/i, "Prep"], [/\bhomework\b/i, "Homework"], [/\bpractice\b/i, "Practice"], [/\bgo(?:ing)? over\b/i, "Review"], [/\bstud(?:y|ying)\b/i, "Study"], [/\b(?:something|work)\b/i, "Study"]];
@@ -73,7 +76,7 @@ function readWithPerson(m: string): DayDefault | null {
   const who = [group, asked, withWho].find((w): w is string => !!w && !NOT_WHO.has(w.toLowerCase()) && !FOOD.test(w));
   if (!who) return null;
   const what = (FOOD.exec(m)?.[0] ?? "food").toLowerCase().replace(/^(?:eat|a bite|bite to eat)$/, "food").replace(/^(?:go(?:ing)? out|hang(?:ing)? out)$/, "plans");
-  return { kind: "with-person", who: who.toLowerCase(), what };
+  return { kind: "with-person", who: who.toLowerCase(), what, ...(HEDGE.test(m) ? { hedged: true } : {}) };
 }
 
 function readBeforeClass(m: string): DayDefault | null {
@@ -86,14 +89,14 @@ function readBeforeClass(m: string): DayDefault | null {
 }
 
 /** A request with a safe default, or a "what now", or null (the turn goes on as before). outreach: the line ORION sent first, if any. */
-export function readDayDefault(message: string, outreach?: string): DayDefault | null {
+export function readDayDefault(message: string, outreach?: string, now: Date = new Date()): DayDefault | null {
   const m = message.trim();
   if (!m) return null;
   const claim = claimOf(outreach);
   if (claim && ACK.test(m)) return { kind: "ack-claim", claim };
   const core = m.toLowerCase().replace(LEAD, "").replace(TRAIL, "").trim();
   if (WHATS_NOW.test(core)) return { kind: "whats-now", ...(claim ? { claim } : {}) };
-  if (DAY_WORD.test(m) && CHILL.test(m) && WANTS.test(m) && !SPECIFIC.test(m) && !STATED.test(m) && !ASKS_ABOUT.test(m) && !OTHER_JOB.test(m)) return { kind: "lighten", tomorrow: TOMORROW.test(m) };
+  if (DAY_WORD.test(m) && CHILL.test(m) && WANTS.test(m) && !SPECIFIC.test(m) && !STATED.test(m) && !ASKS_ABOUT.test(m) && !OTHER_JOB.test(m)) return { kind: "lighten", tomorrow: TOMORROW.test(m) && meansTomorrow("tmrw", now) };
   return readWithPerson(m) ?? readBeforeClass(m);
 }
 
@@ -164,6 +167,7 @@ async function lighten(d: Extract<DayDefault, { kind: "lighten" }>, deps: Defaul
 
 const PLAN_MINUTES = 120;
 async function withPerson(d: Extract<DayDefault, { kind: "with-person" }>, deps: DefaultDeps): Promise<DefaultOutcome> {
+  if (d.hedged) return { flow: say(`Do you want to go with ${d.who}? Say so and I'll clear about two hours for it; until then I haven't touched your day.`, "ask"), writes: 0, reads: [] };
   const day = await deps.readDay([]).catch(() => undefined);
   if (!day) return { flow: say(NO_DAY), writes: 0, reads: [] };
   const start = ceil5(minuteNow(day, deps.now)); const end = Math.min(start + PLAN_MINUTES, 23 * 60 + 55);

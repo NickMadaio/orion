@@ -25,6 +25,7 @@ import type { ToolResult } from "./work-check.js";
 import type { Outreach } from "./outreach-reply.js";
 import { HUSH, REQUEST, offerOf, pauseThenStart, readReply, type Offer, type Reply } from "./pending-reply-read.js";
 import { runTurn } from "./pending-reply-act.js";
+import { readCrisisAt, writeCrisisAt } from "./pending-reply-crisis.js";
 import { answeredIn, readAnswered, withAnswered, writeAnswered, type AnsweredRow } from "./pending-reply-answered.js";
 
 export { offerOf, readReply } from "./pending-reply-read.js";
@@ -77,6 +78,7 @@ const MEMO_TAKES: Record<Memo["kind"], ReadonlyArray<Reply["kind"]>> = {
 };
 
 /** How long after the crisis reply a short reply is never read as answering a nudge (the normal turn and its support line have it). */
+const latest = (a?: number, b?: number): number | undefined => (a === undefined ? b : b === undefined ? a : Math.max(a, b));
 export const CRISIS_HOLD_MS = 30 * 60_000;
 
 /** What came before this turn in the chat: when ORION last replied here, and whether the crisis reply is still recent. */
@@ -97,11 +99,11 @@ export class PendingMemory {
    Records this turn (ORION answers it unless it was hushed; a crisis turn starts the hold) and returns what came before it.
    nowMs is the plugin's clock, the one outreach times are read on.
   */
-  beginTurn(key: string, nowMs: number, turn: { crisis: boolean; replied: boolean }): PriorTurn {
+  beginTurn(key: string, nowMs: number, turn: { crisis: boolean; replied: boolean }, dir?: string): PriorTurn {
     const lastReplyAt = this.replies.get(key);
-    const crisisAt = this.crises.get(key);
+    const crisisAt = latest(this.crises.get(key), dir ? readCrisisAt(dir) : undefined);
     const afterCrisis = turn.crisis || (crisisAt !== undefined && nowMs - crisisAt >= 0 && nowMs - crisisAt < CRISIS_HOLD_MS);
-    if (turn.crisis) this.crises.set(key, nowMs);
+    if (turn.crisis) { this.crises.set(key, nowMs); if (dir) writeCrisisAt(dir, nowMs); }
     if (turn.replied) this.replies.set(key, nowMs);
     return { ...(lastReplyAt !== undefined ? { lastReplyAt } : {}), afterCrisis };
   }

@@ -69,7 +69,7 @@ export const ONE_PART_FAILED = "One part didn't work.";
 // Only on a turn with a failed tool: a path, a long flag, a JSON key or a stack frame there is tool output (elsewhere it can be the answer).
 const STRICT_LEAK = /(?:^|[\s(])(?:~|\/Users\/[^/\s]+)\/\S+|(?<![\w-])--[a-z][a-z-]{2,}\b|^\s*[[{]\s*"[\w-]+"\s*:|\{\s*"[\w-]+"\s*:|\bat\s+\S+\s*\(\S+:\d+:\d+\)|\bspawn \S+ ENOENT/;
 const leaks = (text: string, strict: boolean): boolean => LEAK_SENTENCE.test(text) || (strict && STRICT_LEAK.test(text));
-function dropLeaks(line: string, strict = false, codeAuthored = false): string {
+function dropLeaks(line: string, strict = false): string {
   if (!leaks(line, strict)) return line;
   // "Try this: <command>" carries the command after the colon: the rest of the line goes with it.
   const pieces = line.split(/(?<=[.!?])\s+(?=[A-Z"'])/);
@@ -79,7 +79,7 @@ function dropLeaks(line: string, strict = false, codeAuthored = false): string {
   let failed = false;
   for (const p of pieces) {
     if (leaks(p, strict)) {
-      if (!codeAuthored && FAILED_WORDS.test(p) && !failed && kept.length) { failed = true; kept.push(ONE_PART_FAILED); }
+      if (FAILED_WORDS.test(p) && !failed && kept.length) { failed = true; kept.push(ONE_PART_FAILED); }
       if (/try (?:this|running)\s*:/i.test(p)) break;
       continue;
     }
@@ -124,7 +124,7 @@ export function sanitizeReply(reply: string, ctx: SanitizeContext = {}): string 
     for (const re of SPANS) line = line.replace(re, () => { changed = true; if (re === SPANS[0]) execCut = true; return ""; });
     // A lead-in whose command was cut ("Undo with.") says nothing: it goes with it.
     if (ctx.codeAuthored && line !== raw) line = line.replace(/(?:^|(?<=[.!?])\s+)[^.!?\n]*\b(?:with|run|use|try|using|via)\s*[.:]?\s*$/i, "");
-    const kept = dropLeaks(line, ctx.strict === true, ctx.codeAuthored === true);
+    const kept = dropLeaks(line, ctx.strict === true);
     if (kept !== line) { changed = true; execCut = true; line = kept; }
     if (line !== raw) { line = tidy(line); if (!/\w/.test(line)) continue; }
     out.push(line);

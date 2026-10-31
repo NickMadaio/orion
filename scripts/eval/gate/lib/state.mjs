@@ -37,7 +37,7 @@ const MAX_TRACKED_BYTES = 1 << 20;
 // proactive-sent.json, cron-delivery.json, selfdev-*.json, permission-state.json, usage-cache.json, account-health.json,
 // sleep-actual.json, morning-*.json): a restore wiped phone messages and re-sent pings. Only an allow-list is restored
 // (CTRL_FILES + KNOWN_NEW_STATE); every other small top-level .json is snapshotted read-only and REPORTED when it changes, never written.
-const KNOWN_NEW_STATE = ["declared-facts.json", "pending-answered.json", "chat-quiet.json", "ladders.json", "awake-late.json", "brief-heads.json", "model-outage-queue.json"];
+const KNOWN_NEW_STATE = ["declared-facts.json", "pending-answered.json", "pending-crisis.json", "chat-quiet.json", "ladders.json", "awake-late.json", "brief-heads.json", "model-outage-queue.json"];
 const RESTORABLE = new Set([...CTRL_FILES, ...KNOWN_NEW_STATE]);
 // The evaluation sandbox (lib/setup.mjs): created by the item's setup, removed byte for byte at undo, never "reported".
 const SANDBOX = new Set(SANDBOX_FILES);

@@ -60,7 +60,7 @@ export const ONE_PART_FAILED = "One part didn't work.";
 // Only on a turn with a failed tool: a path, a long flag, a JSON key or a stack frame there is tool output (elsewhere it can be the answer).
 const STRICT_LEAK = /(?:^|[\s(])(?:~|\/Users\/[^/\s]+)\/\S+|(?<![\w-])--[a-z][a-z-]{2,}\b|^\s*[[{]\s*"[\w-]+"\s*:|\{\s*"[\w-]+"\s*:|\bat\s+\S+\s*\(\S+:\d+:\d+\)|\bspawn \S+ ENOENT/;
 const leaks = (text, strict) => LEAK_SENTENCE.test(text) || (strict && STRICT_LEAK.test(text));
-function dropLeaks(line, strict = false, codeAuthored = false) {
+function dropLeaks(line, strict = false) {
     if (!leaks(line, strict))
         return line;
     // "Try this: <command>" carries the command after the colon: the rest of the line goes with it.
@@ -71,7 +71,7 @@ function dropLeaks(line, strict = false, codeAuthored = false) {
     let failed = false;
     for (const p of pieces) {
         if (leaks(p, strict)) {
-            if (!codeAuthored && FAILED_WORDS.test(p) && !failed && kept.length) {
+            if (FAILED_WORDS.test(p) && !failed && kept.length) {
                 failed = true;
                 kept.push(ONE_PART_FAILED);
             }
@@ -123,7 +123,7 @@ export function sanitizeReply(reply, ctx = {}) {
         // A lead-in whose command was cut ("Undo with.") says nothing: it goes with it.
         if (ctx.codeAuthored && line !== raw)
             line = line.replace(/(?:^|(?<=[.!?])\s+)[^.!?\n]*\b(?:with|run|use|try|using|via)\s*[.:]?\s*$/i, "");
-        const kept = dropLeaks(line, ctx.strict === true, ctx.codeAuthored === true);
+        const kept = dropLeaks(line, ctx.strict === true);
         if (kept !== line) {
             changed = true;
             execCut = true;

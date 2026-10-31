@@ -66,6 +66,32 @@ describe("readDayDefault: which defaultable request this is", () => {
     "the food here is fine",
   ])("none: %s", (m) => expect(readDayDefault(m)).toBeNull());
 
+  it.each([
+    "sam wants to grab dinner now but idk",
+    "maybe get food with jess rn",
+    "should i go get coffee with my roommate now",
+    "thinking about getting lunch with sam right now",
+    "not sure if i wanna get pizza with the boys rn",
+    "sam wants to get dinner right now?",
+  ])("a hedged plan with a person is a question, no write: %s", async (m) => {
+    const read = readDayDefault(m);
+    expect(read).toMatchObject({ kind: "with-person", hedged: true });
+    const { d, calls } = deps(at(17, 0));
+    const out = await runDayDefault(read!, d);
+    expect(calls).toEqual([]);
+    expect(out.writes).toBe(0);
+    expect(out.flow).toMatchObject({ outcome: "say", kind: "ask" });
+  });
+
+  it("a firm plan with a person still holds the time", () => {
+    expect(readDayDefault("sam wants to grab dinner now")).not.toMatchObject({ hedged: true });
+  });
+
+  it("at 01:00 'tmrw needs to be chill' lightens today, and by day it lightens tomorrow", () => {
+    expect(readDayDefault("tmrw needs to be chill", undefined, new Date(2026, 10, 2, 1, 0))).toEqual({ kind: "lighten", tomorrow: false });
+    expect(readDayDefault("tmrw needs to be chill", undefined, new Date(2026, 10, 2, 14, 0))).toEqual({ kind: "lighten", tomorrow: true });
+  });
+
   it("a bare ack is read against a stale 'Next:' line ORION sent", () => {
     expect(readDayDefault("ok", "Session done. Next: CS2100 at 9:00 AM.")).toEqual({ kind: "ack-claim", claim: { title: "CS2100", at: "9:00 AM" } });
     expect(readDayDefault("cool thanks", "Session done. Next: CS2100 at 9:00 AM.")?.kind).toBe("ack-claim");

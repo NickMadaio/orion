@@ -100,6 +100,8 @@ const BED_SET = new RegExp(String.raw`\b(?:set|change|make|move|put|update|push|
 const BED_EARLIER = /\b(?:sleep|go to bed|get to bed|get to sleep|be in bed|be asleep|turn in|hit the hay)\s+(?:a (?:bit|little) |way |much )?earlier\b|\bearlier\s+(?:bed\s?time|night|nights|to bed)\b|\bbed\s?time\b[^.?!]{0,20}\bearlier\b|\bearlier\b[^.?!]{0,20}\bbed\s?time\b/i;
 // Past tense is a report, and "tonight" / "early night" is a one-off: neither is a bedtime setting (REV4 item 4).
 const BED_PAST = /\b(?:went|fell|got|was|were|slept|woke|stayed up|last night|yesterday|the other night)\b/i;
+const BED_SET_VERB = /\b(?:set|change|make|move|put|update|push|pull|switch)\b[^.?!,]{0,25}\bbed\s?time\b/i;
+const BED_PAST_NIGHT = /\b(?:last night|yesterday|the other night)\b/i;
 const BED_ONE_OFF = /\b(?:tonight|tn|early night|late night|an early one)\b/i;
 const BED_ASK = /\b(?:what(?:'s|s| is)?|when(?:'s|s| is)?|tell me)\b[^.?!]{0,20}\bmy bed\s?time\b|\bwhat time (?:is|am i|should i)[^.?!]{0,20}\b(?:bed|sleep|asleep)\b/i;
 
@@ -124,8 +126,11 @@ export function readBedtime(message: string): BedtimeRead | null {
   const week = /\b(?:this week|rest of the week|for the week|all week|until (?:sunday|the weekend)|through sunday)\b/i.test(m);
   if (BED_ASK.test(m)) return { kind: "bedtime", read: true, week: false };
   if (/\?/.test(m) && !/\b(?:set|change|make)\b/i.test(m)) return null;
-  if (BED_PAST.test(m) || BED_ONE_OFF.test(m)) return null;
+  if (BED_ONE_OFF.test(m)) return null;
   const set = BED_SET.exec(m);
+  // An imperative set-verb on "bedtime" with a time is a setting even with a past-tense aside ("set my bedtime to 11, I was wrecked").
+  const explicit = !!set && BED_SET_VERB.test(m) && !BED_PAST_NIGHT.test(m);
+  if (BED_PAST.test(m) && !explicit) return null;
   const time = set ? bedTime(set, 1) : undefined;
   if (time) return { kind: "bedtime", read: false, time, week };
   if (BED_EARLIER.test(m)) return { kind: "bedtime", read: false, week };

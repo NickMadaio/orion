@@ -1,4 +1,4 @@
-import type { Day, FlowResult } from "./schedule-flow.js";
+import { type Day, type FlowResult } from "./schedule-flow.js";
 import type { DeadlineRead } from "./deadline-read.js";
 import type { ScriptRun } from "./reality.js";
 type Claim = {
@@ -12,6 +12,7 @@ export type DayDefault = {
     kind: "with-person";
     who: string;
     what: string;
+    hedged?: boolean;
 } | {
     kind: "before-class";
     title: string;
@@ -37,7 +38,7 @@ export type DefaultOutcome = {
     reads: string[];
 };
 /** A request with a safe default, or a "what now", or null (the turn goes on as before). outreach: the line ORION sent first, if any. */
-export declare function readDayDefault(message: string, outreach?: string): DayDefault | null;
+export declare function readDayDefault(message: string, outreach?: string, now?: Date): DayDefault | null;
 /** Carries out the default (or reads the day for "what now") and builds the reply from what the scheduler printed. */
 export declare function runDayDefault(d: DayDefault, deps: DefaultDeps): Promise<DefaultOutcome>;
 export {};

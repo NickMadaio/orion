@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPLY_FAILED, finalizeReply, mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
+import { ONE_PART_FAILED, REPLY_FAILED, finalizeReply, mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
 describe("finalizeReply codeAuthored keeps a successful change (REV4 item 3)", () => {
     it.each([
         ["Moved gym to 7 PM. If it runs long: orion-reschedule extend \"Gym\" --until HH:MM.", "Moved gym to 7 PM."],
@@ -8,6 +8,10 @@ describe("finalizeReply codeAuthored keeps a successful change (REV4 item 3)", (
         ["Added laundry tmrw at 6.\nTo stretch it: orion-reschedule extend Laundry --until HH:MM", "Added laundry tmrw at 6."],
     ])("keeps the success in %j", (raw, want) => {
         expect(finalizeReply(raw, [], { codeAuthored: true })).toBe(want);
+    });
+    it("keeps a failure the code reported, never drops it silently", () => {
+        const out = finalizeReply('Gym is at 7 PM. Study failed: orion-reschedule add "Study" 60 exited 1.', [], { codeAuthored: true });
+        expect(out).toBe(`Gym is at 7 PM. ${ONE_PART_FAILED}`);
     });
     it("still turns a model-authored change claim with a cut failure into a failure", () => {
         expect(finalizeReply("Done. ⚠️ Exec failed: `orion-x`", [], {})).toBe(REPLY_FAILED);

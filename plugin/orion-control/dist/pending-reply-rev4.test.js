@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { registerLocalRouting } from "./local-routing.js";
 import { CRISIS_REPLY } from "./distress.js";
-import { readPendingTurn } from "./pending-reply.js";
+import { PendingMemory, readPendingTurn } from "./pending-reply.js";
 const APP = `[Orion app context — factual state supplied by the native app]
 Focus session: inactive.
 
@@ -30,6 +30,7 @@ const TUE = () => ({ date: "2026-11-03", now: null, blocks: [b("CS2100", "09:00"
 function harness(o) {
     const handlers = new Map();
     const flows = [];
+    const runs = [];
     const days = { today: o.today ?? MON(), tomorrow: o.tomorrow ?? TUE() };
     const clock = { now: o.now };
     const write = (message) => {
@@ -51,6 +52,7 @@ function harness(o) {
         ...(o.stateDir ? { stateDir: o.stateDir } : {}),
         decideImpl: async () => ({ move: "escalate", tier: "standard" }),
         scheduleFlow: async (message) => { flows.push(message); write(message); return { outcome: "done", calls: [`exec orion-reschedule (${message})`], outputs: ["Done."], marks: [`m${flows.length}`], reply: "Done." }; },
+        realityRun: async (_script, args) => { runs.push(args); return { stdout: "Written to his calendar.", code: 0 }; },
         readDayJson: async (args) => (args.includes("tomorrow") ? days.tomorrow : days.today),
         checkinRun: async (args) => (args[0] === "find" ? { stdout: '{"open":false}', code: 1 } : { stdout: "ok ci-abc123", code: 0 }),
     });
@@ -66,7 +68,7 @@ function harness(o) {
         const [built] = (await fire("before_prompt_build", { prompt, messages: [] }, ctx));
         return built?.appendContext?.match(/Your whole reply must be exactly: ([\s\S]*)\]$/)?.[1] ?? `WORKER: ${built?.systemPrompt?.slice(0, 80) ?? ""}`;
     };
-    return { turn, flows, days, clock };
+    return { turn, flows, days, clock, runs };
 }
 const stateWithPush = (text, sent) => {
     const dir = mkdtempSync(join(tmpdir(), "pr4-state-"));
@@ -87,6 +89,40 @@ describe("1: after a crisis reply, a short reply is never bound to a nudge", () 
         const dots = await h.turn(`${label(GAVE_UP, 5)}${APP}...`);
         expect(h.flows).toEqual([]);
         expect(dots).not.toMatch(/still waiting|isn't optional/i);
+    });
+});
+describe("1b: the crisis hold is shared by every chat and survives a restart", () => {
+    const NUDGE = "Gym is at 5:00 PM. Still on?";
+    it("a crisis on the phone holds a short reply on the Mac", async () => {
+        const dir = stateWithPush(NUDGE, at("2026-11-02", "19:05"));
+        const phone = harness({ now: at("2026-11-02", "19:10"), stateDir: dir, session: "agent:main:phone-thread" });
+        expect(await phone.turn(`${APP}i cant do this anymore`)).toContain(CRISIS_REPLY);
+        const mac = harness({ now: at("2026-11-02", "19:20"), stateDir: dir, session: "agent:main:orion-chat-mac" });
+        await mac.turn(`${APP}nah`);
+        expect(mac.flows).toEqual([]);
+    });
+    it("a restart (a new memory over the same state dir) still holds, and the hold ends after 30 minutes", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "pr4-state-"));
+        const first = harness({ now: at("2026-11-02", "19:10"), stateDir: dir });
+        await first.turn(`${APP}i cant do this anymore`);
+        const held = new PendingMemory();
+        expect(held.beginTurn("any-chat", at("2026-11-02", "19:25").getTime(), { crisis: false, replied: true }, dir).afterCrisis).toBe(true);
+        const later = new PendingMemory();
+        expect(later.beginTurn("any-chat", at("2026-11-02", "19:45").getTime(), { crisis: false, replied: true }, dir).afterCrisis).toBe(false);
+    });
+    it("a defaultable request inside the hold writes nothing", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "pr4-state-"));
+        const h = harness({ now: at("2026-11-02", "17:00"), stateDir: dir });
+        await h.turn(`${APP}i cant do this anymore`);
+        h.clock.now = at("2026-11-02", "17:05");
+        await h.turn(`${APP}tmrw needs to be chill`);
+        expect(h.runs).toEqual([]);
+    });
+    it("the same request with no crisis before it does write", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "pr4-state-"));
+        const h = harness({ now: at("2026-11-02", "17:05"), stateDir: dir });
+        await h.turn(`${APP}tmrw needs to be chill`);
+        expect(h.runs.length).toBeGreaterThan(0);
     });
 });
 describe("2: ORION's own later turn in the chat beats an older push", () => {

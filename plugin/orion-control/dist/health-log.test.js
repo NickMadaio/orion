@@ -122,6 +122,18 @@ describe("bedtime", () => {
         expect(r).toMatchObject({ kind: "bedtime", read: false });
         expect(r?.time).toBeUndefined();
     });
+    it.each([
+        ["set my bedtime to 11, I was wrecked", "23:00"],
+        ["I got no sleep, change my bedtime to 10:30", "22:30"],
+    ])("an explicit set with a time wins over a past-tense aside: %s", (said, time) => {
+        expect(readBedtime(said)).toMatchObject({ read: false, time });
+    });
+    it.each([
+        "I was wrecked, bed at 2 last night",
+        "yesterday I set my bedtime to 11 and slept badly",
+        "I got to bed at 2 and was wrecked",
+        "set my bedtime to 11 tonight, I was wrecked",
+    ])("a report or a one-off is still not a setting: %s", (said) => { expect(readBedtime(said)).toBeNull(); });
     it("a question about it is a read", () => { expect(readBedtime("what time is my bedtime")).toMatchObject({ read: true }); });
     it("sets the named time, keeps the other settings, states the old one and the scope", async () => {
         const d = dir();

@@ -29,10 +29,19 @@ import { loadCourseVault, applyCourseRefresh } from "./lib/connect/course-vault.
 import { planCourseRefresh, excludedCourses, previewCourseRefresh } from "./lib/connect/course-notes.mjs";
 import { canvasId } from "./lib/connect/canvas.mjs";
 
-const BM = join(homedir(), ".local/bin/basic-memory");
+const BM = process.env.ORION_BASIC_MEMORY || join(homedir(), ".local/bin/basic-memory");
 const [command, ...rest] = process.argv.slice(2);
 const fail = (m, code = 2) => { console.error(m); process.exit(code); };
-const bm = (args) => execFileSync(BM, ["tool", ...args, "--project", "orion"], { encoding: "utf8", timeout: 60000, maxBuffer: 8 << 20 });
+const bmRaw = (args) => execFileSync(BM, ["tool", ...args, "--project", "orion"], { encoding: "utf8", timeout: 60000, maxBuffer: 8 << 20 });
+// 2026-10-31 (gate run-1031133008): Basic Memory renamed its tool commands (search-notes -> search, read-note -> read, write-note -> write,
+// edit-note -> edit, build-context -> context, recent-activity -> project recent). Every orion-brain call failed with "No such command",
+// and the host appended "Exec failed: orion-brain search …" to his replies. The new names run first; an older install still works.
+const bm = (args, legacy) => {
+  try { return bmRaw(args); } catch (e) {
+    if (legacy && /No such command/i.test(String(e.stderr || e.stdout || e.message))) return bmRaw(legacy);
+    throw e;
+  }
+};
 const clean = (s, max) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
 
 try {
@@ -72,12 +81,12 @@ try {
     }
   } else if (command === "search") {
     const q = clean(rest.join(" "), 200); if (!q) fail('usage: orion-brain search "<words>"');
-    const results = JSON.parse(bm(["search-notes", q])).results ?? [];
+    const results = JSON.parse(bm(["search", q, "--json"], ["search-notes", q])).results ?? [];
     if (!results.length) { console.log(`Nothing in the brain matches "${q}".`); process.exit(0); }
-    for (const r of results.slice(0, 6)) console.log(`## ${r.title}  (${r.file_path})\n${String(r.matched_chunk ?? r.content ?? "").slice(0, 700)}\n`);
+    for (const r of results.slice(0, 6)) console.log(`## ${r.title}  (${r.file_path ?? r.permalink ?? ""})\n${String(r.matched_chunk ?? r.content ?? "").slice(0, 700)}\n`);
   } else if (command === "read" || command === "context") {
     const title = clean(rest[0], 120); if (!title) fail(`usage: orion-brain ${command} "<note title>"`);
-    process.stdout.write(command === "read" ? bm(["read-note", title]) : bm(["build-context", `memory://${title}`, "--plain"]));
+    process.stdout.write(command === "read" ? bm(["read", title], ["read-note", title]) : bm(["context", `memory://${title}`], ["build-context", `memory://${title}`, "--plain"]));
   } else if (command === "learn") {
     const [rawTitle, rawCategory, ...fact] = rest;
     const title = clean(rawTitle, 80); const category = clean(rawCategory, 30).toLowerCase().replace(/[^a-z -]/g, "");
@@ -85,18 +94,20 @@ try {
     if (!title || !category || !text) fail('usage: orion-brain learn "<note title>" "<category>" "<fact>"');
     const line = `- [${category}] ${text} (${new Date().toISOString().slice(0, 10)})`;
     let existing = null;
-    try { existing = bm(["read-note", title]); } catch { /* new note */ }
+    try { existing = bm(["read", title], ["read-note", title]); } catch { /* new note */ }
     if (!existing || /not found/i.test(existing)) {
-      bm(["write-note", "--title", title, "--folder", "20 Areas/Learned", "--type", "note",
-        "--content", `## Learned\n${line}\n\n## Relations\n- about [[Nick]]\n`]);
+      const body = `## Learned\n${line}\n\n## Relations\n- about [[Nick]]\n`;
+      bm(["write", "--title", title, "--directory", "20 Areas/Learned", "--note-type", "note", "--content", body],
+        ["write-note", "--title", title, "--folder", "20 Areas/Learned", "--type", "note", "--content", body]);
       console.log(`New note "${title}" (linked to Nick) with: ${line}`);
     } else {
-      if (!/^## Learned/m.test(existing)) bm(["edit-note", title, "--operation", "append", "--content", "\n## Learned\n"]);
-      bm(["edit-note", title, "--operation", "append", "--content", `${line}\n`]);
+      const append = (content) => bm(["edit", title, "--command", "append", "--content", content], ["edit-note", title, "--operation", "append", "--content", content]);
+      if (!/^## Learned/m.test(existing)) append("\n## Learned\n");
+      append(`${line}\n`);
       console.log(`Added to "${title}": ${line}`);
     }
   } else if (command === "recent") {
-    process.stdout.write(bm(["recent-activity", "--timeframe", "7d"]));
+    process.stdout.write(bm(["project", "recent", "--since", "7d"], ["recent-activity", "--timeframe", "7d"]));
   } else {
     fail("usage: orion-brain search|read|context|learn|recent|canvas-courses|canvas-refresh (see the header)");
   }

@@ -84,10 +84,13 @@ const kindOf = (b: DayBlock): string => b.kind ?? (/\b(lecture|seminar|lab|class
 const isClass = (b: DayBlock) => kindOf(b) === "class";
 const isGym = (b: DayBlock) => kindOf(b) === "gym";
 const KEEP = new Set(["class", "gym", "study", "deadline", "meal", "rest", "sleep", "commute", "nap"]);
-/** Removal order, lowest priority first: other, then side project. Never fixed, never already started. */
+/** "Other" he can safely lose today: chores and leisure. An unknown task ("AE1 Marketing Presentation", "finish resume") may be
+ *  deadline work, so it is never the one taken off (found replaying his real 10-31 day). */
+const LOW_OTHER = /\b(?:laundry|groceries|grocery|shopping|errands?|clean(?:ing)?|tidy(?:ing)?|chores?|games?|gaming|tv|netflix|admin|inbox|emails?|organi[sz]e|declutter)\b/i;
+/** Removal order, lowest priority first: chores/leisure, then side project. Never fixed, never already started. */
 function lowestBlock(day: Day, nowMin: number): DayBlock | undefined {
   const movable = day.blocks.filter((b) => !b.fixed && toMin(b.start) >= nowMin && !KEEP.has(kindOf(b)) && !/\b(?:with|meet|commute|travel|home)\b/i.test(b.title));
-  return movable.find((b) => kindOf(b) === "other") ?? movable.find((b) => kindOf(b) === "side_project");
+  return movable.find((b) => kindOf(b) === "other" && LOW_OTHER.test(b.title)) ?? movable.find((b) => kindOf(b) === "side_project");
 }
 const nextClass = (day: Day, nowMin: number) => day.blocks.filter(isClass).find((b) => toMin(b.end) > nowMin);
 const gymAhead = (day: Day, nowMin: number) => day.blocks.find((b) => isGym(b) && toMin(b.end) > nowMin);
@@ -125,8 +128,9 @@ const listed = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")}
 
 /** One sentence of his real day: the next class and the nearest deadlines. Empty when nothing is known. */
 function realDay(day: Day | undefined, deadlines: Array<{ title: string; when: string }>, nowMin: number): string {
-  const cls = day ? nextClass(day, nowMin) : undefined;
-  const parts = [...(cls ? [`${cls.title} at ${ampm(cls.start)}${toMin(cls.start) <= nowMin ? " (now)" : ""}`] : []), ...deadlines.map((d) => `${d.title} ${d.when}`)];
+  // The next class, or with none left today the next study block (what the day actually asks of him).
+  const cls = day ? nextClass(day, nowMin) ?? day.blocks.find((b) => kindOf(b) === "study" && toMin(b.start) >= nowMin) : undefined;
+  const parts = [...(cls ? [`${cls.title} at ${ampm(cls.start)}${toMin(cls.start) <= nowMin ? " (now)" : ""}`] : []), ...deadlines.filter((d) => !cls || !cls.title.toLowerCase().includes(d.title.toLowerCase())).map((d) => `${d.title} ${d.when}`)];
   return parts.length ? `You've still got ${listed(parts)}.` : "";
 }
 

@@ -258,6 +258,16 @@ describe("cluster 4: tired, sick, slept badly, stressed", () => {
     expect(t.exact).toMatch(/^Done: 30-minute nap at 10:30 AM after CS2100 Lecture, Side project off today and Gym stays at 5:00 PM, as an easy session\. Classes untouched/);
     expect(r.flows).toEqual([]);
   });
+  it("his real 10-31 day: an unknown task ('AE1 Marketing Presentation') is never the block taken off; laundry is", async () => {
+    const day: Day = { date: "2026-10-31", now: null, blocks: [
+      { title: "AE1 Marketing Presentation", start: "12:07", end: "12:52", fixed: false },
+      { title: "Laundry", start: "15:00", end: "15:45", fixed: false },
+      { title: "Gym", start: "17:02", end: "18:32", fixed: false, kind: "gym" },
+    ] };
+    const r = route(() => ({ move: "escalate" }), { now: MON(11, 0), day });
+    await r.turn("im knackered, sort my day out");
+    expect(r.writes.map((w) => w.slice(0, 2))).toEqual([["add", "Nap"], ["drop", "Laundry"], ["rename", "Gym"]]);
+  });
   it("hea-sleep-adjust-c: 'only slept 4 and a half hours, add a nap after class and cut side project' does exactly that", async () => {
     const r = route(() => ({ move: "escalate", tier: "standard" }), { now: MON(8, 0) });
     const t = await r.turn("only slept 4 and a half hours, add a nap after class and cut side project");

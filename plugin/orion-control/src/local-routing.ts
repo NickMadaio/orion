@@ -46,6 +46,8 @@ import { runsFirst } from "./intent-run.js";
 import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne, type EditTarget } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
 import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
+import { maybeRunComputerTask, type ComputerDeps } from "./computer-loop.js";
+import { detectComputerIntent } from "./computer-intent.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
@@ -71,6 +73,8 @@ type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) =>
 type HookApi = { on: (name: string, fn: Handler, opts?: { priority?: number; timeoutMs?: number }) => unknown; logger?: { warn?: (m: string) => void } };
 
 export type LocalRoutingOptions = {
+  /** 2026-10-31: the computer-use loop (computer-loop.ts): "close my safari tabs", "whats on my screen". Progress is wired here; absent means the loop never runs. */
+  computer?: Omit<ComputerDeps, "progress">;
   mode: LocalRoutingMode;
   logPath: string;
   decideImpl?: (input: { message: string; clock: string; timeoutMs?: number; history?: Array<{ role: "user" | "assistant"; content: string }>; context?: string }) => Promise<Decision>;
@@ -146,6 +150,8 @@ export type LocalRoutingOptions = {
 };
 
 type Run = {
+  /** The computer loop handled this turn (its reply is fixed; no draft may replace it). */
+  computer?: boolean;
   message: string;
   /** His day as read for the time backstop on the worker's writes, by --date: once per turn (re-review, 2026-10-25). */
   dayReads?: Map<string, Promise<Day | undefined>>;
@@ -997,7 +1003,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const made = recentMade(sessionKey);
     const reminderAt = lastReminder.get(sessionKey)?.set ?? 0;
     const editing = on && !cutOff && !quietTurn && !guarded && isEdit(message) && (made ? made.at > reminderAt : Date.now() - reminderAt > CORRECTION_WINDOW_MS);
-    const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded;
+    // 2026-10-31: a screen task is code's (computer-loop.ts), so the desk is not asked.
+    const computerFirst = on && !cutOff && !quietTurn && !!options.computer && !!detectComputerIntent(message);
+    const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst;
     // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
     const outreach = parseOutreach(raw);
     // 2026-10-30: his state, read once per turn by code (state-card.ts). The desk gets one line of it; the worker gets the card.
@@ -1055,6 +1063,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run && (RUNNING_LATE.test(run.message) || run.late)) return undefined; // the calendar flow, never a drafted "no problem"
       // r8 review 4 MEDIUM-1 (2026-10-16): a draft must never answer the add question's yes ("Sure, done!" with nothing written).
       if (run?.addAnswer) return undefined;
+      if (run?.computer || (options.computer && run && detectComputerIntent(run.message))) return undefined; // 2026-10-31: the screen loop's reply, never a drafted "I can't see your screen"
       if (run?.reality) return undefined;   // 2026-10-30: what he said happened is code's (reality.ts), never a drafted "Noted!"
       // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
       const draftText = withoutDayClaims(d?.answer ?? "");
@@ -1082,6 +1091,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // 2026-10-30 (chatter.ts): his quiet request gets a short ack; a spoken turn inside the window gets nothing. Safety (above) still wins.
       if (!run.flow && run.quietStart !== undefined) { quiet.start(nowMs(), run.quietStart, run.message); run.flow = { outcome: "say", kind: "plain", text: quietAck(run.quietStart) }; }
       if (!run.flow && run.hushed) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
+      // 2026-10-31: a screen task ("close my safari tabs", "whats on my screen") runs through the computer loop, by code, before any other
+      // intent flow. Not on half a spoken sentence, in a quiet window, or on a spoken turn the chatter guard below would drop as not for ORION.
+      const chatter = run.settled.move === "ignore" && !!run.spoken && (!addressed(run.message) || isNotForOrion(run.message, true));
+      if (!run.flow && !run.cutOff && !run.hushed && !chatter && options.computer) {
+        const cu = await maybeRunComputerTask({ message: run.message, ...(run.sessionKey ? { sessionKey: run.sessionKey } : {}) },
+          { ...options.computer, progress: (line) => progress.stage(run.sessionKey, "using-tool", line) }).catch(() => null);
+        if (cu) { run.computer = true; run.flow = { outcome: "say", kind: "plain", text: cu.reply }; }
+      }
       // Overwhelmed but not a crisis: warmth and one small step. Left to the worker it searched his brain,
       // read two agendas and read him a quiz schedule (16 s, 2026-10-16). A change he asks for still runs.
       // Only when he asks for nothing else: "i'm so stressed, remind me at 3" still sets the reminder (review, 2026-10-16).

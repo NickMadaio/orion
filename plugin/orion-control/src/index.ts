@@ -3,6 +3,8 @@ import { registerAccountHealth } from "./account-health.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
 import { liveCheckinRun, liveExtractReminder, liveModelWarm, liveReadDay, liveReadDayJson, liveRealityRun, liveReplay, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
 import { probeOllama } from "./model-outage.js";
+import { createMacBridge } from "./computer-bridge.js";
+import { createComputerWorker } from "./computer-worker.js";
 import { tellsFactAloud } from "./memory-facts.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
@@ -1728,6 +1730,8 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       todoDoneFlow: liveTodoDoneFlow,
       checkinRun: liveCheckinRun,
       realityRun: liveRealityRun,
+      // 2026-10-31: the screen loop (computer-loop.ts) on the same two tiers the catalog gates; one bridge factory, relay first.
+      computer: { bridge: createMacBridge(), ...createComputerWorker(), enabled: { observe: api.pluginConfig?.enableComputerObserveActions === true, control: api.pluginConfig?.enableComputerControlActions === true } },
       // 2026-10-30: the outage gate (model-outage.ts): honest line, queue, replay on recovery.
       modelProbe: () => probeOllama(),
       modelWarm: liveModelWarm,

@@ -131,12 +131,25 @@ async function cancelPlan(message: string, now: Date, list: ReminderInput["list"
   return { kind: "call", action: "reminder_cancel", args: JSON.stringify({ steps: [{ action: "reminder_cancel", id: r.id }] }), reply: `Cancelled your ${spokenDue(r.dueAt, now)} reminder: ${r.label}.` };
 }
 
-/** The exact due time: relative times by arithmetic, a time already past today moved to the next day. */
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+/** "on sunday", "this friday", "next monday" (group 1: "next"); a bare weekday is its next date. */
+const NAMED_WEEKDAY = /\b(?:on\s+|this\s+|(next)\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i;
+
+/** The exact due time: relative times by arithmetic, a weekday he named is that day, a time already past today moved to the next day. */
 function dueFor(message: string, time: string | null, now: Date, baseDay?: string): { at: string; day: Date } | { past: string } | undefined {
   const rel = relativeTime(message, now);
   if (rel) return { at: `${ymdOf(rel)}T${hhmmOf(rel)}`, day: rel };
   if (!time) return undefined;
   const [h, m] = time.split(":").map(Number);
+  // cha-phone-call-c (gate run-1031133008): "remind me to call my mom on sunday at 6" was set for Saturday (today) at 6 PM.
+  const named = NAMED_WEEKDAY.exec(message);
+  if (named && !baseDay) {
+    const target = WEEKDAYS.indexOf(named[2]!.toLowerCase());
+    const ahead = (target - now.getDay() + 7) % 7 + (named[1] ? 7 * (((target - now.getDay() + 7) % 7) === 0 ? 1 : 0) : 0);
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + ahead, h ?? 0, m ?? 0);
+    if (day.getTime() <= now.getTime()) day.setDate(day.getDate() + 7);
+    return { at: `${ymdOf(day)}T${hhmmOf(day)}`, day };
+  }
   const base = baseDay && !meansTomorrow(message, now) ? new Date(`${baseDay}T00:00`) : new Date(now.getTime() + (meansTomorrow(message, now) ? 86400000 : 0));
   const day = new Date(base.getFullYear(), base.getMonth(), base.getDate(), h ?? 0, m ?? 0);
   if (day.getTime() <= now.getTime()) {

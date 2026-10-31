@@ -10,7 +10,7 @@ import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
 import { readReminders, remindersPath } from "./ambient.js";
-import { liveSessionFlow, liveSessionStatus } from "./session-flow.js";
+import { liveSessionExec, liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { liveWakeFlow } from "./wake-flow.js";
 import { liveTodoDoneFlow } from "./todo-done-flow.js";
 import { routeForDoomedExec } from "./exec-routing.js";
@@ -1724,6 +1724,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       listReminders: () => readReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined)),
       sessionFlow: liveSessionFlow,
       sessionStatus: liveSessionStatus,
+      sessionExec: liveSessionExec,
       wakeFlow: liveWakeFlow,
       lateFlow: (minutes) => liveLateFlow(minutes, () => undoJournalTop()),
       messagesRead: liveMessagesRead,

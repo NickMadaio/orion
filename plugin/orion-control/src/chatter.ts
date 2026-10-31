@@ -76,3 +76,56 @@ export class RepeatGuard {
     return replacement;
   }
 }
+
+/*
+ One side of someone else's conversation (2026-10-31, gate run-1031133008 cluster 7).
+ cha-phone-call-v: "i can call you back on sunday probably" got "Sounds good, Nick. Talk to you Sunday." and "ok love you bye" got
+ "Love you too, Nick!": the desk read them as chit-chat for ORION. cha-thinking-aloud-v: "no thats wrong, ugh" right after a
+ thinking-aloud line got "I didn't actually do that". cha-tv-v: TV lines got "What time should I remind you?" and a crisis reply.
+ Out loud and without his name, two things now mean "not for ORION":
+   - the line itself reads as talk to a person in the room or on the phone (a vocative like "mom", a goodbye, "call you back");
+   - it follows, within ROOM_STREAK_MS, a spoken line that already went unanswered as not for ORION, and it is not shaped like a
+     request to an assistant. A conversation he is having does not stop being one between two lines.
+ Saying "orion" always gets through, and so does a plain request ("remind me…", "what's the weather", "move gym to 7"), though
+ inside a streak only a flow that acts may answer it (roomQuiet).
+*/
+export const ROOM_STREAK_MS = 3 * 60_000;
+const PERSON = String.raw`(?:mom|mum|mam|mommy|ma|dad|daddy|pops|bro|brother|sis|man|dude|mate|babe|baby|grandma|grandpa|nan|nana|granny)`;
+const SOMEONE_ELSE = new RegExp([
+  String.raw`^(?:(?:yeah|yea|ya|yes|no|nah|ok|okay|hi|hey|hello|bye|thanks|sorry|listen|look)[,\s]+)+${PERSON}\b`,
+  String.raw`^${PERSON}[,\s]`,
+  String.raw`,\s*${PERSON}\s*[.!?]*$`,
+  String.raw`\b(?:love you|love ya|luv you|luv ya|miss you)\b(?:\s+(?:too|more|bye|so much|lots))*\s*[.!]*$`,
+  String.raw`\b(?:bye(?: bye)?|goodbye|see ya|see you(?: later| soon| then| tomorrow| on \w+)?|ttyl|catch you later|talk (?:to you )?(?:later|soon|tomorrow|tmrw|then|on \w+day|\w+day))\s*[.!]*$`,
+  String.raw`\b(?:call|ring|text|facetime) you (?:back|later|tomorrow|tmrw|on \w+day|\w+day|tonight|in a bit)\b`,
+  String.raw`\bi(?:'ll| will| can|ll)? (?:call|ring|text|facetime) you\b`,
+  String.raw`\b(?:tell|say hi to|give my love to) (?:dad|mom|mum|grandma|grandpa|nan|everyone|the family)\b`,
+].join("|"), "i");
+/** A line that reads as said to a person in the room or on the phone. Only meaningful for a spoken line without "orion". */
+export const talksToSomeoneElse = (message: string): boolean => SOMEONE_ELSE.test(message.trim());
+
+// Shaped like a request to an assistant: these still go through inside a streak.
+const REQUEST_SHAPE = /^(?:(?:hey|ok(?:ay)?|so|please|pls|um+|uh+)[,\s]+)*(?:remind me|set (?:a|an|my|the)\b|start|stop|pause|resume|end|finish|turn (?:on|off|up|down)|lights?\b|play|skip|open|close|move|push|put|add|book|schedule|cancel|drop|clear|text|email|send|log|mark|what(?:'s|s| is| are| time)?\b|when(?:'s| is| does| do)\b|how (?:long|much|many|did|was|is)\b|where(?:'s| is)\b|is (?:my|it going)\b|do i\b|did i\b|can you|could you|would you|will you|show me|tell me|read me|read my|check)\b/i;
+export const requestShaped = (message: string): boolean => REQUEST_SHAPE.test(message.trim());
+
+/** Per session: when a spoken turn last went unanswered as not for ORION. */
+export class RoomStreak {
+  private readonly last = new Map<string, number>();
+  mark(sessionKey: string | undefined, now: number): void { if (sessionKey) this.last.set(sessionKey, now); }
+  recent(sessionKey: string | undefined, now: number): boolean {
+    const at = sessionKey ? this.last.get(sessionKey) : undefined;
+    return at !== undefined && now - at < ROOM_STREAK_MS;
+  }
+  clear(sessionKey: string | undefined): void { if (sessionKey) this.last.delete(sessionKey); }
+}
+
+/** How a spoken line without "orion" is read: "room" (silent, nothing runs), "streak" (only a flow that acts may answer), or null. */
+export function roomTalk(message: string, ctx: { spoken: boolean; streak: boolean }): "room" | "streak" | null {
+  if (!ctx.spoken || addressed(message)) return null;
+  if (talksToSomeoneElse(message)) return "room";
+  if (!ctx.streak) return null;
+  return requestShaped(message) ? "streak" : "room";
+}
+
+/** Inside a streak, a code reply that only asks or reports a failure is not said to a room that was not talking to ORION. */
+export const roomQuiet = (text: string, kind?: string): boolean => kind === "ask" || /\?\s*$/.test(text.trim()) || FAILURE.test(text.trim());

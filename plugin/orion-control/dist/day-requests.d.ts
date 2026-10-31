@@ -1,4 +1,6 @@
 import type { Day, FlowResult } from "./schedule-flow.js";
+import { type NamedWrite } from "./calendar-resolve.js";
+import { type MultiDayPlan } from "./calendar-days.js";
 export type Clause = {
     verb: "remove";
     names: string[];
@@ -15,7 +17,7 @@ export type Clause = {
     name: string;
     after?: string;
 };
-export type DayRequest = {
+export type DayRequest = DayRequestMore | {
     kind: "clauses";
     clauses: Clause[];
     ill: boolean;
@@ -64,6 +66,7 @@ export type DayRequest = {
     day: "today" | "tomorrow";
     part?: "morning" | "afternoon" | "evening";
 };
+export type DayRequestMore = NamedWrite | MultiDayPlan;
 export type RequestScript = (script: "orion-declare" | "orion-reschedule" | "orion-tasks", args: string[]) => Promise<{
     stdout: string;
     code: number;

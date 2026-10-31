@@ -22,6 +22,8 @@ import { blocksNamed } from "./day-replan.js";
 import { gymPushback } from "./anchor-guards.js";
 import { notBooked, refused, sideNotes, wrote, writesIn } from "./scheduler-out.js";
 import { pluginNow } from "./plugin-clock.js";
+import { readNamedWrite, runNamedWrite } from "./calendar-resolve.js";
+import { readMultiDay, runMultiDay } from "./calendar-days.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can i|could i|what|when|why|how|which)\b/i;
 /** REV2 finding 3: a line about someone else's day ("my brother got a midterm friday", "she has a quiz") is never put on his calendar. */
@@ -220,7 +222,7 @@ export function readDayRequest(message, now = pluginNow()) {
     const m = /^(?:(?:ok(?:ay)?|so|actually|hey|orion)[,\s]+)*(?:can|could|would)\s+(?:we|you|u)\b/.test(raw) ? raw.replace(/\?\s*$/, "") : raw;
     if (!m || QUESTION.test(m) || HYPOTHETICAL.test(m) || SOMEONE_ELSES.test(m))
         return null;
-    return readClearOwned(m) ?? readCatchUp(m) ?? readDeadline(m) ?? readTomorrow(m, now) ?? readThen(m) ?? readVagueMove(m) ?? readUnnamed(m) ?? readClauses(m);
+    return readClearOwned(m) ?? readCatchUp(m) ?? readDeadline(m) ?? readTomorrow(m, now) ?? readThen(m) ?? readVagueMove(m) ?? readUnnamed(m) ?? readNamedWrite(m) ?? readMultiDay(m) ?? readClauses(m);
 }
 // ---- carrying out ----
 const say = (text, calls = [], outputs = []) => ({ outcome: "say", kind: "plain", text, calls, outputs });
@@ -661,6 +663,10 @@ async function runCatchUp(r, deps) {
 }
 /** Carries a day request out with fixed scheduler calls; the reply is built from what the scripts printed. */
 export async function runDayRequest(r, deps) {
+    if (r.kind === "named-write")
+        return runNamedWrite(r, deps);
+    if (r.kind === "multi-day")
+        return runMultiDay(r, deps);
     if (r.kind === "vague-move")
         return runVagueMove(r, deps);
     if (r.kind === "unnamed-move")

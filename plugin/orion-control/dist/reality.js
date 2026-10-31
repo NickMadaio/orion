@@ -1,5 +1,6 @@
 import { noteOf } from "./scheduler-out.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf } from "./day-requests.js";
+import { pluginNow } from "./plugin-clock.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can|could|what|when|why|how)\b/i;
 // Not a fact about his day: a condition, a wish, or someone else's ("she didnt go to the gym").
@@ -70,7 +71,7 @@ function readAttended(m) {
     return { kind: "attended", what };
 }
 /** He told ORION something that happened (or is happening), not asked for a change. Null when it is not one. */
-export function readReality(message, now = new Date()) {
+export function readReality(message, now = pluginNow()) {
     const m = clean(message);
     if (!m)
         return null;

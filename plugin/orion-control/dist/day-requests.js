@@ -21,6 +21,7 @@ import { ampm, ceil5, CLOCK, hhmm, parseClock, resolveStart, takeLength, toMin }
 import { blocksNamed } from "./day-replan.js";
 import { gymPushback } from "./anchor-guards.js";
 import { notBooked, refused, sideNotes, wrote, writesIn } from "./scheduler-out.js";
+import { pluginNow } from "./plugin-clock.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can i|could i|what|when|why|how|which)\b/i;
 /** REV2 finding 3: a line about someone else's day ("my brother got a midterm friday", "she has a quiz") is never put on his calendar. */
@@ -213,7 +214,7 @@ function readCatchUp(m) {
     return { kind: "catch-up", what: c[1], minutes: Math.min(240, Math.max(15, minutes)), day, ...(part ? { part } : {}) };
 }
 /** A calendar request code carries out itself, or null (the turn goes on as usual). */
-export function readDayRequest(message, now = new Date()) {
+export function readDayRequest(message, now = pluginNow()) {
     const raw = clean(message);
     // "can we do gym later, like after dinner?" is a request, not a question.
     const m = /^(?:(?:ok(?:ay)?|so|actually|hey|orion)[,\s]+)*(?:can|could|would)\s+(?:we|you|u)\b/.test(raw) ? raw.replace(/\?\s*$/, "") : raw;

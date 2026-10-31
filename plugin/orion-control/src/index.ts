@@ -1,7 +1,8 @@
 import { Type, type Static } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
-import { liveCheckinRun, liveExtractReminder, liveReadDay, liveReadDayJson, liveRealityRun, liveScheduleFlow, registerLocalRouting, undoJournalTop } from "./local-routing.js";
+import { liveCheckinRun, liveExtractReminder, liveReadDay, liveReadDayJson, liveRealityRun, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
+import { tellsFactAloud } from "./memory-facts.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
@@ -1749,6 +1750,8 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
             ? { agent: api.pluginConfig.trustTranscriptAgent }
             : {}),
         });
+        // 2026-10-30 gate (cha-*, foc-doomscroll-v): speech the microphone heard is not an episode unless he said "remember …".
+        if (turn && /Nick SAID this out loud/.test(turn.content) && !tellsFactAloud(userText(turn.content))) return;
         const episode = turn ? episodeFromUserText(turn.content) : undefined;
         if (!episode) return;
         await appendEpisode(

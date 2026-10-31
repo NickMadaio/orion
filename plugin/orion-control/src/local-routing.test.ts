@@ -757,16 +757,23 @@ describe("local routing — sweep round 2 polish (2026-10-16)", () => {
     expect(await h.build("whats my gym locker code")).not.toMatch(/front desk/i);
   });
 
-  it("q094/q095: filler and gibberish get a fixed short question, typed or spoken; nothing about his session", async () => {
-    for (const said of ["asdf jkl qwer", "Nick SAID this out loud:\n--- Nick's message follows ---\nhm"]) {
+  it("q094/q095: typed filler and gibberish get a fixed short question; nothing about his session", async () => {
+    const h = setup({ move: "ignore" });
+    expect(await h.build("asdf jkl qwer")).toMatch(/exactly this text[\s\S]*Didn't catch that — what do you need\?/);
+  });
+
+  it("2026-10-30: SPOKEN speech the desk calls ignore, with no 'orion' in it, gets no reply at all (R2: rehearsal, calls, TV)", async () => {
+    for (const said of ["Nick SAID this out loud:\n--- Nick's message follows ---\nhm", "Nick SAID this out loud:\n--- Nick's message follows ---\nno I mean, I can unlock it manually if I want"]) {
       const h = setup({ move: "ignore" });
-      expect(await h.build(said)).toMatch(/exactly this text[\s\S]*Didn't catch that — what do you need\?/);
+      const prompt = await h.build(said);
+      expect(prompt).toMatch(/exactly this text[\s\S]*…/);
+      expect(prompt).not.toMatch(/Didn't catch that/);
     }
   });
 
-  it("a longer 'ignore' still goes to the worker, told to ask rather than report his day or session", async () => {
+  it("a longer typed 'ignore' still goes to the worker, told to ask rather than report his day or session", async () => {
     const h = setup({ move: "ignore" });
-    const prompt = await h.build("Nick SAID this out loud:\n--- Nick's message follows ---\nno I mean, I can unlock it manually if I want");
+    const prompt = await h.build("no I mean, I can unlock it manually if I want");
     expect(prompt).not.toMatch(/Didn't catch that/);
     expect(prompt).toMatch(/not his session or his day/);
   });

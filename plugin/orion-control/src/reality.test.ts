@@ -45,7 +45,6 @@ describe("what counts as a reality statement", () => {
     "no class until 3",
     "ugh im not doing the gym thing today",
     "skip gym today, im sick of it and tired, move it to tomorrow",
-    "marketing is running over lol",
     "she didnt go to the gym",
     "i didnt get enough sleep",
     "i didnt go to bed till 4",

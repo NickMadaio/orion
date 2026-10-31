@@ -26,7 +26,9 @@ export type Reality =
   | { kind: "missed"; what: string }
   | { kind: "instead"; did: string; planned?: string; past: boolean }
   | { kind: "ate" }
-  | { kind: "place"; place: string };
+  | { kind: "place"; place: string }
+  /** "marketing is running over lol" (rea-class-late-v): what comes after it moves back, by his minutes or a stated guess. */
+  | { kind: "overrun"; what: string; minutes?: number };
 /** A reality statement plus whether he also asked for another change in the same breath ("..., put catch-up on it tomorrow"). */
 export type RealityRead = { reality: Reality; rest: boolean };
 
@@ -59,6 +61,7 @@ const INSTEAD_PAST = /\b(?:i\s+)?(?:did|went to|went|worked on|studied|had|ended
 const ATE = /^(?:(?:ok|so|yeah|ya|btw|fyi|just|already)[,\s]+)*(?:i\s+)?(?:already\s+|just\s+)?(?:ate|eaten|had (?:lunch|dinner|breakfast|food|something to eat))\b|^(?:i'?ve|ive)\s+(?:already\s+|just\s+)?(?:eaten|had (?:lunch|dinner|breakfast|food))\b|\bate already\b/i;
 const PLACE = /^(?:(?:ok|so|fyi|btw|hey|orion|yeah)[,\s]+)*(?:i'?m|im|i am)\s+(?:at|in)\s+(?:the\s+)?(library|gym|home|campus|uni|university|school|office|work|cafe|coffee shop|[a-z]+'s(?: place| house| flat)?)\s*(?:now|rn|right now|already)?\s*[.!]*$/i;
 
+const OVERRUN = /\b((?:my |the )?[a-z0-9]+)(?:'s|\s+is|\s+has been)\s+(?:running|going|dragging)\s+(?:(\d{1,3})\s*(?:min|mins|minutes)\s+)?(?:over|long|late)\b/i;
 /** He told ORION something that happened (or is happening), not asked for a change. Null when it is not one. */
 export function readReality(message: string): RealityRead | null {
   const m = clean(message);
@@ -70,6 +73,11 @@ export function readReality(message: string): RealityRead | null {
   if (GENERIC_NO.test(m) || names.length || (BOTH_CANCELLED.test(m) && names.length) || (cancelled && new RegExp(`^${CLASS_WORD}$`).test(cancelled[1] ?? ""))) {
     const keep = KEEP.exec(m)?.[1];
     return { reality: { kind: "no-classes", names: GENERIC_NO.test(m) && !names.length ? [] : [...new Set(names)], ...(keep ? { keep } : {}), tomorrow, fill: FILL.test(m) }, rest: rest && !FILL.test(m) };
+  }
+  const over = OVERRUN.exec(m);
+  if (over && !/^(?:i|im|i'm|it|this|that|time|everything|my day|the day)$/.test(over[1]!)) {
+    const minutes = Number(over[2] ?? /\bby (\d{1,3})\b/.exec(m)?.[1] ?? NaN);
+    return { reality: { kind: "overrun", what: over[1]!.replace(/^(?:my|the)\s+/, ""), ...(Number.isFinite(minutes) && minutes > 0 ? { minutes } : {}) }, rest: false };
   }
   const past = INSTEAD_PAST.exec(m); const present = INSTEAD_NOW.exec(m);
   if (present) return { reality: { kind: "instead", did: present[1]!.trim(), ...(present[2] ? { planned: present[2].trim() } : {}), past: false }, rest };
@@ -209,6 +217,22 @@ async function instead(r: Extract<Reality, { kind: "instead" }>, deps: RealityDe
   return { flow: done(`Done: ${r.did} ${ampm(hhmm(from))}–${ampm(hhmm(to))} is on your calendar in place of ${shortTitle(planned.title)}${moved.length ? `, and the rest of today is re-weighed: ${moved.join("; ")}` : ""}. ${UNDO}`, calls, outputs), facts: [id], writes };
 }
 
+export const OVERRUN_GUESS_MIN = 15;
+async function overrun(r: Extract<Reality, { kind: "overrun" }>, deps: RealityDeps): Promise<RealityOutcome | null> {
+  const day = await deps.readDay().catch(() => undefined);
+  const block = matchBlock(r.what, (day?.blocks ?? []).filter((b) => b.kind !== "commute"));
+  if (!block) return null;   // "this set is running long" names no block: the turn goes on
+  const minutes = r.minutes ?? OVERRUN_GUESS_MIN;
+  const args = ["overrun", String(minutes), "--what", shortTitle(block.title)];
+  const out = await deps.run("orion-reschedule", args).catch(() => ({ stdout: "", code: 1 }));
+  const calls = [`exec orion-reschedule ${canon(args)}`];
+  const ok = out.code === 0 && !/NOTHING WAS/.test(out.stdout);
+  const guess = r.minutes ? "" : ` (my guess is ${minutes} minutes; tell me if it's longer)`;
+  if (!ok) return { flow: say(`${shortTitle(block.title)} running over: I couldn't move what's after it just now, so your plan is as it was.`, calls, [out.stdout]), facts: [], writes: 0 };
+  const moved = changeLines(out.stdout).map(clause);
+  return { flow: done(`Okay, ${shortTitle(block.title)} is running over: I pushed what's after it back ${minutes} minutes${guess}${moved.length ? `: ${moved.slice(0, 4).join("; ")}` : ""}. ${shortTitle(block.title)} itself stays as it is. ${UNDO}`, calls, [out.stdout]), facts: [], writes: 1 };
+}
+
 async function noted(r: Extract<Reality, { kind: "ate" | "place" }>, deps: RealityDeps, next?: string): Promise<RealityOutcome> {
   const id = await declare(deps, r.kind, r.kind === "place" ? ["--place", r.place] : []);
   if (!id) return { flow: say(REALITY_SAVE_FAILED), facts: [], writes: 0 };
@@ -222,6 +246,7 @@ export async function runReality(read: RealityRead, deps: RealityDeps & { next?:
   if (r.kind === "no-classes") return noClasses(r, deps);
   if (r.kind === "missed") return missed(r, deps);
   if (r.kind === "instead") return instead(r, deps);
+  if (r.kind === "overrun") return overrun(r, deps);
   return noted(r, deps, deps.next);
 }
 

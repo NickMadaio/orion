@@ -72,7 +72,7 @@ describe("bridge client", () => {
       }
       return { stdout: `${JSON.stringify({ id: "1", ok: false, error: "Accessibility is not granted." })}\n`, stderr: "", code: 0 };
     };
-    const bridge = createMacBridge({ binary: "bridge", run });
+    const bridge = createMacBridge({ binary: "bridge", run, relay: null });
     const o = await bridge.observe();
     expect(o).toMatchObject({ appName: "TextEdit", bundleId: "com.apple.TextEdit", windowTitle: "Untitled" });
     await expect(bridge.press("com.apple.TextEdit", { path: "0.1", role: "AXButton", label: "OK" })).rejects.toMatchObject({ kind: "no_access" });

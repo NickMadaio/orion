@@ -12,6 +12,7 @@
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { scriptPath } from "./tool-guards.js";
 
 export type AskKind = "sleep" | "people" | "secrets" | "connectors" | "draft";
 export type HealthDay = { sleepHours?: number | null; recovery?: number | null; sleepPerformance?: number | null };
@@ -21,9 +22,29 @@ export type Graph = { nodes?: Array<{ id?: string; type?: string; label?: string
 
 const LEAD = String.raw`^(?:(?:orion|hey|ok(?:ay)?|so|um+|uh+|wait|yo|can you|could you|please|pls)[,\s]+)*`;
 const DRAFT = new RegExp(`${LEAD}(?:draft|write|compose|put together)\\s+(?:me\\s+)?(?:a\\s+|an\\s+)?(?:text|message|email|note|dm|reply|imessage)\\s+(?:to|for)\\s+([a-z][a-z-]{0,24})\\s+(?:saying|that says|telling (?:her|him|them)(?: that)?|to say|that|about)\\s+(.+)$`, "i");
+// REV3 11: "…and send it" is an instruction, not part of the text; nothing is sent until he confirms.
+const SEND_TAIL = /[,.\s]+(?:and|then|&)\s+(?:then\s+)?(?:send|shoot|fire)(?: it| that| this)?(?: off)?(?: (?:to|over to) (?:her|him|them))?(?: now| right away| after)?[.!\s]*$/i;
 const DONT_SEND = /[,.\s]*(?:but |and |just )?(?:please )?(?:do not|dont|don't|do n't) send(?: it| that)?(?: yet)?[.!\s]*$/i;
-const CONNECTORS = /\bconnectors?\b|\bkeys? (?:is |are )?set\b|\bmissing a key\b|\bkey (?:is )?(?:set|configured)\b/i;
-const SECRETS = /\b(?:(?:read|show|tell|give|print|say|list|reveal|display|dump)\s+(?:me\s+)?(?:out\s+)?(?:all\s+)?(?:of\s+)?(?:my|the|your)\s+(?:\w+\s+)?|what(?:'s|s| is| are)\s+(?:my|the)\s+(?:\w+\s+)?)(?:api[- ]?keys?|passwords?|secrets?|tokens?|credentials|private keys?|keychain)\b/i;
+// REV3 4: a status shape only. "build me a connector for spotify" is ORION writing one; "why is my connector failing" is debugging.
+const CONNECTORS = /\b(?:which|what|whats|what's|are|is|do i have|does)\b.*\b(?:connectors?|keys?)\b.*\b(?:set|missing|configured|connected)\b|\bconnectors? status\b|\bstatus of (?:my |the )?connectors?\b|\bmissing a key\b|\bkeys? (?:is |are )?set\b/i;
+const CONNECTOR_NOT_STATUS = /\b(?:build|make|add|create|write|set up|setup|wire up|hook up)\b.{0,30}\bconnectors?\b|\b(?:why|fail\w*|broken|break\w*|error\w*|fix|debug|not working)\b/i;
+// REV3 5: a credential noun counts only where it ends the ask ("tell me my secrets"), never as a modifier ("token budget",
+// "secret santa list"). "tokens" / "secrets" alone are credentials only at the very end, or with a credential word before them.
+const SECRET_ASK = /\b(?:(?:read|show|tell|give|print|say|list|reveal|display|dump)\s+(?:me\s+)?(?:out\s+)?(?:all\s+)?(?:of\s+)?(?:my|the|your)\s+|what(?:'s|s| is| are)\s+(?:my|the)\s+)((?:[\w-]+\s+){0,2}?)(api[- ]?keys?|passwords?|secrets?|tokens?|credentials|private keys?|keychain)\b(.*)$/i;
+const WEAK_SECRET = /^(?:secrets?|tokens?)$/i;
+const CREDENTIAL_WORD = /\b(?:api|access|auth|bearer|oauth|refresh|session|github|openai|anthropic|whoop|canvas|plaid|discord|slack|notion|deepgram|gog|google|keychain)\b/i;
+const AFTER_STRONG = /^(?:[\s,.!?]*$|\s+(?:to|for|of|on|in|from|please|and|or|out|again|now|real quick)\b)/i;
+const AFTER_WEAK = /^(?:[\s,.!?]*$|\s+(?:please|again|now|real quick)\b)/i;
+function asksForSecret(message: string): boolean {
+  const m = SECRET_ASK.exec(message);
+  if (!m) return false;
+  const [, qualifier = "", noun = "", rest = ""] = m;
+  if (!WEAK_SECRET.test(noun)) return AFTER_STRONG.test(rest);
+  if (qualifier.trim() && !CREDENTIAL_WORD.test(qualifier)) return false;
+  return CREDENTIAL_WORD.test(qualifier) ? AFTER_STRONG.test(rest) : AFTER_WEAK.test(rest);
+}
+// REV3 7: "how did my sleep affect the gym", "recovery looking for the gym tomorrow" are planning questions, not a raw reading.
+const SLEEP_FOR_SOMETHING = /\b(?:sleep|slept|recovery|recover)\b.*\b(?:affect\w*|for|on my|plan\w*)\b/i;
 const SLEEP = [
   /\bhow(?:'d| did| was| is|'s|s)?\s+(?:i|my|the)\s+(?:sleep|slept|recovery|recover)/i,
   /\bhow many hours\b[^.?!]*\b(?:sleep|slept)\b/i,
@@ -49,9 +70,9 @@ const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export function askKind(message: string): AskKind | null {
   const m = message.trim();
   if (DRAFT.test(m)) return "draft";
-  if (CONNECTORS.test(m)) return "connectors";
-  if (SECRETS.test(m)) return "secrets";
-  if (SLEEP.some((re) => re.test(m))) return "sleep";
+  if (CONNECTORS.test(m) && !CONNECTOR_NOT_STATUS.test(m)) return "connectors";
+  if (asksForSecret(m)) return "secrets";
+  if (SLEEP.some((re) => re.test(m)) && !SLEEP_FOR_SOMETHING.test(m)) return "sleep";
   if (personName(m)) return "people";
   return null;
 }
@@ -71,13 +92,18 @@ export function sleepReply(log: HealthLog | undefined, now: Date): string | unde
   const [key, day] = last;
   const gap = Math.round((new Date(`${today}T00:00`).getTime() - new Date(`${key}T00:00`).getTime()) / 86400000);
   const lead = gap <= 0 ? "Last night" : gap === 1 ? "Your latest reading, from yesterday," : `Your latest reading, from ${key},`;
+  const rec = day.recovery;
+  // REV3 7: recovery in but no sleep hours: say the hours are missing instead of a reading that reads as if it were sleep.
   const parts: string[] = [];
   if (day.sleepHours != null) parts.push(`${lead === "Last night" ? "you slept" : "shows you slept"} ${hoursText(day.sleepHours)}${day.sleepPerformance != null ? ` at ${Math.round(day.sleepPerformance)}% sleep performance` : ""}`);
-  if (day.recovery != null) parts.push(`${day.sleepHours != null ? "recovery " : "shows recovery "}${Math.round(day.recovery)}%`);
-  const rec = day.recovery;
+  if (day.recovery != null && day.sleepHours != null) parts.push(`recovery ${Math.round(day.recovery)}%`);
   const meaning = rec == null ? "" : rec < 34 ? " That's low, so go lighter today and a nap would help." : rec < 67 ? " That's moderate, so a normal day is fine." : " That's high, so you're good to push today.";
   const sleeps = rows.slice(-7).map(([, d]) => d.sleepHours).filter((h): h is number => typeof h === "number");
   const avg = sleeps.length > 1 ? ` Your average over the last ${sleeps.length} readings is ${hoursText(sleeps.reduce((a, b) => a + b, 0) / sleeps.length)}.` : "";
+  if (day.sleepHours == null) {
+    const missing = gap <= 0 ? "I don't have last night's sleep hours yet." : `I don't have sleep hours for ${gap === 1 ? "yesterday" : key} yet.`;
+    return `${missing} Recovery ${gap <= 0 ? "is" : "was"} ${Math.round(rec ?? 0)}%.${meaning}${avg}`;
+  }
   return `${lead} ${parts.join(" and ")}.${meaning}${avg}`;
 }
 
@@ -117,18 +143,19 @@ const tidy = (s: string) => s.replace(/\b(im|i'm)\b/gi, "I'm").replace(/\b(ive|i
 export function draftReply(message: string): string | undefined {
   const m = DRAFT.exec(message.trim());
   if (!m) return undefined;
-  const body = tidy(m[2]!.replace(DONT_SEND, "").trim().replace(/[.!\s]+$/, ""));
+  const askedToSend = SEND_TAIL.test(m[2]!) && !DONT_SEND.test(m[2]!);
+  const body = tidy(m[2]!.replace(DONT_SEND, "").replace(SEND_TAIL, "").trim().replace(/[.!,\s]+$/, ""));
   if (!body) return undefined;
-  return `Draft to ${capital(m[1]!)}: "${capital(body)}." Not sent.`;
+  return `Draft to ${capital(m[1]!)}: "${capital(body)}." Not sent.${askedToSend ? " Nothing goes out until you confirm." : ""}`;
 }
 
 export const readHealthFile = (dir: string): HealthLog | undefined => { try { return JSON.parse(readFileSync(join(dir, "health-log.json"), "utf8")) as HealthLog; } catch { return undefined; } };
 export const readGraphFile = (dir: string): Graph | undefined => { try { return JSON.parse(readFileSync(join(dir, "knowledge-graph.json"), "utf8")) as Graph; } catch { return undefined; } };
 
-const ORION_CONNECT = "/Users/nickmadaio/Desktop/ORION/scripts/orion-connect";
-/** `orion-connect status`: name, title, needs a key, key set. Keeps only those four fields; undefined when the script fails. */
-export const liveConnectorStatus = (): Promise<ConnectorRow[] | undefined> => new Promise((resolve) => {
-  execFile(ORION_CONNECT, ["status"], { timeout: 5000, maxBuffer: 1 << 16 }, (error, stdout) => {
+/** `orion-connect status`: name, title, needs a key, key set. Keeps only those four fields; undefined when the script fails.
+    REV3 11: the script is found by the plugin's scripts-dir resolver, never a hardcoded home path. */
+export const liveConnectorStatus = (bin: string = scriptPath("orion-connect")): Promise<ConnectorRow[] | undefined> => new Promise((resolve) => {
+  execFile(bin, ["status"], { timeout: 5000, maxBuffer: 1 << 16 }, (error, stdout) => {
     if (error) return resolve(undefined);
     try {
       const rows = JSON.parse(String(stdout).trim().split("\n").at(-1) ?? "") as Array<Record<string, unknown>>;

@@ -4,6 +4,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run, sessionStatus } from "./live.mjs";
+import { SANDBOX_FILES, sandboxDelta } from "./setup.mjs";
 
 // State files an item can change and that are restored byte for byte.
 const CTRL_FILES = ["wake-request.json", "reminders.json", "watches.json", "watch.json", "pins.json", "task-sessions.json", "task-progress.json",
@@ -12,7 +13,8 @@ const CTRL_FILES = ["wake-request.json", "reminders.json", "watches.json", "watc
   "learned-routines.json", "patterns.json"];
 const WORKSPACE_FILES = ["USER.md", "MEMORY.md"];
 // Append-only inputs the item can add to; restored by truncation only when the old content is still a prefix.
-const RESTORED_LOGS = ["inbound-turns.jsonl"];
+// logged.jsonl (what he said he did; day-questions habitAnswer reads it): a gate item is not Nick, and the gym fixture appends to it.
+const RESTORED_LOGS = ["inbound-turns.jsonl", "logged.jsonl"];
 // Append-only records that are evidence (ledgers, audits): REPORTED, never rewound.
 const REPORTED_LOGS = ["task-ledger.jsonl", "slips.jsonl", "held.jsonl", "outreach.jsonl", "life-history.jsonl", "focus-history.jsonl", "outbox.jsonl"];
 
@@ -33,10 +35,12 @@ const MAX_TRACKED_BYTES = 1 << 20;
 // (CTRL_FILES + KNOWN_NEW_STATE); every other small top-level .json is snapshotted read-only and REPORTED when it changes, never written.
 const KNOWN_NEW_STATE = ["declared-facts.json", "chat-quiet.json", "ladders.json", "awake-late.json", "brief-heads.json", "model-outage-queue.json"];
 const RESTORABLE = new Set([...CTRL_FILES, ...KNOWN_NEW_STATE]);
+// The evaluation sandbox (lib/setup.mjs): created by the item's setup, removed byte for byte at undo, never "reported".
+const SANDBOX = new Set(SANDBOX_FILES);
 /** Small top-level .json files that are not restorable and not live feeds: watched and reported only. */
 export function reportedFiles(p) {
   try {
-    return readdirSync(p.ctrl).filter((f) => f.endsWith(".json") && !LIVE_FEEDS.has(f) && !RESTORABLE.has(f)
+    return readdirSync(p.ctrl).filter((f) => f.endsWith(".json") && !LIVE_FEEDS.has(f) && !RESTORABLE.has(f) && !SANDBOX.has(f)
       && (() => { try { return statSync(join(p.ctrl, f)).size <= MAX_TRACKED_BYTES; } catch { return false; } })());
   } catch { return []; }
 }
@@ -65,6 +69,7 @@ export async function snapshotState(p) {
     seen: Object.fromEntries(reportedFiles(p).map((f) => [f, read(join(p.ctrl, f))])),
     mem: Object.fromEntries(memFiles(p).map((f) => [f, read(join(memDir(p), f))])),
     logs: Object.fromEntries([...RESTORED_LOGS, ...REPORTED_LOGS].map((f) => [f, read(join(p.ctrl, f))])),
+    sandbox: Object.fromEntries(SANDBOX_FILES.map((f) => [f, read(join(p.ctrl, f))])),
     undoRaw: read(p.undo),
     todos: await todos(p),
     sessionId: status && ["running", "paused", "waiting-for-return"].includes(status.status) ? status.sessionId : null,
@@ -80,8 +85,11 @@ export function lineDelta(before, after) {
   return { added: diff(a, b), removed: diff(b, a) };
 }
 
-/** Everything the item changed, measured against the snapshot. Call BEFORE restoring. */
-export async function effectSince(p, snap) {
+/**
+ * Everything the item changed, measured against the snapshot. Call BEFORE restoring.
+ * `seeded` is the sandbox day the item's setup wrote (null for a real-calendar item): its delta is the calendar effect.
+ */
+export async function effectSince(p, snap, { seeded = null } = {}) {
   const after = await snapshotState(p);
   const files = Object.entries(snap.files).flatMap(([f, before]) => {
     const now = after.files[f];
@@ -109,23 +117,27 @@ export async function effectSince(p, snap) {
     ? { added: after.todos.filter((t) => !had.has(t.id)), completed: snap.todos.filter((t) => !has.has(t.id)) }
     : { added: [], completed: [], unavailable: true };
   const otherChanged = Object.keys(after.mtimes).filter((f) => after.mtimes[f] !== snap.mtimes[f]
-    && !trackedFiles(p).some((t) => t.endsWith(`/${f}`)) && ![...RESTORED_LOGS, ...REPORTED_LOGS].includes(f));
+    && !trackedFiles(p).some((t) => t.endsWith(`/${f}`)) && ![...RESTORED_LOGS, ...REPORTED_LOGS].includes(f) && !SANDBOX.has(f));
   // Live-owned state the item (or the live system) changed: what changed is reported; restoreState never touches these.
   const reported = [...new Set([...Object.keys(snap.seen ?? {}), ...Object.keys(after.seen ?? {})])].flatMap((f) => {
     const before = snap.seen?.[f] ?? null, now = after.seen?.[f] ?? null;
     return before === now ? [] : [{ path: f, kind: before === null ? "created" : now === null ? "deleted" : "changed", ...lineDelta(before, now) }];
   });
+  const sandboxCalendar = sandboxDelta(seeded, (() => { try { return JSON.parse(after.sandbox?.["eval-calendar.json"] ?? "null"); } catch { return null; } })());
+  const sandboxChanged = Boolean(sandboxCalendar && (sandboxCalendar.missing || Object.values(sandboxCalendar).some((v) => Array.isArray(v) && v.length)));
   return {
-    calendar, files, memory, logs, todos: todoDelta, otherChanged, reported,
+    calendar, sandboxCalendar, files, memory, logs, todos: todoDelta, otherChanged, reported,
     session: { started: after.sessionId && after.sessionId !== snap.sessionId ? after.sessionId : null },
     changedAnything: Boolean(files.length || memory.length || calendar.newEntries.length || calendar.removedEntries.length
-      || todoDelta.added.length || todoDelta.completed.length || logs.length),
+      || todoDelta.added.length || todoDelta.completed.length || logs.length || sandboxChanged),
   };
 }
 
 /** Put it all back. Returns what it did, as strings. */
 export async function restoreState(p, snap, effect, { maxJournal = 10 } = {}) {
-  const actions = [];
+  // The sandbox goes first: while eval-calendar.json and the marker exist, `orion-reschedule undo` would undo the
+  // sandbox's journal instead of his.
+  const actions = restoreSandbox(p, snap);
   const grew = effect.calendar.newEntries.length;
   for (let i = 0; i < Math.min(grew, maxJournal); i++) {
     const r = await run(p.node, [join(p.scripts, "orion-reschedule"), "undo"], { timeoutMs: 60000 });
@@ -162,6 +174,17 @@ export async function restoreState(p, snap, effect, { maxJournal = 10 } = {}) {
   return actions;
 }
 
+/** Put the sandbox files back to what the snapshot saw (normally: none of them). */
+export function restoreSandbox(p, snap) {
+  const actions = [];
+  for (const f of SANDBOX_FILES) {
+    const file = join(p.ctrl, f), before = snap.sandbox?.[f] ?? null, now = read(file);
+    if (now === before) continue;
+    if (before === null) { rmSync(file, { force: true }); actions.push(`removed sandbox ${f}`); } else { writeFileSync(file, before); actions.push(`restored sandbox ${f}`); }
+  }
+  return actions;
+}
+
 /** To-dos are Apple Reminders: complete what the item added, reopen what it completed. */
 async function restoreTodos(p, snap) {
   const after = await todos(p);
@@ -183,6 +206,7 @@ export async function verifyRestore(p, snap) {
   for (const f of new Set([...Object.keys(snap.mem), ...memFiles(p)])) if ((snap.mem[f] ?? null) !== read(join(memDir(p), f))) problems.push(`memory differs: ${f}`);
   for (const f of RESTORED_LOGS) if (read(join(p.ctrl, f)) !== snap.logs[f]) problems.push(`log differs: ${f}`);
   if (read(p.undo) !== snap.undoRaw) problems.push("undo journal differs");
+  for (const f of SANDBOX_FILES) if (read(join(p.ctrl, f)) !== (snap.sandbox?.[f] ?? null)) problems.push(`sandbox file differs: ${f}`);
   const after = await todos(p);
   if (snap.todos && after) {
     const a = new Set(snap.todos.map((t) => t.id)), b = new Set(after.map((t) => t.id));

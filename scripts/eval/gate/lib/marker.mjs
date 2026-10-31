@@ -3,8 +3,8 @@
 // What the marker does (read from the code, see README): every outbound sender (orion-reach,
 // orion-messages-send, orion-discord-alert) reports "Not sent" instead of sending; watchers pause;
 // check-ins write to eval-checkins.json; done-early skips closing loops and the focus session; the phone
-// path does not save profile statements. It does NOT redirect calendar writes: the sandbox calendar needs
-// a second file, eval-calendar.json, which this module refuses to run beside.
+// path does not save profile statements. It does NOT redirect calendar writes by itself: the sandbox calendar needs
+// a second file, eval-calendar.json, which the runner writes per item (lib/setup.mjs); this module refuses to start beside one someone else left under a live marker.
 //
 // Readers treat the marker as live while its mtime is under two hours old. So the file is kept backdated:
 // every heartbeat sets mtime to now minus 105 minutes, which leaves 15 minutes of life. If this process

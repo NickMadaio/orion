@@ -39,12 +39,15 @@ async function inboundTurn({ p, text, replyTo, key }) {
 export async function askTurn({ text, spoken = false, continuation = false, conversation, replyTo = null, model = null, inbound = "auto",
   allowedApps = [], shortcuts = true, dryRun = false }, ctx = { tracker: initialTracker(), boosts: new Map() }, p = paths()) {
   const key = sessionKeyFor(conversation ?? newConversationId());
-  if (shortcuts && !continuation && (isResumeRequest(text) || quickAnswer(text) !== null)) {
-    const reply = isResumeRequest(text) ? null : quickAnswer(text);
+  // The app's clock. A sandboxed gate item sets ctx.clock to the sandbox's `now`, so every place the app uses the
+  // time (the outreach window and "N min ago", the thinking boost, QuickAnswer) agrees with the scripts and plugin.
+  const clock = ctx.clock ?? Date.now;
+  if (shortcuts && !continuation && (isResumeRequest(text) || quickAnswer(text, new Date(clock())) !== null)) {
+    const reply = isResumeRequest(text) ? null : quickAnswer(text, new Date(clock()));
     return { reply, latencyMs: 0, model: null, routing: { answeredBy: reply ? "app clock (QuickAnswer)" : "app resume handler" }, tools: [], raw: null, sessionKey: key, bypassedGateway: true };
   }
   const status = await sessionStatus(p);
-  const now = Date.now();
+  const now = clock();
   const boostedUntil = ctx.boosts.get(key) ?? null;
   const turn = buildTurn({
     text, spoken, continuation, sessionStatus: status, allowedApps, rows: outreachRows(p), replyTo, now, tracker: ctx.tracker,
@@ -59,7 +62,7 @@ export async function askTurn({ text, spoken = false, continuation = false, conv
   const res = await runTurn({ p, key, message: turn.message, thinking: turn.thinking, model });
   // The app boosts thinking for ten minutes after a turn whose tool calls kept failing.
   const transcript = readText(res.sessionFile ?? transcriptFile(p, key) ?? "") ?? "";
-  if (struggled(transcript, res.startedAt)) ctx.boosts.set(key, Date.now() + BOOST_SECONDS * 1000);
+  if (struggled(transcript, res.startedAt)) ctx.boosts.set(key, clock() + BOOST_SECONDS * 1000);
   return { ...sent, ...res, inbound: inboundResult };
 }
 

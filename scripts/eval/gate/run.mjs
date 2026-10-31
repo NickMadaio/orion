@@ -4,7 +4,8 @@
 // undo, write the result. Rubric grading happens later in a separate grader; this records everything.
 //
 //   run.mjs <scenarios.json> [--out <dir>] [--readonly] [--only id,id] [--start N] [--eval-mode on|off]
-//           [--max-age-min 90] [--inbound auto|on|off] [--allowed-apps "A,B"]
+//           [--max-age-min 90] [--inbound auto|on|off] [--allowed-apps "A,B"] [--tier sandbox|live|all]
+//   run.mjs <scenarios.json> --dry-run [--tier …] [--only …]   print every item's setup; writes and sends nothing
 //   run.mjs --recover <out dir>      restore from an interrupted run's in-flight snapshot
 //
 // Run it under launchd (launch.sh): Calendar access belongs to the gateway node's grant, not a terminal's.
@@ -17,23 +18,13 @@ import { paths } from "./lib/live.mjs";
 import { holdMarker } from "./lib/marker.mjs";
 import { effectSince, restoreState, snapshotState, trackedFiles, verifyRestore } from "./lib/state.mjs";
 import { checkReplies, summarize, validateScenarios } from "./lib/scenarios.mjs";
+import { applyPlan, planSetup, renderTokens } from "./lib/setup.mjs";
+import { dryRun } from "./lib/dry-run.mjs";
 
 const stampNow = () => new Date().toISOString().slice(5, 16).replace(/[-:T]/g, "");
 
-/** setup.state: { "today-plan.json": {...} } written into the controlled dir (null deletes). Only tracked files, so undo covers it. */
-function applySetup(p, setup) {
-  const allowed = new Map(trackedFiles(p).map((f) => [basename(f), f]));
-  const applied = [], unmet = [];
-  for (const [name, content] of Object.entries(setup?.state ?? {})) {
-    const file = allowed.get(name);
-    if (!file) { unmet.push(`state:${name} (not a restorable file)`); continue; }
-    if (content === null) rmSync(file, { force: true }); else writeFileSync(file, `${JSON.stringify(content, null, 2)}\n`);
-    applied.push(name);
-  }
-  // The live clock cannot be moved: record it so the grader knows the item ran at the real time.
-  if (setup?.now) unmet.push(`now:${setup.now} (the live system's clock cannot be set; the item ran at real time)`);
-  return { applied, unmet };
-}
+const writableFiles = (p) => new Map(trackedFiles(p).map((f) => [basename(f), f]));
+export const tierOf = (item) => (item.setup?.live === true ? "live" : "sandbox");
 
 /** Strip what bloats a result: the model's system prompt report and context accounting. */
 const slimRaw = (raw) => (raw && typeof raw === "object" ? { runId: raw.runId, status: raw.status, summary: raw.summary, payloads: raw.result?.payloads } : raw);
@@ -43,20 +34,32 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   const startedAt = new Date().toISOString();
   const snap = await snapshotState(p);
   mkdirSync(opts.outDir, { recursive: true });
+  // Written BEFORE the setup: a crash from here on is undone by --recover, sandbox files included.
   writeFileSync(join(opts.outDir, "inflight-snapshot.json"), JSON.stringify({ id: item.id, snap }));
-  const setup = applySetup(p, item.setup);
+  const plan = await planSetup(p, item.setup, { writable: writableFiles(p) });
+  const setup = { applied: plan.applied, unmet: plan.unmet, tier: tierOf(item) };
   const turns = [];
+  // A sandboxed item lives at the sandbox's `now`: the app-side clock (outreach window, thinking boost, QuickAnswer)
+  // says the same time the scripts and the plugin do. Its tracker is its own, so a fake clock never leaks across items.
+  const itemCtx = plan.sandbox ? { ...ctx, tracker: initialTracker(), clock: () => Date.parse(plan.sandbox.now) } : ctx;
+  const clock = itemCtx.clock ?? Date.now;
+  // The effect is measured from AFTER the setup (what the item did, not what the fixture did); the undo goes back to
+  // BEFORE it. While a sandbox is live the to-do read is the sandbox's, so its baseline must be taken inside it too.
+  let base = snap;
   try {
+    applyPlan(p, plan);
+    base = await snapshotState(p);
     for (const t of item.turns) {
-      const r = await askTurn({ text: t.text, spoken: t.spoken === true, replyTo: t.replyToOutreach ?? null, conversation, inbound: opts.inbound, allowedApps: opts.allowedApps }, ctx, p);
-      turns.push({ text: t.text, spoken: t.spoken === true, replyToOutreach: t.replyToOutreach ?? null, message: r.message, thinking: r.thinking, sessionStatus: r.sessionStatus,
+      const text = renderTokens(t.text, clock());
+      const r = await askTurn({ text, spoken: t.spoken === true, replyTo: t.replyToOutreach ?? null, conversation, inbound: opts.inbound, allowedApps: opts.allowedApps }, itemCtx, p);
+      turns.push({ text, ...(text !== t.text ? { template: t.text } : {}), spoken: t.spoken === true, replyToOutreach: t.replyToOutreach ?? null, message: r.message, thinking: r.thinking, sessionStatus: r.sessionStatus,
         reply: r.reply, latencyMs: r.latencyMs, model: r.model, routing: r.routing, tools: r.tools, status: r.status, error: r.error, inbound: r.inbound, bypassedGateway: r.bypassedGateway, raw: slimRaw(r.raw) });
     }
   } catch (e) {
     turns.push({ text: "(runner error)", reply: null, error: String(e?.message ?? e) });
   }
-  // The diff is taken BEFORE the undo: it is the record of what the item did to Nick's world.
-  const effect = await effectSince(p, snap);
+  // The diff is taken BEFORE the undo: it is the record of what the item did to Nick's world (or to the sandbox).
+  const effect = await effectSince(p, base, { seeded: plan.sandbox });
   const actions = await restoreState(p, snap, effect);
   const verified = await verifyRestore(p, snap);
   rmSync(join(opts.outDir, "inflight-snapshot.json"), { force: true });
@@ -71,6 +74,9 @@ export async function runScenarios({ scenarios, opts, p = paths(), log = (s) => 
   const errors = validateScenarios(scenarios);
   if (errors.length) throw new Error(`invalid scenario file:\n  ${errors.join("\n  ")}`);
   const only = opts.only ? new Set(opts.only) : null;
+  const tier = opts.tier ?? "all";
+  const selected = (item) => (!only || only.has(item.id)) && (tier === "all" || tierOf(item) === tier);
+  if (opts.dryRun) return dryRun({ items: scenarios.slice(opts.start ?? 0).filter(selected), p, log, hostZone: opts.hostZone });
   const stamp = opts.stamp ?? stampNow();
   mkdirSync(opts.outDir, { recursive: true });
   const resultsPath = join(opts.outDir, "results.jsonl");
@@ -88,11 +94,14 @@ export async function runScenarios({ scenarios, opts, p = paths(), log = (s) => 
   try {
     for (let i = opts.start ?? 0; i < scenarios.length; i++) {
       const item = scenarios[i];
-      if (only && !only.has(item.id)) continue;
+      if (!selected(item)) continue;
       if (stopping || expired) { log(`stopped before ${item.id}: ${expired ? "marker max age reached" : "signal"}`); break; }
       let result;
-      if (opts.readonly && item.writes) {
-        result = { id: item.id, area: item.area, wording: item.wording, pair: item.pair ?? null, writes: true, skipped: "readonly mode", turns: [] };
+      const skip = opts.readonly && item.writes ? "readonly mode"
+        // Without the marker bridge-path ignores eval-calendar.json, so a sandboxed item's writes would hit his real calendar.
+        : item.setup?.calendar && !item.setup?.live && opts.evalMode !== "on" ? "sandboxed item needs --eval-mode on" : null;
+      if (skip) {
+        result = { id: item.id, area: item.area, wording: item.wording, pair: item.pair ?? null, writes: item.writes, skipped: skip, turns: [] };
       } else {
         result = await runItem({ item, index: i, stamp, p, ctx, opts });
       }
@@ -135,10 +144,13 @@ function parseArgs(argv) {
     else if (a === "--inbound") o.inbound = next();
     else if (a === "--allowed-apps") o.allowedApps = next().split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--recover") o.recover = next();
+    else if (a === "--tier") o.tier = next();
+    else if (a === "--dry-run") o.dryRun = true;
     else if (a.startsWith("--")) throw new Error(`unknown argument ${a}`);
     else rest.push(a);
   }
   if (!["on", "off"].includes(o.evalMode)) throw new Error("--eval-mode must be on or off");
+  if (o.tier !== undefined && !["sandbox", "live", "all"].includes(o.tier)) throw new Error("--tier must be sandbox, live or all");
   return { o, file: rest[0] };
 }
 
@@ -147,6 +159,11 @@ async function main() {
   if (o.recover) { process.stdout.write(`${JSON.stringify(await recover(o.recover), null, 2)}\n`); return; }
   if (!file) throw new Error("usage: run.mjs <scenarios.json> [options]");
   const p = paths();
+  if (o.dryRun) {
+    const { summary } = await runScenarios({ scenarios: JSON.parse(readFileSync(file, "utf8")), opts: o, p });
+    process.stdout.write(`GATE DRY RUN ${JSON.stringify(summary, null, 2)}\n`);
+    return;
+  }
   const stamp = stampNow();
   o.outDir ??= join(p.ctrl, "evals/gate", `run-${stamp}`);
   const { summary } = await runScenarios({ scenarios: JSON.parse(readFileSync(file, "utf8")), opts: { ...o, stamp } });

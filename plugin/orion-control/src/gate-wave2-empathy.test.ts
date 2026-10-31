@@ -252,6 +252,16 @@ describe("cluster 6: focus phrases", () => {
     const t = await r.turn("pause it", { command: "~/Desktop/ORION/scripts/orion-session pause" });
     expect(t.tool).toMatchObject({ block: true });
   });
+  it.each([["abandon it", "abandon", "not-started"], ["pause the session", "pause", "finishing"], ["end it", "finish", "finishing"], ["cancel that session", "abandon", "something-new"]])(
+    "REV2 14: '%s' runs when the session is %s's state %s (only none/finished block)", async (said, verb, status) => {
+      const r = route(() => ({ move: "escalate" }), { session: { ok: true, status } });
+      const t = await r.turn(said, { command: `~/Desktop/ORION/scripts/orion-session ${verb}` });
+      expect(t.tool).toBeUndefined();
+    });
+  it("REV2 14: a finished session still blocks a pause", async () => {
+    const r = route(() => ({ move: "escalate" }), { session: { ok: true, status: "finished" } });
+    expect((await r.turn("pause it", { command: "~/Desktop/ORION/scripts/orion-session pause" })).tool).toMatchObject({ block: true });
+  });
 });
 
 describe("cluster 4: tired, sick, slept badly, stressed", () => {

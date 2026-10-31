@@ -1688,7 +1688,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const status = await options.sessionExec!(["status", "--json"]).catch(() => ({ stdout: "", code: 1 }));
     let state = "";
     try { state = String((JSON.parse(status.stdout) as { status?: unknown }).status ?? ""); } catch { /* unread: let it run */ return undefined; }
-    if (["running", "paused", "waiting-for-return"].includes(state)) return undefined;
+    // REV2 finding 14: orion-session also reports not-started and finishing, where pause or abandon is legitimate. Only a state that
+    // says there is no session (none, finished) is blocked; anything else, unknown included, runs.
+    if (!["none", "finished"].includes(state)) return undefined;
     return { block: true, blockReason: "Orion session check: no focus session is running, so there is nothing to pause, resume or end. Do not run another command; tell Nick plainly that no focus session is running, and offer to start one." };
   });
 

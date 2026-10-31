@@ -11,7 +11,8 @@ describe("sanitizeReply (H4, r8b2 2026-10-16)", () => {
   });
   it("drops banners, flag lines and 'If he meant'", () => {
     const raw = "Your gym moved.\nNOTHING WAS BOOKED: no room.\nRun orion-reschedule `scripts/orion-reschedule add x --date 2026-10-16`.\nIf he meant tomorrow, say so.";
-    expect(sanitizeReply(raw)).toBe("Your gym moved.\nNothing was booked: no room.\nRun orion-reschedule."); // review 6 H-B: the honest line stays, in plain words
+    // review 6 H-B: the honest line stays, in plain words. Gate run-1031133008: a sentence naming a script is plumbing and goes too.
+    expect(sanitizeReply(raw)).toBe("Your gym moved.\nNothing was booked: no room.");
   });
   it("a reply that was only raw gets a plain failure line; clean replies are untouched", () => {
     expect(sanitizeReply("⚠️ 🛠️ Exec failed: `orion-x`")).toBe(REPLY_FAILED);

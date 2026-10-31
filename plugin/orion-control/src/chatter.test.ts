@@ -95,7 +95,7 @@ function route(decide: (message: string) => Decision, opts: { scheduleFlow?: (m:
 describe("chatter on the live route", () => {
   it("the front desk is told a spoken turn came through the microphone", async () => {
     const r = route(() => ({ move: "ignore" }));
-    await r.turn(`${SPOKEN}yeah mom im fine, uni is good`);
+    await r.turn(`${SPOKEN}so then the next slide shows the competitor pricing`);   // ("yeah mom …" no longer reaches the desk: roomTalk)
     expect(r.desk[0]?.context).toContain(SPOKEN_DESK_NOTE);
   });
 

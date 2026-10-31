@@ -570,9 +570,10 @@ describe("local routing — distress (2026-10-16 live sweep)", () => {
     const { f, ctx, flows } = setup({ move: "escalate", tier: "standard" });
     await f.fire("before_model_resolve", { prompt: said }, ctx);
     expect(await f.fire("before_agent_reply", { cleanedBody: said }, ctx)).toEqual([undefined]);
-    const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
-    expect(built?.systemPrompt).toMatch(/overwhelmed[\s\S]*ONE small first step[\s\S]*Do not call any tools/);
-    expect(built?.systemPrompt).not.toMatch(/orion-agenda|orion-brain/);
+    const [built] = (await f.fire("before_prompt_build", { prompt: said, messages: [] }, ctx)) as Array<{ systemPrompt: string; appendContext?: string }>;
+    // 2026-10-31 (gate cluster 4, day-lighten.ts): code's own reply, one concrete step and a yes/no, never "take a slow breath".
+    expect(built?.appendContext).toMatch(/Your whole reply must be exactly: That's a lot at once\.[\s\S]*25 minutes[\s\S]*\?\]$/);
+    expect(built?.systemPrompt).not.toMatch(/orion-agenda|orion-brain|slow breath/);
     expect(flows).toEqual([]);
   });
 
@@ -616,9 +617,10 @@ describe("local routing — review of the 2026-10-16 sweep fixes", () => {
 
   it("overwhelm alone gets the warm note, and a warm 'I'll be here' reply is delivered as is", async () => {
     const { f, ctx } = setup({ move: "answer", answer: "hang in there" });
-    const built = await build(f, ctx, "im so overwhelmed i dont even know where to start");
-    expect(built?.systemPrompt).toMatch(/Do not call any tools/);
-    const reply = "I hear you, Nick. Take one slow breath and write down the one thing due first — I'll be right here.";
+    const built = await build(f, ctx, "im so overwhelmed i dont even know where to start") as { systemPrompt: string; appendContext?: string } | undefined;
+    expect(built?.appendContext).toMatch(/That's a lot at once/);   // 2026-10-31: code's reply (day-lighten.ts)
+    // The worker repeats code's line: delivered as is.
+    const reply = /exactly: ([\s\S]*)\]$/.exec(built?.appendContext ?? "")?.[1] ?? "";
     expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply, messages: [{ role: "user", content: "x" }, { role: "assistant", content: [{ type: "text", text: reply }] }] }, ctx)).toEqual([undefined]);
   });
 
@@ -672,8 +674,11 @@ describe("local routing — review of the 2026-10-16 sweep fixes", () => {
   it("an overwhelm reply is never sent back for tools: the note forbade them (HIGH 1)", async () => {
     const { f, ctx } = setup({ move: "answer", answer: "hang in there" });
     await build(f, ctx, "im so overwhelmed i dont even know where to start");
+    // 2026-10-31: the reply is code's (day-lighten.ts); a paraphrase is sent back for code's exact words, never for tools.
     const reply = "That sounds like a lot, Nick. Write down the one thing due first, and I'll check in with you in a bit.";
-    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply }, ctx)).toEqual([undefined]);
+    const [out] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: reply }, ctx)) as Array<{ action?: string; retry?: { instruction: string } } | undefined>;
+    expect(out?.retry?.instruction).toMatch(/exactly this text[\s\S]*That's a lot at once/);
+    expect(out?.retry?.instruction).not.toMatch(/tool_call|orion_task_run/);
   });
 
   it("the live-data 'can't check' sentence with a small tail is still the honest answer (HIGH 2c)", async () => {

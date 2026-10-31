@@ -74,6 +74,7 @@ import { KNOWLEDGE_PROMPT, isKnowledgeAsk } from "./knowledge-ask.js";
 import { askKind, ownAnswer, readGraphFile, readHealthFile } from "./code-answers.js";
 import { declareOnly, readReality, runReality, undoReality } from "./reality.js";
 import { pluginNow } from "./plugin-clock.js";
+import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn } from "./pending-reply.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
 const markRead = (run, name) => { if (!(run.reads ?? []).includes(name))
@@ -82,7 +83,6 @@ const INTERNAL = /\b(?:cron|heartbeat|doctor|test|subagent|eval)\b/i;
 // One spoken request can arrive as two turns: the app sends what it heard when he pauses, and the rest
 // with this marker (native AppState.send). 2026-10-15: the first half ("…so if you can go ahead and")
 // changed his day on its own, and the second half was read without the first.
-const CONTINUING = /^\(Continuing — my last message was cut off[^)]*\)\s*/;
 const SPOKEN = /Nick SAID this out loud/;
 // A spoken message that ends on a word a sentence cannot end on ("…go ahead and", "…move the").
 const TRAILS_OFF = /\b(and|or|but|so|because|cause|then|if|to|the|a|an|my|your|with|of|from|um|uh)\s*[,–—-]*\s*$/i;
@@ -602,6 +602,7 @@ export function registerLocalRouting(api, options) {
     const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); forgetMade(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" }));
     /** Per session: the last thing ORION created or changed (a block, or a focus session it started), for "make it an hour" (edit-followup.ts). */
     const lastMade = new Map();
+    const pendingMemory = new PendingMemory(); // 2026-10-31 (pending-reply.ts): what a nudge's reply agreed, for the next short reply
     const forgetMade = (key) => { if (key)
         lastMade.delete(key); };
     const recentMade = (key) => { const m = key ? lastMade.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m : undefined; };
@@ -1050,12 +1051,13 @@ export function registerLocalRouting(api, options) {
         const replayed = REPLAY_MARK.test(heard);
         const said = heard.replace(REPLAY_MARK, "");
         const before = sessionKey ? lastTurn.get(sessionKey) : undefined;
-        const stitch = CONTINUING.test(said) && before && Date.now() - before.at < STITCH_WINDOW_MS ? before : undefined;
-        const continuation = stitch ? said.replace(CONTINUING, "") : undefined;
+        const cont = continuationOf(said); // 2026-10-31 (pending-reply.ts): the marker may carry the whole sentence itself
+        const stitch = cont && before && Date.now() - before.at < STITCH_WINDOW_MS ? before : undefined;
+        const continuation = cont ? cont.rest : undefined;
         // 2026-10-19: the rest of a message whose first half got the crisis reply. Still joined to it (so more distress, even without the
         // listed words, keeps CRISIS_REPLY); only a concrete request that code then runs gets its own reply (see crisisRest below).
         const crisisRest = stitch && isCrisis(stitch.text) && !isCrisis(continuation ?? "") ? continuation : undefined;
-        const message = stitch ? `${stitch.text} ${continuation}` : said;
+        const message = cont?.full ?? (stitch ? `${stitch.text} ${continuation}` : cont?.rest || said);
         const spokenTurn = SPOKEN.test(raw);
         // 2026-10-30 (chatter.ts): "shush" / "don't reply unless I say orion" starts a quiet window; inside it, spoken turns without
         // "orion" are dropped before anything else reads them (no desk, no flow, no memory). Saying "orion" ends it.
@@ -1067,8 +1069,8 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (chatter.ts roomTalk): out loud and without "orion", one side of someone else's conversation, or a line in a run of them.
         if (addressed(message))
             rooms.clear(sessionKey);
-        const room = on && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()), trailing: trailsOff(message) }) ?? undefined : undefined;
-        const hushed = (!!quietUntil && spokenTurn && !addressed(message) && quietStart === undefined) || room === "room";
+        const room = on && !cont && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()), trailing: trailsOff(message) }) ?? undefined : undefined;
+        const hushed = !cont && ((!!quietUntil && spokenTurn && !addressed(message) && quietStart === undefined) || room === "room");
         const cutOff = !hushed && spokenTurn && trailsOff(message);
         if (sessionKey)
             lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });
@@ -1125,7 +1127,11 @@ export function registerLocalRouting(api, options) {
                     .then((d) => { deskHealth.record(d, call); return d; })
                     .catch((error) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
         const askContext = parseAskContext(raw);
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+        // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
+        const pending = on && !cutOff && !quietTurn && !isCrisis(message) && sessionKey ? readPendingTurn({ message, now: (options.now ?? pluginNow)(), ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, Date.now()), answered: (t) => pendingMemory.wasAnswered(sessionKey, t, Date.now()) }) : undefined;
+        if (sessionKey && !cutOff && !pending)
+            pendingMemory.setMemo(sessionKey, null);
+        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (runId)
             runs.set(runId, run);
@@ -1193,7 +1199,7 @@ export function registerLocalRouting(api, options) {
             // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
             if (run && isCrisis(run.message) && !run.afterCrisis)
                 return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
-            if (run && (run.room || run.hushed || run.pendingYes || run.lighten || run.focusMove || run.health || run.knowledge))
+            if (run && (run.room || run.hushed || run.pending || run.pendingYes || run.lighten || run.focusMove || run.health || run.knowledge))
                 return undefined; // 2026-10-31: code's, or the worker's textbook answer
             if (run?.ownText)
                 return { handled: true, reply: { text: run.ownText }, reason: "code answered from data" };
@@ -1244,6 +1250,21 @@ export function registerLocalRouting(api, options) {
             }
             if (!run.flow && run.hushed)
                 run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
+            // 2026-10-31 (pending-reply.ts): his short reply to ORION's own nudge does what the nudge offered, before any template or chatter guard.
+            if (!run.flow && !run.cutOff && run.pending) {
+                const out = await runPendingTurn(run.pending, { now: (options.now ?? pluginNow)(), ...(options.scheduleFlow ? { schedule: (m) => options.scheduleFlow(m, clock(), { deadlineAt: flowDeadline(run.started) }) } : {}), ...(options.sessionFlow ? { session: options.sessionFlow } : {}), ...(options.checkinRun ? { checkin: options.checkinRun } : {}), ...(options.readDayJson ? { readDay: options.readDayJson } : {}) }).catch(() => undefined);
+                if (run.sessionKey) {
+                    pendingMemory.setMemo(run.sessionKey, out?.memo ?? null);
+                    if (out && run.pending.outreachText)
+                        pendingMemory.markAnswered(run.sessionKey, run.pending.outreachText, Date.now());
+                }
+                if (out) {
+                    run.flow = out.flow;
+                    run.tools.push(...out.tools);
+                    if (out.marks.length)
+                        recordChange(run.sessionKey, out.marks);
+                }
+            }
             if (!run.flow && !run.cutOff && run.ownText) {
                 run.provided = true;
                 run.flow = { outcome: "say", kind: "plain", text: run.ownText };
@@ -1428,9 +1449,9 @@ export function registerLocalRouting(api, options) {
             // loop-morning-brief-v): it goes to the worker with that message in front of it. Spoken room speech the desk calls ignore,
             // with no "orion" in it, gets no reply at all (R2: rehearsal, phone call, TV).
             const answersOutreach = !!run.outreach || (recentPush(run.card) && run.message.trim().split(/\s+/).length <= 6);
-            if (!run.flow && run.settled.move === "ignore" && run.spoken && !addressed(run.message) && !answersOutreach)
+            if (!run.flow && run.settled.move === "ignore" && run.spoken && !addressed(run.message) && !answersOutreach && !run.stitched)
                 run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
-            if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken) && !answersOutreach)
+            if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken) && !answersOutreach && !run.stitched)
                 run.flow = { outcome: "say", kind: "plain", text: NOT_CAUGHT };
             // A focus session is one fixed command: code runs orion-session and the reply is built from
             // its output. Left to the worker, it said "I've started a focus session" three times and

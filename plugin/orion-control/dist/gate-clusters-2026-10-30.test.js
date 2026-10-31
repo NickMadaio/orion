@@ -137,12 +137,19 @@ describe("cluster 5: vague reality and replies to ORION's own pushes", () => {
         await r.turn("marketing is running 30 min over, shift my stuff after it by 30");
         expect(r.scripts[0]).toEqual(["overrun", "30", "--what", "MKTG2201"]);
     });
-    it("loop-morning-brief-v: 'yeah' right after the morning brief is never 'Didn't catch that'; the worker is told what it answers", async () => {
+    it("loop-morning-brief-v: 'yeah' right after the morning brief is never 'Didn't catch that'; code makes the items concrete (pending-reply.ts)", async () => {
         const dir = mkdtempSync(join(tmpdir(), "gate-push-"));
         writeFileSync(join(dir, "outreach.jsonl"), JSON.stringify({ at: new Date(NOW.getTime() - 5 * 60_000).toISOString(), text: "Top of your list: finish resume and Student oyster card.", channel: "phone", kind: "morning" }));
         const t = await route({ decide: { move: "ignore" }, stateDir: dir }).turn("yeah");
+        expect(t.exact).toMatch(/^Which first, finish resume or Student oyster card\?/);
+        expect(t.exact).not.toMatch(/Didn't catch that/);
+    });
+    it("a reply to a push the card names, with an offer code does not carry out, still reaches the worker with that push", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "gate-push-"));
+        writeFileSync(join(dir, "outreach.jsonl"), JSON.stringify({ at: new Date(NOW.getTime() - 5 * 60_000).toISOString(), text: "Water check: you're at 1 of 8 glasses today.", channel: "phone" }));
+        const t = await route({ decide: { move: "ignore" }, stateDir: dir }).turn("yeah");
         expect(t.exact).toBeUndefined();
-        expect(t.built?.systemPrompt).toMatch(/most likely answering what you sent him at 4:50 PM: "Top of your list: finish resume/);
+        expect(t.built?.systemPrompt).toMatch(/most likely answering what you sent him at 4:50 PM: "Water check/);
         expect(t.built?.systemPrompt).not.toMatch(/may not be meant for you/);
     });
 });

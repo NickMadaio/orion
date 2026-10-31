@@ -69,7 +69,7 @@ describe("a reply to the real ladder texts acts on the Gym loop", () => {
         const t = await h.turn(`${phone(L0)}I'm meal prepping`);
         expect(h.checkins).toEqual([["find", "--what", "Gym"], ["defer", "25", "ci-gym", "--because", "I'm meal prepping"]]);
         expect(h.flows).toEqual([]);
-        expect(t.all).toMatch(/meal prepping first\. I'll check back about Gym in 25 min/);
+        expect(t.all).toMatch(/meal prepping first — 25 min \(my guess; say if it's longer\)\. I'll come back at \d{1,2}:\d{2} [AP]M and we start Gym\./); // pending-reply.ts: the comeback time is said
     });
     it("'in 10' to the comeback and 'yeah' to L1 reach the same loop", async () => {
         const h = harness();

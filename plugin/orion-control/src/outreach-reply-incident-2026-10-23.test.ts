@@ -125,7 +125,7 @@ describe("the turns, through the routing hooks", () => {
     expect(h.desk[0]).toEqual({ message: "I'm meal prepping. That's why. Sorry.", history: [{ role: "assistant", content: "It's been 30 min. Gym, now. Phone down." }] });
     expect(h.checkins).toEqual([["find", "--what", "Gym"], ["defer", "25", "ci-gym", "--because", "I'm meal prepping. That's why. Sorry."]]);
     expect(h.flows).toEqual([]);
-    expect(t.all).toMatch(/meal prepping first\. I'll check back about Gym in 25 min/);
+    expect(t.all).toMatch(/meal prepping first — 25 min \(my guess; say if it's longer\)\. I'll come back at \d{1,2}:\d{2} [AP]M and we start Gym\./);   // pending-reply.ts: the comeback time is said
     expect(t.all).not.toMatch(/What time or how long/);
   });
   it("10-19: 'im doing work shush up' after the bedtime line is answered as a reply to it", async () => {

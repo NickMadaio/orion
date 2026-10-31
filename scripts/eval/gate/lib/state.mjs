@@ -15,7 +15,10 @@ const WORKSPACE_FILES = ["USER.md", "MEMORY.md"];
 // Append-only inputs the item can add to; restored by truncation only when the old content is still a prefix.
 // logged.jsonl (what he said he did; day-questions habitAnswer reads it): a gate item is not Nick, and the gym fixture appends to it.
 // outreach.jsonl: the gate seeds a row per `replyToOutreach` text (lib/seed-outreach.mjs); truncation removes it.
-const RESTORED_LOGS = ["inbound-turns.jsonl", "logged.jsonl", "outreach.jsonl"];
+const RESTORED_LOGS = ["inbound-turns.jsonl", "logged.jsonl"];
+// outreach.jsonl is NOT truncated (REV4 item 7): the live system may append real rows during an item, and a truncation drops them.
+// Only the rows the gate seeded are removed, matched by id; every other change is reported, not rewound.
+const SEEDED_LOGS = ["outreach.jsonl"];
 // Append-only records that are evidence (ledgers, audits): REPORTED, never rewound.
 const REPORTED_LOGS = ["task-ledger.jsonl", "slips.jsonl", "held.jsonl", "life-history.jsonl", "focus-history.jsonl", "outbox.jsonl"];
 
@@ -69,7 +72,7 @@ export async function snapshotState(p) {
     files: Object.fromEntries(trackedFiles(p).map((f) => [f, read(f)])),
     seen: Object.fromEntries(reportedFiles(p).map((f) => [f, read(join(p.ctrl, f))])),
     mem: Object.fromEntries(memFiles(p).map((f) => [f, read(join(memDir(p), f))])),
-    logs: Object.fromEntries([...RESTORED_LOGS, ...REPORTED_LOGS].map((f) => [f, read(join(p.ctrl, f))])),
+    logs: Object.fromEntries([...RESTORED_LOGS, ...SEEDED_LOGS, ...REPORTED_LOGS].map((f) => [f, read(join(p.ctrl, f))])),
     sandbox: Object.fromEntries(SANDBOX_FILES.map((f) => [f, read(join(p.ctrl, f))])),
     undoRaw: read(p.undo),
     todos: await todos(p),
@@ -118,7 +121,7 @@ export async function effectSince(p, snap, { seeded = null } = {}) {
     ? { added: after.todos.filter((t) => !had.has(t.id)), completed: snap.todos.filter((t) => !has.has(t.id)) }
     : { added: [], completed: [], unavailable: true };
   const otherChanged = Object.keys(after.mtimes).filter((f) => after.mtimes[f] !== snap.mtimes[f]
-    && !trackedFiles(p).some((t) => t.endsWith(`/${f}`)) && ![...RESTORED_LOGS, ...REPORTED_LOGS].includes(f) && !SANDBOX.has(f));
+    && !trackedFiles(p).some((t) => t.endsWith(`/${f}`)) && ![...RESTORED_LOGS, ...SEEDED_LOGS, ...REPORTED_LOGS].includes(f) && !SANDBOX.has(f));
   // Live-owned state the item (or the live system) changed: what changed is reported; restoreState never touches these.
   const reported = [...new Set([...Object.keys(snap.seen ?? {}), ...Object.keys(after.seen ?? {})])].flatMap((f) => {
     const before = snap.seen?.[f] ?? null, now = after.seen?.[f] ?? null;
@@ -135,7 +138,7 @@ export async function effectSince(p, snap, { seeded = null } = {}) {
 }
 
 /** Put it all back. Returns what it did, as strings. */
-export async function restoreState(p, snap, effect, { maxJournal = 10 } = {}) {
+export async function restoreState(p, snap, effect, { maxJournal = 10, seededOutreachIds = [] } = {}) {
   // The sandbox goes first: while eval-calendar.json and the marker exist, `orion-reschedule undo` would undo the
   // sandbox's journal instead of his.
   const actions = restoreSandbox(p, snap);
@@ -164,6 +167,7 @@ export async function restoreState(p, snap, effect, { maxJournal = 10 } = {}) {
     if (now === before) continue;
     if (before !== null && (now ?? "").startsWith(before)) { writeFileSync(file, before); actions.push(`truncated ${f}`); } else actions.push(`NOT RESTORED ${f}: rewritten by something else`);
   }
+  actions.push(...restoreSeededLogs(p, snap, seededOutreachIds));
   actions.push(...await restoreTodos(p, snap));
   const status = await sessionStatus(p);
   const live = status && ["running", "paused", "waiting-for-return"].includes(status.status) ? status.sessionId : null;
@@ -171,6 +175,30 @@ export async function restoreState(p, snap, effect, { maxJournal = 10 } = {}) {
     await run(p.node, [join(p.scripts, "orion-session"), "abandon"], { timeoutMs: 15000 });
     await run(p.node, [join(p.scripts, "orion-session"), "release"], { timeoutMs: 15000 });
     actions.push(`abandoned new session ${live}`);
+  }
+  return actions;
+}
+
+const rowId = (line) => { try { return JSON.parse(line).id; } catch { return undefined; } };
+
+/** Remove only the seeded rows (by id). Anything else that differs from the snapshot is reported, never rewound. */
+function restoreSeededLogs(p, snap, seededIds) {
+  const seeded = new Set(seededIds);
+  const actions = [];
+  for (const f of SEEDED_LOGS) {
+    const file = join(p.ctrl, f), before = snap.logs[f], now = read(file);
+    if (now === null || now === before) continue;
+    const lines = now.split("\n").filter((l) => l !== "");
+    const kept = lines.filter((l) => !seeded.has(rowId(l)));
+    const removed = lines.length - kept.length;
+    if (removed) {
+      if (kept.length === 0 && before === null) rmSync(file, { force: true }); else writeFileSync(file, kept.map((l) => `${l}\n`).join(""));
+      actions.push(`removed ${removed} seeded row(s) from ${f}`);
+    }
+    const beforeLines = new Set((before ?? "").split("\n").filter((l) => l !== ""));
+    const other = kept.filter((l) => !beforeLines.has(l)).length;
+    const gone = [...beforeLines].filter((l) => !kept.includes(l)).length;
+    if (other || gone) actions.push(`REPORTED ${f}: ${other} other row(s) added, ${gone} removed by something else; not rewound`);
   }
   return actions;
 }
@@ -201,11 +229,15 @@ async function restoreTodos(p, snap) {
 }
 
 /** Re-read everything and compare with the snapshot. ok=false lists exactly what did not come back. */
-export async function verifyRestore(p, snap) {
+export async function verifyRestore(p, snap, { seededOutreachIds = [] } = {}) {
   const problems = [];
   for (const [f, before] of Object.entries(snap.files)) if (read(f) !== before) problems.push(`file differs: ${f}`);
   for (const f of new Set([...Object.keys(snap.mem), ...memFiles(p)])) if ((snap.mem[f] ?? null) !== read(join(memDir(p), f))) problems.push(`memory differs: ${f}`);
   for (const f of RESTORED_LOGS) if (read(join(p.ctrl, f)) !== snap.logs[f]) problems.push(`log differs: ${f}`);
+  for (const f of SEEDED_LOGS) {
+    const left = (read(join(p.ctrl, f)) ?? "").split("\n").filter((l) => seededOutreachIds.includes(rowId(l))).length;
+    if (left) problems.push(`seeded rows left in ${f}: ${left}`);
+  }
   if (read(p.undo) !== snap.undoRaw) problems.push("undo journal differs");
   for (const f of SANDBOX_FILES) if (read(join(p.ctrl, f)) !== (snap.sandbox?.[f] ?? null)) problems.push(`sandbox file differs: ${f}`);
   const after = await todos(p);

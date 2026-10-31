@@ -155,7 +155,7 @@ later by itself. It refuses to start over someone else's live marker.
 Per item: snapshot, run, **record the diff**, undo, verify. What is restored: the calendar through
 `orion-reschedule undo` once per new journal entry, then the journal file itself (the journal keeps only 10);
 about two dozen plugin state files, `USER.md`, `MEMORY.md` and `workspace/memory/*.md` byte for byte;
-`inbound-turns.jsonl` and `outreach.jsonl` (the rows the gate seeded) by truncation; Apple Reminders to-dos completed or reopened to match; a focus session the item
+`inbound-turns.jsonl` by truncation; `outreach.jsonl` by removing only the rows the gate seeded (matched by id; any other change is reported as `not rewound`); Apple Reminders to-dos completed or reopened to match; a focus session the item
 started is abandoned and released. `verify` re-reads all of it and lists anything that did not come back.
 
 Limits, stated so they are not discovered later:
@@ -186,3 +186,18 @@ Limits, stated so they are not discovered later:
   own), and `QuickAnswer` text for clock questions (reproduced, but not golden-tested).
 - GOG_KEYRING_PASSWORD: environment, then `~/Desktop/ORION/.env`; `launch.sh` forwards it into the launchd job's
   environment because launchd cannot read that file. The generated plist is deleted right after loading.
+
+## The sandbox is global: run full sweeps only while Nick is away or asleep
+
+The sandbox is not scoped to the gate's conversation. While an item runs (and for up to 15 minutes after a crash,
+until the backdated marker expires) **Nick's own turns see the sandbox clock and calendar too**: scripts and the
+plugin both switch to `eval-calendar.json` and its fake `now` whenever the marker is live and that file is under
+2 h old (one rule, in `lib/life/bridge-path.mjs` and `plugin/orion-control/src/plugin-clock.ts`). So full runs
+happen only while he is away or asleep.
+
+Guards:
+- `runScenarios` refuses to start if ANY sandbox file exists (`SANDBOX_FILES`), whatever its age. Clear them with
+  `launch.sh --clean-sandbox` (or `run.mjs --clean-sandbox`) once no run is active; `--recover <out dir>` undoes an
+  interrupted item instead.
+- Pre-flight warning (not a block): if `inbound-turns.jsonl` (one `{"at": ISO}` row per inbound turn) has a turn in
+  the last 10 minutes, the runner logs `WARNING: an inbound non-gate turn arrived N min ago` and carries on.

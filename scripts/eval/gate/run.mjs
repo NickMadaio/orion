@@ -7,6 +7,7 @@
 //           [--max-age-min 90] [--inbound auto|on|off] [--allowed-apps "A,B"] [--tier sandbox|live|all]
 //   run.mjs <scenarios.json> --dry-run [--tier …] [--only …]   print every item's setup; writes and sends nothing
 //   run.mjs --recover <out dir>      restore from an interrupted run's in-flight snapshot
+//   run.mjs --clean-sandbox          remove leftover sandbox files (eval-calendar.json ...) so a run may start
 //
 // Run it under launchd (launch.sh): Calendar access belongs to the gateway node's grant, not a terminal's.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -21,6 +22,7 @@ import { checkReplies, summarize, validateScenarios } from "./lib/scenarios.mjs"
 import { applyPlan, planSetup, renderTokens } from "./lib/setup.mjs";
 import { seedOutreach } from "./lib/seed-outreach.mjs";
 import { dryRun } from "./lib/dry-run.mjs";
+import { cleanSandbox, leftoverMessage, leftoverSandboxFiles, recentInbound } from "./lib/sandbox-guard.mjs";
 
 const stampNow = () => new Date().toISOString().slice(5, 16).replace(/[-:T]/g, "");
 
@@ -39,7 +41,10 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   writeFileSync(join(opts.outDir, "inflight-snapshot.json"), JSON.stringify({ id: item.id, snap }));
   const planned = await planSetup(p, item.setup, { writable: writableFiles(p) });
   // "ORION just said X" becomes a real outreach row at the item's effective now (sandbox clock, or real time when live).
-  const { plan, replyTo } = seedOutreach(item, planned, planned.sandbox ? Date.parse(planned.sandbox.now) : Date.now());
+  const { plan, rows, replyTo } = seedOutreach(item, planned, planned.sandbox ? Date.parse(planned.sandbox.now) : Date.now());
+  const seededOutreachIds = rows.map((x) => x.id);
+  // The ids the undo must remove, kept where --recover can find them after a crash.
+  writeFileSync(join(opts.outDir, "inflight-snapshot.json"), JSON.stringify({ id: item.id, snap, seededOutreachIds }));
   const setup = { applied: plan.applied, unmet: plan.unmet, tier: tierOf(item) };
   const turns = [];
   // A sandboxed item lives at the sandbox's `now`: the app-side clock (outreach window, thinking boost, QuickAnswer)
@@ -63,8 +68,8 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   }
   // The diff is taken BEFORE the undo: it is the record of what the item did to Nick's world (or to the sandbox).
   const effect = await effectSince(p, base, { seeded: plan.sandbox });
-  const actions = await restoreState(p, snap, effect);
-  const verified = await verifyRestore(p, snap);
+  const actions = await restoreState(p, snap, effect, { seededOutreachIds });
+  const verified = await verifyRestore(p, snap, { seededOutreachIds });
   rmSync(join(opts.outDir, "inflight-snapshot.json"), { force: true });
   return {
     id: item.id, area: item.area, wording: item.wording, pair: item.pair ?? null, writes: item.writes, expect: item.expect, setup: { ...item.setup, ...setup },
@@ -80,6 +85,12 @@ export async function runScenarios({ scenarios, opts, p = paths(), log = (s) => 
   const tier = opts.tier ?? "all";
   const selected = (item) => (!only || only.has(item.id)) && (tier === "all" || tierOf(item) === tier);
   if (opts.dryRun) return dryRun({ items: scenarios.slice(opts.start ?? 0).filter(selected), p, log, hostZone: opts.hostZone });
+  // Any sandbox file, whatever its age, would make scripts and the plugin disagree about the clock and the calendar.
+  const leftover = leftoverSandboxFiles(p);
+  if (leftover.length) throw new Error(leftoverMessage(leftover));
+  // While an item runs, Nick's own turns would see the sandbox: warn (not block) when he was just active.
+  const inbound = recentInbound(p);
+  if (inbound) log(`WARNING: an inbound non-gate turn arrived ${inbound.minutesAgo} min ago. While an item runs his own turns see the sandbox clock and calendar; run full sweeps while he is away or asleep.`);
   const stamp = opts.stamp ?? stampNow();
   mkdirSync(opts.outDir, { recursive: true });
   const resultsPath = join(opts.outDir, "results.jsonl");
@@ -125,10 +136,10 @@ export async function runScenarios({ scenarios, opts, p = paths(), log = (s) => 
 export async function recover(outDir, p = paths()) {
   const file = join(outDir, "inflight-snapshot.json");
   if (!existsSync(file)) return { recovered: false, reason: "no in-flight snapshot: nothing to recover" };
-  const { id, snap } = JSON.parse(readFileSync(file, "utf8"));
+  const { id, snap, seededOutreachIds = [] } = JSON.parse(readFileSync(file, "utf8"));
   const effect = await effectSince(p, snap);
-  const actions = await restoreState(p, snap, effect);
-  const verified = await verifyRestore(p, snap);
+  const actions = await restoreState(p, snap, effect, { seededOutreachIds });
+  const verified = await verifyRestore(p, snap, { seededOutreachIds });
   if (verified.ok) rmSync(file, { force: true });
   return { recovered: verified.ok, id, actions, verified };
 }
@@ -147,6 +158,7 @@ function parseArgs(argv) {
     else if (a === "--inbound") o.inbound = next();
     else if (a === "--allowed-apps") o.allowedApps = next().split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--recover") o.recover = next();
+    else if (a === "--clean-sandbox") o.cleanSandbox = true;
     else if (a === "--tier") o.tier = next();
     else if (a === "--dry-run") o.dryRun = true;
     else if (a.startsWith("--")) throw new Error(`unknown argument ${a}`);
@@ -159,6 +171,7 @@ function parseArgs(argv) {
 
 async function main() {
   const { o, file } = parseArgs(process.argv.slice(2));
+  if (o.cleanSandbox) { const gone = cleanSandbox(paths()); process.stdout.write(`removed ${gone.length} sandbox file(s)${gone.length ? `: ${gone.join(", ")}` : ""}\n`); return; }
   if (o.recover) { process.stdout.write(`${JSON.stringify(await recover(o.recover), null, 2)}\n`); return; }
   if (!file) throw new Error("usage: run.mjs <scenarios.json> [options]");
   const p = paths();

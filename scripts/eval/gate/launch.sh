@@ -5,6 +5,7 @@
 #   launch.sh <scenarios.json> [run.mjs options]     start a run (e.g. --readonly, --only a1,a2)
 #   launch.sh --stop <label>                          SIGTERM: the runner finishes and undoes the current item
 #   launch.sh --recover <out dir>                     restore from an interrupted run's in-flight snapshot
+#   launch.sh --clean-sandbox                         remove leftover sandbox files (a crash, or a run that was killed)
 #   GATE_NO_WAIT=1 launch.sh ...                      start and return
 #
 # The runner is COPIED to ~/.openclaw/orion-controlled/evals/gate/code-<stamp> first: launchd cannot read
@@ -26,6 +27,10 @@ fi
 if [ "${1:-}" = "--recover" ]; then
   [ -n "${2:-}" ] || { echo "usage: launch.sh --recover <out dir>"; exit 2; }
   exec "$NODE" "$HERE/run.mjs" --recover "$2"
+fi
+
+if [ "${1:-}" = "--clean-sandbox" ]; then
+  exec "$NODE" "$HERE/run.mjs" --clean-sandbox
 fi
 
 SCENARIOS="${1:-}"

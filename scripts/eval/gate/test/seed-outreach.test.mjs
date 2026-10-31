@@ -68,30 +68,32 @@ function fakeP() {
     outreach: join(ctrl, "outreach.jsonl"), node: process.execPath, orionSession: join(home, "none") };
 }
 
-test("applyPlan appends (after a missing newline) and restore truncates back, verified", async () => {
+test("applyPlan appends (after a missing newline) and restore removes the seeded row by id, verified", async () => {
   const p = fakeP();
   const old = '{"id":"o1","text":"hi","at":"2026-11-01T00:00:00Z"}';   // no trailing newline
   writeFileSync(p.outreach, old);
   const snap = await snapshotState(p);
-  const { plan } = seedOutreach(item([{ text: "a", replyToOutreach: 'ORION: "Leave now."' }]), sandboxPlan, NOW);
+  const { plan, rows } = seedOutreach(item([{ text: "a", replyToOutreach: 'ORION: "Leave now."' }]), sandboxPlan, NOW);
+  const seededOutreachIds = rows.map((r) => r.id);
   applyPlan(p, { writes: [], appends: plan.appends, sandbox: null });
   const lines = readFileSync(p.outreach, "utf8").trim().split("\n");
   assert.equal(lines.length, 2);
   assert.equal(JSON.parse(lines[1]).text, "Leave now.");
   const effect = await effectSince(p, snap);
-  const actions = await restoreState(p, snap, effect);
-  assert.ok(actions.includes("truncated outreach.jsonl"));
-  assert.equal(readFileSync(p.outreach, "utf8"), old);
-  assert.equal((await verifyRestore(p, snap)).ok, true);
+  const actions = await restoreState(p, snap, effect, { seededOutreachIds });
+  assert.ok(actions.includes("removed 1 seeded row(s) from outreach.jsonl"), actions.join("|"));
+  assert.equal(readFileSync(p.outreach, "utf8").trim(), old);
+  assert.equal((await verifyRestore(p, snap, { seededOutreachIds })).ok, true);
 });
 
-test("restore leaves outreach.jsonl alone when something rewrote it", async () => {
+test("restore never rewinds an outreach.jsonl that something else rewrote: it reports", async () => {
   const p = fakeP();
   writeFileSync(p.outreach, "AAA\n");
   const snap = await snapshotState(p);
   writeFileSync(p.outreach, "BBB\n");
   const actions = await restoreState(p, snap, await effectSince(p, snap));
-  assert.ok(actions.some((a) => a.startsWith("NOT RESTORED outreach.jsonl")));
+  assert.ok(actions.some((a) => a.startsWith("REPORTED outreach.jsonl") && /not rewound/.test(a)));
+  assert.equal(readFileSync(p.outreach, "utf8"), "BBB\n");
 });
 
 test("dry run reports the seeded outreach per item", async () => {

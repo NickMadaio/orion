@@ -22,7 +22,8 @@ const fresh = (path, now = Date.now()) => { try { return now - statSync(path).mt
  * Throws when someone else's marker is live (another run) or a sandbox calendar would make writes fake.
  */
 export function holdMarker({ marker, sandboxCalendar, maxAgeMs = 90 * 60_000, onExpire = () => {}, now = () => Date.now(), heartbeatMs = HEARTBEAT_MS, signals = true }) {
-  if (existsSync(sandboxCalendar) && fresh(marker, now())) throw new Error(`${sandboxCalendar} exists and the marker is live: calendar writes would go to a sandbox, not Nick's calendar`);
+  // Whatever its age: scripts and the plugin judge freshness differently from a leftover file's point of view, so none may exist.
+  if (existsSync(sandboxCalendar)) throw new Error(`${sandboxCalendar} exists: calendar writes would go to a sandbox, not Nick's calendar. Remove it with launch.sh --clean-sandbox`);
   if (fresh(marker, now())) throw new Error(`${marker} is already live (another evaluation run?). Wait for it, or remove the file if it is stale.`);
   const token = `orion-gate pid ${process.pid} token ${Math.random().toString(36).slice(2)}`;
   const startedAt = now();

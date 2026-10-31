@@ -6,7 +6,7 @@
 // swap things for real without touching Nick's calendar.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -20,9 +20,13 @@ const REAL_BRIDGE = [join(homedir(), ".openclaw/orion-remote/bin/orion-mac-bridg
   join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge")].find((p) => existsSync(p))
   ?? join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge");
 
+/** The one freshness rule, mirrored by plugin/orion-control/src/plugin-clock.ts: marker live AND calendar under 2 h old. */
+export const SANDBOX_TTL_MS = 2 * 3600_000;
+const calendarFresh = (now) => { try { return now - statSync(SANDBOX_CALENDAR).mtimeMs < SANDBOX_TTL_MS; } catch { return false; } };
+
 /** The sandbox day while an evaluation runs, else null. ORION_BRIDGE_BIN (tests) always wins. */
-export function sandbox() {
-  if (process.env.ORION_BRIDGE_BIN || !evalMode() || !existsSync(SANDBOX_CALENDAR)) return null;
+export function sandbox(now = Date.now()) {
+  if (process.env.ORION_BRIDGE_BIN || !evalMode(now) || !calendarFresh(now)) return null;
   try { return JSON.parse(readFileSync(SANDBOX_CALENDAR, "utf8")); } catch { return null; }
 }
 

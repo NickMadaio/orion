@@ -19,10 +19,12 @@ export type ClockOpts = { dir?: string; realNow?: () => number };
 const controlledDir = () => process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw", "orion-controlled");
 const fresh = (path: string, now: number) => { try { return now - statSync(path).mtimeMs < SANDBOX_TTL_MS; } catch { return false; } };
 
-/** The sandbox's `now` in ms when a fresh evaluation sandbox is active, else null. */
-export function sandboxNowMs(opts: ClockOpts = {}): number | null {
-  const dir = opts.dir ?? controlledDir();
-  const real = (opts.realNow ?? Date.now)();
+const CACHE_MS = 1000;
+const cache = new Map<string, { at: number; value: number | null }>();
+/** Forget cached answers (tests). */
+export const resetClockCache = (): void => cache.clear();
+
+function readSandboxNow(dir: string, real: number): number | null {
   const calendar = join(dir, "eval-calendar.json");
   if (!fresh(join(dir, "eval-mode"), real) || !fresh(calendar, real)) return null;
   try {
@@ -30,6 +32,21 @@ export function sandboxNowMs(opts: ClockOpts = {}): number | null {
     const ms = typeof now === "string" ? Date.parse(now) : NaN;
     return Number.isFinite(ms) ? ms : null;
   } catch { return null; }
+}
+
+/**
+ * The sandbox's `now` in ms when a fresh evaluation sandbox is active, else null. Many calls per turn, so the stat/read
+ * answer is kept for about a second per directory. An injected realNow (tests) always bypasses the cache.
+ */
+export function sandboxNowMs(opts: ClockOpts = {}): number | null {
+  const dir = opts.dir ?? controlledDir();
+  if (opts.realNow) return readSandboxNow(dir, opts.realNow());
+  const t = Date.now();
+  const hit = cache.get(dir);
+  if (hit && t - hit.at < CACHE_MS) return hit.value;
+  const value = readSandboxNow(dir, t);
+  cache.set(dir, { at: t, value });
+  return value;
 }
 
 export const pluginNowMs = (opts: ClockOpts = {}): number => sandboxNowMs(opts) ?? (opts.realNow ?? Date.now)();

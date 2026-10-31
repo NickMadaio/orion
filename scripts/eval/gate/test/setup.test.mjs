@@ -119,8 +119,8 @@ test("crash mid-item: recover removes the sandbox and the fixtures", async () =>
 test("a sandbox file that is not this item's stops the item; eval-mode off skips sandboxed items", async () => {
   const { ctrl, p } = fakeHome();
   writeFileSync(p.sandboxCalendar, JSON.stringify({ now: "2026-01-01T00:00:00Z", events: [] }));
-  const { results } = await runScenarios({ scenarios: [item({ id: "real1", setup: {}, turns: [{ text: "hi" }] })], opts: opts(ctrl, { evalMode: "off" }), p, log: () => {} });
-  assert.match(results[0].turns[0].error, /sandbox file\(s\) already present/);
+  // REV4 item 5: the whole run refuses to start (any age), before an item is touched.
+  await assert.rejects(runScenarios({ scenarios: [item({ id: "real1", setup: {}, turns: [{ text: "hi" }] })], opts: opts(ctrl, { evalMode: "off" }), p, log: () => {} }), /sandbox files already exist.*--clean-sandbox/);
   assert.equal(existsSync(join(ctrl, "seen.log")), false, "nothing sent");
   assert.equal(existsSync(p.sandboxCalendar), true, "someone else's sandbox left alone");
 

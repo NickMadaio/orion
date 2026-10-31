@@ -19,10 +19,11 @@ const fresh = (path, now) => { try {
 catch {
     return false;
 } };
-/** The sandbox's `now` in ms when a fresh evaluation sandbox is active, else null. */
-export function sandboxNowMs(opts = {}) {
-    const dir = opts.dir ?? controlledDir();
-    const real = (opts.realNow ?? Date.now)();
+const CACHE_MS = 1000;
+const cache = new Map();
+/** Forget cached answers (tests). */
+export const resetClockCache = () => cache.clear();
+function readSandboxNow(dir, real) {
     const calendar = join(dir, "eval-calendar.json");
     if (!fresh(join(dir, "eval-mode"), real) || !fresh(calendar, real))
         return null;
@@ -34,6 +35,22 @@ export function sandboxNowMs(opts = {}) {
     catch {
         return null;
     }
+}
+/**
+ * The sandbox's `now` in ms when a fresh evaluation sandbox is active, else null. Many calls per turn, so the stat/read
+ * answer is kept for about a second per directory. An injected realNow (tests) always bypasses the cache.
+ */
+export function sandboxNowMs(opts = {}) {
+    const dir = opts.dir ?? controlledDir();
+    if (opts.realNow)
+        return readSandboxNow(dir, opts.realNow());
+    const t = Date.now();
+    const hit = cache.get(dir);
+    if (hit && t - hit.at < CACHE_MS)
+        return hit.value;
+    const value = readSandboxNow(dir, t);
+    cache.set(dir, { at: t, value });
+    return value;
 }
 export const pluginNowMs = (opts = {}) => sandboxNowMs(opts) ?? (opts.realNow ?? Date.now)();
 export const pluginNow = (opts = {}) => new Date(pluginNowMs(opts));

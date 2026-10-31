@@ -1,0 +1,27 @@
+{
+  "_note": "Shared by plugin/orion-control/src/block-names.test.ts and tests/block-names.test.mjs so the plugin and the scheduler scripts match names the same way. Course aliases are fictional fixture data.",
+  "aliases": { "econ1115": ["macro"], "mktg2201": ["marketing"], "cs2100": ["program", "design", "implementation"], "hist1010": ["medieval"] },
+  "match": [
+    ["marketing", "MKTG2201", true],
+    ["my marketing class", "MKTG2201", true],
+    ["markting", "MKTG2201", true],
+    ["macro", "ECON1115", true],
+    ["econ", "ECON1115", true],
+    ["economics", "ECON1115", true],
+    ["cs", "CS2100", true],
+    ["program design", "CS2100", true],
+    ["medieval", "HIST1010", true],
+    ["history", "HIST1010", true],
+    ["tonight side project block", "Side project", true],
+    ["side project tonight", "Side project", true],
+    ["the side project", "Side project", true],
+    ["cs lab", "DS Lab 05", false],
+    ["cs lab", "CS lab", true],
+    ["ds lab", "DS Lab 05", true],
+    ["marketing", "ECON1115", false],
+    ["macro", "MKTG2201", false],
+    ["cs", "DS Lab 05", false],
+    ["gym", "Side project", false],
+    ["my class", "MKTG2201", false]
+  ]
+}

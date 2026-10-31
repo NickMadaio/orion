@@ -16,26 +16,17 @@
 */
 import { ampm, CLOCK, ceil5, hhmm, parseClock, resolveEnd, resolveStart, span, takeLength, toMin, spokenTimesToDigits } from "./intent-time.js";
 import { noteOf, notBooked, refused, wrote } from "./scheduler-out.js";
-// ---- matching his words against the day ----
+import { blocksNamedBy, namesTitle as namesTitleBy } from "./block-names.js";
+// ---- matching his words against the day: block-names.ts (filler, course subjects, "cs" ≠ "DS Lab 05") ----
 const norm = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-const FILLER = new Set(["my", "the", "a", "an", "block", "session", "today", "tonight", "time", "some"]);
 const SHORT_FILLER = new Set(["to", "at", "on", "in", "of", "up", "go", "do", "is", "it", "me", "we", "so", "or", "by", "no", "am", "pm", "vs", "my"]);
-const sameWord = (a, b) => a === b || (Math.min(a.length, b.length) >= 3 && (a.startsWith(b) || b.startsWith(a)));
-/** A short qualifier he said ("cs") is in the title as a word, or as the letters of a course code ("CS2100"). */
-const hasQualifier = (q, title) => title.some((t) => t === q || (/^[a-z]+\d+$/.test(t) && t.replace(/\d+$/, "") === q));
-/** Whether his name for a block is this title: every long word matches, and every short qualifier is there. */
+/** Whether his name for a block is this title: every long word matches (a course's subject counts), and every short qualifier is there. */
 export function namesTitle(name, title) {
-    const said = norm(name).split(" ").filter((w) => w && !FILLER.has(w));
-    const t = norm(title).split(" ").filter(Boolean);
-    const long = said.filter((w) => w.length >= 3);
-    const short = said.filter((w) => /^[a-z]{2}$/.test(w) && !SHORT_FILLER.has(w));
-    if (!long.length && !short.length)
-        return false;
-    return long.every((w) => t.some((x) => sameWord(w, x))) && short.every((q) => hasQualifier(q, t));
+    return namesTitleBy(name, title);
 }
 /** The block of his day he means: the same title first, then one still ahead (earliest), else the latest one that already ended. */
 export function resolveNamed(name, day, now) {
-    const found = (day?.blocks ?? []).filter((b) => b.kind !== "commute" && namesTitle(name, b.title));
+    const found = blocksNamedBy(name, day?.blocks ?? []);
     if (!found.length)
         return undefined;
     const exact = found.filter((b) => norm(b.title) === norm(name).replace(/^(?:my|the) /, ""));

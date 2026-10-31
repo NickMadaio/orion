@@ -20,6 +20,7 @@ import { meansTomorrow } from "./schedule-flow.js";
 import { soonDeadlines } from "./day-lighten.js";
 import { ampm, ceil5, hhmm, span, toMin } from "./intent-time.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
+import { blocksNamedBy } from "./block-names.js";
 // ---- reading ----
 const STATED = /\d|\b(?:noon|midnight|half an? hour|an hour|hours?)\b/i;
 const OTHER_JOB = /\b(?:remind|reminder|alarm|timer|text|message|email|call|tell)\b/i;
@@ -193,7 +194,7 @@ async function beforeClass(d, deps) {
         return { flow: say(NO_DAY), writes: 0, reads: [] };
     const nowMin = minuteNow(day, deps.now);
     const upcoming = day.blocks.filter((b) => isClass(b) && toMin(b.start) > nowMin);
-    const named = d.named ? upcoming.find((b) => norm(b.title).includes(norm(d.named)) || norm(d.named).replace(/\s/g, "") === norm(b.title).replace(/\s/g, "")) : undefined;
+    const named = d.named ? upcoming.find((b) => norm(b.title).includes(norm(d.named)) || norm(d.named).replace(/\s/g, "") === norm(b.title).replace(/\s/g, "")) ?? blocksNamedBy(d.named, upcoming, { intent: "class" })[0] : undefined;
     const cls = named ?? upcoming[0];
     if (!cls) {
         const next = (await deps.readDay(["--date", "tomorrow"]).catch(() => undefined))?.blocks.find(isClass);

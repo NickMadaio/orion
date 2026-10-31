@@ -74,7 +74,7 @@ export type RealityOutcome = {
 export declare const TAKING_GUESS_MIN = 45;
 /** He told ORION something that happened (or is happening), not asked for a change. Null when it is not one. */
 export declare function readReality(message: string, now?: Date): RealityRead | null;
-/** "macro" names "ECON1115 Principles of Macroeconomics", "marketing" names "MKTG2201 Introduction to Marketing". */
+/** "macro" names "ECON1115" and "ECON1115 Principles of Macroeconomics", "marketing" names "MKTG2201". */
 export declare function names(word: string, title: string): boolean;
 /** "MKTG2201" for "MKTG2201 Introduction to Marketing — Lecture", the title otherwise. */
 export declare const shortTitle: (title: string) => string;

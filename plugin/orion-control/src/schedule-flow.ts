@@ -21,6 +21,7 @@ import { dayPlanReply } from "./day-plan.js";
 import { editLength, type EditRequest, type EditTarget } from "./edit-followup.js";
 import { readIntent } from "./calendar-intent.js";
 import { planIntent } from "./intent-run.js";
+import { allTitleWords, blocksNamedBy } from "./block-names.js";
 import { repairStart, timeMismatch } from "./time-backstop.js";
 import { parseClock, resolveStart } from "./intent-time.js";
 import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
@@ -124,7 +125,7 @@ const FILLER = new Set(["the", "my", "his", "block", "session", "today", "todays
  *  Lenient on purpose: one shared word is enough, so only a plainly absent thing is refused. */
 function namesABlock(title: string, day: Day): boolean {
   const words = normTitle(title).split(" ").filter((w) => w.length >= 3 && !FILLER.has(w));
-  return words.some((w) => day.blocks.some((b) => normTitle(b.title).split(" ").some((t) => t.startsWith(w) || w.startsWith(t) && t.length >= 3)));
+  return words.some((w) => day.blocks.some((b) => allTitleWords(b.title).some((t) => t.startsWith(w) || w.startsWith(t) && t.length >= 3))) || blocksNamedBy(title, day.blocks).length > 0;
 }
 
 // ---- Code-level guards (2026-10-16, live re-run q019/q098): whatever the 9B fills in, these cannot write the wrong thing.
@@ -144,7 +145,7 @@ function removalObject(message: string): string | undefined {
  *  Structures), its time ("ditch the 4pm"), or an anchor ("whatever's after lab") (review, 2026-10-16). */
 function messageNames(message: string, b: DayBlock, day?: Day): boolean {
   const said = normTitle(message).split(" ").filter(Boolean);
-  const title = words(b.title);
+  const title = allTitleWords(b.title).filter((w) => w.length >= 3 && !FILLER.has(w) && !STOP.has(w));
   if (said.some((w) => w.length >= 3 && title.some((t) => sameWord(w, t)))) return true;
   const initials = normTitle(b.title).split(" ").filter((w) => w.length > 2 && !/\d/.test(w) && !["lecture", "lab", "class", "for", "and", "the", "seminar", "tutorial"].includes(w)).map((w) => w[0]).join("");
   if (initials.length >= 2 && said.includes(initials)) return true;
@@ -213,7 +214,7 @@ export function guardSteps(message: string, steps: Intent[], day: Day): { say: "
   // Any skip/drop must land on a block he named: "cancel my lab" removed the MKTG lecture (q098).
   for (const s of steps) {
     if (s.do !== "skip" && s.do !== "drop") continue;
-    const id = s.what && /^B\d+$/.test(s.what) ? day.blocks[Number(s.what.slice(1)) - 1] : day.blocks.find((b) => s.what && normTitle(b.title).includes(normTitle(s.what)));
+    const id = s.what && /^B\d+$/.test(s.what) ? day.blocks[Number(s.what.slice(1)) - 1] : day.blocks.find((b) => s.what && normTitle(b.title).includes(normTitle(s.what))) ?? (s.what ? blocksNamedBy(s.what, day.blocks)[0] : undefined);
     if (id && !messageNames(message, id, day)) return gone;
   }
   // A clock time the form wrote when his words hold none is the model's, not his: ask, write nothing (2026-10-19).
@@ -319,7 +320,9 @@ export function compile(input: Intent, day: Day, message?: string, opts: { singl
   // A title that names a block already on his day means that block ("push cert courses to 2").
   if (step.what && !/^B\d+$/.test(step.what) && step.do !== "plan") {
     const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    const i = day.blocks.findIndex((b) => !b.fixed && (norm(b.title).includes(norm(step.what!)) || norm(step.what!).includes(norm(b.title))));
+    const loose = day.blocks.findIndex((b) => !b.fixed && (norm(b.title).includes(norm(step.what!)) || norm(step.what!).includes(norm(b.title))));
+    const byName = blocksNamedBy(step.what, day.blocks.filter((b) => !b.fixed));
+    const i = loose >= 0 ? loose : byName.length === 1 ? day.blocks.indexOf(byName[0]!) : -1;
     if (i >= 0 && step.do !== "add" && step.do !== "log") step = { ...step, what: `B${i + 1}` };
   }
   // "skip gym today" with no gym on his day: the correction hint ("use its name as a new title") turned it

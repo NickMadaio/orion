@@ -24,7 +24,7 @@ export type CalOutcome = {
     facts: string[];
     writes: number;
 };
-/** Whether his name for a block is this title: every long word matches, and every short qualifier is there. */
+/** Whether his name for a block is this title: every long word matches (a course's subject counts), and every short qualifier is there. */
 export declare function namesTitle(name: string, title: string): boolean;
 /** The block of his day he means: the same title first, then one still ahead (earliest), else the latest one that already ended. */
 export declare function resolveNamed(name: string, day: Day | undefined, now: number): {

@@ -1,4 +1,5 @@
 import { fixTypos, lev, refusalOf, startsAsRequest } from "./intent-gate.js";
+import { blocksNamedBy, isGenericName } from "./block-names.js";
 import { ampm, ceil5, span, takeLength, toMin } from "./intent-time.js";
 export { fixTypos, startsAsRequest };
 const hhmm = (n) => `${String(Math.floor(n / 60) % 24).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
@@ -99,23 +100,17 @@ export function parseReorder(message, context) {
     return { order: [x, y, ...rest], ...(context.anchor ? { anchor: context.anchor } : {}), home: context.home, explicit: true, again: true };
 }
 // ---- reading his day ----
-const GENERIC = new Set(["first", "next", "my", "the", "our", "very", "a", "an", "class", "classes", "lecture", "lectures", "session", "today", "last"]);
 const WORD_LEN = 3;
 const wordsOf = (t) => norm(t).split(" ").filter((w) => w.length >= WORD_LEN);
 const sameWord = (a, b) => a === b || (Math.min(a.length, b.length) >= WORD_LEN + 1 && (a.startsWith(b) || b.startsWith(a))) || (Math.min(a.length, b.length) >= 3 && lev(a, b) <= (Math.min(a.length, b.length) >= 7 ? 2 : 1) && a[0] === b[0]);
-const initials = (title) => norm(title).split(" ").filter((w) => w.length > 2 && !/\d/.test(w) && !["lecture", "lab", "class", "for", "and", "the", "seminar", "tutorial"].includes(w)).map((w) => w[0]).join("");
-/** Blocks on the day he could mean by this phrase ("marketing class", "lab", "DS"). */
-export function blocksNamed(phrase, day) {
-    const said = norm(phrase).split(" ").filter((w) => w && !GENERIC.has(w));
-    if (!said.length)
-        return [];
-    const long = said.filter((w) => w.length >= WORD_LEN); // "dr" is not evidence of a block; "ds" alone is (its initials)
-    return day.blocks.filter((b) => { const t = wordsOf(b.title); return (long.length > 0 && long.every((w) => t.some((x) => sameWord(w, x)))) || (said.length === 1 && said[0].length >= 2 && initials(b.title) === said[0]); });
+/** Blocks on the day he could mean by this phrase ("marketing class", "lab", "DS", "macro" → ECON1115): block-names.ts decides. */
+export function blocksNamed(phrase, day, intent) {
+    return blocksNamedBy(phrase, day.blocks, { intent });
 }
 const isClass = (b) => b.kind === "class";
 /** The block his "after <phrase>" means: one still going or still ahead, the earliest; else the last that already ended. */
 function anchorBlock(phrase, day) {
-    const generic = !norm(phrase).split(" ").some((w) => w && !GENERIC.has(w));
+    const generic = isGenericName(phrase);
     const found = generic ? (/\b(?:class|classes|lecture|lectures)\b/i.test(phrase) ? day.blocks.filter(isClass) : []) : blocksNamed(phrase, day);
     const now = day.now ? toMin(day.now) : -1;
     const ahead = found.filter((b) => toMin(b.end) > now).sort((a, b) => toMin(a.start) - toMin(b.start))[0];

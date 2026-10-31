@@ -87,6 +87,7 @@ import { finishEarly } from "./lib/life/early.mjs";
 import { findCurrent, findOwn, checkContext, linkOf, matchTodo, closeLoops, endFocusSession, nextItem, summaryLine, nothingLine, classLine } from "./lib/life/done-early.mjs";
 import { evalMode } from "./lib/eval-mode.mjs";
 import { todoTag } from "./lib/life/todo-match.mjs";
+import { namesTitle } from "./lib/life/block-names.mjs";
 import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
 import { planLog, planDisplace, dueAnchors, clock as clockOf, slipRow } from "./lib/life/reality.mjs";
 import { weightOf } from "./lib/life/priority.mjs";
@@ -356,7 +357,8 @@ const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x
 const closeness = (name, title) => {
   const norm = (t) => clean(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   if (norm(name) === norm(title)) return 3;
-  if (!sameThingEarly(name, title)) return 0;
+  // 2026-10-31 gate (wave 5): "marketing" is MKTG2201 and "side project tonight" is Side project (lib/life/block-names): weaker than his own words.
+  if (!sameThingEarly(name, title)) return namesTitle(name, title) ? 0.5 : 0;
   return sameThingEarly(title, name) ? 2 : 1;
 };
 const closest = (name, list) => {
@@ -456,7 +458,7 @@ if (command === "late") {
   // home after it. Works for any day (late only works from now).
   const n = Number(rest[0]); if (!Number.isInteger(n) || n < 5 || n > 240) fail('usage: orion-reschedule overrun <minutes> [--what "<class>"]');
   const what = flag("--what");
-  const fixedToday = blocks.filter((b) => b.fixed && (what ? sameThingEarly(what, b.title) : b.kind === "class"));
+  const fixedToday = blocks.filter((b) => b.fixed && (what ? sameThingEarly(what, b.title) || namesTitle(what, b.title) : b.kind === "class"));
   const target = what ? fixedToday[0]
     : fixedToday.find((b) => b.start <= nowMinute && b.end > nowMinute) ?? fixedToday.find((b) => b.end > nowMinute);
   if (!target) fail(`orion-reschedule: no ${what ? `"${what}"` : "class"} left on ${dayName} to run over`, 1);
@@ -474,7 +476,7 @@ if (command === "late") {
   const n = Number(packed && rest[1] === undefined ? packed[2] : rest[1] ?? flag("--minutes"));
   if (!title || !Number.isInteger(n) || n < 5 || n > 720) fail('usage: orion-reschedule add "<title>" <minutes> [--at HH:MM | --after "<event>"] [--fixed] [--before HH:MM]');
   const afterTitle = flag("--after");
-  const anchor = afterTitle ? blocks.find((b) => sameThingEarly(afterTitle, b.title) || sameThingEarly(b.title, afterTitle)) : null;
+  const anchor = afterTitle ? blocks.find((b) => sameThingEarly(afterTitle, b.title) || sameThingEarly(b.title, afterTitle)) ?? blocks.find((b) => namesTitle(afterTitle, b.title)) ?? null : null;
   if (afterTitle && !anchor) fail(`NOTHING WAS CHANGED: no "${afterTitle}" on ${date} to put it after.`, 2);
   // r8 review 3 M3 (2026-10-16): --after is a floor (his end; the planner adds the buffer), not an exact start: an exact start
   // at his end collided with the next block and the planner moved the anchor itself ("moved Lunch: 12:15 → 13:40").
@@ -1139,12 +1141,12 @@ if (command === "day" || command === "add") {
 }
 // A drop by name is explicit: any of his own events he names that is not a class or a plan with people.
 const droppable = (list, from) => list.filter((block) => block.end > from && nameableBy(block) && block.kind !== "class" && block.kind !== "deadline"
-  && rest.some((name) => sameThing(name, block.title)));
+  && rest.some((name) => closeness(name, block.title) > 0));   // wave 5: "side project tonight", and "cs lab" is not "DS Lab 05"
 if (command === "day" || command === "add") add = sensible(add);
 // "Delete everything after finishing the resume": every planned block that
 // starts after that one ends (classes and plans with people stay), 2026-10-06.
 const afterAnchor = command === "drop" && flag("--after")
-  ? (blocks.filter((b) => sameThingEarly(flag("--after"), b.title)).sort((a, b) => a.start - b.start)[0]
+  ? (blocks.filter((b) => sameThingEarly(flag("--after"), b.title) || namesTitle(flag("--after"), b.title)).sort((a, b) => a.start - b.start)[0]
     ?? fail(`NOTHING WAS DROPPED: no block called "${flag("--after")}" on ${dayName}`, 1))
   : null;
 let dropped = command === "drop"

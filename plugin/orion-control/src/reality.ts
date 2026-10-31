@@ -23,6 +23,7 @@ import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import { noteOf } from "./scheduler-out.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf, type DayRequest } from "./day-requests.js";
 import { pluginNow } from "./plugin-clock.js";
+import { intentOf, namesTitle, pickByTime, resolveBlockName, whichOne } from "./block-names.js";
 
 export type Reality =
   | { kind: "no-classes"; names: string[]; keep?: string; tomorrow: boolean; fill: boolean }
@@ -163,17 +164,22 @@ export function readReality(message: string, now: Date = pluginNow()): RealityRe
   return null;
 }
 
-// ---- matching his words against the day ----
+// ---- matching his words against the day (block-names.ts: "macro" is ECON1115 by its course, "marketing" is MKTG2201) ----
 const words = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-/** "macro" names "ECON1115 Principles of Macroeconomics", "marketing" names "MKTG2201 Introduction to Marketing". */
+/** "macro" names "ECON1115" and "ECON1115 Principles of Macroeconomics", "marketing" names "MKTG2201". */
 export function names(word: string, title: string): boolean {
-  const w = word.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (w.length < 2) return false;
-  return words(title).some((t) => t === w || (w.length >= 3 && t.startsWith(w)) || (t.length >= 4 && w.startsWith(t)) || (/^[a-z]+\d+$/.test(t) && t.startsWith(w) && w.length >= 2));
+  return namesTitle(word, title);
 }
-const matchBlock = (what: string, blocks: DayBlock[]) => {
-  const ws = words(what).filter((w) => w.length >= 2 && !["the", "my", "a", "to", "of"].includes(w));
-  return blocks.filter((b) => ws.length && ws.every((w) => names(w, b.title)))[0] ?? blocks.filter((b) => ws.some((w) => w.length >= 3 && names(w, b.title)))[0];
+/** The block he means by these words: block-names first (the verb picks a class or a study block), then any one long word of a title. */
+function resolveIn(what: string, blocks: DayBlock[], text: string, now: number): DayBlock | { ambiguous: DayBlock[] } | undefined {
+  const hit = resolveBlockName(what, blocks, { now, intent: intentOf(text) });
+  if (hit) return "block" in hit ? hit.block : hit;
+  const ws = words(what).filter((w) => w.length >= 3 && !["the", "my"].includes(w));
+  return blocks.filter((b) => b.kind !== "commute").find((b) => ws.some((w) => words(b.title).some((t) => t === w || (w.length >= 4 && t.startsWith(w)))));
+}
+const matchBlock = (what: string, blocks: DayBlock[], text = "", now = -1): DayBlock | undefined => {
+  const hit = resolveIn(what, blocks, text, now);
+  return hit && "ambiguous" in hit ? pickByTime(hit.ambiguous, now) : hit;
 };
 /** "MKTG2201" for "MKTG2201 Introduction to Marketing — Lecture", the title otherwise. */
 export const shortTitle = (title: string) => { const code = /^[A-Z]{2,5}\d{3,5}\b/.exec(title)?.[0]; return code ?? title.split(/\s+[—–-]\s+/)[0]!.trim(); };
@@ -240,7 +246,10 @@ const dateOf = (day: Day | undefined, now: Date, plus: number) => {
 
 async function missed(r: Extract<Reality, { kind: "missed" }>, deps: RealityDeps): Promise<RealityOutcome> {
   const day = await deps.readDay().catch(() => undefined);
-  const block = matchBlock(r.what, day?.blocks ?? []);
+  const nowMin = deps.now.getHours() * 60 + deps.now.getMinutes();
+  const hit = resolveIn(r.what, day?.blocks ?? [], deps.text, nowMin);
+  if (hit && "ambiguous" in hit) return { flow: { outcome: "say", kind: "ask", text: whichOne(hit.ambiguous), calls: [], outputs: [] }, facts: [], writes: 0 };
+  const block = hit;
   const title = block?.title ?? r.what;
   const id = await declare(deps, "skip", ["--title", title]);
   if (!id) return { flow: say(REALITY_SAVE_FAILED), facts: [], writes: 0 };
@@ -300,7 +309,7 @@ async function instead(r: Extract<Reality, { kind: "instead" }>, deps: RealityDe
 export const OVERRUN_GUESS_MIN = 15;
 async function overrun(r: Extract<Reality, { kind: "overrun" }>, deps: RealityDeps): Promise<RealityOutcome | null> {
   const day = await deps.readDay().catch(() => undefined);
-  const block = matchBlock(r.what, (day?.blocks ?? []).filter((b) => b.kind !== "commute"));
+  const block = matchBlock(r.what, (day?.blocks ?? []).filter((b) => b.kind !== "commute"), deps.text);
   if (!block) return null;   // "this set is running long" names no block: the turn goes on
   const minutes = r.minutes ?? r.guess ?? OVERRUN_GUESS_MIN;
   // His own block running long is an extend (the scheduler's overrun is for a class): what comes after it slides (rea-class-late, rea-task-twice).
@@ -406,7 +415,7 @@ async function doneIt(r: Extract<Reality, { kind: "done" }>, deps: RealityDeps):
 /** "i was in marketing": the missed mark ORION made is taken back, and that he was there is noted. */
 async function attendedIt(r: Extract<Reality, { kind: "attended" }>, deps: RealityDeps): Promise<RealityOutcome> {
   const day = await deps.readDay().catch(() => undefined);
-  const block = matchBlock(r.what, day?.blocks ?? []);
+  const block = matchBlock(r.what, day?.blocks ?? [], deps.text);
   const name = block ? shortTitle(block.title) : r.what;
   const listedFacts = await deps.run("orion-declare", ["list"]).catch(() => ({ stdout: "", code: 1 }));
   let facts: Array<{ id?: string; kind?: string; title?: string; text?: string }> = [];

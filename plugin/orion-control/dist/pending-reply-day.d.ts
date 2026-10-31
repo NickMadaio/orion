@@ -22,7 +22,7 @@ export declare function clockOn(at: number, meridiem: boolean | undefined, which
 export declare function placedAt(day: Day | undefined, title: string, asked: number): number | undefined;
 /** A class or a plan with people (the scheduler marks both fixed); a title "with <someone>" counts when there is no block to read. */
 export declare const isProtected: (title: string, block?: DayBlock) => boolean;
-/** The block on the day he named: the exact title, else one whose title holds every word he used ("marketing" → "MKTG2201 Marketing"). */
+/** The block on the day he named: the exact title, else the one block-names.ts finds ("marketing" → "MKTG2201"), else any shared word. */
 export declare function blockNamed(day: Day | undefined, name: string): DayBlock | undefined;
 /** The first start in [from, to) where `minutes` fit with his five-minute buffer around every other block; undefined when none. */
 export declare function freeSlot(day: Day | undefined, minutes: number, from: number, to: number, skip?: DayBlock): number | undefined;

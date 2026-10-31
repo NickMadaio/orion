@@ -17,7 +17,9 @@
 //   orion-checkin close "<what>"                                      he finished that thing ("Done early"): every open check-in and
 //                                                                  not-started loop about it is closed as done, so ORION stops nudging
 //   orion-checkin find --what "<what>" [--block <blockId>]           the ONE open plan loop a reply is about, as { open, id }; exit 1 when
-//                                                                  there is none or more than one (2026-10-23: never "the newest one")
+//                                                                  there is none or more than one (2026-10-23: never "the newest one").
+//                                                                  --what may be a whole ladder line: its text before the first ". ", or
+//                                                                  the one loop whose title starts it, is tried after the exact title
 //   orion-checkin show <id|latest>                                  one open check-in as JSON: { id, what, block, blockWindow } (what "Done early" reads)
 //   orion-checkin list                                               what is pending
 //   orion-checkin tick [--json]                                      advance due loops; print alerts
@@ -227,8 +229,21 @@ switch (command) {
     // and exactly one. None or several is { open: false } and exit 1, so the caller does nothing rather than guess.
     const what = String(flag("--what") ?? "").trim().toLowerCase(), block = flag("--block"), msg = flag("--msg");
     // --msg <msgId>: the ladder message he answered (its askId), the most exact handle there is
-    const hit = state.checkins.filter((c) => open(c) && c.block && (msg ? ladderOf(c).sent.some((x) => x.msgId === msg || `${x.msgId}-voice` === msg)
-      : block ? c.block === block : what && String(c.what).trim().toLowerCase() === what));
+    const plans = state.checkins.filter((c) => open(c) && c.block);
+    const title = (c) => String(c.what).trim().toLowerCase();
+    // --what may be a whole ladder line ("Gym. Gym: 0 of the last 6 happened. Not today"): the exact title, else the text before
+    // the first ". ", else the one loop whose title starts it at a word boundary (2026-10-31 review, finding 3)
+    const byWhat = () => {
+      if (!what) return [];
+      const head = what.split(/\.\s/)[0].replace(/[.!?]+$/, "").trim();
+      const exact = plans.filter((c) => title(c) === what);
+      if (exact.length) return exact;
+      const lead = plans.filter((c) => title(c) === head);
+      if (lead.length) return lead;
+      return plans.filter((c) => title(c) && what.startsWith(title(c)) && !/[a-z0-9]/.test(what.charAt(title(c).length)));
+    };
+    const hit = msg ? plans.filter((c) => ladderOf(c).sent.some((x) => x.msgId === msg || `${x.msgId}-voice` === msg))
+      : block ? plans.filter((c) => c.block === block) : byWhat();
     console.log(JSON.stringify(hit.length === 1 ? { open: true, id: hit[0].id, what: hit[0].what, block: hit[0].block } : { open: false, matches: hit.length }));
     process.exit(hit.length === 1 ? 0 : 1);
   }

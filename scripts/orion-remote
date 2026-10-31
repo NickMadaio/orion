@@ -620,7 +620,9 @@ function askDetail(ask) {
   const span = from ? ` about ${from}-${hm(w.end) ?? "now"}` : "";
   const place = typeof ask.place === "string" && ask.place ? `, at ${ask.place}` : "";
   const kind = String(ask.kind ?? ask.type ?? "open");
-  const block = kind === "mismatch" && (ask.title || ask.blockId) ? ` "${String(ask.title ?? ask.blockId).slice(0, 60)}", planned${span}, not started` : span;
+  // `"Gym", planned 17:00-18:30`: the shape the plugin reads the block from (outreach-reply.ts titleOf; 2026-10-31 review)
+  const planned = from ? ` ${from}-${hm(w.end) ?? "now"}` : "";
+  const block = kind === "mismatch" && (ask.title || ask.blockId) ? ` "${String(ask.title ?? ask.blockId).slice(0, 60)}", planned${planned}, not started` : span;
   return ` (${kind.slice(0, 20)} ask${block}${place})`;
 }
 

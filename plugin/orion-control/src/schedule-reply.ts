@@ -16,7 +16,7 @@ export function spokenFailure(line: string): string {
   const l = line.trim().replace(/^orion-reschedule:\s*/, "")
     .replace(/^(?:MUST-HAVE )?(?:NOTHING WAS|NOT) (?:CHANGED|BOOKED|DROPPED)\b(?: on \w+day)?(?: \(\d{4}-\d{2}-\d{2}\))?[:.]?\s*/i, "")
     // Notes to the operator, and lists of his whole day, are not for Nick.
-    .replace(/(?:[.;]\s+|\s+—\s+|^)(?:Tell him|Do not|Don't|If he|ask whether|Run |Use |To set|See the header|Options:|Blocks today|Fixed today|Movable blocks|Classes today|Never |swap only|skip is only)[\s\S]*$/i, "")
+    .replace(/(?:[.;]\s+|\s+—\s+|^)(?:If (?:it|he|she|you)\b[^.:]*:\s*orion-|Tell him|Do not|Don't|If he|ask whether|Run |Use |To set|See the header|Options:|Blocks today|Fixed today|Movable blocks|Classes today|Never |swap only|skip is only)[\s\S]*$/i, "")
     .replace(/ \((?:\w+day )?\d{4}-\d{2}-\d{2}\)/g, "").trim();
   if (/^usage:|^Error\b|has no .* option|one command per call|does not take/i.test(l)) return "I couldn't make that change";
   if (!l) return "nothing could be booked";

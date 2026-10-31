@@ -54,6 +54,9 @@ public struct ChatModeView: View {
             }.frame(maxWidth: .infinity)
         }
         .foregroundStyle(ViewTokens.text)
+        // Legible over a pale desktop without a plate: a tight dark halo on the glyphs (cyan on light grey vanished).
+        .shadow(color: .black.opacity(0.5), radius: 2)
+        .shadow(color: .black.opacity(0.22), radius: 10)
         .confirmationDialog("Delete conversation?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("Delete", role: .destructive) { if let id = deleting { onDelete(id) }; deleting = nil }
             Button("Cancel", role: .cancel) { deleting = nil }

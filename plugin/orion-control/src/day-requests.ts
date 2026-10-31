@@ -65,6 +65,13 @@ const canon = (args: string[]) => args.map((a) => (/\s/.test(a) ? `"${a}"` : a))
 const listed = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const LATE_NIGHT = 5;
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+/** The date a day word means, as orion-reschedule reads it: today, tomorrow, or the next such weekday (the same weekday is next week's). */
+function dateOfDay(word: string, now: Date): Date {
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+  const plus = word === "today" ? 0 : word === "tomorrow" ? 1 : ((WEEKDAYS.indexOf(word) - base.getDay() + 7) % 7) || 7;
+  return new Date(base.getTime() + plus * 86400_000);
+}
 
 // ---- reading ----
 const DEADLINE_KIND = "quiz|exam|midterm|final|test|deadline|presentation|essay|assignment|paper|submission";
@@ -278,20 +285,27 @@ const placedAt = (stdout: string, title: string): string | undefined => {
 
 async function runDeadline(r: Extract<DayRequest, { kind: "deadline" }>, deps: RequestDeps): Promise<RequestOutcome> {
   const x = runner(deps); const lines: string[] = [];
-  const when = cap(r.day);
+  // REV2 finding 11: "thursday" said on a Thursday is next week's: the date is said so he can catch it, and passed exactly.
+  const target = dateOfDay(r.day, deps.now);
+  const sameDay = !/^(?:today|tomorrow)$/.test(r.day) && target.getDay() === deps.now.getDay();
+  const when = sameDay ? `next ${cap(r.day)} (${target.toLocaleDateString("en-GB", { day: "numeric", month: "long" })})` : cap(r.day);
+  const dateArg = sameDay ? ymd(target) : r.day;
+  let guess = "";
   if (r.at) {
     const said = parseClock(r.at);
     const res = said ? resolveStart(said, { day: "tomorrow", now: null }) : undefined;
-    const at = res && "at" in res ? res.at : res && "ambiguous" in res ? res.ambiguous[1] : undefined;
+    // An ambiguous hour follows the same rule as tomorrow's moves: 7 to 11 is the morning, the rest the afternoon; the guess is said.
+    const at = res && "at" in res ? res.at : res && "ambiguous" in res ? (said!.h >= 7 && said!.h <= 11 ? res.ambiguous[0] : res.ambiguous[1]) : undefined;
     if (at === undefined) return { flow: say(`I couldn't read "${r.at}" as a time, so nothing changed. When is the ${r.title.toLowerCase()}?`), facts: [], writes: 0 };
-    const out = await x.exec(["add", r.title, "60", "--at", hhmm(at), "--fixed", "--date", r.day]);
+    if (res && "ambiguous" in res) guess = ` (I took ${r.at} as ${ampm(at)}; say if you meant ${at < 720 ? "PM" : "AM"})`;
+    const out = await x.exec(["add", r.title, "60", "--at", hhmm(at), "--fixed", "--date", dateArg]);
     if (!out.ok) return { flow: say(`I couldn't put the ${r.title.toLowerCase()} on ${when} at ${ampm(at)}${whyNot(out.stdout) ? ` (${whyNot(out.stdout)})` : ""}, so nothing changed.`, x.calls, x.outputs), facts: [], writes: 0 };
-    lines.push(`${r.title} is on ${when} at ${ampm(at)}`);
+    lines.push(`${r.title} is on ${when} at ${ampm(at)}${guess}`);
   }
   if (r.book) {
     const todo = `Study for ${r.title.toLowerCase()}`;
     const spread = `${r.sessions} ${r.minutes}-minute blocks`;
-    const out = await x.exec(["add", todo, "--due", r.day, "--spread", spread], "orion-tasks");
+    const out = await x.exec(["add", todo, "--due", dateArg, "--spread", spread], "orion-tasks");
     const planned = out.stdout.split("\n").map((l) => l.trim()).find((l) => l.toLowerCase().startsWith(`${todo.toLowerCase()}:`));
     const sessions = planned ? [...planned.matchAll(/(\d{4}-\d{2}-\d{2}) (\d+) min/g)].map((s) => `${new Date(`${s[1]}T12:00`).toLocaleDateString("en-GB", { weekday: "long" })} (${s[2]} min)`) : [];
     if (!out.ok) lines.push(`I couldn't book the study time just now${whyNot(out.stdout) ? ` (${whyNot(out.stdout)})` : ""}`);

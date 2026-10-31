@@ -60,7 +60,7 @@ export const ONE_PART_FAILED = "One part didn't work.";
 // Only on a turn with a failed tool: a path, a long flag, a JSON key or a stack frame there is tool output (elsewhere it can be the answer).
 const STRICT_LEAK = /(?:^|[\s(])(?:~|\/Users\/[^/\s]+)\/\S+|(?<![\w-])--[a-z][a-z-]{2,}\b|^\s*[[{]\s*"[\w-]+"\s*:|\{\s*"[\w-]+"\s*:|\bat\s+\S+\s*\(\S+:\d+:\d+\)|\bspawn \S+ ENOENT/;
 const leaks = (text, strict) => LEAK_SENTENCE.test(text) || (strict && STRICT_LEAK.test(text));
-function dropLeaks(line, strict = false) {
+function dropLeaks(line, strict = false, codeAuthored = false) {
     if (!leaks(line, strict))
         return line;
     // "Try this: <command>" carries the command after the colon: the rest of the line goes with it.
@@ -71,7 +71,7 @@ function dropLeaks(line, strict = false) {
     let failed = false;
     for (const p of pieces) {
         if (leaks(p, strict)) {
-            if (FAILED_WORDS.test(p) && !failed && kept.length) {
+            if (!codeAuthored && FAILED_WORDS.test(p) && !failed && kept.length) {
                 failed = true;
                 kept.push(ONE_PART_FAILED);
             }
@@ -120,7 +120,10 @@ export function sanitizeReply(reply, ctx = {}) {
         for (const re of SPANS)
             line = line.replace(re, () => { changed = true; if (re === SPANS[0])
                 execCut = true; return ""; });
-        const kept = dropLeaks(line, ctx.strict === true);
+        // A lead-in whose command was cut ("Undo with.") says nothing: it goes with it.
+        if (ctx.codeAuthored && line !== raw)
+            line = line.replace(/(?:^|(?<=[.!?])\s+)[^.!?\n]*\b(?:with|run|use|try|using|via)\s*[.:]?\s*$/i, "");
+        const kept = dropLeaks(line, ctx.strict === true, ctx.codeAuthored === true);
         if (kept !== line) {
             changed = true;
             execCut = true;
@@ -137,6 +140,9 @@ export function sanitizeReply(reply, ctx = {}) {
         return reply;
     const unique = out.filter((l, i) => !l.trim() || out.indexOf(l) === i);
     const text = unique.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    // Code-authored text reports a change the code itself made: only the leaked hint is cut, a success never becomes a failure.
+    if (ctx.codeAuthored)
+        return text || REPLY_FAILED;
     // "Done." with the failure that followed it cut away would be a false claim (review 6 M-B).
     if (execCut && CHANGE_CLAIM.test(text) && !NEGATED.test(text) && text.split(/\s+/).length <= 12)
         return REPLY_FAILED;
@@ -150,7 +156,7 @@ export function sanitizeReply(reply, ctx = {}) {
 */
 export function finalizeReply(reply, tools, ctx = {}) {
     const failed = ctx.codeAuthored ? [] : failedTools(tools);
-    const clean = sanitizeReply(reply, { ...(ctx.mailFailed ? { mailFailed: true } : {}), ...(failed.length ? { strict: true } : {}) });
+    const clean = sanitizeReply(reply, { ...(ctx.mailFailed ? { mailFailed: true } : {}), ...(failed.length ? { strict: true } : {}), ...(ctx.codeAuthored ? { codeAuthored: true } : {}) });
     if (ctx.codeAuthored || !failed.length || !(ctx.hostTools && ctx.hostTools > 0))
         return clean;
     const changeRequest = ctx.changeRequest === true;

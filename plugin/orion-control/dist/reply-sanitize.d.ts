@@ -4,6 +4,7 @@ export declare const REPLY_FAILED = "I couldn't finish that just now.";
 export type SanitizeContext = {
     mailFailed?: boolean;
     strict?: boolean;
+    codeAuthored?: boolean;
 };
 /** True when this run's tool results include a gmail/messages read that failed (non-zero exit or a raw error shape). */
 export declare function mailReadFailed(tools: ReadonlyArray<{

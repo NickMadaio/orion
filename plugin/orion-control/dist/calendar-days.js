@@ -10,7 +10,7 @@
      (gym 90 min each day, a study block for what he named, a rest block when he wants to relax, the side-project hour);
    - a slot search per day, on that day's real calendar, never in elapsed time, keeping any window he wants free;
    - a block of that kind already on that day is kept, not doubled; with a fully listed plan, an ORION block he did not list is taken
-     off that day (never the gym, never a class or a plan with people).
+     off that day (never gym, study or deadline work, the side-project hour, a class, a plan with people or his own events).
  Every write is one scheduler call; the reply is read back from each day's calendar after the writes.
 */
 import { ampm, ceil5, hhmm, span, takeLength, toMin } from "./intent-time.js";
@@ -106,6 +106,8 @@ const DAY_START = 9 * 60;
 const DAY_END = 22 * 60 + 30;
 const GAP = 5;
 const isFixed = (b) => b.fixed || b.kind === "class";
+/** Only an ORION-owned "other" block may leave a day: never a class, gym, deadline or study, the side project, or any event of his own. */
+const mayDrop = (b) => !isFixed(b) && b.kind === "other";
 const label = (b) => b.title.replace(/\s+—.*$/, "");
 /** The first free start at or after `from` for `minutes`, inside the day and outside the windows he wants free. */
 export function firstFit(busy, minutes, from, lo, hi = DAY_END) {
@@ -150,11 +152,11 @@ async function planOne(t, plan, deps, x) {
     const kept = [];
     const off = [];
     const dateArgs = ["--date", t.date];
-    // A listed plan is the whole plan: ORION's own blocks he did not list leave that day (never gym, a class or a plan with people).
+    // A listed plan is the whole plan: only ORION's own low-priority other blocks he did not list leave that day, and the reply names them.
     for (const b of day.blocks) {
         const inFree = free.some(([s, e]) => toMin(b.start) < e && toMin(b.end) > s);
         const unlisted = plan.listed && !items.some((i) => sameKind(i, b));
-        if (isFixed(b) || b.kind === "gym" || toMin(b.end) <= nowMin || !(unlisted || inFree))
+        if (!mayDrop(b) || toMin(b.end) <= nowMin || !(unlisted || inFree))
             continue;
         const out = await x.run(["drop", b.title, ...dateArgs]);
         if (out.ok)

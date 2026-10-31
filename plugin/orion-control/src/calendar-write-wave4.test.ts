@@ -185,14 +185,37 @@ describe("planning the weekend or tomorrow, day by day", () => {
     expect(plan).toMatchObject({ span: "weekend", listed: true, free: [{ scope: "sun", part: "afternoon" }] });
     const out = await runMultiDay(plan, s.deps(FRI));
     const titles = (d: string) => s.days[d]!.map((x) => `${x.title} ${x.start}-${x.end}`).sort();
-    expect(titles("2026-11-07")).toEqual(["Econ study 10:00-12:00", "Gym 17:00-18:30", "YouTube 19:30-20:30"]);
-    expect(titles("2026-11-08")).toEqual(["Gym 17:00-18:30", "YouTube 19:30-20:30"]);
+    expect(titles("2026-11-07")).toEqual(["Econ study 10:00-12:00", "Gym 17:00-18:30", "Side project 19:30-20:30", "YouTube 20:35-21:35"]);
+    expect(titles("2026-11-08")).toEqual(["Gym 17:00-18:30", "Side project 19:30-20:30", "YouTube 20:35-21:35"]);
     expect(s.days["2026-11-08"]!.every((x) => toMin(x.end) <= 12 * 60 || toMin(x.start) >= 17 * 60)).toBe(true);
     expect(s.calls.every((c) => c.includes("--date"))).toBe(true);
     const reply = (out.flow as { reply: string }).reply;
     expect(reply).toMatch(/Saturday: .*Econ study 10:00 AM–12:00 PM/);
     expect(reply).toMatch(/Sunday: .*Gym 5:00–6:30 PM \(already on\).*12 PM–5 PM kept free/);
-    expect(reply).toMatch(/took off Side project/);
+    expect(reply).not.toMatch(/took off/);
+  });
+  // REV4 item 10: a listed plan drops only ORION-owned "other" blocks; deadline study, the side-project hour, classes, plans with people and
+  // his own events stay, and the reply names what moved.
+  describe("a listed plan never drops what matters (REV4 item 10)", () => {
+    const sat = "2026-11-07";
+    const busy = () => ({ "2026-11-06": [], [sat]: [
+      b("Gym", "17:00", "18:30", "gym"), b("Side project", "19:30", "20:30", "side_project"), b("Stats problem set", "10:00", "12:00", "deadline"),
+      b("Chem revision", "13:00", "14:00", "study"), b("MKTG2201 workshop", "09:00", "09:50", "class", true), b("Brunch with Sam", "11:00", "12:00", "other", true),
+      b("Dentist", "15:00", "15:45", "other", true), b("Laundry", "21:00", "21:30", "other"),
+    ], "2026-11-08": [] });
+    it.each([
+      "plan sat and sun: gym 90 min each day and 1 hour youtube both days",
+      "plan my weekend: gym 90 min, 1 hour guitar",
+      "plan sat n sun - gym 90 min each day, 45 min reading",
+    ])("held out: %s", async (m) => {
+      const s = fakeScheduler(busy(), "2026-11-06", "15:00");
+      const out = await runMultiDay(readMultiDay(m)!, s.deps(FRI));
+      const left = s.days[sat]!.map((x) => x.title);
+      expect(left).toEqual(expect.arrayContaining(["Stats problem set", "Chem revision", "Side project", "MKTG2201 workshop", "Brunch with Sam", "Dentist", "Gym"]));
+      expect(left).not.toContain("Laundry");
+      expect(s.calls.filter((c) => c[0] === "drop").map((c) => c[1])).toEqual(["Laundry"]);
+      expect((out.flow as { reply: string }).reply).toMatch(/took off Laundry/);
+    });
   });
   it("sch-weekend-plan-v: vague plan gets gym, an econ block and a rest block each day plus the side-project hour, assumptions said", async () => {
     const s = fakeScheduler(weekend(), "2026-11-06", "15:00");

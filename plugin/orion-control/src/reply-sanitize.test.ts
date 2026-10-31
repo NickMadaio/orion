@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { REPLY_FAILED, mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
+import { REPLY_FAILED, finalizeReply, mailReadFailed, sanitizeReply } from "./reply-sanitize.js";
+
+describe("finalizeReply codeAuthored keeps a successful change (REV4 item 3)", () => {
+  it.each([
+    ["Moved gym to 7 PM. If it runs long: orion-reschedule extend \"Gym\" --until HH:MM.", "Moved gym to 7 PM."],
+    ["Done, pushed study to 9. Run orion-reschedule extend \"Study\" --until HH:MM.", "Done, pushed study to 9."],
+    ["Booked the side project at 4 PM. Undo with `orion-reschedule remove \"Side\"`.", "Booked the side project at 4 PM."],
+    ["Added laundry tmrw at 6.\nTo stretch it: orion-reschedule extend Laundry --until HH:MM", "Added laundry tmrw at 6."],
+  ])("keeps the success in %j", (raw, want) => {
+    expect(finalizeReply(raw, [], { codeAuthored: true })).toBe(want);
+  });
+  it("still turns a model-authored change claim with a cut failure into a failure", () => {
+    expect(finalizeReply("Done. ⚠️ Exec failed: `orion-x`", [], {})).toBe(REPLY_FAILED);
+  });
+});
 
 describe("sanitizeReply (H4, r8b2 2026-10-16)", () => {
   it("q069: an oauth/URL dump becomes one sign-in line", () => {

@@ -22,7 +22,23 @@ const memDir = (p) => join(p.workspace, "memory");
 const memFiles = (p) => (existsSync(memDir(p)) ? readdirSync(memDir(p)).filter((f) => f.endsWith(".md")) : []);
 const clip = (s, n = 300) => (s.length > n ? `${s.slice(0, n)}...` : s);
 
-export const trackedFiles = (p) => [...CTRL_FILES.map((f) => join(p.ctrl, f)), ...WORKSPACE_FILES.map((f) => join(p.workspace, f))];
+// Files live writers rewrite on their own schedule: restoring them would fight the writer, so they are never tracked.
+const LIVE_FEEDS = new Set(["awareness.json", "now.json", "glance-calendar.json", "focus-activity.json", "focus-state.json", "focus-phone.json",
+  "ontask-state.json", "messages-recent.json", "remote.json", "remote-link.json", "watchdog.json", "knowledge-graph.json", "computer-relay.key",
+  "lights-status.json"]);
+const MAX_TRACKED_BYTES = 1 << 20;
+// Every other small top-level .json is tracked too, so new state (declared-facts.json, chat-quiet.json, ladders.json, ...) can never
+// leak out of a run the way declared-facts.json did on 2026-10-31.
+function dynamicCtrlFiles(p) {
+  try {
+    return readdirSync(p.ctrl).filter((f) => f.endsWith(".json") && !LIVE_FEEDS.has(f) && !CTRL_FILES.includes(f)
+      && (() => { try { return statSync(join(p.ctrl, f)).size <= MAX_TRACKED_BYTES; } catch { return false; } })());
+  } catch { return []; }
+}
+const KNOWN_NEW_STATE = ["declared-facts.json", "chat-quiet.json", "ladders.json", "awake-late.json", "brief-heads.json", "model-outage-queue.json"];
+
+export const trackedFiles = (p) => [...new Set([...CTRL_FILES, ...KNOWN_NEW_STATE, ...dynamicCtrlFiles(p)])].map((f) => join(p.ctrl, f))
+  .concat(WORKSPACE_FILES.map((f) => join(p.workspace, f)));
 
 async function todos(p) {
   try {

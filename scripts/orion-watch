@@ -148,7 +148,7 @@ if (lateFlag.awake && events) {
   const firstClass = coming.filter((b) => b.fixed && b.kind === "class").sort((a, b) => a.start - b.start)[0] ?? null;
   const flagged = { since: day.awakeLate?.since ?? new Date(now.getTime() - lateFlag.minutesPastBed * 60000).toISOString(), at: now.toISOString(), minutes: lateFlag.minutesPastBed,
     evidence: lateFlag.evidence, night: today, targetDate, sleptMinutes,
-    message: goToBedMessage({ minute, firstClass: firstClass && { title: firstClass.title.replace(/ — .*$/, ""), start: firstClass.start }, wake: wakeMin }),
+    message: goToBedMessage({ minute, firstClass: firstClass && { title: firstClass.title.replace(/ — .*$/, ""), start: firstClass.start }, wake: wakeMin, lightened: false, proposed: proposal.changes.length > 0 }),
     proposal: { text: proposal.text, changes: proposal.changes, protect: proposal.protect } };
   day.awakeLate = flagged;
   if (!dry) { mkdirSync(CONTROLLED, { recursive: true }); writeFileSync(join(CONTROLLED, "awake-late.json.tmp"), JSON.stringify(flagged, null, 2)); renameSync(join(CONTROLLED, "awake-late.json.tmp"), join(CONTROLLED, "awake-late.json")); }

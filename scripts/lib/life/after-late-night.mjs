@@ -70,12 +70,17 @@ export function awakeLateFlag({ minute, bedMinute, macActive = false, phoneInUse
   return { awake, minutesPastBed: awake ? past : 0, evidence: [macActive && "mac active", phoneInUse && "phone unlocked"].filter(Boolean) };
 }
 
-/** What the bedtime guard sends. The words only: the guard decides whether it may go (bedtime-guard.mjs). */
-export function goToBedMessage({ minute, firstClass = null, wake = null, lightened = true }) {
+/**
+ * What the bedtime guard sends. The words only: the guard decides whether it may go (bedtime-guard.mjs).
+ * `lightened`: tomorrow was really rewritten; `proposed`: a lighter plan waits for the morning brief. Neither: nothing is
+ * claimed (2026-10-31 review: the default said "I've already lightened tomorrow" when nothing had been written).
+ */
+export function goToBedMessage({ minute, firstClass = null, wake = null, lightened = false, proposed = false }) {
   const hours = wake === null ? null : Math.round((((wake - minute) % 1440 + 1440) % 1440) / 6) / 10;
   const bits = [`It's ${clock12(minute)}${firstClass ? ` and ${firstClass.title} is at ${clock12(firstClass.start)}` : ""}.`];
   if (hours !== null && hours > 0 && hours < 9) bits.push(`Bed now still gets you about ${hours}h before the alarm.`);
   bits.push("Go to bed.");
   if (lightened) bits.push("I've already lightened tomorrow around it.");
+  else if (proposed) bits.push("I'll have a lighter plan for tomorrow in the morning.");
   return bits.join(" ");
 }

@@ -2099,7 +2099,7 @@ final class AppState: ObservableObject {
     ///   - the UI: generation bumped, watchdog and progress polling torn down,
     ///     phase back to idle. Synchronous, so this is the part that lands
     ///     within about a second — what "cancelled" has to mean to Nick.
-    ///   - the subprocess: `GatewayClient.cancelInFlight` SIGTERMs then
+    ///   - the subprocess: the turn's `TurnCancellation` SIGTERMs then
     ///     SIGKILLs it on a background queue. That can take longer if a
     ///     grandchild is holding its pipe open (the 2026-08-12 shape), which is
     ///     fine — nothing in the app is waiting on it any more, because the
@@ -2110,19 +2110,16 @@ final class AppState: ObservableObject {
         runProgress?.recordUserCancelled(at: Date())
         stopProgressPolling()
         askGeneration += 1
+        // Stops this turn's own gateway process, if it has started (REV3 #8:
+        // never "whatever is running now", which could be the next turn).
+        // Not via `agentQueue`: it is serial and the `ask` being cancelled is
+        // the block running on it (2026-10-31 17:40:24).
         liveTurnCancellation.cancel()
         OrionLog.write("[think] cancelled by user — \(reason)")
         voiceCue.stop()
         setPhase(.idle)
         statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
         append(.system, "Cancelled — stopped waiting for that one. (Anything it already started may still finish in the background.)")
-        // NOT `agentQueue`: it is serial and the `ask` being cancelled is the
-        // block running on it, so a cancel queued there ran only after the
-        // turn finished (2026-10-31 17:40:24: Escape cancelled, the body-cam
-        // fragment still reached the gateway three seconds later).
-        DispatchQueue.global(qos: .userInitiated).async {
-            _ = GatewayClient.cancelInFlight(reason: reason)
-        }
     }
 
     func toggleSummonMute() {
@@ -2212,7 +2209,7 @@ final class AppState: ObservableObject {
                 return
             }
             do {
-                result = .success(try GatewayClient.ask(request, session: chatSession, model: chatModel, replyTo: tappedReply))
+                result = .success(try GatewayClient.ask(request, session: chatSession, model: chatModel, replyTo: tappedReply, cancellation: cancellation))
             } catch {
                 result = .failure(error)
             }

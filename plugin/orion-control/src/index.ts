@@ -1,7 +1,9 @@
 import { Type, type Static } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
-import { liveCheckinRun, liveExtractReminder, liveReadDay, liveReadDayJson, liveScheduleFlow, registerLocalRouting, undoJournalTop } from "./local-routing.js";
+import { liveCheckinRun, liveExtractReminder, liveModelWarm, liveReadDay, liveReadDayJson, liveRealityRun, liveReplay, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
+import { probeOllama } from "./model-outage.js";
+import { tellsFactAloud } from "./memory-facts.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
@@ -1708,6 +1710,9 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
     registerLocalRouting(api as unknown as Parameters<typeof registerLocalRouting>[0], {
       mode: localRouting,
       trace: api.pluginConfig?.localRoutingTrace === true,
+      // 2026-10-30: the state card's sources (state-card.ts), the same state dir every script uses (scripts/lib/clock.mjs).
+      stateDir: process.env.ORION_CONTROLLED_DIR || path.join(os.homedir(), ".openclaw", "orion-controlled"),
+      userMdPath: path.join(os.homedir(), ".openclaw", "workspace", "USER.md"),
       scheduleFlow: liveScheduleFlow,
       readDay: liveReadDay,
       readDayJson: liveReadDayJson,
@@ -1722,6 +1727,11 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       messagesRead: liveMessagesRead,
       todoDoneFlow: liveTodoDoneFlow,
       checkinRun: liveCheckinRun,
+      realityRun: liveRealityRun,
+      // 2026-10-30: the outage gate (model-outage.ts): honest line, queue, replay on recovery.
+      modelProbe: () => probeOllama(),
+      modelWarm: liveModelWarm,
+      replay: liveReplay,
       ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),
       acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
       scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,
@@ -1745,6 +1755,8 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
             ? { agent: api.pluginConfig.trustTranscriptAgent }
             : {}),
         });
+        // 2026-10-30 gate (cha-*, foc-doomscroll-v): speech the microphone heard is not an episode unless he said "remember …".
+        if (turn && /Nick SAID this out loud/.test(turn.content) && !tellsFactAloud(userText(turn.content))) return;
         const episode = turn ? episodeFromUserText(turn.content) : undefined;
         if (!episode) return;
         await appendEpisode(

@@ -1,7 +1,8 @@
 import { Type, type Static } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
-import { liveCheckinRun, liveExtractReminder, liveReadDay, liveReadDayJson, liveRealityRun, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
+import { liveCheckinRun, liveExtractReminder, liveModelWarm, liveReadDay, liveReadDayJson, liveRealityRun, liveReplay, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
+import { probeOllama } from "./model-outage.js";
 import { tellsFactAloud } from "./memory-facts.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
@@ -1727,6 +1728,10 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       todoDoneFlow: liveTodoDoneFlow,
       checkinRun: liveCheckinRun,
       realityRun: liveRealityRun,
+      // 2026-10-30: the outage gate (model-outage.ts): honest line, queue, replay on recovery.
+      modelProbe: () => probeOllama(),
+      modelWarm: liveModelWarm,
+      replay: liveReplay,
       ...(typeof api.pluginConfig?.localRoutingTestingUntil === "string" ? { testingUntil: api.pluginConfig.localRoutingTestingUntil } : {}),
       acceptancePath: path.join(os.homedir(), ".openclaw", "orion-controlled", "local-routing", "acceptance.json"),
       scheduleChangesToCloud: api.pluginConfig?.localRoutingScheduleToCloud === true,

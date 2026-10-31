@@ -61,6 +61,7 @@ import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer
 import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
+import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, addressed, quietAck, quietRequest } from "./chatter.js";
 import { declareOnly, readReality, runReality, undoReality, type RealityRead, type ScriptRun } from "./reality.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
@@ -81,6 +82,14 @@ export type LocalRoutingOptions = {
   /** Runs scripts/orion-declare or scripts/orion-reschedule with fixed arguments (no shell), for reality statements (reality.ts).
    *  Unset: reality statements route as before. index.ts wires the real scripts; tests pass a stub. */
   realityRun?: ScriptRun;
+  /** Whether the local model answers (index.ts: probeOllama). Unset: no outage gate and no replay (model-outage.ts). */
+  modelProbe?: Probe;
+  /** Loads the local models (keepWarm), tried once before a turn is given up as "model down". */
+  modelWarm?: () => Promise<unknown>;
+  /** How long to wait after warming before asking again (default 1500 ms; tests shorten it). */
+  warmWaitMs?: number;
+  /** Replays a message queued while the model was down, in its session, and delivers the reply (index.ts). */
+  replay?: (row: QueuedMessage) => Promise<boolean>;
   /** Runs orion-checkin with these arguments (index.ts wires the real script); a reply to a start line sets its check-in through it (2026-10-23). */
   checkinRun?: (args: string[]) => Promise<{ stdout: string; code: number }>;
   clock?: () => string;
@@ -208,6 +217,8 @@ type Run = {
   gymSkip?: GymSkip;
   /** "wipe my week": asked about first by code, nothing runs. */
   wipe?: boolean;
+  /** 2026-10-30 (model-outage.ts): a message queued while the model was down, replayed now. */
+  replayed?: boolean;
 };
 
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
@@ -508,6 +519,25 @@ export const liveCheckinRun = (args: string[]): Promise<{ stdout: string; code: 
 /** orion-declare / orion-reschedule with fixed arguments (no shell), for reality statements (2026-10-30). Wired in by index.ts only. */
 export const liveRealityRun: ScriptRun = (script, args) => new Promise((resolve) =>
   execFile(RESCHEDULE.replace(/orion-reschedule$/, script), args, { timeout: 30000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
+
+/** Loads both local models at the context each is called with (2026-10-30: the outage gate's one warm-and-retry). Wired in by index.ts only. */
+export const liveModelWarm = (): Promise<string[]> => keepWarm([{ model: FRONT_DESK_MODEL, numCtx: FRONT_DESK_CTX }, { model: WORKER_MODEL, numCtx: FORM_OPTIONS.num_ctx }]);
+
+/** Replays a message queued while the model was down (model-outage.ts): one agent turn in its own session, and the reply is
+ *  pushed to him through orion-reach as a real message, marked as a replay. Wired in by index.ts only. */
+export const liveReplay = (row: QueuedMessage): Promise<boolean> => new Promise((resolve) => {
+  const at = new Date(row.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const openclaw = join(homedir(), ".openclaw/bin/openclaw");
+  const sessionKey = row.sessionKey.replace(/^agent:main:/, "");
+  execFile(openclaw, ["agent", "--session-key", sessionKey, "--json", "--message", replayText(row, at), "--timeout", "240"], { timeout: 300_000, maxBuffer: 16 << 20 }, (error, stdout) => {
+    if (error) { resolve(false); return; }
+    let reply = "";
+    try { reply = JSON.parse(`"${/"finalAssistantRawText":"((?:[^"\\]|\\.)*)"/.exec(String(stdout))?.[1] ?? ""}"`) as string; } catch { reply = ""; }
+    if (!reply.trim()) { resolve(false); return; }
+    execFile(RESCHEDULE.replace(/orion-reschedule$/, "orion-reach"), [`Earlier, while my model was down, you said "${row.message.slice(0, 120)}". ${reply.trim()}`.slice(0, 900), "--kind", "update", "--why", "replay: sent while the local model was down"],
+      { timeout: 30_000 }, (e) => resolve(!e));
+  });
+});
 
 /** The real reminder extraction (worker via Ollama, form-constrained). Wired in by index.ts only. */
 export const liveExtractReminder = async (message: string, clock?: string): Promise<{ time: string | null; label: string } | null> => {
@@ -922,7 +952,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!raw || INTERNAL.test(sessionKey)) return undefined;
     if (sessionKey) progress.begin(sessionKey, runId ?? null);
     // The rest of a cut-off spoken request is read together with its first half, as one request.
-    const said = userText(raw);
+    const heard = userText(raw);
+    // 2026-10-30: a message replayed after a model outage reads as he said it (the marker is for the transcript and the worker).
+    const replayed = REPLAY_MARK.test(heard);
+    const said = heard.replace(REPLAY_MARK, "");
     const before = sessionKey ? lastTurn.get(sessionKey) : undefined;
     const stitch = CONTINUING.test(said) && before && Date.now() - before.at < STITCH_WINDOW_MS ? before : undefined;
     const continuation = stitch ? said.replace(CONTINUING, "") : undefined;
@@ -977,7 +1010,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         .then((d) => { deskHealth.record(d, call); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
-    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch ? { stitched: true } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -1441,6 +1474,36 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${pushNote}${brainFetched}${askNote}\n\n${card}${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
         ...(run.outreach ? { prependContext: outreachNote(run.outreach) } : {}) };
     }), { timeoutMs: HOOK_TIMEOUT_MS });
+  }
+
+  // 2026-10-30 (model-outage.ts): before the model is called, is it there? Down after one warm-and-retry: an honest line by code, and his
+  // message queued and replayed when Ollama is back (10-30: two of his messages ended in "Connection error." and were lost).
+  // OpenClaw's before_agent_run is fail-closed and reads anything but {outcome:"pass"} as a block, so every path returns PASS unless down.
+  if (on && options.modelProbe) {
+    const PASS = { outcome: "pass" } as const;
+    const health = new ModelHealth(options.modelProbe, options.modelWarm ?? (async () => undefined), options.warmWaitMs ?? 1500);
+    const queue = new ReplayQueue(options.stateDir ?? dirname(logPath));
+    let draining = false;
+    const drain = () => {
+      if (draining || !options.replay || !queue.pending().length) return;
+      draining = true;
+      void drainQueue(queue, health, options.replay).then((n) => { if (n) log({ stage: "replayed", count: n }); }, () => undefined).finally(() => { draining = false; });
+    };
+    setInterval(drain, 60_000).unref?.();
+    api.on("before_agent_run", async (event, ctx) => {
+      try {
+        const run = runFor(event, ctx);
+        if (!run || run.cloud) return PASS;
+        if (await health.check()) { drain(); return PASS; }
+        // Code already did this turn's work (a reality statement, a code flow): it is told as done, and not replayed.
+        const said = run.flow && (run.flow.outcome === "done" || run.flow.outcome === "say") ? exactFor(run) : "";
+        if (!said && run.sessionKey && !run.replayed) queue.add({ sessionKey: run.sessionKey, message: run.message, spoken: !!run.spoken });
+        const message = said ? doneWhileDown(said) : OUTAGE_LINE;
+        log({ stage: "model_down", runId: pick(event, ctx, "runId") ?? null, message: run.message, queued: !said, flow: run.flow?.outcome ?? null });
+        traceLine("model_down", event, ctx, { queued: !said });
+        return { outcome: "block", reason: "the local model (Ollama) is not answering", message };
+      } catch { return PASS; }
+    }, { timeoutMs: 12_000 });
   }
 
   // The text that must reach Nick for a run (the scheduler's own reply, or an honest stop), applied at

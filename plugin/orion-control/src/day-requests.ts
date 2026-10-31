@@ -46,6 +46,8 @@ export type RequestOutcome = { flow: FlowResult; facts: string[]; writes: number
 
 const clean = (m: string) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can i|could i|what|when|why|how|which)\b/i;
+/** REV2 finding 3: a line about someone else's day ("my brother got a midterm friday", "she has a quiz") is never put on his calendar. */
+const SOMEONE_ELSES = /^(?:(?:so|ok(?:ay)?|btw|fyi|yeah|lol|omg|ugh)[,\s]+)*(?:my\s+(?:little\s+|big\s+|older\s+|younger\s+)?(?:brother|bro|sister|sis|mom|mum|dad|friend|mate|roommate|flatmate|housemate|girlfriend|boyfriend|gf|bf|partner|cousin|classmate)|he|she|they|his|her|their)\b(?!'s\s)/i;
 const HYPOTHETICAL = /\b(?:if|unless|what if|wish|pretend|imagine|would it)\b/i;
 const ILL = /\b(?:sick|ill|unwell|fever|flu|throwing up|migraine|wrecked|exhausted|knackered|dead tired|so tired)\b/i;
 const WEEKDAY_RE = "monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun|tomorrow|tmrw";
@@ -62,14 +64,16 @@ const LATE_NIGHT = 5;
 
 // ---- reading ----
 const DEADLINE_KIND = "quiz|exam|midterm|final|test|deadline|presentation|essay|assignment|paper|submission";
-const DEADLINE = new RegExp(String.raw`\b(?:i (?:have|got|'?ve got)|ive got|i got|there'?s|there is|add|put|got)\s+(?:(?:an|a|my|the|another)\s+)?(?<what>[a-z0-9][a-z0-9 ]{0,30}?)\s*(?<kind>${DEADLINE_KIND})\b(?:\s+(?:is\s+)?(?:due\s+)?)?\s*(?:on\s+|this\s+|next\s+)?(?<day>${WEEKDAY_RE})\b(?:\s+at\s+(?<at>${CLOCK}))?`, "i");
+// REV2 finding 3: anchored to him. "i have / i've got / there's / add / put" anywhere, a bare "got" only at the start of a clause
+// ("got a quiz friday at 2"), never "my brother got a midterm friday at 2".
+const DEADLINE = new RegExp(String.raw`(?:\b(?:i (?:have|got|'?ve got)|ive got|i got|there'?s|there is|add|put)|(?:^|[,.;!]\s*|\band\s+)got)\s+(?:(?:an|a|my|the|another)\s+)*(?:(?<what>[a-z0-9][a-z0-9 ]{0,30}?)\s+)?(?<kind>${DEADLINE_KIND})\b(?:\s+(?:is\s+)?(?:due\s+)?)?\s*(?:on\s+|this\s+|next\s+)?(?<day>${WEEKDAY_RE})\b(?:\s+at\s+(?<at>${CLOCK}))?`, "i");
 const STUDY = /\b(?:study|studying|revise|revision|review|prep|prepare|cram)\b/i;
 const SESSIONS = /\b(?<n>\d|one|two|three|four|an?)\s+(?<len>\d{1,3}\s*(?:-|\s)?(?:min(?:ute)?s?|hours?|hrs?|h)|hour|half[- ]hour)\s+(?:study\s+)?(?:blocks?|sessions?|slots?)\b/i;
 
 function readDeadline(m: string): DayRequest | null {
   const d = DEADLINE.exec(m);
   if (!d?.groups) return null;
-  const what = d.groups.what!.replace(/^(?:a|an|my|the)\s+/, "").trim();
+  const what = (d.groups.what ?? "").replace(/^(?:(?:a|an|my|the|another)\s+)+/, "").replace(/^(?:a|an|my|the|another)$/, "").trim();
   if (/\b(?:no|not|don'?t|didn'?t)\b/.test(what)) return null;
   const title = cap(`${what ? `${what} ` : ""}${d.groups.kind!}`.trim());
   const s = SESSIONS.exec(m);
@@ -202,7 +206,7 @@ export function readDayRequest(message: string, now: Date = new Date()): DayRequ
   const raw = clean(message);
   // "can we do gym later, like after dinner?" is a request, not a question.
   const m = /^(?:(?:ok(?:ay)?|so|actually|hey|orion)[,\s]+)*(?:can|could|would)\s+(?:we|you|u)\b/.test(raw) ? raw.replace(/\?\s*$/, "") : raw;
-  if (!m || QUESTION.test(m) || HYPOTHETICAL.test(m)) return null;
+  if (!m || QUESTION.test(m) || HYPOTHETICAL.test(m) || SOMEONE_ELSES.test(m)) return null;
   return readClearOwned(m) ?? readCatchUp(m) ?? readDeadline(m) ?? readTomorrow(m, now) ?? readThen(m) ?? readVagueMove(m) ?? readUnnamed(m) ?? readClauses(m);
 }
 

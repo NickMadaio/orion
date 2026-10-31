@@ -59,12 +59,24 @@ export function mailReadFailed(tools: ReadonlyArray<{ canonical: string; stdout:
  whole; what is left is the honest part of the reply, or REPLY_FAILED when nothing is.
 */
 const LEAK_SENTENCE = /\b(?:the command failed|command (?:failed|didn'?t work|returned an error)|try (?:this|running)\s*:|tools? (?:isn'?t|is not|aren'?t|are not) available|(?:current |my )?tool catalog|exec(?:ution)? (?:failed|denied|error)|allowlist|exit code|stderr|stack trace|orion-[a-z]+(?:-[a-z]+)*|orion_task_run|tool_call)\b|\/scripts\/|~\/Desktop\/ORION|\/Users\/[^/\s]+\/Desktop\/ORION/i;
+const FAILED_WORDS = /\b(?:fail(?:ed|s|ure)?|didn'?t work|returned an error|error|denied|couldn'?t|could not|can'?t|cannot|unable|isn'?t available|not available)\b/i;
+export const ONE_PART_FAILED = "One part didn't work.";
 function dropLeaks(line: string): string {
   if (!LEAK_SENTENCE.test(line)) return line;
   // "Try this: <command>" carries the command after the colon: the rest of the line goes with it.
   const pieces = line.split(/(?<=[.!?])\s+(?=[A-Z"'])/);
   const kept: string[] = [];
-  for (const p of pieces) { if (LEAK_SENTENCE.test(p)) { if (/try (?:this|running)\s*:/i.test(p)) break; continue; } kept.push(p); }
+  // REV2 finding 17: a dropped sentence that said something FAILED leaves its meaning behind ("Done: moved gym and set reminder. The command
+  // failed for the reminder." must not read as a plain "Done").
+  let failed = false;
+  for (const p of pieces) {
+    if (LEAK_SENTENCE.test(p)) {
+      if (FAILED_WORDS.test(p) && !failed && kept.length) { failed = true; kept.push(ONE_PART_FAILED); }
+      if (/try (?:this|running)\s*:/i.test(p)) break;
+      continue;
+    }
+    kept.push(p);
+  }
   return kept.join(" ").trim();
 }
 

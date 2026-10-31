@@ -48,8 +48,10 @@ final class SpeakerVerifier {
     private(set) var isFiltering = false
 
     /// Generous enough for a cold first call, short enough that a hung daemon
-    /// cannot make the wake word feel broken.
-    private static let timeout: TimeInterval = 1.5
+    /// cannot make the wake word feel broken. 1.5 s was too tight: on 2026-10-31
+    /// a model idle for hours missed it, the app woke unverified, and a TV video
+    /// became a turn. The daemon now keeps itself warm; this is the backstop.
+    private static let timeout: TimeInterval = 3.0
 
     /// Voice embeddings vary more between a short wake phrase and a longer
     /// enrollment recording than the initial calibration assumed.  Keep the

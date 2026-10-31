@@ -48,6 +48,13 @@ function specs() {
   return out;
 }
 
+// REV3 11: whether a key EXISTS, without -w, so no value enters memory and no per-item Keychain prompt is raised.
+// Exit 0 means the item is there; its attributes on stdout are discarded. `security` from PATH so a test can stand in for it.
+function hasSecret(item) {
+  try { execFileSync("security", ["find-generic-password", "-a", "openclaw", "-s", item], { stdio: ["ignore", "ignore", "ignore"] }); return true; }
+  catch { return false; }
+}
+
 function secret(item) {
   try { return execFileSync("/usr/bin/security", ["find-generic-password", "-a", "openclaw", "-s", item, "-w"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null; }
   catch { return null; }
@@ -56,7 +63,7 @@ function secret(item) {
 function needs(spec) {
   const settings = readJSON(SETTINGS, {})[spec.name] ?? {};
   const missing = Object.entries(spec.settings ?? {}).filter(([k, s]) => s.required !== false && !settings[k]).map(([k, s]) => `setting ${k} (${s.description})`);
-  if (spec.auth && spec.auth.type !== "none" && !secret(spec.auth.keychain)) {
+  if (spec.auth && spec.auth.type !== "none" && !hasSecret(spec.auth.keychain)) {
     missing.push(`a key in the Keychain — Nick runs: security add-generic-password -a openclaw -s "${spec.auth.keychain}" -w  (then pastes it)${spec.auth.howToGet ? ` · get it: ${spec.auth.howToGet}` : ""}`);
   }
   return missing;
@@ -100,7 +107,7 @@ if (!command || command === "help") fail(readFileSync(fileURLToPath(import.meta.
 if (command === "status") {
   const rows = [...specs().values()].map((spec) => {
     const needsKey = !!spec.auth && spec.auth.type !== "none";
-    return { name: spec.name, title: spec.title ?? spec.name, needsKey, keySet: needsKey ? !!secret(spec.auth.keychain) : false };
+    return { name: spec.name, title: spec.title ?? spec.name, needsKey, keySet: needsKey ? hasSecret(spec.auth.keychain) : false };
   });
   console.log(JSON.stringify(rows));
   process.exit(0);

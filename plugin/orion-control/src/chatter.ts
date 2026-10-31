@@ -125,13 +125,21 @@ export class RoomStreak {
   clear(sessionKey: string | undefined): void { if (sessionKey) this.last.delete(sessionKey); }
 }
 
+/** 2026-10-31 17:40 (build 1052): a body-cam video on the TV woke the app, and "insert at just the right point in the shoe … And then"
+ *  was held as half a request: ORION said "Go on." to the television. Half a request to ORION is short ("can", "can you move gym to
+ *  after my"); a long line that trails off with no request or status in it is someone else mid-sentence. The caller passes `trailing`. */
+export const ROOM_FRAGMENT_WORDS = 8;
+const overheardFragment = (message: string): boolean =>
+  (message.match(/[a-z0-9']+/gi) ?? []).length >= ROOM_FRAGMENT_WORDS && !statusShaped(message);
+
 /** How a spoken line without "orion" is read: "room" (silent, nothing runs), "streak" (only a flow that acts may answer), or null. */
-export function roomTalk(message: string, ctx: { spoken: boolean; streak: boolean }): "room" | "streak" | null {
+export function roomTalk(message: string, ctx: { spoken: boolean; streak: boolean; trailing?: boolean }): "room" | "streak" | null {
   // Orchestrator decision (REV2 5): a crisis signal is never silenced, spoken or typed, addressed or not.
   if (!ctx.spoken || addressed(message) || isCrisis(message)) return null;
   // A request reads as one before any goodbye or vocative in it ("turn off the lights, bye", "remind me to call you back tomorrow").
   if (requestShaped(message)) return ctx.streak ? "streak" : null;
   if (talksToSomeoneElse(message)) return "room";
+  if (ctx.trailing && overheardFragment(message)) return "room";
   if (!ctx.streak) return null;
   return statusShaped(message) ? "streak" : "room";
 }

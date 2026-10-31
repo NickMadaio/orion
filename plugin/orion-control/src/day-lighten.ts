@@ -41,7 +41,9 @@ const DO_IT = /\b(?:fix|sort(?: out)?|lighten|ease|redo|rework|adjust|rejig|clea
 const OTHER_CHANGE = /\b(?:move|push|pull|swap|resize|extend|shorten|reschedule|remind|alarm|timer|log|start (?:a|an|my|the)|session|text|email)\b|\?|\b(?:what'?s|whats|what is|when is|how (?:long|much|many))\b/i;
 /** Taking a named block or class off ("no gym for me, i'm sick", "not going to the lecture") is the gym guard's or the schedule flow's. */
 const SKIPS_A_BLOCK = /\bno (?:gym|class|lecture|lab|seminar|study)\b|\bskip(?:ping)?\b|\bnot (?:going|gonna go|coming)\b|\bcan'?t (?:go|make it|do (?:gym|class))\b|\bcall(?:ing)? in\b|\binstead of\b/i;
-const CUT = /\b(?:cut|drop|cancel|scrap|ditch|skip|remove|get rid of|bin)\s+(?:the\s+|my\s+|today'?s\s+|tonight'?s\s+)?([a-z][a-z' -]{1,30}?)(?=\s+(?:tonight|today|this evening|and|then|so|cause|because|im|i'm|for)\b|\s*[.,!;]|$)/gi;
+// REV2 finding 9: "cancel gym and side project" is two cuts (it stopped at "and" and the side project was silently ignored).
+const CUT = /\b(?:cut|drop|cancel|scrap|ditch|skip|remove|get rid of|bin)\s+(?:the\s+|my\s+|today'?s\s+|tonight'?s\s+)?([a-z][a-z' &-]{1,70}?)(?=\s+(?:tonight|today|this evening|then|so|cause|because|im|i'm|for)\b|\s*[.,!;]|$)/gi;
+const cutNames = (t: string) => t.split(/\s*(?:\band\b|&)\s*/).map((n) => n.replace(/^(?:the|my)\s+/i, "").trim()).filter(Boolean);
 const WORD_HOURS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
 
 const slept = (m: string): boolean => {
@@ -68,7 +70,7 @@ export function readLighten(message: string): LightenRead | null {
   if (!kind) return null;
   const rank = RANK.test(m);
   if (!rank && (OTHER_CHANGE.test(m) || SKIPS_A_BLOCK.test(m))) return null;
-  const cut = [...m.matchAll(CUT)].map((x) => x[1]!.trim()).filter((t) => !/^(?:it|that|this|everything|all)$/i.test(t));
+  const cut = [...m.matchAll(CUT)].flatMap((x) => cutNames(x[1]!)).filter((t) => !/^(?:it|that|this|everything|all)$/i.test(t));
   const nap = readNap(m);
   return { kind, doIt: DO_IT.test(m), rank, cut, ...(nap ? { nap } : {}) };
 }
@@ -169,13 +171,21 @@ export function planLighten(read: LightenRead, ctx: { day?: Day; deadlines?: Dea
   const easyGym: LightenStep | undefined = gym && !/\(easy\)/i.test(gym.title) ? { args: ["rename", gym.title, `${gym.title} (easy)`], said: `${gym.title} stays at ${ampm(gym.start)}, as an easy session` } : undefined;
   if (read.doIt) {
     if (nap && slot) steps.push(napStep(nap, slot));
-    const named = day ? read.cut.map((c) => fuzzy(day, c)).filter((b): b is DayBlock => !!b) : [];
+    // Gym is never dropped for tiredness (only real illness): it stays, with pushback and a shorter version (Nick's rule).
+    const gymCut = read.kind !== "sick" ? read.cut.filter((c) => /\bgym\b/i.test(c)) : [];
+    const wanted = read.cut.filter((c) => !gymCut.includes(c));
+    const found = day ? wanted.map((c) => [c, fuzzy(day, c)] as const) : wanted.map((c) => [c, undefined] as const);
+    const named = found.flatMap(([, b]) => (b ? [b] : []));
+    const unmatched = found.filter(([, b]) => !b).map(([c]) => c);
     const cuts = read.cut.length ? named : low ? [low] : [];
     for (const b of [...new Set(cuts)]) steps.push({ args: ["drop", b.title], said: `${b.title} off today` });
+    const notes = [...(unmatched.length ? [`${listed(unmatched.map((u) => u.replace(/^./, (c) => c.toUpperCase())))} ${unmatched.length > 1 ? "aren't" : "isn't"} on today's calendar, so there was nothing to cut there.`] : []),
+      ...(gymCut.length ? [`Gym stays${gym ? ` at ${ampm(gym.start)}` : ""}: tired isn't a reason to drop it. Want 30 minutes instead of 90? Say "shorten gym to 30".`] : [])];
     // The default lightening (no specifics) makes gym an easy session; a named gym cut was his explicit choice.
     if (!read.cut.length && !read.nap && easyGym) steps.push(easyGym);
+    if (!steps.length && notes.length) return { text: notes.join(" "), steps: [] };
     if (!steps.length) return { text: [context, nowMin >= 18 * 60 ? "Too late in the day for a nap, and there's nothing light enough to take off tonight. Want an early night instead?" : "There's nothing I can take off today without touching a class, gym or study."].filter(Boolean).join(" "), steps: [] };
-    return { text: "", steps };
+    return { text: notes.join(" "), steps };
   }
   // No explicit go-ahead: ONE concrete change, yes or no.
   const lead = read.kind === "sick" ? "That sucks." : read.kind === "slept" ? "Rough night." : "Rough.";

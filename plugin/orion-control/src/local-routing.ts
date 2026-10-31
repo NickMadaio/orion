@@ -936,7 +936,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (day) markRead(run, "day");
       if (deadlines) markRead(run, "deadlines");
       const plan = planLighten(read, { ...(day ? { day } : {}), deadlines: deadlines ?? null, now: at });
-      if (plan.steps.length && options.realityRun) { const out = await runLighten(plan.steps, options.realityRun); wrote(out.flow, out.writes); return undefined; }
+      if (plan.steps.length && options.realityRun) { const out = await runLighten(plan.steps, options.realityRun, plan.text); wrote(out.flow, out.writes); return undefined; }
       run.flow = { outcome: "say", kind: plan.pending ? "ask" : "plain", text: plan.text || "I couldn't change your day just now, so nothing changed." };
       offer(plan.pending);
     }

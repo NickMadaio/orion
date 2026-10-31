@@ -185,7 +185,7 @@ function readVagueMove(m: string): DayRequest | null {
   if (/\b(?:it|that|this|everything|all|something|stuff)\b/.test(x) || /\d/.test(x)) return null;
   return { kind: "vague-move", name: x, when: v.groups.when!.trim() };
 }
-const UNNAMED = new RegExp(String.raw`^(?:(?:ok(?:ay)?|so|yeah|nah|no)[,\s]+)*(?:it'?s\s+|its\s+|it\s+(?:got\s+|was\s+|is\s+)?|got\s+|been\s+|plans?\s+)?(?:moved|pushed|changed|moving it|pushed back|bumped)\s+(?:back\s+)?to\s+(?<at>${CLOCK})(?:\s+(?:tonight|today|this evening))?\s*[.!]*$`, "i");
+const UNNAMED = new RegExp(String.raw`^(?:(?:ok(?:ay)?|so|yeah|nah|no)[,\s]+)*(?:it'?s\s+|its\s+|it\s+(?:got\s+|was\s+|is\s+)?|got\s+|been\s+)?(?:moved|pushed|changed|moving it|pushed back|bumped)\s+(?:back\s+)?to\s+(?<at>${CLOCK})(?:\s+(?:tonight|today|this evening))?\s*[.!]*$`, "i");
 function readUnnamed(m: string): DayRequest | null {
   const u = UNNAMED.exec(m);
   return u?.groups ? { kind: "unnamed-move", at: u.groups.at! } : null;
@@ -502,9 +502,14 @@ async function runUnnamedMove(r: Extract<DayRequest, { kind: "unnamed-move" }>, 
   const s = parseClock(r.at); const res = s ? resolveStart(s, { day: "today", now, part: "evening" }) : undefined;
   if (!b) return { flow: { outcome: "say", kind: "ask", text: "Which block moved? Nothing of yours is left on today's calendar, so I haven't changed anything." }, facts: [], writes: 0 };
   if (!res || !("at" in res)) return { flow: say(`${res && "passed" in res ? `${ampm(res.passed)} has already passed` : `I couldn't read "${r.at}" as a time`}, so I haven't moved ${label(b)}.`), facts: [], writes: 0 };
+  const len = toMin(b.end) - toMin(b.start);
+  // REV2 finding 6: "it" is a guess. The block he is in is the natural reading; a NEXT block that is gym (the daily anchor) or study
+  // (deadline work) is never moved on a guess: one question instead.
+  const kind = b.kind ?? (/\bgym\b/i.test(b.title) ? "gym" : /\b(?:study|revis|homework)/i.test(b.title) ? "study" : "other");
+  if ((kind === "gym" || kind === "study") && toMin(b.start) > now) return { flow: { outcome: "say", kind: "ask", text: `Which block moved to ${ampm(res.at)}? The next one of yours is ${label(b)}, and I don't move that on a guess. Nothing's changed yet.` }, facts: [], writes: 0 };
+  if (res.at + len > 1440) return { flow: say(`${label(b)} at ${ampm(res.at)} would run past midnight, so I haven't moved it. Nothing changed.`), facts: [], writes: 0 };
   const x = runner(deps);
   const out = await x.exec(["move", b.title, "--to", hhmm(res.at)]);
-  const len = toMin(b.end) - toMin(b.start);
   if (!out.ok) return { flow: say(`I couldn't move ${label(b)} to ${ampm(res.at)}${whyNot(out.stdout) ? ` (${whyNot(out.stdout)})` : ""}, so nothing changed.`, x.calls, x.outputs), facts: [], writes: 0 };
   return { flow: done(`Done: ${label(b)} is now ${ampm(res.at)}–${ampm(res.at + len)} (I took "it" to be ${label(b)}, the ${toMin(b.start) <= now ? "block you're in now" : "next block of yours"}; say "undo" if you meant another).`, x.calls, x.outputs), facts: [], writes: x.writes };
 }

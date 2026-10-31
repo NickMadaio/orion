@@ -25,7 +25,8 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "put gym between my two classes" (gym is not on the day) → {"steps":[{"do":"fill_between","what":"gym","after":"B1","before":"B2"}]}
 - "after my lab I'll go to the library, 10 min walk, then do my essay and call mom" → {"steps":[{"do":"plan","after":"B2"}]}
 - "going back to my dorm after the lab, clear my schedule after it, I'll tell you the plan later" → {"steps":[{"do":"clear_after","after":"B2"}]}
-- "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped or moved)
+- "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped)
+- "DS got moved to 11:30 today" → {"steps":[{"do":"move","what":"B1","to":"11:30"}]}   (a class moves only when he names it and gives its new time; that is not an overrun)
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
 - "push cert courses back 20 min" → {"steps":[{"do":"move","what":"B3","by":20}]}
 - "running 15 min behind, push everything" → {"steps":[{"do":"late","minutes":15}]}   ("I'm running late" with no number → ask how late)

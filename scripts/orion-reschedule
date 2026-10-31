@@ -95,6 +95,8 @@ import { sandbox } from "./lib/life/bridge-path.mjs";
 import { appendSlips, readSlips, touchDirty } from "./lib/life/slips.mjs";
 import { appendLogged } from "./lib/life/logged.mjs";
 import { backfillEvidence, recordWritten, writtenIdentifiers } from "./lib/life/written.mjs";
+import { shiftAfter } from "./lib/life/shift-after.mjs";
+import { moveOwnEvent } from "./lib/life/move-own.mjs";
 
 import { controlledDir } from "./lib/life/slips.mjs";
 import { spawnSync } from "node:child_process";
@@ -109,7 +111,7 @@ const [command, ...restRaw] = positional;
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
 const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--minutes", "--no-replan", "--notify", "--now", "--plan",
-  "--only", "--replace", "--say", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
+  "--only", "--replace", "--say", "--shift", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
   console.error(`NOTHING WAS CHANGED: orion-reschedule has no ${unknown.join(", ")} option. Options: ${[...KNOWN].join(" ")}. See the header for which command takes which.`);
@@ -430,6 +432,29 @@ async function writeShape(label, pins, firstLines, persist = true) {
   if (!dry) console.log('Written to his calendar. "orion-reschedule undo" puts it back.');
   process.exit(0);
 }
+/** One of HIS events he named, moved for this day only (move-own.mjs); ORION's blocks it now overlaps cascade, in one undo step. */
+async function writeOwnMove(pin, firstLine) {
+  if (today && pin.block.start < nowMinute) fail(`NOTHING WAS CHANGED: ${pin.block.title} has already started (it is ${hhmm(nowMinute)}); only a later one can be moved`, 1);
+  if (today && pin.start < nowMinute) fail(`NOTHING WAS CHANGED: ${pin.block.title} cannot start at ${hhmm(pin.start)}; it is already ${hhmm(nowMinute)}`, 1);
+  const { result, shrunk, day } = shapeAndCascade([pin]);
+  const byId = new Map(blocks.map((b) => [b.id, b]));
+  const moves = lengthMoves(result, shrunk, day).filter((m) => m.id !== pin.block.id);
+  const removed = result.unplaced.map((u) => byId.get(u.id)).filter(Boolean);
+  const pinMove = { id: pin.block.id, title: pin.block.title, from: pin.block.start, to: pin.start, toEnd: pin.end };
+  refuseIfBroken(projectDay(blocks, { moves: [...moves, pinMove], created: [], removed }), nowMinute, "moving it");
+  let how = "";
+  if (!dry) ({ how } = await moveOwnEvent({ date, target: pin.block, start: pin.start, end: pin.end, moves, removed, blocksById: byId, config, group: `move-own-${Date.now()}` })
+    .catch((e) => fail(`NOTHING WAS CHANGED: ${e.message}`, 1)));
+  if (!dry) await verifyWritten(date, nowMinute);
+  console.log(`${dry ? "Would change" : "Changed"} ${dayName} ${date}:`);
+  console.log(`  ${firstLine}`);
+  if (how) console.log(`  (${how})`);
+  for (const x of shrunk) console.log(`  SHRUNK to fit: ${x.title} ${x.from} → ${x.to} min (low priority; tell him)`);
+  for (const m of moves) if (m.to !== m.from) console.log(`  moved ${m.title}: ${hhmm(m.from)} → ${hhmm(m.to)}`);
+  for (const u of result.unplaced) console.log(`  NOT BOOKED: ${u.title} (${u.minutes} min) no longer fits on ${dayName} — ask him whether to drop it or move it to another day`);
+  if (!dry) console.log('Written to his calendar (this day only). "orion-reschedule undo" puts it back.');
+  process.exit(0);
+}
 /** The block he means: the one under way, else the latest that already happened today, else the next one. */
 function findBlock(name, { allowPast = true } = {}) {
   const matches = closest(name, blocks);
@@ -462,6 +487,13 @@ if (command === "late") {
   const target = what ? fixedToday[0]
     : fixedToday.find((b) => b.start <= nowMinute && b.end > nowMinute) ?? fixedToday.find((b) => b.end > nowMinute);
   if (!target) fail(`orion-reschedule: no ${what ? `"${what}"` : "class"} left on ${dayName} to run over`, 1);
+  // "shift my stuff after it by 30": he asked for the push itself, so every movable block after the class moves by n (shift-after.mjs).
+  if (args.includes("--shift")) {
+    const pins = shiftAfter(blocks, { from: target.end, minutes: n, buffer: config.bufferMinutes, now: nowMinute });
+    if (!pins.length) { console.log(`Nothing needed to move: nothing of his is planned after ${target.title} on ${dayName}.`); process.exit(0); }
+    await writeShape("shifting what comes after it", pins, [`${target.title} runs ${n} min over (until ${hhmm(target.end + n)}); what comes after it moved ${n} min later:`,
+      ...pins.map((p) => `moved ${p.block.title}: ${hhmm(p.block.start)} → ${hhmm(p.start)}`)]);
+  }
   blocked.push({ start: target.end, end: target.end + n + (target.kind === "class" ? config.commuteMinutes : 0), title: `${target.title} running over` });
 } else if (command === "busy") {
   const [a, b] = String(rest[0] ?? "").split("-").map(minute);
@@ -565,7 +597,10 @@ if (command === "late") {
   const name = rest[0];
   if (!name) fail('usage: orion-reschedule move "<title>" --to HH:MM | --by <minutes>');
   const found = findBlock(name, { allowPast: false }) ?? notFound(name);
-  if (!nameableBy(found)) fail(`NOTHING WAS CHANGED: "${found.title}" is one of his own calendar events (a class or a plan with people); ORION can skip it (skip) but does not move or resize it — a repeating event would change the wrong day`, 1);
+  // 2026-11-01 (gate sch-move-fixed-named): a class or plan with people moves when he names it — this command is him naming it.
+  // That one occurrence is rewritten (move-own.mjs), never the repeating series.
+  const ownEvent = !nameableBy(found) && !!found.calendarId;
+  if (!nameableBy(found) && !ownEvent) fail(`NOTHING WAS CHANGED: "${found.title}" is one of his own calendar events and ORION cannot find it on the calendar to move it`, 1);
   const target = freeNamed(found);
   /*
    2026-10-07: "start organize safari directly after CS lab, ending 20 minutes
@@ -593,6 +628,7 @@ if (command === "late") {
   const end = end0 ?? start + length;
   if (start < 0 || end > 1440 || end - start < 5) fail(`NOTHING WAS CHANGED: ${target.title} would run ${hhmm(start)}–${hhmm(end)}, which is not a real block`, 1);
   const lengthNote = end - start === length ? "" : ` (now ${end - start} min, was ${length})`;
+  if (ownEvent) await writeOwnMove({ block: target, start, end }, `${target.title} moved: ${hhmm(target.start)} → ${hhmm(start)}–${hhmm(end)}${lengthNote}`);
   await writeShape("moving it", [{ block: target, start, end }], [`${target.title} moved: ${hhmm(target.start)} → ${hhmm(start)}–${hhmm(end)}${lengthNote}`]);
 } else if (command === "swap") {
   /*
@@ -1348,6 +1384,20 @@ const lines = [
   ...clashes.map((c) => `CLASH: ${c} — ask him which one is right`),
 ];
 if (!lines.length) { console.log("Nothing needed to move."); process.exit(0); }
+/*
+ 2026-11-01 (gate rea-class-late-c): lost time that the day's slack absorbs changes nothing. The "rebuilt …" line is always there,
+ so this fell through to "NOTHING WAS BOOKED" and he heard "Not done: nothing could be booked" about a plan that was fine.
+*/
+const changedSomething = removed.length > 0 || result.created.length > 0 || result.moves.some((m) => m.to !== m.from || m.clipped);
+const anyFailure = result.unplaced.length || alreadyOver.length || clashes.length || otherDays.length || shrunkLines.length || raised.length;
+if (!changedSomething && !anyFailure && ["late", "overrun", "busy"].includes(command)) {
+  const wall = blocked.at(-1);
+  const next = blocks.filter((b) => b.start >= (wall?.start ?? nowMinute) && b.end > nowMinute && !(b.fixed && !b.pinned)).sort((a, b) => a.start - b.start)[0];
+  console.log(next
+    ? `Nothing needed to move: ${next.title} ${hhmm(next.start)} still fits after ${wall.title} (clear by ${hhmm(wall.end)}).`
+    : `Nothing needed to move: nothing of his is planned after ${wall?.title ?? "it"} on ${dayName}.`);
+  process.exit(0);
+}
 const missingMustHaves = result.unplaced.filter((item) => item.importance === 0);
 if (missingMustHaves.length) {
   console.log(`NOTHING WAS CHANGED: must-haves could not fit: ${missingMustHaves.map((item) => item.title).join(", ")}.`);

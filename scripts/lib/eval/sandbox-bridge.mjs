@@ -27,6 +27,8 @@ switch (request.action) {
   }
   case "delete_calendar_event":
     if (!find(p.identifier)) { refuse("no such event"); break; }
+    // As the Mac bridge: a `start` names one occurrence, and an event that does not start then is refused, never deleted anyway.
+    if (p.start && Date.parse(find(p.identifier).start) !== Date.parse(p.start)) { refuse(`No occurrence of that event starts at ${p.start}.`); break; }
     save(events.filter((e) => e.identifier !== p.identifier)); reply({ deleted: true }); break;
   case "move_calendar_event":
     if (!find(p.identifier)) { refuse("no such event"); break; }

@@ -2,6 +2,8 @@ import { noteOf } from "./scheduler-out.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf } from "./day-requests.js";
 import { pluginNow } from "./plugin-clock.js";
 import { intentOf, namesTitle, pickByTime, resolveBlockName, whichOne } from "./block-names.js";
+import { napWindow } from "./nap-window.js";
+import { asksToShiftAfter, namesOwnEvent, nothingToMove } from "./own-event-writes.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can|could|what|when|why|how)\b/i;
 // Not a fact about his day: a condition, a wish, or someone else's ("she didnt go to the gym").
@@ -300,20 +302,27 @@ async function instead(r, deps) {
 export const OVERRUN_GUESS_MIN = 15;
 async function overrun(r, deps) {
     const day = await deps.readDay().catch(() => undefined);
-    const block = matchBlock(r.what, (day?.blocks ?? []).filter((b) => b.kind !== "commute"), deps.text);
+    const blocks = (day?.blocks ?? []).filter((b) => b.kind !== "commute");
+    // The shared name resolver first; a class titled only by its code ("MKTG2201") is still the one he calls "marketing" (gate rea-class-late-v).
+    const block = matchBlock(r.what, blocks, deps.text) ?? blocks.filter((b) => b.fixed && namesOwnEvent(r.what, b))[0];
     if (!block)
         return null; // "this set is running long" names no block: the turn goes on
     const minutes = r.minutes ?? r.guess ?? OVERRUN_GUESS_MIN;
     // His own block running long is an extend (the scheduler's overrun is for a class): what comes after it slides (rea-class-late, rea-task-twice).
     if (!block.fixed)
         return extendOwn(block, minutes, !r.minutes, deps);
-    const args = ["overrun", String(minutes), "--what", shortTitle(block.title)];
+    // "shift my stuff after it by 30": he asked for the push itself (gate rea-class-late-c), so every block after the class moves by that much.
+    const args = ["overrun", String(minutes), "--what", shortTitle(block.title), ...(asksToShiftAfter(deps.text) ? ["--shift"] : [])];
     const out = await deps.run("orion-reschedule", args).catch(() => ({ stdout: "", code: 1 }));
     const calls = [`exec orion-reschedule ${canon(args)}`];
     const ok = out.code === 0 && !/NOTHING WAS/.test(out.stdout);
     const guess = r.minutes ? "" : ` (my guess is ${minutes} minutes; tell me if it's longer)`;
     if (!ok)
         return { flow: say(`${shortTitle(block.title)} running over: I couldn't move what's after it just now, so your plan is as it was.`, calls, [out.stdout]), facts: [], writes: 0 };
+    // The day's slack absorbed it: nothing was written, and he hears why (never "I pushed what's after it back").
+    const fits = nothingToMove(out.stdout);
+    if (fits !== undefined)
+        return { flow: say(`Okay, ${shortTitle(block.title)} is running over${guess}. Nothing has to move: ${fits ? `${fits.title} at ${ampm(fits.at)} still fits after it` : "nothing else is planned after it today"}.`, calls, [out.stdout]), facts: [], writes: 0 };
     const moved = changeLines(out.stdout).map(clause);
     return { flow: done(`Okay, ${shortTitle(block.title)} is running over: I pushed what's after it back ${minutes} minutes${guess}${moved.length ? `: ${moved.slice(0, 4).join("; ")}` : ""}. ${shortTitle(block.title)} itself stays as it is. ${UNDO}`, calls, [out.stdout]), facts: [], writes: 1 };
 }
@@ -380,14 +389,17 @@ async function doneIt(r, deps) {
     // With no times, a planned block that already started began as planned (so the log covers it whole and no sliver of the plan is left),
     // capped at 3 hours; anything else lasted its usual length.
     const plannedStart = block && !nap && minuteOf(block.start) < now && now - minuteOf(block.start) <= 180 ? minuteOf(block.start) : undefined;
-    let to = saidTo ?? now;
-    let from = saidFrom ?? plannedStart ?? to - len;
+    // A nap with no times never sits on his class (gate rea-spontaneous-nap-v): it ends before the fixed plan that covers "now" (nap-window.ts).
+    const guess = nap && !block && saidFrom === null && saidTo === null ? napWindow(blocks, now, len) : undefined;
+    let to = saidTo ?? guess?.to ?? now;
+    let from = saidFrom ?? plannedStart ?? guess?.from ?? to - len;
     if (saidFrom !== null && saidTo === null)
         to = Math.max(saidFrom + 5, now);
     if (from >= to)
         from = to - len;
     from = Math.max(240, from);
-    const assumed = saidFrom === null ? (nap ? ` (I assumed about ${NAP_GUESS_MIN} minutes, ending now; tell me if it was longer)` : plannedStart !== undefined ? ` (I assumed it started at ${ampm(block.start)} as planned and ended just now; tell me the times if not)` : " (I assumed it ended just now; tell me the times if not)") : "";
+    const assumed = saidFrom === null ? (guess?.before ? ` (you had ${shortTitle(guess.before.title)} until ${ampm(guess.before.end)}, so I put it just before that, about ${NAP_GUESS_MIN} minutes; tell me the real times if not)`
+        : nap ? ` (I assumed about ${NAP_GUESS_MIN} minutes, ending now; tell me if it was longer)` : plannedStart !== undefined ? ` (I assumed it started at ${ampm(block.start)} as planned and ended just now; tell me the times if not)` : " (I assumed it ended just now; tell me the times if not)") : "";
     const ahead = block && minuteOf(block.start) > now;
     const args = ["log", title, "--from", hhmm(from), "--to", to >= now ? "now" : hhmm(to), ...(block && !ahead ? ["--instead", block.title] : [])];
     const calls = [];

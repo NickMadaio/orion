@@ -19,6 +19,7 @@ import { execFile } from "node:child_process";
 import type { FlowResult } from "./schedule-flow.js";
 import { isEdit } from "./edit-followup.js";
 import { parseSessionJson } from "./session-json.js";
+import { workStartTask } from "./work-start.js";
 
 export type SessionExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 export type SessionRequest = { task: string; minutes?: number; until?: string; apps: string[] };
@@ -52,7 +53,8 @@ const MEAL_OR_ACTIVITY = /\b(?:lunch|dinner|breakfast|brunch|meal|snack|coffee|e
 // With a session word ("start a focus session until 8:30 pm") only a calendar verb makes it a calendar item.
 const calendarItem = (message: string): boolean => CALENDAR_VERB.test(message) || (!SESSION_WORD.test(message) && (CLOCK_SAID.test(message) || MEAL_OR_ACTIVITY.test(message)));
 
-export const isSessionStart = (message: string): boolean => (START.test(message) || MODE_ON.test(message)) && !ruledOut(message) && !calendarItem(message);
+// "ok lets work on econ" is a start too (work-start.ts, gate foc-start-v).
+export const isSessionStart = (message: string): boolean => (START.test(message) || MODE_ON.test(message) || workStartTask(message) !== undefined) && !ruledOut(message) && !calendarItem(message);
 /** His words start a session, or the front desk read a start and nothing in his words rules one out (a calendar item does: review of efc37af). */
 export const startsSession = (message: string, hint: SessionHint = {}): boolean =>
   isSessionStart(message) || (!!hint.start && !ruledOut(message) && !calendarItem(message));
@@ -114,7 +116,8 @@ export function parseSessionRequest(message: string, hint: SessionHint = {}): Se
   // A length only he said: the desk's hint.minutes counts only when that number is in his words ("lock in, 25").
   const minutes = readMinutes(message) ?? (hint.minutes !== undefined && new RegExp(`(?<![\\d.])${hint.minutes}(?![\\d.])`).test(message) ? hint.minutes : undefined);
   const until = minutes === undefined ? readUntil(message) : undefined;
-  const task = readTask(message);
+  const said = readTask(message);
+  const task = said === DEFAULT_TASK ? workStartTask(message) ?? said : said;
   return { task: task === DEFAULT_TASK && hint.task && message.toLowerCase().includes(hint.task.toLowerCase()) ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
 }
 

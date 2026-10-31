@@ -13,6 +13,15 @@ export declare const wakeDayIsToday: (now: Date) => boolean;
 export type Which = "today" | "tomorrow";
 export declare const dayArgs: (which: Which, now: Date) => string[];
 export declare const dayWord: (which: Which, now: Date) => string;
+/**
+ A clock time he said, on the day it is for (REV4 8). "at 8" said after 8 AM today is 8 PM; a time with am/pm is kept as said. Undefined
+ when that time has already gone today: nothing is placed in elapsed time. Another day's time is kept as said.
+*/
+export declare function clockOn(at: number, meridiem: boolean | undefined, which: Which, now: Date): number | undefined;
+/** After a write: where the block called `title` now starts on the day, read back; undefined when no such block sits near `asked`. */
+export declare function placedAt(day: Day | undefined, title: string, asked: number): number | undefined;
+/** A class or a plan with people (the scheduler marks both fixed); a title "with <someone>" counts when there is no block to read. */
+export declare const isProtected: (title: string, block?: DayBlock) => boolean;
 /** The block on the day he named: the exact title, else one whose title holds every word he used ("marketing" → "MKTG2201 Marketing"). */
 export declare function blockNamed(day: Day | undefined, name: string): DayBlock | undefined;
 /** The first start in [from, to) where `minutes` fit with his five-minute buffer around every other block; undefined when none. */

@@ -59,14 +59,34 @@ export type PendingOutcome = {
     marks: string[];
     memo: Memo | null;
 };
-/** Per chat: the memo, and the outreach texts already answered here (a card push is answered once). */
+/** How long after the crisis reply a short reply is never read as answering a nudge (the normal turn and its support line have it). */
+export declare const CRISIS_HOLD_MS: number;
+/** What came before this turn in the chat: when ORION last replied here, and whether the crisis reply is still recent. */
+export type PriorTurn = {
+    lastReplyAt?: number;
+    afterCrisis: boolean;
+};
+/**
+ Per chat: the memo, when ORION last replied, and when the crisis reply went. Per state dir (every chat, across restarts): the outreach
+ already answered (pending-reply-answered.ts). Without a state dir the answered record is kept in memory only.
+*/
 export declare class PendingMemory {
     private memos;
+    private replies;
+    private crises;
     private answered;
     memo(key: string, nowMs: number): Memo | undefined;
     setMemo(key: string, memo: Memo | null): void;
-    wasAnswered(key: string, text: string, nowMs: number): boolean;
-    markAnswered(key: string, text: string, nowMs: number): void;
+    /**
+     Records this turn (ORION answers it unless it was hushed; a crisis turn starts the hold) and returns what came before it.
+     nowMs is the plugin's clock, the one outreach times are read on.
+    */
+    beginTurn(key: string, nowMs: number, turn: {
+        crisis: boolean;
+        replied: boolean;
+    }): PriorTurn;
+    wasAnswered(text: string, sentAt: number, nowMs: number, dir?: string): boolean;
+    markAnswered(text: string, sentAt: number, nowMs: number, dir?: string): void;
 }
 export type PendingInput = {
     message: string;
@@ -79,7 +99,10 @@ export type PendingInput = {
         at: string;
     } | null;
     memo?: Memo;
-    answered?: (text: string) => boolean;
+    /** Whether this outreach (its text, sent at) was already answered, in any chat. */
+    answered?: (text: string, sentAt: number) => boolean;
+    /** When ORION last replied in this chat (plugin clock, ms): an outreach sent before that is not what a short reply answers. */
+    lastReplyAt?: number;
 };
 /** The pending reply this message is, or undefined (the turn goes on unchanged). Pure. */
 export declare function readPendingTurn(input: PendingInput): PendingTurn | undefined;

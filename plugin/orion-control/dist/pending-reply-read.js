@@ -113,7 +113,7 @@ export function detailsOf(message) {
     const after = m.match(AFTER)?.[1]?.trim();
     const part = PART.find(([re]) => re.test(m))?.[1];
     const day = TOMORROW.test(m) ? "tomorrow" : TONIGHT.test(m) ? "today" : undefined;
-    const d = { ...(day ? { day } : {}), ...(part ? { part } : {}), ...(times[0] ? { at: times[0].at } : {}), ...(minutes ? { minutes } : {}), ...(after && !/^(?:that|this|it|which)$/.test(after) ? { after } : {}) };
+    const d = { ...(day ? { day } : {}), ...(part ? { part } : {}), ...(times[0] ? { at: times[0].at, meridiem: times[0].meridiem } : {}), ...(minutes ? { minutes } : {}), ...(after && !/^(?:that|this|it|which)$/.test(after) ? { after } : {}) };
     return Object.keys(d).length ? d : undefined;
 }
 const YES = /^(?:y|ya|yah|yea|yeah|yes|yep|yup|ye|ok|okay|k|kk|sure|fine|alright|aight|bet|cool|sounds good|go for it|do it|please|pls|for sure|deal|go ahead|i guess|yeah ok|ok fine|fine ok|okay fine|ight|thanks|thank you|thx|ty|got it|noted|omw|on my way|going|going now|leaving|leaving now|heading out|on it)(?: (?:then|do it|go ahead|please|pls|sure|fine|thanks|thx|orion))*$/;

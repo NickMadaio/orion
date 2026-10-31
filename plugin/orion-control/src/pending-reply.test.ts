@@ -39,16 +39,31 @@ const MON: Day = { date: "2026-11-02", now: null, blocks: [b("MKTG2201 Marketing
 const TUE: Day = { date: "2026-11-03", now: null, blocks: [b("CS2100", "09:00", "10:40", true, "class"), b("ECON1115", "11:00", "12:15", true, "class"), b("Gym", "17:00", "18:30")] };
 const STUDY_DAY: Day = { date: "2026-11-02", now: null, blocks: [b("Study for CS Midterm", "14:00", "15:30"), b("Gym", "17:00", "18:30")] };
 
+const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h! * 60 + m!; };
+const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+/** "8:35pm" / "8am" (the scheduler words pending-reply-day.ts writes) to minutes. */
+const cmdMin = (t: string) => { const [, h, m, mer] = t.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)$/) ?? []; return ((Number(h) % 12) + (mer === "pm" ? 12 : 0)) * 60 + Number(m ?? 0); };
+
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
 function harness({ now, today = MON, tomorrow = TUE, found = false, desk = {} as Record<string, Decision> }: { now: Date; today?: Day; tomorrow?: Day; found?: boolean; desk?: Record<string, Decision> }) {
   const handlers = new Map<string, Handler[]>();
   const flows: string[] = []; const checkins: string[][] = []; const sessions: string[] = []; const deskSaw: string[] = [];
+  // REV4 8: replies read times back from the calendar, so the fake scheduler writes to a calendar the reads see.
+  const days = { today, tomorrow };
+  const write = (message: string) => {
+    const add = message.match(/^add a (\d+) min (.+?)( tomorrow)? at (\S+)$/);
+    const mv = message.match(/^move (tomorrow's )?(.+?) to (\S+)$/);
+    const which = add?.[3] || mv?.[1] ? "tomorrow" : "today";
+    const day = days[which];
+    if (add) { const s = cmdMin(add[4]!); days[which] = { ...day, blocks: [...day.blocks, b(add[2]!, hhmm(s), hhmm(s + Number(add[1])))] }; }
+    if (mv) { const s = cmdMin(mv[3]!); days[which] = { ...day, blocks: day.blocks.map((x) => (x.title.toLowerCase() === mv[2]!.toLowerCase() ? { ...x, start: hhmm(s), end: hhmm(s + toMin(x.end) - toMin(x.start)) } : x)) }; }
+  };
   registerLocalRouting({ on: (name: string, fn: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) } as never, {
     warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "pr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Mon 12:00", now: () => now,
     decideImpl: async (input: { message: string }): Promise<Decision> => { deskSaw.push(input.message); return desk[input.message] ?? { move: "escalate", tier: "standard" }; },
-    scheduleFlow: async (message: string): Promise<FlowResult> => { flows.push(message); return { outcome: "done", calls: [`exec orion-reschedule (${message})`], outputs: ["Done."], marks: [`m${flows.length}`], reply: "Done." }; },
+    scheduleFlow: async (message: string): Promise<FlowResult> => { flows.push(message); write(message); return { outcome: "done", calls: [`exec orion-reschedule (${message})`], outputs: ["Done."], marks: [`m${flows.length}`], reply: "Done." }; },
     sessionFlow: async (message: string): Promise<FlowResult> => { sessions.push(message); return { outcome: "done", calls: ["exec orion-session start"], outputs: ["started"], reply: "Focus session started: CS Lab, 50 min." }; },
-    readDayJson: async (args: string[]) => (args.includes("tomorrow") ? tomorrow : today),
+    readDayJson: async (args: string[]) => (args.includes("tomorrow") ? days.tomorrow : days.today),
     checkinRun: async (args: string[]) => {
       checkins.push(args);
       if (args[0] === "find") return found ? { stdout: '{"open":true,"id":"ci-loop1"}', code: 0 } : { stdout: '{"open":false}', code: 1 };
@@ -218,8 +233,8 @@ describe("the loop closes, through the routing hooks", () => {
     expect(h.flows).toEqual(["add a 30 min nap at 12:20pm"]);
     expect(first).toMatch(/lie down.*nap at 12:20 PM.*CS2100 at 9:00 AM stays\./);
     const second = await h.turn(`${APP}i have a lot to do tho`);
-    expect(h.flows[1]).toBe("add a 60 min catch-up work at 12:20pm");   // CS2100 then ECON1115 at 11: the first free hour after class
-    expect(second).toMatch(/^It'll keep — I put 60 min of catch-up work at 12:20 PM\. Sleep now\. CS2100 at 9:00 AM stays\.$/);
+    expect(h.flows[1]).toBe("add a 60 min catch-up work at 12:55pm");   // CS2100, ECON1115 at 11, then the nap just booked at 12:20: the first free hour after them
+    expect(second).toMatch(/^It'll keep — I put 60 min of catch-up work at 12:55 PM\. Sleep now\. CS2100 at 9:00 AM stays\.$/);
   });
   it("loop-bedtime-reschedule-c: a 30 min cap with a check-back; '30 more min then bed' keeps the same one", async () => {
     const h = harness({ now: at("2026-11-03", "03:00"), today: TUE });
@@ -231,7 +246,7 @@ describe("the loop closes, through the routing hooks", () => {
   it("loop-calendar-question-reply: 'changed' offers the next free slot; 'moved to 8pm tonight' moves the block asked about", async () => {
     const h = harness({ now: at("2026-11-02", "14:30"), today: STUDY_DAY });
     expect(await h.turn(`${label(OFF_PLAN, 20)}${APP}changed`)).toBe("Okay — want Study for CS Midterm moved to 3:00 PM, or somewhere else? Say yes, or a time.");
-    expect(await h.turn(`${APP}yes`)).toBe("Done.");
+    expect(await h.turn(`${APP}yes`)).toBe("Moved Study for CS Midterm to 3:00 PM.");   // REV4 8: the time read back from the calendar
     expect(h.flows).toEqual(["move Study for CS Midterm to 3pm"]);
     const c = harness({ now: at("2026-11-02", "14:30"), today: STUDY_DAY });
     await c.turn(`${label(OFF_PLAN, 20)}${APP}moved to 8pm tonight`);

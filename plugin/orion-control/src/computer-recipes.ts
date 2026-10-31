@@ -200,8 +200,9 @@ export async function press(ctx: Ctx, clause: Extract<Clause, { kind: "click" }>
     // A click into a field is focus: reversible, and the next "type" goes there.
     ctx.progress("clicking into the text box");
     ctx.state.field = node.path;
-    if (node.center) await act(ctx, { action: "click", target: nameOf(node) || "text box", via: "click" }, () => ctx.bridge.click(b, node.center!.x, node.center!.y));
-    return { status: "ok", said: "clicked into the text box" };
+    const clicked = node.center ? await act(ctx, { action: "click", target: nameOf(node) || "text box", via: "click" }, () => ctx.bridge.click(b, node.center!.x, node.center!.y)) : false;
+    // No click landed? The next "type" still targets this field by its AX path, so say only what is true.
+    return { status: "ok", said: clicked ? "clicked into the text box" : "found the text box" };
   }
   const label = nameOf(node) || node.role.replace(/^AX/, "");
   const confirmKey = `${index}:${label}`;

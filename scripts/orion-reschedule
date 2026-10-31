@@ -340,8 +340,13 @@ const blocked = []; let add = [];
 if (["fill", "tidy"].includes(command) || (command === "day" && args.includes("--todos"))) blocked.push(...routineWalls({ dir: controlledDir(), date, existing: toBlocks(events, date) }));
 // Words keep five letters ("studying" ~ "study"), but a word with a digit is a code and stays whole:
 // cut to five, CS2101 and CS2100 were both "cs210" (2026-10-11).
+const SHORT_FILLER = new Set(["my", "the", "to", "at", "on", "in", "of", "an", "up", "go", "do", "is", "it", "me", "we", "so", "or", "by", "no", "am", "pm", "vs", "w", "pt", "hr"]);
 const sameThingEarly = (a, b) => { const w = (t) => clean(t).split(/\s+/).map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, "")).map((x) => (/\d/.test(x) ? x : x.slice(0, 5))).filter((x) => x.length >= 3);
-  const x = w(a), y = w(b); return x.length > 0 && x.every((q) => y.includes(q)); };
+  const x = w(a), y = w(b); if (!(x.length > 0 && x.every((q) => y.includes(q)))) return false;
+  // 2026-10-31 gate: words under three letters are dropped above, so "cs lab" and "DS Lab 05" were both "lab". Two titles that each
+  // carry a short qualifier (cs, ds, ml) and share none are different things.
+  const q = (t) => new Set(clean(t).toLowerCase().split(/[^a-z0-9]+/).filter((v) => /^[a-z]{2}$/.test(v) && !SHORT_FILLER.has(v)));
+  const qa = q(a), qb = q(b); return !qa.size || !qb.size || [...qa].some((v) => qb.has(v)); };
 /*
  How closely a title is the thing he named (2026-10-07). sameThingEarly drops
  words under three letters, so "CS lab" was just "lab" and matched the CS2100

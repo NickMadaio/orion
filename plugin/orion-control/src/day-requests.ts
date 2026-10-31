@@ -23,12 +23,14 @@ import { gymPushback } from "./anchor-guards.js";
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import { notBooked, refused, sideNotes, wrote, writesIn } from "./scheduler-out.js";
 import { pluginNow } from "./plugin-clock.js";
+import { readNamedWrite, runNamedWrite, type NamedWrite } from "./calendar-resolve.js";
+import { readMultiDay, runMultiDay, type MultiDayPlan } from "./calendar-days.js";
 
 export type Clause =
   | { verb: "remove"; names: string[] }
   | { verb: "add"; name: string; minutes?: number; at?: string; after?: string; fixed?: boolean; until?: string }
   | { verb: "move-after"; name: string; after?: string };
-export type DayRequest =
+export type DayRequest = DayRequestMore
   | { kind: "clauses"; clauses: Clause[]; ill: boolean; keep?: string; gymKept?: boolean }
   | { kind: "deadline"; title: string; day: string; at?: string; book: boolean; sessions: number; minutes: number }
   | { kind: "to-tomorrow"; name: string; at?: string; part?: "morning" | "afternoon" | "evening"; minutes?: number; defer: boolean }
@@ -40,6 +42,8 @@ export type DayRequest =
   | { kind: "unnamed-move"; at: string }
   /** "i skipped marketing, put 1 hour of catch up on it tomorrow evening" */
   | { kind: "catch-up"; what: string; minutes: number; day: "today" | "tomorrow"; part?: "morning" | "afternoon" | "evening" };
+// 2026-10-31 gate (clusters 3 and 9): a write on a block he names (calendar-resolve.ts), and a plan for the weekend or tomorrow (calendar-days.ts).
+export type DayRequestMore = NamedWrite | MultiDayPlan;
 
 export type RequestScript = (script: "orion-declare" | "orion-reschedule" | "orion-tasks", args: string[]) => Promise<{ stdout: string; code: number }>;
 export type RequestDeps = { run: RequestScript; readDay: () => Promise<Day | undefined>; readDayOn?: (dateArgs: string[]) => Promise<Day | undefined>; now: Date;
@@ -224,7 +228,7 @@ export function readDayRequest(message: string, now: Date = pluginNow()): DayReq
   // "can we do gym later, like after dinner?" is a request, not a question.
   const m = /^(?:(?:ok(?:ay)?|so|actually|hey|orion)[,\s]+)*(?:can|could|would)\s+(?:we|you|u)\b/.test(raw) ? raw.replace(/\?\s*$/, "") : raw;
   if (!m || QUESTION.test(m) || HYPOTHETICAL.test(m) || SOMEONE_ELSES.test(m)) return null;
-  return readClearOwned(m) ?? readCatchUp(m) ?? readDeadline(m) ?? readTomorrow(m, now) ?? readThen(m) ?? readVagueMove(m) ?? readUnnamed(m) ?? readClauses(m);
+  return readClearOwned(m) ?? readCatchUp(m) ?? readDeadline(m) ?? readTomorrow(m, now) ?? readThen(m) ?? readVagueMove(m) ?? readUnnamed(m) ?? readNamedWrite(m) ?? readMultiDay(m) ?? readClauses(m);
 }
 
 // ---- carrying out ----
@@ -560,6 +564,8 @@ async function runCatchUp(r: Extract<DayRequest, { kind: "catch-up" }>, deps: Re
 
 /** Carries a day request out with fixed scheduler calls; the reply is built from what the scripts printed. */
 export async function runDayRequest(r: DayRequest, deps: RequestDeps): Promise<RequestOutcome> {
+  if (r.kind === "named-write") return runNamedWrite(r, deps);
+  if (r.kind === "multi-day") return runMultiDay(r, deps);
   if (r.kind === "vague-move") return runVagueMove(r, deps);
   if (r.kind === "unnamed-move") return runUnnamedMove(r, deps);
   if (r.kind === "catch-up") return runCatchUp(r, deps);

@@ -110,6 +110,7 @@ enum UIRender {
         facts.readings = BriefFacts.Readings(recovery: 71, sleepPerformance: 84, sleepHours: 7.6, hrvDelta: "+6",
                                              restingHeartRate: 52, strainTarget: StrainTarget.forRecovery(71))
         facts.committedMinutes = 210
+        facts.signal = PlanningSignal.derive(recovery: 71, sleepPerformance: 84, sleepHours: 7.6, strain: 8, sampleCount: 7, readingAgeHours: 1)
         facts.calendarConnected = true
         facts.tasksConnected = true
         return facts

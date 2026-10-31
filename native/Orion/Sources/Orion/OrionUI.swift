@@ -145,21 +145,21 @@ struct OrionTile<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            if let accent {
-                Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [accent.opacity(0.85), accent.opacity(0.05)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .frame(width: 2)
+        VStack(alignment: .leading, spacing: spacing) { content }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, accent == nil ? 0 : 16)
+            // An overlay rather than an HStack sibling: a bare Capsule in an
+            // HStack is greedy, so it either stretched the tile to fill its
+            // column or collapsed to a stub inside a ScrollView. As an overlay
+            // it is exactly as tall as the content it leads.
+            .overlay(alignment: .leading) {
+                if let accent {
+                    Capsule()
+                        .fill(LinearGradient(colors: [accent.opacity(0.85), accent.opacity(0.05)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(width: 2)
+                }
             }
-            VStack(alignment: .leading, spacing: spacing) { content }
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
         // Horizontal padding is dropped: with no plate behind it, an inset only
         // pushes the content off the column edge it should share with its
         // neighbours. Vertical padding stays as air above and below.

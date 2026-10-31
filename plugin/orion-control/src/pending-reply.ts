@@ -12,6 +12,11 @@
  orion-checkin (defer / started / close on the ONE loop it belongs to, or a new check-in when there is none: never a second ladder),
  the focus-session flow, and a read of the day. Every reply is built from those results. With no pending outreach, nothing happens.
 
+ REV4 (2026-10-31): nothing is bound within 30 min of the crisis reply, or to an outreach older than ORION's last reply in this chat (a
+ question asked in chat beats an older push); an outreach answered in any chat is recorded in the state dir (pending-answered.json). In
+ pending-reply-act.ts a decline never writes, a class or a plan with people moves only when he names it, a time already gone is refused,
+ and every reply about a time says what the calendar shows after the write.
+
  Also: a voice turn that finishes a cut-off one ("(Continuing — my last message was cut off …)") is read as the whole request
  (continuationOf), the joined text when the app sends only the rest, or the full text when the marker carries it.
 */
@@ -20,6 +25,7 @@ import type { ToolResult } from "./work-check.js";
 import type { Outreach } from "./outreach-reply.js";
 import { HUSH, REQUEST, offerOf, pauseThenStart, readReply, type Offer, type Reply } from "./pending-reply-read.js";
 import { runTurn } from "./pending-reply-act.js";
+import { answeredIn, readAnswered, withAnswered, writeAnswered, type AnsweredRow } from "./pending-reply-answered.js";
 
 export { offerOf, readReply } from "./pending-reply-read.js";
 
@@ -70,14 +76,42 @@ const MEMO_TAKES: Record<Memo["kind"], ReadonlyArray<Reply["kind"]>> = {
   "move-offer": ["accept", "counter", "decline"],
 };
 
-/** Per chat: the memo, and the outreach texts already answered here (a card push is answered once). */
+/** How long after the crisis reply a short reply is never read as answering a nudge (the normal turn and its support line have it). */
+export const CRISIS_HOLD_MS = 30 * 60_000;
+
+/** What came before this turn in the chat: when ORION last replied here, and whether the crisis reply is still recent. */
+export type PriorTurn = { lastReplyAt?: number; afterCrisis: boolean };
+
+/**
+ Per chat: the memo, when ORION last replied, and when the crisis reply went. Per state dir (every chat, across restarts): the outreach
+ already answered (pending-reply-answered.ts). Without a state dir the answered record is kept in memory only.
+*/
 export class PendingMemory {
   private memos = new Map<string, Memo>();
-  private answered = new Map<string, Array<{ text: string; at: number }>>();
+  private replies = new Map<string, number>();
+  private crises = new Map<string, number>();
+  private answered: AnsweredRow[] = [];
   memo(key: string, nowMs: number): Memo | undefined { const m = this.memos.get(key); return m && nowMs - m.at < MEMO_MS ? m : undefined; }
   setMemo(key: string, memo: Memo | null): void { if (memo) this.memos.set(key, memo); else this.memos.delete(key); }
-  wasAnswered(key: string, text: string, nowMs: number): boolean { return (this.answered.get(key) ?? []).some((a) => a.text === text && nowMs - a.at < 6 * 3600_000); }
-  markAnswered(key: string, text: string, nowMs: number): void { this.answered.set(key, [...(this.answered.get(key) ?? []).filter((a) => nowMs - a.at < 6 * 3600_000), { text, at: nowMs }].slice(-20)); }
+  /**
+   Records this turn (ORION answers it unless it was hushed; a crisis turn starts the hold) and returns what came before it.
+   nowMs is the plugin's clock, the one outreach times are read on.
+  */
+  beginTurn(key: string, nowMs: number, turn: { crisis: boolean; replied: boolean }): PriorTurn {
+    const lastReplyAt = this.replies.get(key);
+    const crisisAt = this.crises.get(key);
+    const afterCrisis = turn.crisis || (crisisAt !== undefined && nowMs - crisisAt >= 0 && nowMs - crisisAt < CRISIS_HOLD_MS);
+    if (turn.crisis) this.crises.set(key, nowMs);
+    if (turn.replied) this.replies.set(key, nowMs);
+    return { ...(lastReplyAt !== undefined ? { lastReplyAt } : {}), afterCrisis };
+  }
+  wasAnswered(text: string, sentAt: number, nowMs: number, dir?: string): boolean {
+    return answeredIn(dir ? readAnswered(dir) : this.answered, text, sentAt, nowMs) || answeredIn(this.answered, text, sentAt, nowMs);
+  }
+  markAnswered(text: string, sentAt: number, nowMs: number, dir?: string): void {
+    this.answered = withAnswered(this.answered, text, sentAt, nowMs);
+    if (dir) writeAnswered(dir, withAnswered(readAnswered(dir), text, sentAt, nowMs));
+  }
 }
 
 export type PendingInput = {
@@ -87,7 +121,10 @@ export type PendingInput = {
   /** The last message ORION sent (outreach.jsonl via the state card), for a reply that came with no label. */
   lastPush?: { text: string; at: string } | null;
   memo?: Memo;
-  answered?: (text: string) => boolean;
+  /** Whether this outreach (its text, sent at) was already answered, in any chat. */
+  answered?: (text: string, sentAt: number) => boolean;
+  /** When ORION last replied in this chat (plugin clock, ms): an outreach sent before that is not what a short reply answers. */
+  lastReplyAt?: number;
 };
 
 const QUESTION_KINDS: ReadonlyArray<Offer["kind"]> = ["catchup", "plan-check", "brief", "slipped"];
@@ -119,9 +156,11 @@ export function readPendingTurn(input: PendingInput): PendingTurn | undefined {
   if (reply.kind !== "counter" && REQUEST.test(message.toLowerCase())) return undefined;
   if (memo && MEMO_TAKES[memo.kind].includes(reply.kind) && !ownRequest(message, reply, memoNames(memo))) return { said, reply, memo };
   const fromLabel = outreach ? { text: outreach.text, at: now.getTime() - outreach.minutes * 60_000 } : undefined;
-  const push = !fromLabel && lastPush && !input.answered?.(lastPush.text) ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
+  const push = !fromLabel && lastPush ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
   const source = fromLabel ?? push;
-  if (!source || Number.isNaN(source.at)) return undefined;
+  if (!source || Number.isNaN(source.at) || input.answered?.(source.text, source.at)) return undefined;
+  // ORION spoke in this chat after the outreach went: his reply answers that turn (a question asked in chat beats an older push).
+  if (input.lastReplyAt !== undefined && source.at <= input.lastReplyAt) return undefined;
   const offer = offerOf(source.text);
   if (!offer || !OFFER_TAKES[offer.kind].includes(reply.kind)) return undefined;
   if (offer.kind === "start" && reply.kind === "counter" && CHANGE_VERB.test(message)) return undefined;   // "move gym to 8" is the calendar's

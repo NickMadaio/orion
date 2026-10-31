@@ -25,11 +25,12 @@ export type Offer = {
     title: string;
 };
 export type Part = "morning" | "afternoon" | "evening";
-/** What a counter-offer names: a day, a part of it, a clock time (minutes after midnight), a length, a block to follow. */
+/** What a counter-offer names: a day, a part of it, a clock time (minutes after midnight; meridiem when he said am/pm or a 24-hour time), a length, a block to follow. */
 export type Details = {
     day?: "today" | "tomorrow";
     part?: Part;
     at?: number;
+    meridiem?: boolean;
     minutes?: number;
     after?: string;
 };

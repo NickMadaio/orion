@@ -13,6 +13,28 @@ export const LATE_NIGHT = 5;
 export const wakeDayIsToday = (now) => now.getHours() < LATE_NIGHT;
 export const dayArgs = (which, now) => (which === "tomorrow" && !wakeDayIsToday(now) ? ["--date", "tomorrow"] : []);
 export const dayWord = (which, now) => (which === "tomorrow" && !wakeDayIsToday(now) ? " tomorrow" : "");
+/**
+ A clock time he said, on the day it is for (REV4 8). "at 8" said after 8 AM today is 8 PM; a time with am/pm is kept as said. Undefined
+ when that time has already gone today: nothing is placed in elapsed time. Another day's time is kept as said.
+*/
+export function clockOn(at, meridiem, which, now) {
+    const nowMin = nowMinOf(now);
+    if (which === "tomorrow" && !wakeDayIsToday(now))
+        return at;
+    const t = !meridiem && at < 12 * 60 && at <= nowMin && at + 12 * 60 > nowMin ? at + 12 * 60 : at;
+    return t > nowMin ? t : undefined;
+}
+/** How far (minutes) the calendar's start may sit from the one asked for and still be the block just written. */
+const READ_BACK_MIN = 30;
+/** After a write: where the block called `title` now starts on the day, read back; undefined when no such block sits near `asked`. */
+export function placedAt(day, title, asked) {
+    const want = norm(title);
+    const near = (day?.blocks ?? []).filter((b) => (norm(b.title) === want || norm(b.title).includes(want)) && Math.abs(toMin(b.start) - asked) <= READ_BACK_MIN)
+        .sort((a, b) => Math.abs(toMin(a.start) - asked) - Math.abs(toMin(b.start) - asked));
+    return near[0] ? toMin(near[0].start) : undefined;
+}
+/** A class or a plan with people (the scheduler marks both fixed); a title "with <someone>" counts when there is no block to read. */
+export const isProtected = (title, block) => !!block?.fixed || block?.kind === "class" || /\bwith\s+(?!me\b|myself\b)[a-z]/i.test(title);
 const isSleep = (b) => b.kind === "sleep" || /^sleep\b/i.test(b.title);
 const norm = (s) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 /** The block on the day he named: the exact title, else one whose title holds every word he used ("marketing" → "MKTG2201 Marketing"). */

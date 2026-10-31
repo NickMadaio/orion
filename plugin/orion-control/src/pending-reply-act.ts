@@ -8,9 +8,18 @@ import type { ToolResult } from "./work-check.js";
 import type { Memo, PendingDeps, PendingOutcome, PendingTurn } from "./pending-reply.js";
 import { clockTimes, type Details, type Offer, type Reply } from "./pending-reply-read.js";
 import {
-  DAY_END, addCommand, blockNamed, dayArgs, dayWord, firstFixed, flowText, flowWrote, freeSlot, h12, moveCommand, nowAndNext, nowMinOf,
-  safeTitle, toMin, wakeDayIsToday, type Which,
+  DAY_END, addCommand, blockNamed, clockOn, dayArgs, dayWord, firstFixed, flowText, flowWrote, freeSlot, h12, isProtected, moveCommand, nowAndNext,
+  nowMinOf, placedAt, safeTitle, toMin, wakeDayIsToday, type Which,
 } from "./pending-reply-day.js";
+import { namesBlock } from "./anchor-write-guard.js";
+
+/** He said a time that has already gone today: nothing is written. */
+const PAST_LINE = "That time's already gone today, so nothing changed. Give me a later one.";
+/** The write went through but the calendar does not show the block where it was asked for: no time is claimed. */
+const unseen = (title: string): string => `The calendar took the change, but I can't see ${title} where I asked for it, so check it before you count on the time.`;
+/** His own words name this block (a class or a plan with people moves only then). */
+const named = (said: string | undefined, title: string): boolean => !!said && namesBlock(said, { title, start: "00:00", end: "00:00", fixed: true });
+const PROTECTED_LINE = (title: string): string => `${title} is a class or a plan with people, so I won't move or rebook it on a guess. Tell me what to do with it, by name, and I will.`;
 
 type Acc = { tools: ToolResult[]; marks: string[]; wrote: boolean };
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
@@ -60,6 +69,10 @@ class Ctx {
     const made = out.stdout.match(/\b(ci-[0-9a-f]+)\b/)?.[1];
     return made ? { at: this.nowMin + minutes, id: made } : { at: this.nowMin + minutes };
   }
+  /** After a write: the start the calendar now shows for `title` (REV4 8: a reply about a time says the calendar's time, not the asked one). */
+  async readBack(which: Which, title: string, asked: number): Promise<number | undefined> {
+    return placedAt(await this.day(which), title, asked);
+  }
   done(text: string, memo: Memo | null): PendingOutcome {
     const calls = this.acc.tools.map((t) => t.canonical); const outputs = this.acc.tools.map((t) => t.stdout);
     const flow: FlowResult = this.acc.wrote ? { outcome: "done", calls, outputs, marks: this.acc.marks, reply: text } : { outcome: "say", kind: "plain", text, ...(calls.length ? { calls, outputs } : {}) };
@@ -73,7 +86,8 @@ const GYMLIKE = /\b(?:gym|workout|work out|lift|lifting|run|running|swim|trainin
 const RETURNING: Record<string, string> = { eating: "you ate", cooking: "food's done", "a shower": "you showered", "the call": "the call's done", "the bathroom": "you're back", laundry: "laundry's sorted" };
 
 /** A slot on the day he named (or the first that has room): today from now, else tomorrow in his waking hours. */
-async function slotFor(c: Ctx, minutes: number, d: Details = {}, title?: string): Promise<{ which: Which; start: number; skip?: boolean } | undefined> {
+type Slot = { which: Which; start: number } | { which: Which; past: true };
+async function slotFor(c: Ctx, minutes: number, d: Details = {}, title?: string): Promise<Slot | undefined> {
   const order: Which[] = d.day ? [d.day] : ["today", "tomorrow"];
   for (const which of order) {
     const day = await c.day(which);
@@ -82,7 +96,7 @@ async function slotFor(c: Ctx, minutes: number, d: Details = {}, title?: string)
     const range = d.part === "morning" ? [MORNING, 12 * 60] : d.part === "afternoon" ? [12 * 60, 17 * 60] : d.part === "evening" ? [17 * 60, DAY_END] : [earliest, DAY_END];
     const from = Math.max(range[0]!, earliest);
     const own = title ? blockNamed(day, title) : undefined;
-    if (d.at !== undefined) return { which, start: d.at };
+    if (d.at !== undefined) { const t = clockOn(d.at, d.meridiem, which, c.now); return t === undefined ? { which, past: true } : { which, start: t }; }
     if (d.after) {
       const anchor = blockNamed(day, d.after);
       if (anchor) return { which, start: toMin(anchor.end) + 5 };
@@ -98,8 +112,9 @@ async function slotFor(c: Ctx, minutes: number, d: Details = {}, title?: string)
 
 async function start(c: Ctx, title: string, r: Reply): Promise<PendingOutcome | undefined> {
   if (r.kind === "counter") {
-    if (r.details.at === undefined || r.details.day === "tomorrow" || r.details.at <= c.nowMin) return undefined;
-    return start(c, title, { kind: "defer", minutes: r.details.at - c.nowMin });
+    const at = r.details.at === undefined || r.details.day === "tomorrow" ? undefined : clockOn(r.details.at, r.details.meridiem, "today", c.now);
+    if (at === undefined) return undefined;
+    return start(c, title, { kind: "defer", minutes: at - c.nowMin });
   }
   if (r.kind === "defer" || r.kind === "awake") {
     const activity = r.activity;
@@ -160,7 +175,11 @@ async function bedtime(c: Ctx, r: Reply, memo?: Extract<Memo, { kind: "bedtime" 
     const start = freeSlot(wake, 30, Math.max(from, 12 * 60), 18 * 60);
     if (start === undefined) return "";
     const flow = await c.schedule(addCommand("nap", 30, "tomorrow", start, c.now));
-    if (flowWrote(flow)) { napped = true; return ` I put a 30 min nap at ${h12(start)}${when} so the short night doesn't wreck the day.`; }
+    if (flowWrote(flow)) {
+      napped = true;
+      const seen = await c.readBack("tomorrow", "nap", start);
+      return seen === undefined ? ` ${unseen("the nap")}` : ` I put a 30 min nap at ${h12(seen)}${when} so the short night doesn't wreck the day.`;
+    }
     return "";
   };
   const memoOut = (extra: Partial<Extract<Memo, { kind: "bedtime" }>> = {}): Memo => ({ kind: "bedtime", at: c.now.getTime(), ...(memo?.checkinId ? { checkinId: memo.checkinId } : {}), ...(memo?.checkinAt !== undefined ? { checkinAt: memo.checkinAt } : {}), napped, ...extra });
@@ -170,8 +189,10 @@ async function bedtime(c: Ctx, r: Reply, memo?: Extract<Memo, { kind: "bedtime" 
     if (start === undefined) return c.done(`It'll keep till tomorrow — sleep matters more tonight.${anchorLine} Tell me what's due and I'll find it a slot.`, memoOut());
     const flow = await c.schedule(addCommand("catch-up work", 60, "tomorrow", start, c.now));
     if (!flowWrote(flow)) return c.done(`${flowText(flow) ?? "I couldn't book the catch-up just now."} Either way, it keeps till tomorrow — sleep now.`, memoOut());
-    const right = anchor && start === toMin(anchor.end) + 5 ? `, right after ${anchor.title}` : "";
-    return c.done(`It'll keep — I put 60 min of catch-up work at ${h12(start)}${when}${right}. Sleep now.${anchorLine}`, memoOut());
+    const seen = await c.readBack("tomorrow", "catch-up work", start);
+    if (seen === undefined) return c.done(`${unseen("the catch-up work")} Either way, it keeps till tomorrow — sleep now.`, memoOut());
+    const right = anchor && seen === toMin(anchor.end) + 5 ? `, right after ${anchor.title}` : "";
+    return c.done(`It'll keep — I put 60 min of catch-up work at ${h12(seen)}${when}${right}. Sleep now.${anchorLine}`, memoOut());
   }
   if (r.kind === "awake" && r.sleepless && !r.activity && r.minutes === undefined) {
     const napLine = await nap();
@@ -201,23 +222,32 @@ async function catchup(c: Ctx, o: Extract<Offer, { kind: "catchup" }>, r: Reply)
   const minutes = d.minutes ?? 60;
   const slot = await slotFor(c, minutes, d.after && !d.day ? { ...d, day: "tomorrow" } : d);
   if (!slot) return c.done(`I couldn't find a free ${minutes} min ${d.day ?? "today or tomorrow"}${d.after ? ` after ${d.after}` : ""}. Give me a time and I'll book ${title} there.`, null);
+  if ("past" in slot) return c.done(PAST_LINE, null);
   const flow = await c.schedule(addCommand(title, minutes, slot.which, slot.start, c.now));
   if (!flowWrote(flow)) return c.done(flowText(flow) ?? `I couldn't book ${title} just now, so nothing changed.`, null);
+  const seen = await c.readBack(slot.which, title, slot.start);
+  if (seen === undefined) return c.done(unseen(title), null);
   const picked = r.kind === "counter" ? "" : ` — I picked the first free ${minutes === 60 ? "hour" : `${minutes} min`}; say a time if you want it elsewhere`;
-  return c.done(`Booked ${title}: ${h12(slot.start)}${dayWord(slot.which, c.now) || " today"}, ${minutes} min${picked}.`, { kind: "booked", title, when: `${h12(slot.start)}${dayWord(slot.which, c.now)}`, at: c.now.getTime() });
+  return c.done(`Booked ${title}: ${h12(seen)}${dayWord(slot.which, c.now) || " today"}, ${minutes} min${picked}.`, { kind: "booked", title, when: `${h12(seen)}${dayWord(slot.which, c.now)}`, at: c.now.getTime() });
 }
 
 async function slipped(c: Ctx, title: string, r: Reply): Promise<PendingOutcome | undefined> {
+  // REV4 9: a decline never writes; a class or a plan with people is rebooked only when he names it.
+  if (r.kind === "decline") return c.done(`Okay, leaving ${title} for now; nothing changed. Give me a time if you want it back in.`, null);
+  if (isProtected(title, blockNamed(await c.day("today"), title)) && !named(c.turn.said, title)) return c.done(PROTECTED_LINE(cap(title)), null);
   const d = r.kind === "counter" ? r.details : undefined;
-  const tomorrowMorning = r.kind === "decline" || (d && (d.day === "tomorrow" || d.part === "morning"));
-  if (!tomorrowMorning) {
+  const name = safeTitle(title, "gym");
+  if (!d || !(d.day === "tomorrow" || d.part === "morning")) {
     const minutes = d?.minutes ?? 30;
-    const slot = await slotFor(c, minutes, d?.at !== undefined ? { day: "today", at: d.at } : { day: "today" });
+    const slot = await slotFor(c, minutes, d?.at !== undefined ? { day: "today", at: d.at, ...(d.meridiem !== undefined ? { meridiem: d.meridiem } : {}) } : { day: "today" });
+    if (slot && "past" in slot) return c.done(PAST_LINE, null);
     if (slot) {
-      const flow = await c.schedule(addCommand(safeTitle(title, "gym"), minutes, "today", slot.start, c.now));
+      const flow = await c.schedule(addCommand(name, minutes, "today", slot.start, c.now));
       if (flowWrote(flow)) {
+        const seen = await c.readBack("today", name, slot.start);
+        if (seen === undefined) return c.done(unseen(title), null);
         const lead = d ? "Done" : `${cap(title)} isn't optional`;
-        return c.done(`${lead} — I put a ${minutes} min ${title} at ${h12(slot.start)} tonight.${d ? "" : " Rather do it first thing tomorrow? Say so and I'll move it."}`, { kind: "booked", title, when: `at ${h12(slot.start)} tonight`, at: c.now.getTime() });
+        return c.done(`${lead} — I put a ${minutes} min ${title} at ${h12(seen)} tonight.${d ? "" : " Rather do it first thing tomorrow? Say so and I'll move it."}`, { kind: "booked", title, when: `at ${h12(seen)} tonight`, at: c.now.getTime() });
       }
       if (d) return c.done(flowText(flow) ?? `I couldn't book ${title} just now, so nothing changed.`, null);
     }
@@ -225,12 +255,16 @@ async function slipped(c: Ctx, title: string, r: Reply): Promise<PendingOutcome 
   const day = await c.day("tomorrow");
   const own = blockNamed(day, title);
   const length = own ? toMin(own.end) - toMin(own.start) : 90;
-  const start = d?.at !== undefined ? d.at : freeSlot(day, length, MORNING, 12 * 60, own);
+  const said = d?.at !== undefined ? clockOn(d.at, d.meridiem, "tomorrow", c.now) : undefined;
+  if (d?.at !== undefined && said === undefined) return c.done(PAST_LINE, null);
+  const start = said ?? freeSlot(day, length, wakeDayIsToday(c.now) ? Math.max(MORNING, c.nowMin + 15) : MORNING, 12 * 60, own);
   if (start === undefined) return c.done(`Tomorrow morning is full before noon, so I couldn't fit ${title} there. Give me a time and I'll book it.`, null);
-  const flow = await c.schedule(own ? moveCommand(safeTitle(title, "gym"), "tomorrow", start, c.now) : addCommand(safeTitle(title, "gym"), length, "tomorrow", start, c.now));
+  const flow = await c.schedule(own ? moveCommand(name, "tomorrow", start, c.now) : addCommand(name, length, "tomorrow", start, c.now));
   if (!flowWrote(flow)) return c.done(flowText(flow) ?? `I couldn't book ${title} tomorrow just now, so nothing changed.`, null);
+  const seen = await c.readBack("tomorrow", name, start);
+  if (seen === undefined) return c.done(unseen(title), null);
   const lead = d ? "Booked" : `${cap(title)} isn't optional, so it's booked`;
-  return c.done(`${lead}: ${title} tomorrow at ${h12(start)}${own ? " (moved from its usual slot)" : ""}. Today's slipped; I'll check in when tomorrow's starts.`, { kind: "booked", title, when: `tomorrow at ${h12(start)}`, at: c.now.getTime() });
+  return c.done(`${lead}: ${title} tomorrow at ${h12(seen)}${own ? " (moved from its usual slot)" : ""}. Today's slipped; I'll check in when tomorrow's starts.`, { kind: "booked", title, when: `tomorrow at ${h12(seen)}`, at: c.now.getTime() });
 }
 
 const KEYWORD_SKIP = /^(?:finish|finishing|do|get|the|and|for|my|your|student|start|work|on)$/i;
@@ -249,7 +283,7 @@ async function brief(c: Ctx, items: string[], r: Reply, fromMemo: boolean): Prom
     const idx = keys.map((k) => said.indexOf(k)).filter((i) => i >= 0);
     return { item, index: idx.length ? Math.min(...idx) : -1 };
   });
-  const booked: string[] = []; const failed: string[] = [];
+  const booked: string[] = []; const failed: string[] = []; const written: Array<{ item: string; title: string; at: number }> = [];
   let cursor = c.nowMin + 15;
   const today = r.kind === "counter" ? undefined : await c.day("today");
   for (const p of places) {
@@ -260,13 +294,22 @@ async function brief(c: Ctx, items: string[], r: Reply, fromMemo: boolean): Prom
       const t = times.find((x) => x.index > p.index && x.index < nextIdx) ?? times.find((x) => x.index < p.index && !places.some((y) => y.index > x.index && y.index < p.index));
       if (!t) continue;
       at = !t.meridiem && t.at < 8 * 60 ? t.at + 12 * 60 : t.at;
+      if (at <= c.nowMin) { failed.push(`${p.item} (that time's already gone today)`); continue; }
     } else {
       at = freeSlot(today, 45, cursor, DAY_END);
       if (at === undefined) { failed.push(p.item); continue; }
     }
     const title = safeTitle(p.item, p.item);
     const flow = await c.schedule(addCommand(title, 45, "today", at, c.now));
-    if (flowWrote(flow)) { booked.push(`${p.item} at ${h12(at)}`); cursor = at + 50; } else failed.push(`${p.item}${flowText(flow) ? ` (${flowText(flow)})` : ""}`);
+    if (!flowWrote(flow)) { failed.push(`${p.item}${flowText(flow) ? ` (${flowText(flow)})` : ""}`); continue; }
+    written.push({ item: p.item, title, at });
+    cursor = at + 50;
+  }
+  const after = written.length ? await c.day("today") : undefined;
+  for (const w of written) {
+    const seen = placedAt(after, w.title, w.at);
+    if (seen === undefined) failed.push(`${w.item} (the calendar took it, but I can't see it at the time I asked, so check it)`);
+    else booked.push(`${w.item} at ${h12(seen)}`);
   }
   if (!booked.length && !failed.length) return undefined;   // his words named none of the items: a request of his own, not this answer
   const okLine = booked.length ? `Booked today: ${booked.join(", ")} (45 min each — say if one needs longer).` : "";
@@ -287,9 +330,11 @@ async function whatsNext(c: Ctx, staleNext?: string): Promise<PendingOutcome> {
 
 async function planCheck(c: Ctx, title: string, r: Reply): Promise<PendingOutcome | undefined> {
   if (r.kind === "accept") return c.done(`Good — leaving ${title} where it is.`, null);
-  if (r.kind === "counter") return moveTo(c, title, r.details);
   const day = await c.day("today");
   const block = blockNamed(day, title);
+  // REV4 9: a class or a plan with people moves only when his own words name it (never on "yes" to a move ORION offered).
+  if (isProtected(title, block) && !(r.kind === "counter" && named(c.turn.said, title))) return c.done(PROTECTED_LINE(block?.title ?? cap(title)), null);
+  if (r.kind === "counter") return moveTo(c, block?.title ?? title, r.details);
   if (!block) return c.done(`Okay. Should ${title} move or come off today? Give me a time and I'll move it.`, null);
   const length = toMin(block.end) - toMin(block.start);
   const start = freeSlot(day, length, c.nowMin + 30, DAY_END, block);   // plans changed: not the next ten minutes
@@ -300,9 +345,13 @@ async function planCheck(c: Ctx, title: string, r: Reply): Promise<PendingOutcom
 async function moveTo(c: Ctx, title: string, d: Details): Promise<PendingOutcome | undefined> {
   if (d.at === undefined) return c.done(`When${d.day === "tomorrow" ? " tomorrow" : ""}? Give me a time and I'll move ${title} there.`, null);
   const which: Which = d.day === "tomorrow" ? "tomorrow" : "today";
-  const at = which === "today" && d.at < 12 * 60 && d.at + 12 * 60 > c.nowMin && d.at <= c.nowMin ? d.at + 12 * 60 : d.at;
+  const at = clockOn(d.at, d.meridiem, which, c.now);
+  if (at === undefined) return c.done(PAST_LINE, null);
   const flow = await c.schedule(moveCommand(title, which, at, c.now));
-  return c.done(flowText(flow) ?? `I couldn't move ${title} just now, so nothing changed.`, null);
+  if (!flowWrote(flow)) return c.done(flowText(flow) ?? `I couldn't move ${title} just now, so nothing changed.`, null);
+  const seen = await c.readBack(which, title, at);
+  if (seen === undefined) return c.done(unseen(title), null);
+  return c.done(`Moved ${title} to ${h12(seen)}${dayWord(which, c.now)}.`, null);
 }
 
 // ---------------------------------------------------------------- dispatch
@@ -321,7 +370,7 @@ export async function runTurn(turn: PendingTurn, deps: PendingDeps): Promise<Pen
       case "move-offer":
         if (r.kind === "decline") return c.done(`Okay, leaving ${m.title} as it is.`, null);
         if (r.kind === "counter") return moveTo(c, m.title, r.details);
-        return moveTo(c, m.title, { at: m.to, day: m.which });
+        return moveTo(c, m.title, { at: m.to, meridiem: true, day: m.which });
     }
   }
   const o = turn.offer;

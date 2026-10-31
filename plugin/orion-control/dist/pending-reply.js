@@ -1,5 +1,6 @@
 import { HUSH, REQUEST, offerOf, pauseThenStart, readReply } from "./pending-reply-read.js";
 import { runTurn } from "./pending-reply-act.js";
+import { answeredIn, readAnswered, withAnswered, writeAnswered } from "./pending-reply-answered.js";
 export { offerOf, readReply } from "./pending-reply-read.js";
 const MEMO_MS = 60 * 60_000;
 /** How long after ORION's own message a short reply is read as answering it, when the app sent no label (the state card's last push). */
@@ -24,17 +25,44 @@ const MEMO_TAKES = {
     next: ["next", "accept"],
     "move-offer": ["accept", "counter", "decline"],
 };
-/** Per chat: the memo, and the outreach texts already answered here (a card push is answered once). */
+/** How long after the crisis reply a short reply is never read as answering a nudge (the normal turn and its support line have it). */
+export const CRISIS_HOLD_MS = 30 * 60_000;
+/**
+ Per chat: the memo, when ORION last replied, and when the crisis reply went. Per state dir (every chat, across restarts): the outreach
+ already answered (pending-reply-answered.ts). Without a state dir the answered record is kept in memory only.
+*/
 export class PendingMemory {
     memos = new Map();
-    answered = new Map();
+    replies = new Map();
+    crises = new Map();
+    answered = [];
     memo(key, nowMs) { const m = this.memos.get(key); return m && nowMs - m.at < MEMO_MS ? m : undefined; }
     setMemo(key, memo) { if (memo)
         this.memos.set(key, memo);
     else
         this.memos.delete(key); }
-    wasAnswered(key, text, nowMs) { return (this.answered.get(key) ?? []).some((a) => a.text === text && nowMs - a.at < 6 * 3600_000); }
-    markAnswered(key, text, nowMs) { this.answered.set(key, [...(this.answered.get(key) ?? []).filter((a) => nowMs - a.at < 6 * 3600_000), { text, at: nowMs }].slice(-20)); }
+    /**
+     Records this turn (ORION answers it unless it was hushed; a crisis turn starts the hold) and returns what came before it.
+     nowMs is the plugin's clock, the one outreach times are read on.
+    */
+    beginTurn(key, nowMs, turn) {
+        const lastReplyAt = this.replies.get(key);
+        const crisisAt = this.crises.get(key);
+        const afterCrisis = turn.crisis || (crisisAt !== undefined && nowMs - crisisAt >= 0 && nowMs - crisisAt < CRISIS_HOLD_MS);
+        if (turn.crisis)
+            this.crises.set(key, nowMs);
+        if (turn.replied)
+            this.replies.set(key, nowMs);
+        return { ...(lastReplyAt !== undefined ? { lastReplyAt } : {}), afterCrisis };
+    }
+    wasAnswered(text, sentAt, nowMs, dir) {
+        return answeredIn(dir ? readAnswered(dir) : this.answered, text, sentAt, nowMs) || answeredIn(this.answered, text, sentAt, nowMs);
+    }
+    markAnswered(text, sentAt, nowMs, dir) {
+        this.answered = withAnswered(this.answered, text, sentAt, nowMs);
+        if (dir)
+            writeAnswered(dir, withAnswered(readAnswered(dir), text, sentAt, nowMs));
+    }
 }
 const QUESTION_KINDS = ["catchup", "plan-check", "brief", "slipped"];
 const CHANGE_VERB = /\b(?:move|add|put|book|schedule|cancel|drop|remind|set|start|text|email|play|clear|delete|remove)\s+(?:me\s+)?(?:in\s+)?(?:my\s+|the\s+|a\s+|an\s+|some\s+)?([a-z0-9']+)/i;
@@ -68,9 +96,12 @@ export function readPendingTurn(input) {
     if (memo && MEMO_TAKES[memo.kind].includes(reply.kind) && !ownRequest(message, reply, memoNames(memo)))
         return { said, reply, memo };
     const fromLabel = outreach ? { text: outreach.text, at: now.getTime() - outreach.minutes * 60_000 } : undefined;
-    const push = !fromLabel && lastPush && !input.answered?.(lastPush.text) ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
+    const push = !fromLabel && lastPush ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
     const source = fromLabel ?? push;
-    if (!source || Number.isNaN(source.at))
+    if (!source || Number.isNaN(source.at) || input.answered?.(source.text, source.at))
+        return undefined;
+    // ORION spoke in this chat after the outreach went: his reply answers that turn (a question asked in chat beats an older push).
+    if (input.lastReplyAt !== undefined && source.at <= input.lastReplyAt)
         return undefined;
     const offer = offerOf(source.text);
     if (!offer || !OFFER_TAKES[offer.kind].includes(reply.kind))

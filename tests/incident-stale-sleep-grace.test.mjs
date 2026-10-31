@@ -50,18 +50,22 @@ test("3: orion-checkin drops yesterday's gym at 09:25 and at midnight instead of
   }
 });
 
-test("3: an old loop with no window (made yesterday) is dropped at midnight; one whose block is over is dropped the same day", () => {
+test("3: an old loop with no window (made yesterday) is dropped at midnight; one whose block is over gets ONE closing message the same day (2026-10-30)", () => {
   const old = planCheckin("ci-old", "Gym", "cal-4", { createdAt: at(18, 21, 0).toISOString(), nextCheckAt: mins(at(18, 21, 0)) });
   const over = planCheckin("ci-over", "Gym", "cal-5", { createdAt: at(19, 17, 13).toISOString(), nextCheckAt: mins(at(19, 17, 13)), blockWindow: { date: "2026-10-19", start: 1028, end: 1118 } });
   const w = world({ day: 19, checkins: [old, over] });
   const reach = w.bin("fake-reach", `echo "$@" >> "${w.home}/reach.log"; echo "Sent - fake"`);
   w.run("orion-checkin", ["tick", "--json"], 19, 30, { extra: { ORION_REACH_BIN: reach } });
-  assert.equal(w.lines("reach.log").length, 0);
-  assert.deepEqual(w.checkins().map((c) => c.expired), ["made on an earlier day", "the block is over"]);
+  const calls = w.lines("reach.log");
+  assert.equal(calls.length, 1, "never a silent give-up while the day is on (10-27: both loops ended given_up at level 0)");
+  assert.match(calls[0], /^Gym didn't happen at 5:08 PM\./);
+  assert.deepEqual(w.checkins().map((c) => c.expired ?? c.ladder?.resolution?.status), ["made on an earlier day", "asked"]);
+  w.run("orion-checkin", ["tick", "--json"], 19, 31, { extra: { ORION_REACH_BIN: reach } });
+  assert.equal(w.lines("reach.log").length, 1, "said once");
 });
 
 test("3: while the block is on, the elapsed minutes come from its start today and the rung dies with the block (--valid-until)", () => {
-  const w = world({ day: 19, checkins: [planCheckin("ci-gym", "Gym", "cal-9", { createdAt: at(19, 17, 13).toISOString(), nextCheckAt: mins(at(19, 17, 20)), level: 2, phase: "reminded",
+  const w = world({ day: 19, checkins: [planCheckin("ci-gym", "Gym", "cal-9", { createdAt: at(19, 17, 13).toISOString(), nextCheckAt: mins(at(19, 17, 20)), level: 2, phase: "reminded", alerts: 2,
     blockWindow: { date: "2026-10-19", start: 1028, end: 1118 }, tier: "protected" })] });
   const reach = w.bin("fake-reach", `echo "$@" >> "${w.home}/reach.log"; echo "Sent - fake"`);
   w.run("orion-checkin", ["tick", "--json"], 17, 33, { extra: { ORION_REACH_BIN: reach } });

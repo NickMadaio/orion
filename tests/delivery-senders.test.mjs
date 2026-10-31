@@ -33,7 +33,7 @@ test("scenario 4: both kinds are held in quiet hours", () => {
   assert.deepEqual(tick(h).sort(), ["ci-mine", "ci-orion"]);
 });
 
-test("scenario 13 (check-in side): a plan loop climbs levels 1-4 through orion-reach, the 5th alert closes it and spawns displace", () => {
+test("scenario 13 (check-in side): a plan loop climbs L0-L3 through orion-reach, the 5th message closes it after displace and says what happens now", () => {
   const h = harness();
   state(h, "none");
   const add = h.run("orion-checkin", ["add", "0", "finish resume", "--by", "orion", "--block", "blk-1", "--window", "14:00-16:00"]);
@@ -44,10 +44,14 @@ test("scenario 13 (check-in side): a plan loop climbs levels 1-4 through orion-r
   assert.deepEqual(stdout, [], "plan alerts go through orion-reach, not the phone outbox");
   const calls = h.lines("reach.log");
   assert.equal(calls.length, 5);
-  const levels = calls.map((l) => JSON.parse(l.slice(l.indexOf("--ask ") + 6).replace(/^'|'$/g, "")).level);
+  const askOf = (l) => { const from = l.indexOf("--ask ") + 6; return JSON.parse(l.slice(from, l.indexOf(" --", from) < 0 ? undefined : l.indexOf(" --", from))); };
+  const levels = calls.map((l) => askOf(l).level);
   assert.deepEqual(levels, [1, 2, 3, 4, 5]);
   for (const l of calls) assert.match(l, /--kind checkin --why plan: blk-1 --ask /);
-  assert.match(calls[4], /I'll stop pinging about finish resume/);
+  assert.match(calls[4], /^Finish resume didn't happen\. Should I move it to later today, or is today off\?/, "the stub replan placed nothing: the closing message asks");
+  assert.match(calls[4], /--tier protected/, "the closing message is never budgeted away");
+  assert.match(calls[2], /--urgent --urgent-kind plan --channel phone/, "L2 is the time-sensitive push");
+  assert.deepEqual(calls.map((l) => askOf(l).askId.replace(/^ci-[0-9a-f]+-/, "")), ["L0", "L1", "L2", "L3", "END"], "every message carries its id");
   assert.deepEqual(h.lines("reschedule.log"), ["displace finish resume --why gave-up"]);
   due(); state(h, "none");
   assert.deepEqual(tick(h), []); assert.equal(h.lines("reach.log").length, 5, "closed: nothing more");

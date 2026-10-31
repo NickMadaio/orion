@@ -5,10 +5,10 @@
 // quiet and checks the work is still going; done or cancelled, it stops.
 //
 //   orion-checkin add <minutes> "<what>" [--because "<reason>"]   schedule a check-in
-//       [--by orion --block <blockId> [--window HH:MM-HH:MM]]      a plan loop (awareness C9): 5 alerts at most, sent
-//                                                                  through orion-reach; on give-up or cancel the day is re-weighed
+//       [--by orion --block <blockId> [--window HH:MM-HH:MM]]      a plan loop (awareness C9): the ladder (below), sent
+//                                                                  through orion-reach; at its END or on cancel the day is re-weighed
 //       [--day YYYY-MM-DD --start <min> --end <min>]               the block's own day and window (minutes after midnight): the loop is
-//                                                                  dropped once the block is over or the day has changed, and its "it's been N min"
+//                                                                  closed once the block is over (one closing message) or the day has changed; "it's been N min"
 //                                                                  counts from that start. [--tier protected] for a must block (the gym).
 //   orion-checkin started|done [id]                                 he began / finished
 //   orion-checkin started "<what>"                                  he began something with no check-in
@@ -22,12 +22,14 @@
 //   orion-checkin list                                               what is pending
 //   orion-checkin tick [--json]                                      advance due loops; print alerts
 //
-// The loop itself is scripts/lib/life/follow-through.mjs. `tick` is run by the
+// A plan loop (--block) climbs the escalation ladder L0-L3 and always ends with a closing message (lib/reach/plan-loop.mjs,
+// docs/design/2026-10-30-escalation-ladder.md); every save also writes ladders.json. [--reply-to <msgId>] on started, done,
+// defer and cancel names the ladder message he answered; find --msg <msgId> finds its loop.
+// His own check-ins are scripts/lib/life/follow-through.mjs. `tick` is run by the
 // phone link on the Mac every 30 s; each alert it prints becomes a notification
 // on Nick's iPhone. [id] defaults to the most recent open check-in.
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { startLoop, step } from "./lib/life/follow-through.mjs";
 import { classifyDeferral } from "./lib/life/deferral.mjs";
@@ -38,26 +40,36 @@ import { classify } from "./lib/life/live-day.mjs";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 import { spawnSync } from "node:child_process";
 import { isClassAttendanceCheckin } from "./lib/life/checkin-class.mjs";
-import { windowOf, validUntilOf, elapsedSince, staleReason } from "./lib/reach/block-window.mjs";
+import { windowOf, elapsedSince } from "./lib/reach/block-window.mjs";
 import { inWakeGrace } from "./lib/awareness/wake.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 
 import { evalMode, EVAL_MARKER } from "./lib/eval-mode.mjs";
+import { controlledDir, clockMs } from "./lib/clock.mjs";
+import { tickPlanLoop, replyResolution, startGrace, sentToday, kindOf, ladderOf } from "./lib/reach/plan-loop.mjs";
+import { graceFor } from "./lib/reach/plan-ladder.mjs";
+import { planEffects } from "./lib/reach/plan-effects.mjs";
+import { laddersView, writeLadders } from "./lib/reach/ladder-state.mjs";
+import { readNowRecord } from "./lib/life/now-state.mjs";
+import { readDeclaredFacts } from "./lib/awareness/declared-facts.mjs";
+import { audienceOf } from "./lib/reach/gate.mjs";
+import { speakOnMac } from "./lib/reach/route.mjs";
+import { summarize } from "./lib/life/history.mjs";
 const evaluating = evalMode();
-const FILE = evaluating ? join(dirname(EVAL_MARKER), "eval-checkins.json") : process.env.ORION_CHECKIN_FILE || join(homedir(), ".openclaw/orion-controlled/checkins.json");
+const FILE = evaluating ? join(dirname(EVAL_MARKER), "eval-checkins.json") : process.env.ORION_CHECKIN_FILE || join(controlledDir(), "checkins.json");
 const MAX_ALERTS = 8;
-const PLAN_MAX_ALERTS = 5;   // a plan loop is ORION's own; it stops sooner than one he set (spec 3.4.3)
 const HERE = import.meta.dirname;
-const CONTROLLED = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
-// Test seam: ORION_CHECKIN_NOW is the clock (never set in production).
-const NOW_MS = process.env.ORION_CHECKIN_NOW ? Date.parse(process.env.ORION_CHECKIN_NOW) : Date.now();
+const CONTROLLED = controlledDir();
+// Test seams: ORION_CHECKIN_NOW, then ORION_NOW (lib/clock.mjs), are the clock (never set in production).
+const NOW_MS = clockMs(process.env, ["ORION_CHECKIN_NOW"]);
 const nowMinute = () => Math.floor(NOW_MS / 60000);
-const MAX_DROPS = 3, DROP_COOLDOWN_MIN = 30;
 const load = () => { try { return JSON.parse(readFileSync(FILE, "utf8")); } catch { return { checkins: [] }; } };
 const save = (state) => {
   mkdirSync(dirname(FILE), { recursive: true });
   const tmp = `${FILE}.${randomBytes(4).toString("hex")}.tmp`;
   writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 }); renameSync(tmp, FILE);
+  // the projection the chat state card reads (lib/reach/ladder-state.mjs); a failure here never loses the check-ins
+  if (!evaluating) { try { writeLadders(CONTROLLED, laddersView({ checkins: state.checkins, attended: state.attended, nowMs: NOW_MS })); } catch {} }
 };
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
@@ -106,18 +118,24 @@ function displace(c, why) {
   try { spawnSync(process.env.ORION_RESCHEDULE_BIN || join(HERE, "orion-reschedule"), ["displace", c.what, "--why", why], { encoding: "utf8", timeout: 30_000, env: process.env }); } catch { /* the next tick of the day review still lists the slip */ }
 }
 
-/** A plan alert goes through orion-reach (gate, the bubble/voice rule and the budgets apply), not the phone's alerts outbox. */
-/** @returns { reached, dropped }: reached only when orion-reach actually delivered it (sent, or already said); dropped when a budget,
- *  the ceiling or an earlier drop's cooldown stopped it (not to be tried every tick); a hold, refusal or failure is neither. */
-function sendPlan(c, level, text) {
-  const ask = { type: "mismatch", blockId: c.block, title: c.what, window: c.blockWindow ?? null, level };
-  const until = validUntilOf(c.blockWindow);   // a rung is pointless once the block is over
-  try {
-    const r = spawnSync(process.env.ORION_REACH_BIN || join(HERE, "orion-reach"), [text, "--kind", "checkin", "--why", `plan: ${c.block}`, "--ask", JSON.stringify(ask),
-      ...(c.tier === "protected" ? ["--tier", "protected"] : []), ...(until ? ["--valid-until", until] : [])], { encoding: "utf8", timeout: 30_000, env: process.env });
-    const out = String(r.stdout ?? "").trimStart();
-    return { reached: r.status === 0 && /^(Sent|Already said)/.test(out), dropped: r.status === 3 && /^NOT SENT: (ceiling|budget|blank-budget|dropped|expired)/.test(out) };
-  } catch { return { reached: false, dropped: false }; }
+/** The outward steps of a plan loop (lib/reach/plan-effects.mjs): orion-reach, orion-reschedule displace, orion-ontask. */
+const effects = () => planEffects({ here: HERE, env: process.env, nowMs: NOW_MS, evaluating,
+  outcome: (row) => { recordOutcome(row); try { summarize(JSON.parse(readFileSync(join(CONTROLLED, "health-log.json"), "utf8"))); } catch { summarize({}); } } });
+/** --reply-to <msgId>: the ladder message his answer is about (ladders.json messages[].msgId); default the last one sent. */
+const replyTo = () => flag("--reply-to") ?? null;
+/** A plan loop's own day: closed loops of today are kept so ladders.json and the daily cap still see them. */
+const todays = (c) => !!c.block && (c.blockWindow?.date ?? new Date(c.createdAt).toLocaleDateString("en-CA")) === new Date(NOW_MS).toLocaleDateString("en-CA");
+const keep = (c) => open(c) || todays(c);
+
+/** What every plan ladder reads this tick: the now record, his declared facts, patterns, workouts, consent, his ears. */
+function planContext(aw) {
+  const read = (name) => { try { return JSON.parse(readFileSync(join(CONTROLLED, name), "utf8")); } catch { return null; } };
+  const record = readNowRecord(CONTROLLED);
+  const heard = audienceOf(aw);
+  return { nowMs: NOW_MS, record, declared: readDeclaredFacts(CONTROLLED, { date: new Date(NOW_MS).toLocaleDateString("en-CA") }),
+    patterns: loadPatterns(), slipsToday: record?.slipsToday ?? [], workouts: read("health-log.json")?.workouts ?? [],
+    placeId: aw.location?.placeId ?? null, grant: loadConfig().escalation?.restrict === true, activity: read("focus-activity.json"),
+    speak: aw.sleep?.state !== "asleep" && speakOnMac({ atHome: heard.atHome, headphones: heard.macHeadphones }) };
 }
 
 const state = load();
@@ -130,8 +148,11 @@ switch (command) {
     // A block that was moved and re-entered gets a new calendar id: the same title on the same day is the same block, and
     // does not start a second not-started loop.
     const today = new Date(NOW_MS).toLocaleDateString("en-CA");
-    if (flag("--block") && state.checkins.some((x) => x.block && x.what === what && x.loop?.phase !== "cancelled"
-        && new Date(x.createdAt).toLocaleDateString("en-CA") === today)) {
+    // A ladder that closed (replanned, declared off) does not restart for the same slot; the block re-entered later by the
+    // replan (another start) gets its own ladder (2026-10-30).
+    const sameSlot = (x) => !x.blockWindow || !flag("--start") || x.blockWindow.start === Number(flag("--start"));
+    if (flag("--block") && state.checkins.some((x) => x.block && x.what === what && new Date(x.createdAt).toLocaleDateString("en-CA") === today
+        && (open(x) || ladderOf(x).resolution?.status === "declared" || (x.loop?.phase !== "cancelled" && sameSlot(x))))) {
       console.log(`Already following "${what}" today.`); break;
     }
     const id = `ci-${randomBytes(3).toString("hex")}`;
@@ -142,7 +163,7 @@ switch (command) {
                     ...(flag("--tier") === "protected" ? { tier: "protected" } : {}) } : {}),
                 returning: because && classifyDeferral(because).kind === "pause" ? returning(because) : null,
                 loop: startLoop({ id, start: now + minutes }, now) };
-    state.checkins = [...state.checkins.filter(open), c].slice(-20);
+    state.checkins = [...state.checkins.filter(keep), c].slice(-30);
     save(state);
     const at = new Date((now + minutes) * 60000).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     console.log(`Check-in ${id}: I'll come back at ${at} (${minutes} min) about "${what}" on Nick's iPhone, and keep at it until he starts.`);
@@ -155,7 +176,7 @@ switch (command) {
       const what = rest.join(" ").trim() || "what you started";
       const id = `ci-${randomBytes(3).toString("hex")}`;
       const loop = step(startLoop({ id, start: now }, now), { type: "started" }, now);
-      state.checkins = [...openOnes, { id, what, dueAt: now, createdAt: new Date(NOW_MS).toISOString(), alerts: 0, returning: null, loop }].slice(-20);
+      state.checkins = [...state.checkins.filter(keep), { id, what, dueAt: now, createdAt: new Date(NOW_MS).toISOString(), alerts: 0, returning: null, loop }].slice(-30);
       save(state);
       console.log(`Noted: ${what} started. I'll check in ~25 min that it's still going.`);
       break;
@@ -164,6 +185,7 @@ switch (command) {
     // Planned vs actual: the first time he starts it is the sample that counts.
     if (command === "started" && c.loop.phase !== "active" && c.dueAt) !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: now * 60000 });
     c.loop = step(c.loop, { type: command }, now);
+    if (c.block) Object.assign(c, replyResolution(c, { verb: command, nowMs: NOW_MS, replyTo: replyTo(), how: flag("--by") === "evidence" ? "evidence" : "reply" }));
     save(state);
     console.log(command === "started" ? `Noted: ${c.what} started. I'll check in ~25 min that it's still going.` : `Done: ${c.what}. Check-in closed.`);
     break;
@@ -176,20 +198,27 @@ switch (command) {
     // "10 more min" tapped on the phone: the first one is a real snooze; a
     // second in a row is putting it off, and the loop gets firmer.
     const snooze = args.includes("--snooze") && c.loop.deferrals === 0;
-    const legitimate = snooze || verdict.kind === "pause" || verdict.kind === "change";
-    c.loop = step(c.loop, { type: "defer", minutes, legitimate }, now);
-    if (legitimate) c.returning = returning(because);
+    // A plan ladder: "I'm meal prepping" is a grace of 20-30 min and a comeback, not a dead end (2026-10-20 evidence); two at most.
+    const grace = c.block ? graceFor(because, minutes) : null;
+    const graceOk = !!grace && ladderOf(c).graces < 2;
+    const legitimate = snooze || graceOk || (c.block ? verdict.kind === "change" : verdict.kind === "pause" || verdict.kind === "change");
+    c.loop = step(c.loop, { type: "defer", minutes: graceOk ? grace.minutes : minutes, legitimate }, now);
+    if (legitimate) c.returning = graceOk ? grace.returning : returning(because);
+    if (c.block && graceOk) Object.assign(c, startGrace(c, { nowMs: NOW_MS, minutes: grace.minutes, returning: grace.returning, reason: because, replyTo: replyTo() }));
+    else if (c.block && !legitimate) c.ladder = { ...ladderOf(c), firm: true, lastReply: { at: new Date(NOW_MS).toISOString(), text: because.slice(0, 200), replyTo: replyTo() } };
     save(state);
     console.log(c.loop.phase === "deferred"
-      ? `Fair — back in ${Math.max(5, Math.min(45, minutes))} min about ${c.what}.`
+      ? `Fair — back in ${graceOk ? grace.minutes : Math.max(5, Math.min(45, minutes))} min about ${c.what}.`
       : `That reads as putting it off (${verdict.kind}). Not deferring — the check-in stays on and gets firmer.`);
     break;
   }
   case "find": {
     // A reply to ORION's own "Time to start: Gym" acts on that loop only: the plan loop for that block (or that title), open,
     // and exactly one. None or several is { open: false } and exit 1, so the caller does nothing rather than guess.
-    const what = String(flag("--what") ?? "").trim().toLowerCase(), block = flag("--block");
-    const hit = state.checkins.filter((c) => open(c) && c.block && (block ? c.block === block : what && String(c.what).trim().toLowerCase() === what));
+    const what = String(flag("--what") ?? "").trim().toLowerCase(), block = flag("--block"), msg = flag("--msg");
+    // --msg <msgId>: the ladder message he answered (its askId), the most exact handle there is
+    const hit = state.checkins.filter((c) => open(c) && c.block && (msg ? ladderOf(c).sent.some((x) => x.msgId === msg || `${x.msgId}-voice` === msg)
+      : block ? c.block === block : what && String(c.what).trim().toLowerCase() === what));
     console.log(JSON.stringify(hit.length === 1 ? { open: true, id: hit[0].id, what: hit[0].what, block: hit[0].block } : { open: false, matches: hit.length }));
     process.exit(hit.length === 1 ? 0 : 1);
   }
@@ -217,6 +246,7 @@ switch (command) {
   case "cancel": {
     const c = pick(state, rest[0]);
     c.loop = step(c.loop, { type: "cancelled", reason: flag("--because") ?? "" }, now);
+    if (c.block) Object.assign(c, replyResolution(c, { verb: "cancel", nowMs: NOW_MS, text: flag("--because") ?? null, replyTo: replyTo() }));
     save(state);
     if (c.block) displace(c, "cancel");
     console.log(`Cancelled: ${c.what}. Plans changed; no follow-up.`);
@@ -243,14 +273,18 @@ switch (command) {
     try { const blocks = toBlocks(await calendarEvents(), localDate(new Date(NOW_MS))); classes = realClasses(blocks); duringClass = inClass(blocks, new Date(NOW_MS).getHours()*60+new Date(NOW_MS).getMinutes()); } catch { /* No attendance claim from unavailable calendar. */ }
     // Just after he wakes ORION does not scold: its own plan nudges wait (leave and class reminders are not loops, they still go).
     const grace = inWakeGrace({ dir: CONTROLLED, now: new Date(NOW_MS), minutes: Number(loadConfig().wakeGraceMinutes ?? 30) });
+    const plan = planContext(aw);
+    const fx = effects();
     for (const c of state.checkins.filter(open)) {
-      // A nudge is about one block on one day: once the block is over, or it is a new day, drop it silently. Never send a
-      // not-started nudge for a block that ended hours ago, never into the next day (2026-10-19 audit).
+      // A plan block's ladder (lib/reach/plan-loop.mjs): driven by now.json, closed by a reply, evidence, a declared fact or
+      // the closing message; never dropped silently while the day is still on (2026-10-30).
       if (c.block) {
-        const stale = staleReason({ window: c.blockWindow, createdAt: c.createdAt }, NOW_MS);
-        if (stale) { c.loop = { ...c.loop, phase: "given_up", nextCheckAt: null, history: [...(c.loop.history ?? []), { at: now, event: "expired", phase: "given_up" }] }; c.expired = stale; continue; }
-        if (c.retryAfter && now < c.retryAfter) continue;   // dropped by a budget a moment ago: not every tick
-        if (grace && c.by === "orion") continue;
+        const next = tickPlanLoop(c, { ...plan, held: duringClass || held(c), graceWake: grace, sentToday: sentToday(state.checkins, NOW_MS),
+          habit: lateHabit(plan.patterns, kindOf(c)) }, fx);
+        if (next.attended) state.attended = [...(state.attended ?? []).slice(-30), { date: localDate(new Date(NOW_MS)), blockId: c.block, title: c.what, ...next.attended }];
+        const { attended: _a, ...rest } = next;
+        state.checkins = state.checkins.map((x) => (x.id === c.id ? rest : x));
+        continue;
       }
       // A calendar class is self-timed; lack of a Started/Done tap isn't
       // evidence of avoidance. Ordinary start nags wait until class is over.
@@ -273,28 +307,6 @@ switch (command) {
         continue;
       }
       c.loop = after;
-      if (c.block) {
-        // Only an alert that reached him counts, and a loop only gives up (and re-weighs the day) after one did.
-        const finalStep = c.alerts + 1 >= PLAN_MAX_ALERTS;
-        const sent = sendPlan(c, finalStep ? 5 : after.level, finalStep ? `I'll stop pinging about ${c.what} - I've moved what I could.` : message(c, now));
-        if (sent.dropped) {
-          // Dropped by a budget or the ceiling: recorded on the loop with a cooldown (doubling), and given up after a few. Not a retry every tick.
-          c.drops = (c.drops ?? 0) + 1;
-          c.loop = c.drops >= MAX_DROPS ? { ...before, phase: "given_up", nextCheckAt: null } : before;
-          c.retryAfter = now + DROP_COOLDOWN_MIN * 2 ** (c.drops - 1);
-          continue;
-        }
-        if (!sent.reached) { c.loop = before; continue; }   // held, refused or failed: nothing counted, the same step is tried next tick
-        c.drops = 0; c.retryAfter = null;
-        c.alerts += 1;
-        c.returning = null;
-        if (finalStep) {
-          !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });
-          c.loop = { ...after, phase: "given_up", nextCheckAt: null };
-          displace(c, "gave-up");
-        }
-        continue;
-      }
       c.alerts += 1;
       if (c.alerts > MAX_ALERTS) {
         !evaluating && recordOutcome({ what: c.what, plannedAt: c.dueAt * 60000, actualAt: null });

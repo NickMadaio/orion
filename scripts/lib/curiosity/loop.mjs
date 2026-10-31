@@ -7,6 +7,7 @@
 import { classLadder } from "../reach/class-ladder.mjs";
 import { blankAsk } from "./decide.mjs";
 import { words } from "./words.mjs";
+import { cancels } from "../awareness/declared-facts.mjs";
 
 const MIN = 60_000;
 const NOT_STARTED_AFTER = 5, NOT_STARTED_WINDOW = 30, OFF_PLAN_DWELL = 15;
@@ -35,6 +36,8 @@ export function deferral(aw, now) {
 /** Movable block ORION planned for him (not a fixed event, not logged reality, not a break). */
 const planned = (b) => !b.fixed && b.source === "orion" && !b.logged && !["rest", "sleep", "commute"].includes(b.kind) && rankOf(b) !== "low";
 const blockPlace = (b) => b.where ?? b.place ?? (b.kind === "gym" ? "gym" : null);
+/** An open plan ladder (waiting, reminded, intervening, or in a grace). */
+export const chasing = (checkins) => (checkins ?? []).some((c) => c.block && OPEN_PHASES.includes(c.loop?.phase));
 const loopFor = (checkins, b) => (checkins ?? []).find((c) => c.block === b.id && OPEN_PHASES.concat("active").includes(c.loop?.phase));
 
 /** Positive evidence that he is doing the block: session on its task, a work app, being at its place, a log, a `started` check-in. */
@@ -65,7 +68,7 @@ function offPlan(aw, b, now) {
  * @returns [{ key, type: "should-leave"|"not-started"|"off-plan"|"blank"|"close", action: "say"|"checkin"|"ask"|"close", ... }]
  */
 export function planVsReality(aw, ctx) {
-  const { day = [], checkins = [], ledger, sent = {}, todos = [], travel = [], signals = {}, out, turns = [], now, wakeGrace = false } = ctx;
+  const { day = [], checkins = [], ledger, sent = {}, todos = [], travel = [], signals = {}, out, turns = [], now, wakeGrace = false, declared = [] } = ctx;
   const minute = now.getHours() * 60 + now.getMinutes();
   const date = now.toLocaleDateString("en-CA");
   if (aw.calendar?.state !== "ok") return [];                         // an unreadable calendar is not a blank, nor a plan
@@ -73,7 +76,7 @@ export function planVsReality(aw, ctx) {
 
   // should-leave: the ladder, with awareness location as the evidence (class-ladder.mjs). Urgent rungs are never deferred.
   const rungs = [];
-  classLadder({ minute, day, travel, signals, out, atHome: aw.derived?.atHome ?? null }, (key, text, kind, extra = {}) => {
+  classLadder({ minute, day, travel, signals, out, atHome: aw.derived?.atHome ?? null, declared }, (key, text, kind, extra = {}) => {
     if (!sent[key]) rungs.push({ key, type: "should-leave", action: "say", text, kind, ...extra });
   });
   actions.push(...rungs);
@@ -89,7 +92,7 @@ export function planVsReality(aw, ctx) {
   if (wait) return actions;
 
   const mismatches = [];
-  for (const b of day.filter((x) => planned(x) && x.start <= minute && x.end > minute)) {
+  for (const b of day.filter((x) => planned(x) && x.start <= minute && x.end > minute && !cancels(declared, x))) {
     const checkin = loopFor(checkins, b);
     if (checkin) continue;                                            // one live loop per block: it owns the follow-ups
     if (offPlan(aw, b, now)) {
@@ -108,6 +111,8 @@ export function planVsReality(aw, ctx) {
   const first = mismatches.sort((a, b) => SCORE[a.rank] - SCORE[b.rank])[0];
   if (first) return [...actions, first];
 
+  // A plan ladder is chasing a block: "what are you up to?" on top of "Gym, now" is noise (2026-10-30 demo, 17:15).
+  if (chasing(checkins)) return actions;
   // Nothing is off: a blank (nothing on the calendar, nothing known) is asked about, within the backoff.
   const blank = blankAsk(aw, { minute, date, day, todos, travel, ledger, turns, now: now.getTime() });
   return blank && !sent[blank.key] ? [...actions, { ...blank, type: "blank", blankType: blank.type, action: "ask", kind: "question" }] : actions;

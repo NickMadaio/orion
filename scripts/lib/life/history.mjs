@@ -8,14 +8,15 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { learnPatterns } from "./patterns.mjs";
 import { classify } from "./live-day.mjs";
+import { controlledDir, clockNow } from "../clock.mjs";
 
-const DIR = join(homedir(), ".openclaw/orion-controlled");
+const DIR = controlledDir();
 export const HISTORY_FILE = process.env.ORION_LIFE_HISTORY || join(DIR, "life-history.jsonl");
 export const PATTERNS_FILE = process.env.ORION_PATTERNS_FILE || join(DIR, "patterns.json");
 const minuteOf = (ms) => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes(); };
 
 export function recordOutcome({ what, plannedAt, actualAt }) {
-  const line = { at: new Date().toISOString(), what, kind: classify(what), plannedStart: minuteOf(plannedAt),
+  const line = { at: clockNow().toISOString(), what, kind: classify(what), plannedStart: minuteOf(plannedAt),
                  actualStart: actualAt === null ? null : minuteOf(actualAt), weekday: new Date(plannedAt).getDay() };
   mkdirSync(dirname(HISTORY_FILE), { recursive: true });
   appendFileSync(HISTORY_FILE, `${JSON.stringify(line)}\n`);
@@ -26,7 +27,7 @@ export function summarize(healthLog = {}) {
   try { lines = readFileSync(HISTORY_FILE, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { lines = []; }
   const sleep = (healthLog.sleepLog ?? []).map((e) => ({ kind: e.event === "bed" ? "sleep" : "wake", minute: minuteOf(Date.parse(e.at)) }));
   const p = learnPatterns([...lines.slice(-500), ...sleep]);
-  const out = { updatedAt: new Date().toISOString(), samples: lines.length, ...p };
+  const out = { updatedAt: clockNow().toISOString(), samples: lines.length, ...p };
   mkdirSync(dirname(PATTERNS_FILE), { recursive: true });
   writeFileSync(`${PATTERNS_FILE}.tmp`, JSON.stringify(out, null, 2)); renameSync(`${PATTERNS_FILE}.tmp`, PATTERNS_FILE);
   return out;

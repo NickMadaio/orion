@@ -1,5 +1,6 @@
 // Calendar writes for the planner, through the Mac bridge, with an undo record.
 import { bridgeRequest, sandbox } from "./bridge-path.mjs";
+import { controlledDir, clockNow } from "../clock.mjs";
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -13,7 +14,7 @@ import { recordWritten } from "./written.mjs";
 import { loadConfig } from "./config.mjs";
 
 export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO
-  || join(homedir(), `.openclaw/orion-controlled/${sandbox() ? "eval-" : ""}reschedule-undo.json`);
+  || join(controlledDir(), `${sandbox() ? "eval-" : ""}reschedule-undo.json`);
 
 export async function bridge(action, payload) {
   return bridgeRequest(action, payload);
@@ -95,7 +96,7 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
   const undo = []; const priorPins = readPins(); const addedPins = []; const createdIds = {};
   const readHistory = () => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } };
   const base = readHistory();
-  const startedAt = new Date().toISOString();
+  const startedAt = clockNow().toISOString();
   const save = (list) => { mkdirSync(dirname(UNDO_FILE), { recursive: true }); writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(list.slice(-10), null, 2)); renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE); };
   const journal = () => {
     const last = base.at(-1);
@@ -175,7 +176,7 @@ export function recordUndo(steps) {
   if (!steps.length) return;
   mkdirSync(dirname(UNDO_FILE), { recursive: true });
   const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
-  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify([...history, { at: new Date().toISOString(), steps }].slice(-10), null, 2));
+  writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify([...history, { at: clockNow().toISOString(), steps }].slice(-10), null, 2));
   renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
 }
 
@@ -190,7 +191,7 @@ export function appendUndoSteps(group, steps) {
   const last = history.at(-1);
   const next = group && last?.group === group
     ? [...history.slice(0, -1), { ...last, steps: [...last.steps, ...steps] }]
-    : [...history, { at: new Date().toISOString(), ...(group ? { group } : {}), steps }];
+    : [...history, { at: clockNow().toISOString(), ...(group ? { group } : {}), steps }];
   writeFileSync(`${UNDO_FILE}.tmp`, JSON.stringify(next.slice(-10), null, 2));
   renameSync(`${UNDO_FILE}.tmp`, UNDO_FILE);
 }

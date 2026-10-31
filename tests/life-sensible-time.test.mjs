@@ -40,3 +40,8 @@ test("a preferred time gives way when only earlier time is free, but never befor
     { title: "reading", kind: "study", minutes: 30, after: home, prefer: preferredStart({ title: "reading", kind: "study" }, home) }] });
   assert.ok(r.created[0].start >= home && r.created[0].start < at(19));
 });
+
+test("the daily gym, flagged early, takes the first gap instead of waiting for the evening", () => {
+  assert.equal(preferredStart({ title: "Gym", kind: "gym" }, 600), 1020);
+  assert.equal(preferredStart({ title: "Gym", kind: "gym", early: true }, 600), 600);
+});

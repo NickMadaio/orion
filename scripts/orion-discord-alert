@@ -8,6 +8,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
+import { outboxed, toOutbox } from "./lib/clock.mjs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -16,6 +17,8 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const envPath = process.env.ORION_ENV_PATH || join(root, ".env");
 const message = process.argv.slice(2).join(" ").trim();
 refuseDuringEval("the Discord alert");
+// A state copy (lib/clock.mjs) never reaches Discord: the alert goes to the isolated outbox.
+if (outboxed()) { toOutbox("discord", { text: message }, { by: "orion-discord-alert" }); console.log("Isolated run: written to the outbox, not sent."); process.exit(0); }
 
 if (!message) {
   console.error("Usage: orion-discord-alert <short alert message>");

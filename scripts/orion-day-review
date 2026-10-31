@@ -26,7 +26,8 @@ const DIR = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion
 const here = import.meta.dirname;
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();
+const now = clockNow(process.env, ["ORION_REACH_NOW"]);
+import { clockNow } from "./lib/clock.mjs";
 const date = flag("--date") ?? localDate(now);
 const minute = date === localDate(now) ? now.getHours() * 60 + now.getMinutes() : 24 * 60;
 const jsonl = (f) => (existsSync(join(DIR, f)) ? readFileSync(join(DIR, f), "utf8").split("\n").flatMap((l) => { try { return l.trim() ? [JSON.parse(l)] : []; } catch { return []; } }) : []);

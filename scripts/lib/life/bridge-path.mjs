@@ -11,6 +11,7 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { evalMode } from "../eval-mode.mjs";
+import { clockNow as baseClock, outboxed, toOutbox } from "../clock.mjs";
 
 const run = promisify(execFile);
 export const SANDBOX_CALENDAR = process.env.ORION_SANDBOX_CALENDAR || join(homedir(), ".openclaw/orion-controlled/eval-calendar.json");
@@ -25,18 +26,30 @@ export function sandbox() {
   try { return JSON.parse(readFileSync(SANDBOX_CALENDAR, "utf8")); } catch { return null; }
 }
 
-/** The time the planner should believe it is. */
+/** The time the planner should believe it is (ORION_RESCHEDULE_NOW, the sandbox's clock, then ORION_NOW, lib/clock.mjs). */
 export function clockNow() {
   if (process.env.ORION_RESCHEDULE_NOW) return new Date(process.env.ORION_RESCHEDULE_NOW);
   const day = sandbox();
-  return day?.now ? new Date(day.now) : new Date();
+  return day?.now ? new Date(day.now) : baseClock();
 }
+
+/** Bridge actions that only read. Every other action changes his calendar or reminders. */
+export const READ_ACTIONS = new Set(["list_upcoming_calendar_events", "list_deadlines", "list_incomplete_reminders", "list_reminder_lists", "get_calendar_event", "status"]);
 
 /** One bridge request → its parsed result (throws on failure). */
 export async function bridgeRequest(action, payload, { timeout = 30000 } = {}) {
-  const request = JSON.stringify({ id: "life", action, payload }).replace(/'/g, "'\\''");
   const inSandbox = sandbox() !== null;
-  const bin = process.env.ORION_BRIDGE_BIN || (inSandbox ? `${process.execPath}" "${SANDBOX_BRIDGE}` : REAL_BRIDGE);
+  // A state copy (ORION_CONTROLLED_DIR not the live dir) never writes his real calendar or reminders: the write goes to
+  // the outbox and fails, so the caller records nothing as done. A test's own fake bridge (ORION_BRIDGE_BIN) still runs.
+  const write = !READ_ACTIONS.has(action);
+  if (write && !inSandbox && outboxed(process.env, "ORION_BRIDGE_BIN")) {
+    toOutbox(/reminder/.test(action) ? "reminders" : /calendar/.test(action) ? "calendar" : "mac-bridge", { action, payload }, { by: "bridge" });
+    throw new Error(`isolated run: ${action} written to the outbox, not to the calendar`);
+  }
+  // ORION_BRIDGE_READ_BIN (tests): a stand-in for READS only, so a test can prove writes are still stopped.
+  const readOnly = !write && !process.env.ORION_BRIDGE_BIN ? process.env.ORION_BRIDGE_READ_BIN : null;
+  const request = JSON.stringify({ id: "life", action, payload }).replace(/'/g, "'\\''");
+  const bin = readOnly || process.env.ORION_BRIDGE_BIN || (inSandbox ? `${process.execPath}" "${SANDBOX_BRIDGE}` : REAL_BRIDGE);
   const env = inSandbox ? { ...process.env, ORION_SANDBOX_CALENDAR: SANDBOX_CALENDAR } : process.env;
   const { stdout } = await run("/bin/sh", ["-c", `printf '%s\\n' '${request}' | "${bin}"`], { timeout, maxBuffer: 8 << 20, env });
   const line = stdout.split("\n").find((l) => l.trim().startsWith("{"));

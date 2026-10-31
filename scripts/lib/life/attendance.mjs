@@ -31,3 +31,30 @@ export function leftAt(phone, minute, withinMinutes = 45) {
   const hits = phone.filter((s) => s.charging === false && MOVING.has(s.motion) && s.minute <= minute && minute - s.minute <= withinMinutes);
   return hits.length ? Math.max(...hits.map((s) => s.minute)) : null;
 }
+
+const GYM_WORDS = /\b(?:went to the gym|did (?:the )?gym|gym (?:done|is done)|done (?:with )?(?:the )?gym|worked out|did my workout|just lifted)\b/i;
+const localMinute = (d) => d.getHours() * 60 + d.getMinutes();
+
+/**
+ * Did the gym happen today (2026-10-30: gym was 0 of 6 in patterns, and nothing could tell)? Evidence only, first found wins:
+ *   a workout on health-log.json `workouts[]` for today: { day: "YYYY-MM-DD", startedAt: ISO, title?, source?: "whoop"|"healthkit"|... }
+ *   (the WHOOP and HealthKit adapters write there; a workout he logs in the app has no source and counts as "workout-log"),
+ *   awareness saying he is at the place "gym", a declared fact (place gym, or a note in his words: "went to the gym").
+ * Any workout today counts: the goal is 90 minutes a day, not the planned slot.
+ * @returns {{ source, at: ISO|null, minute: number|null } | null}
+ */
+export function gymEvidence({ date, workouts = [], placeId = null, declared = [], now = new Date() } = {}) {
+  const today = (workouts ?? []).filter((w) => w && (w.day === date || (w.startedAt && new Date(w.startedAt).toLocaleDateString("en-CA") === date)))
+    .filter((w) => !w.startedAt || Date.parse(w.startedAt) <= now.getTime())
+    .sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
+  if (today.length) {
+    const at = Date.parse(today[0].startedAt);
+    return { source: today[0].source ?? "workout-log", at: Number.isFinite(at) ? new Date(at).toISOString() : null, minute: Number.isFinite(at) ? localMinute(new Date(at)) : null };
+  }
+  if (placeId === "gym") return { source: "place", at: now.toISOString(), minute: localMinute(now) };
+  const said = (declared ?? []).find((f) => f && (!f.date || f.date === date)
+    && ((f.kind === "place" && f.place === "gym") || (f.kind === "note" && GYM_WORDS.test(String(f.text)))));
+  if (!said) return null;
+  const at = Date.parse(said.at);
+  return { source: "declared", at: Number.isFinite(at) ? said.at : null, minute: Number.isFinite(at) ? localMinute(new Date(at)) : null };
+}

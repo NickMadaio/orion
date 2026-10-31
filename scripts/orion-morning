@@ -29,11 +29,13 @@ import { deliveryOutcome } from "./lib/reach/delivery.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { actualWake } from "./lib/life/night.mjs";
 import { isRealClass } from "./lib/reach/class-ladder.mjs";
-import { shouldBrief, alarmClock, composeBriefing, buildView } from "./lib/reach/morning.mjs";
+import { shouldBrief, alarmClock, composeBriefing, buildView, briefingTop } from "./lib/reach/morning.mjs";
+import { readHeads, recordHead } from "./lib/reach/brief-heads.mjs";
 import { weatherWithRetry } from "./lib/reach/weather.mjs";
 import { liveDay, localDate } from "./lib/life/live-day.mjs";
 import { sandbox, bridgeRequest } from "./lib/life/bridge-path.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
+import { clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
 import { commuteWalls } from "./lib/life/commute.mjs";
 import { waitsFor } from "./lib/life/task-spread.mjs";
 
@@ -44,7 +46,7 @@ const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 const [command, signal] = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--at");
 const dry = args.includes("--dry-run");
-const now = process.env.ORION_REACH_NOW ? new Date(process.env.ORION_REACH_NOW) : new Date();   // test seam
+const now = clockNow(process.env, ["ORION_REACH_NOW"]);   // test seams: ORION_REACH_NOW, ORION_NOW (lib/clock.mjs)
 const OPEN = process.env.ORION_REACH_OPEN_BIN || "/usr/bin/open";                              // test seam: never the real app
 const today = localDate(now);
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } };
@@ -82,7 +84,7 @@ if (command === "catchup") {
 const signalAt = catchupAt ?? (flag("--at") ? new Date(flag("--at")) : now);
 // The alarm that actually rang: his own wake-up beats the planner's (alarmClock).
 let planned = null;
-try { planned = JSON.parse(run("orion-now", ["--json"])).sleep?.wake ?? null; } catch {}
+try { planned = JSON.parse(run("orion-now", ["--json"])).sleepPlan?.wake ?? null; } catch {}   // the now record (lib/life/now-record.mjs)
 const wake = alarmClock({ planned, asked: readJson(join(DIR, "wake-request.json"))?.at, today });
 const isCatchup = command === "catchup";
 const gate = shouldBrief({ catchUp: isCatchup, signal: signalName, signalAt, now, wake, briefedToday: !!state[today] });
@@ -96,7 +98,7 @@ const claim = claimBriefing(DIR, today, { now: Date.now() });
 if (!claim.ok) { console.log(`No briefing: ${claim.reason}.`); process.exit(0); }
 let delivered = false;
 try {
-  const { text, view, day } = await gather();
+  const { text, view, day, head } = await gather();
   // Review M1: a catch-up is the fallback for a missed morning, not the morning ritual. Never inside a fixed block (it would
   // talk in a lecture); try again at the next tick.
   const nowMinute = now.getHours() * 60 + now.getMinutes(); 
@@ -117,6 +119,7 @@ try {
     writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2));
     renameSync(`${STATE}.tmp`, STATE);
     finalizeBriefing(DIR, today);
+    try { recordHead(DIR, today, head); } catch { /* a lost head only shortens a streak */ }
   }
 } finally {
   if (!delivered) releaseBriefing(DIR, today);   // a failed brief must not block the next signal
@@ -131,7 +134,8 @@ function showScreen(view) {
   try {
     mkdirSync(DIR, { recursive: true });
     writeFileSync(join(DIR, "morning-view.json"), JSON.stringify(view, null, 2));
-    execFileSync(OPEN, ["-g", "orion://morning-screen"], { timeout: 5000 });
+    if (outboxed(process.env, "ORION_REACH_OPEN_BIN")) toOutbox("mac-app", { url: "orion://morning-screen" }, { by: "orion-morning" });
+    else execFileSync(OPEN, ["-g", "orion://morning-screen"], { timeout: 5000 });
     return true;
   } catch { return false; }
 }
@@ -173,6 +177,9 @@ async function gather() {
   const phone = phoneMinutes(health.phoneSignals, today);
   const nowMinute = now.getHours() * 60 + now.getMinutes();
   const missed = day.filter((b) => isRealClass(b) && b.end <= nowMinute && classAttendance(b, { wokeAt, phone }) === "missed");
-  const facts = { now, day, travel, todos, today, weather: sky, calendar, missed };
-  return { text: composeBriefing(facts), view: buildView(facts), day };
+  // the heads of earlier briefs: the same item first three days running is said as slipping (lib/reach/brief-heads.mjs)
+  const headHistory = readHeads(DIR, today);
+  const facts = { now, day, travel, todos, today, weather: sky, calendar, missed, headHistory };
+  const top = briefingTop({ todos, headHistory, today });
+  return { text: composeBriefing(facts), view: buildView(facts), day, head: top.head?.key ?? null };
 }

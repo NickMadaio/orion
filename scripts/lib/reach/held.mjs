@@ -42,7 +42,13 @@ export function clearHeld(dir, released) {
   });
 }
 
-const LABELS = { focus: "While you were focused", quiet: "While you were asleep", class: "While you were in class" };
+/** A nudge or a line with a running count goes off fast: a held "It's been 1039 min. Gym, now." must never come out later. */
+export const PERISHABLE_MS = 30 * 60_000;
+const COUNTED = /\b\d+ min\b/;
+const perishable = (e, now) => now - Date.parse(e.at) > PERISHABLE_MS
+  && (e.kind === "checkin" || /^plan:/.test(String(e.why ?? "")) || COUNTED.test(String(e.text ?? "")));
+
+const LABELS ={ focus: "While you were focused", quiet: "While you were asleep", class: "While you were in class" };
 const MAX_LINES = 3;
 const strip = (t) => t.replace(/[.!]$/, "");
 
@@ -58,7 +64,8 @@ const strip = (t) => t.replace(/[.!]$/, "");
 export function mergeHeld(entries, { now = Date.now(), maxAgeMs = 12 * 3600_000 } = {}) {
   const fresh = [], stale = [];
   for (const e of entries.filter((x) => x.via !== "alerts-outbox")) {
-    const old = e.expires || now - Date.parse(e.at) > maxAgeMs || (e.validUntil && Date.parse(e.validUntil) < now) || (e.kind === "question" && e.ask);
+    const old = e.expires || now - Date.parse(e.at) > maxAgeMs || (e.validUntil && Date.parse(e.validUntil) < now) || (e.kind === "question" && e.ask)
+      || perishable(e, now);
     (old ? stale : fresh).push(e);
   }
   const seen = new Set();

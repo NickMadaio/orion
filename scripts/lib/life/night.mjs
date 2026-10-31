@@ -45,7 +45,7 @@ export async function readWakeRequest() {
   const { join } = await import("node:path");
   const { homedir } = await import("node:os");
   try {
-    const at = new Date(JSON.parse(readFileSync(join(homedir(), ".openclaw/orion-controlled/wake-request.json"), "utf8")).at);
+    const at = new Date(JSON.parse(readFileSync(join((await import("../clock.mjs")).controlledDir(), "wake-request.json"), "utf8")).at);
     return Number.isNaN(at.getTime()) ? null : { date: at.toLocaleDateString("en-CA"), minute: at.getHours() * 60 + at.getMinutes() };
   } catch { return null; }
 }

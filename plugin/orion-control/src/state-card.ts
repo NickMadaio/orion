@@ -119,13 +119,12 @@ export function userEssentials(text: string | null, max = 5): string[] {
   const flat = text.replace(/\*\*/g, "").replace(/`/g, "");
   const paragraphs = flat.split(/\n\s*\n/).map((p) => p.replace(/^\s*-\s*(?:\d{4}-\d{2}-\d{2}\s*[—-]\s*)?/, "").replace(/\s+/g, " ").trim()).filter(Boolean);
   const want: Array<[RegExp, (p: string) => string]> = [
-    [/^Planning priorities/i, (p) => p.replace(/^Planning priorities,?\s*/i, "Priorities ")],
+    [/^Planning priorities/i, (p) => (p.replace(/^Planning priorities,?\s*/i, "Priorities ").split(/(?<=\.)\s/)[0] ?? p).replace(/\s*\((?:fixed, never moved|protected, not leftovers)\)/g, "")],
     [/^School:/i, (p) => p.split(/(?<=\.)\s/)[0] ?? p],
     [/Times are 12-hour/i, () => "Times are 12-hour (\"8:11 PM\"), said once."],
     [/Talk like someone who knows him|never like a motivational chatbot/i, () => "Talk like someone who knows him, never like a motivational chatbot; name avoidance when it is avoidance."],
-    [/^Name:/i, (p) => p],
   ];
-  const picked = want.flatMap(([test, shape]) => { const p = paragraphs.find((x) => test.test(x)); return p ? [shape(p).slice(0, 220)] : []; });
+  const picked = want.flatMap(([test, shape]) => { const p = paragraphs.find((x) => test.test(x)); return p ? [shape(p).slice(0, 240)] : []; });
   return [...new Set(picked)].slice(0, max);
 }
 

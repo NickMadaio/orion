@@ -517,8 +517,9 @@ export const liveCheckinRun = (args: string[]): Promise<{ stdout: string; code: 
   execFile(RESCHEDULE.replace(/orion-reschedule$/, "orion-checkin"), args, { timeout: 15000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 })));
 
 /** orion-declare / orion-reschedule with fixed arguments (no shell), for reality statements (2026-10-30). Wired in by index.ts only. */
+// ORION_SCRIPTS_DIR: a checkout's own scripts for a replay against a state copy (the live plugin runs the repo's).
 export const liveRealityRun: ScriptRun = (script, args) => new Promise((resolve) =>
-  execFile(RESCHEDULE.replace(/orion-reschedule$/, script), args, { timeout: 30000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
+  execFile(join(process.env.ORION_SCRIPTS_DIR || dirname(RESCHEDULE), script), args, { timeout: 30000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
 
 /** Loads both local models at the context each is called with (2026-10-30: the outage gate's one warm-and-retry). Wired in by index.ts only. */
 export const liveModelWarm = (): Promise<string[]> => keepWarm([{ model: FRONT_DESK_MODEL, numCtx: FRONT_DESK_CTX }, { model: WORKER_MODEL, numCtx: FORM_OPTIONS.num_ctx }]);

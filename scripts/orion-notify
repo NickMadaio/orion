@@ -386,7 +386,7 @@ if (command === "flush") {
   // Stale held items are dropped, never delivered (2026-10-31: a Friday "Heads up 3:30 PM" went out Saturday on app launch).
   const { fresh, stale } = partitionDeferred(state.notify.deferred, at);
   if (stale.length > 0) {
-    for (const s of stale) console.error(`orion-notify: dropped a stale held update (${s.reason}): ${s.entry.message.slice(0, 80)}`);
+    for (const s of stale) console.error(`orion-notify: dropped a stale held update (${s.reason}): ${String(s.entry.message ?? "").slice(0, 80)}`);
     if (!dryRun) {
       await writeState((cur) => ({ ...cur, notify: { ...cur.notify, deferred: cur.notify.deferred.filter((d) => !stale.some((s) => s.entry.at === d.at && s.entry.message === d.message && s.entry.missionId === d.missionId)) } }));
     }

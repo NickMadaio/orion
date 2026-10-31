@@ -45,7 +45,10 @@ struct AddressDecision: Equatable {
 /// THAT turn. A chain with no address check anywhere on it.
 ///
 /// This gate is deliberately asymmetric rather than clever:
-///   * explicit openings (wake word, key, typed) are never second-guessed;
+///   * the key and the composer are never second-guessed; the wake word (a
+///     detector that fires on television) must not be followed by overheard
+///     speech — see `classifyWake`;
+///   * half a sentence with no command in it is never sent;
 ///   * his name anywhere always gets through;
 ///   * a barge-in must carry a command — an interruption with nothing to do
 ///     is somebody else's conversation;
@@ -55,13 +58,15 @@ struct AddressDecision: Equatable {
 enum AddressGate {
 
     static func classify(_ heard: String, opening: VoiceTurnOpening, weakAdmitsInARow: Int = 0) -> AddressDecision {
-        if opening.isExplicit { return .init(addressed: true, reason: "explicit", isWeak: false) }
+        if opening == .pushToTalk || opening == .typed { return .init(addressed: true, reason: "explicit", isWeak: false) }
         let text = normalized(heard)
         if mentionsName(text) { return .init(addressed: true, reason: "name", isWeak: false) }
         let words = AddressLexicon.words(text)
+        if opening == .wake { return classifyWake(heard, text: text, words: words) }
         if isChatter(text, words: words) { return .init(addressed: false, reason: "room chatter", isWeak: false) }
         if hasCommandCue(text, wordCount: words.count) { return .init(addressed: true, reason: "command", isWeak: false) }
         if isShortInterruption(words) { return .init(addressed: true, reason: "interruption", isWeak: false) }
+        if endsMidClause(words) { return .init(addressed: false, reason: "trailing fragment", isWeak: false) }
         guard case .followUp(let afterQuestion) = opening else {
             return .init(addressed: false, reason: "interruption with no command", isWeak: false)
         }
@@ -73,7 +78,57 @@ enum AddressGate {
         return .init(addressed: false, reason: "no address cue", isWeak: false)
     }
 
+    /// 2026-10-31 (build 1052): the wake word fired twice on a body-cam video
+    /// (voice ID failed open once and accepted the video at 0.459 once), and
+    /// both fragments reached the gateway because a wake opening used to be
+    /// explicit. The wake word is a detector, not a key: what follows it still
+    /// has to read like something said to ORION. A request always does; so does
+    /// any whole line he could have said. Overheard speech joins mid-sentence
+    /// or trails off, and that is all this refuses.
+    static func classifyWake(_ heard: String, text: String, words: [String]) -> AddressDecision {
+        if hasCommandCue(text, wordCount: words.count) { return .init(addressed: true, reason: "command", isWeak: false) }
+        if isShortInterruption(words) { return .init(addressed: true, reason: "interruption", isWeak: false) }
+        if looksOverheard(heard) { return .init(addressed: false, reason: "overheard after a wake", isWeak: false) }
+        return .init(addressed: true, reason: "wake", isWeak: false)
+    }
+
     // MARK: Signals
+
+    /// Ends on a word no sentence ends on ("and then", "…with the"): half a
+    /// sentence, whoever said it.
+    static func endsMidClause(_ words: [String]) -> Bool {
+        guard let last = words.last else { return false }
+        if AdaptiveEndpointModel.trailingConjunctions.contains(last) { return true }
+        // "…and somebody": a new clause's subject, with nothing after it.
+        guard ["somebody", "someone"].contains(last), words.count >= 2 else { return false }
+        return ["and", "but", "so", "when", "then", "if", "because"].contains(words[words.count - 2])
+    }
+
+    /// Speech the microphone caught partway through. Deepgram punctuates and
+    /// capitalises what it hears, so in a punctuated line a lowercase first
+    /// letter means it joined someone mid-sentence ("views with clicking
+    /// conversation rates shown on the slides."; a question is exempt), and a
+    /// missing full stop means they were still going ("…and somebody").
+    /// Apple's on-device ear does neither, so for an unpunctuated line only the
+    /// trailing word counts.
+    static func looksOverheard(_ heard: String) -> Bool {
+        let raw = normalizedKeepingCase(heard)
+        if endsMidClause(AddressLexicon.words(raw)) { return true }
+        let punctuated = raw.contains { ".,?!…".contains($0) }
+        guard punctuated else { return false }
+        if !AdaptiveEndpointModel.hasTerminalPunctuation(raw) { return true }
+        // A whole question after his name is for ORION however it was cased.
+        if raw.hasSuffix("?") { return false }
+        guard let first = raw.first(where: { $0.isLetter }) else { return false }
+        return first.isLowercase
+    }
+
+    /// `normalized` without the lowercasing.
+    private static func normalizedKeepingCase(_ text: String) -> String {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.lowercased().hasPrefix("(continuing"), let close = value.firstIndex(of: ")") else { return value }
+        return String(value[value.index(after: close)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// Lowercased, curly quotes straightened, and the app's own
     /// "(Continuing — …)" prefix removed: that sentence is ORION's, not his.

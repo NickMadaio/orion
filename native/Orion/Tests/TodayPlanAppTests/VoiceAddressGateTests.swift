@@ -142,9 +142,10 @@ final class VoiceAddressGateTests: XCTestCase {
         }
     }
 
+    /// The key and the composer are never second-guessed. The wake word is no
+    /// longer on this list: it fires on television (2026-10-31, VoiceWakeGateTests).
     func testExplicitOpeningsAreAlwaysAddressed() {
         for line in Self.rehearsal.prefix(3) + Self.roomChatter.prefix(3) {
-            XCTAssertTrue(AddressGate.classify(line, opening: .wake).addressed)
             XCTAssertTrue(AddressGate.classify(line, opening: .pushToTalk).addressed)
             XCTAssertTrue(AddressGate.classify(line, opening: .typed).addressed)
         }

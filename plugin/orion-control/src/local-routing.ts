@@ -1071,7 +1071,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (quietUntil && addressed(message) && quietStart === undefined) quiet.end(nowMs());
     // 2026-10-31 (chatter.ts roomTalk): out loud and without "orion", one side of someone else's conversation, or a line in a run of them.
     if (addressed(message)) rooms.clear(sessionKey);
-    const room = on && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()) }) ?? undefined : undefined;
+    const room = on && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()), trailing: trailsOff(message) }) ?? undefined : undefined;
     const hushed = (!!quietUntil && spokenTurn && !addressed(message) && quietStart === undefined) || room === "room";
     const cutOff = !hushed && spokenTurn && trailsOff(message);
     if (sessionKey) lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });

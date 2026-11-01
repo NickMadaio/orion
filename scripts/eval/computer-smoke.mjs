@@ -48,7 +48,8 @@ const bridge = createMacBridge({ relay: forced, run: openOnly });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const step = (line) => console.log(`- ${line}`);
 const nodes = async () => flatten((await bridge.observe()).element);
-const holdsWords = (list) => list.some((n) => (n.value ?? "").includes(WORDS));
+// TextEdit auto-capitalises the first letter ("Orion test"), so the read-back ignores case.
+const holdsWords = (list) => list.some((n) => (n.value ?? "").toLowerCase().includes(WORDS.toLowerCase()));
 
 let wasRunning = true;
 try { execFileSync("/usr/bin/pgrep", ["-x", "TextEdit"]); } catch { wasRunning = false; }
@@ -76,8 +77,13 @@ try {
   if (!discard) throw new Error("the save sheet's Delete / Don't Save button was not found; the document is still open, close it by hand");
   step(`pressing "${discard.label}" (close without saving)`);
   await bridge.press(BUNDLE, { path: discard.path, role: discard.role, label: discard.label });
-  await sleep(800);
-  const after = await nodes().catch(() => []);
+  // TextEdit's iCloud save sheet can take a few seconds to go after Delete, so wait for the words to leave rather than one look.
+  let after = [];
+  for (let tries = 0; tries < 12; tries += 1) {
+    await sleep(500);
+    after = await nodes().catch(() => []);
+    if (!holdsWords(after)) break;
+  }
   if (holdsWords(after)) throw new Error("the document still shows the typed words after closing");
   passed = true;
 } catch (error) {

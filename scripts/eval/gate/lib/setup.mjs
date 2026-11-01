@@ -13,11 +13,12 @@
 //                      are rendered against the real clock.
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { MANIFEST, applyFixtures, planFixtures } from "./fixtures.mjs";
 
 // Every file a sandboxed run makes readers switch to (bridge-path, calendar-write, config, pins, skips, anchor-skips,
 // written, orion-remote). All are removed when the item ends; none may exist when an item starts.
 export const SANDBOX_FILES = ["eval-calendar.json", "eval-life-config.json", "eval-reschedule-undo.json", "eval-pins.json", "eval-remote-inbound.json",
-  "eval-remote-inbound.lock", "eval-outreach-consumed.json", "eval-skipped-events.json", "eval-anchor-skips.json", "eval-orion-written.json"];
+  "eval-remote-inbound.lock", "eval-outreach-consumed.json", "eval-skipped-events.json", "eval-anchor-skips.json", "eval-orion-written.json", MANIFEST];
 export const sandboxPaths = (p) => SANDBOX_FILES.map((f) => join(p.ctrl, f));
 
 const HEALTH_KEYS = ["sleep_last_night_h", "whoop_recovery", "gym_done_days_last7"];
@@ -84,7 +85,7 @@ export async function liveHome(p) {
  * What applying `setup` would do, without doing it. `writable` maps restorable basenames to paths.
  * @returns {{ sandbox: object|null, writes: Array<{file, path, content}>, applied: string[], unmet: string[], live: boolean, now: string|null }}
  */
-export async function planSetup(p, setup, { writable, realNow = Date.now(), hostZone } = {}) {
+export async function planSetup(p, setup, { writable, realNow = Date.now(), hostZone, sessionId } = {}) {
   const live = setup?.live === true;
   const sandbox = !live && setup?.calendar ? sandboxDay(setup.calendar) : null;
   const nowMs = sandbox ? Date.parse(sandbox.now) : realNow;
@@ -112,7 +113,9 @@ export async function planSetup(p, setup, { writable, realNow = Date.now(), host
     applied.push(...health.keys.map((k) => (k === "gym_done_days_last7" ? `${k} -> health-log.json workouts + logged.jsonl` : `${k} -> health-log.json`)));
   }
   const appends = setup?.state?.gym_done_days_last7 === undefined ? [] : [{ file: "logged.jsonl", text: gymLoggedRows(setup.state.gym_done_days_last7, nowMs) }];
-  return { sandbox, writes, appends, applied, unmet, live, now: sandbox?.now ?? null };
+  const fx = await planFixtures(p, setup, { sessionId });
+  applied.push(...fx.applied); unmet.push(...fx.unmet);
+  return { sandbox, writes, appends, fixtures: fx.files, applied, unmet, live, now: sandbox?.now ?? null };
 }
 
 /** logged.jsonl rows ("what he said he did"), which day-questions' habitAnswer counts for "how many gym days this week". */
@@ -140,6 +143,7 @@ export function applyPlan(p, plan) {
     const file = join(p.ctrl, a.file), cur = readText(file);
     appendFileSync(file, `${cur && !cur.endsWith("\n") ? "\n" : ""}${a.text}`);
   }
+  applyFixtures(p, plan.fixtures ?? []);
   if (plan.sandbox) {
     // The sandbox planner reads eval-life-config.json: his real settings, copied (orion-eval-schedule does the same).
     writeFileSync(join(p.ctrl, "eval-life-config.json"), readText(join(p.ctrl, "life-config.json")) ?? "{}");

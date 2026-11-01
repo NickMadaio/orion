@@ -5,6 +5,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync 
 import { join } from "node:path";
 import { run, sessionStatus } from "./live.mjs";
 import { SANDBOX_FILES, sandboxDelta } from "./setup.mjs";
+import { fixtureProblems, fixturesEffect, restoreFixtures } from "./fixtures.mjs";
 
 // State files an item can change and that are restored byte for byte.
 const CTRL_FILES = ["wake-request.json", "reminders.json", "watches.json", "watch.json", "pins.json", "task-sessions.json", "task-progress.json",
@@ -129,11 +130,12 @@ export async function effectSince(p, snap, { seeded = null } = {}) {
   });
   const sandboxCalendar = sandboxDelta(seeded, (() => { try { return JSON.parse(after.sandbox?.["eval-calendar.json"] ?? "null"); } catch { return null; } })());
   const sandboxChanged = Boolean(sandboxCalendar && (sandboxCalendar.missing || Object.values(sandboxCalendar).some((v) => Array.isArray(v) && v.length)));
+  const fixtures = fixturesEffect(p);
   return {
-    calendar, sandboxCalendar, files, memory, logs, todos: todoDelta, otherChanged, reported,
+    calendar, sandboxCalendar, fixtures, files, memory, logs, todos: todoDelta, otherChanged, reported,
     session: { started: after.sessionId && after.sessionId !== snap.sessionId ? after.sessionId : null },
     changedAnything: Boolean(files.length || memory.length || calendar.newEntries.length || calendar.removedEntries.length
-      || todoDelta.added.length || todoDelta.completed.length || logs.length || sandboxChanged),
+      || todoDelta.added.length || todoDelta.completed.length || logs.length || sandboxChanged || fixtures.some((f) => f.status !== "kept")),
   };
 }
 
@@ -141,7 +143,8 @@ export async function effectSince(p, snap, { seeded = null } = {}) {
 export async function restoreState(p, snap, effect, { maxJournal = 10, seededOutreachIds = [] } = {}) {
   // The sandbox goes first: while eval-calendar.json and the marker exist, `orion-reschedule undo` would undo the
   // sandbox's journal instead of his.
-  const actions = restoreSandbox(p, snap);
+  // Fixture files (vault notes, canary files) go first: the manifest naming them is itself a sandbox file.
+  const actions = [...restoreFixtures(p), ...restoreSandbox(p, snap)];
   const grew = effect.calendar.newEntries.length;
   for (let i = 0; i < Math.min(grew, maxJournal); i++) {
     const r = await run(p.node, [join(p.scripts, "orion-reschedule"), "undo"], { timeoutMs: 60000 });
@@ -240,6 +243,7 @@ export async function verifyRestore(p, snap, { seededOutreachIds = [] } = {}) {
   }
   if (read(p.undo) !== snap.undoRaw) problems.push("undo journal differs");
   for (const f of SANDBOX_FILES) if (read(join(p.ctrl, f)) !== (snap.sandbox?.[f] ?? null)) problems.push(`sandbox file differs: ${f}`);
+  problems.push(...fixtureProblems(p));
   const after = await todos(p);
   if (snap.todos && after) {
     const a = new Set(snap.todos.map((t) => t.id)), b = new Set(after.map((t) => t.id));

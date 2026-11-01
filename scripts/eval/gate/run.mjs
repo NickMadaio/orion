@@ -39,7 +39,7 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   mkdirSync(opts.outDir, { recursive: true });
   // Written BEFORE the setup: a crash from here on is undone by --recover, sandbox files included.
   writeFileSync(join(opts.outDir, "inflight-snapshot.json"), JSON.stringify({ id: item.id, snap }));
-  const planned = await planSetup(p, item.setup, { writable: writableFiles(p) });
+  const planned = await planSetup(p, item.setup, { writable: writableFiles(p), sessionId: snap.sessionId });
   // "ORION just said X" becomes a real outreach row at the item's effective now (sandbox clock, or real time when live).
   const { plan, rows, replyTo } = seedOutreach(item, planned, planned.sandbox ? Date.parse(planned.sandbox.now) : Date.now());
   const seededOutreachIds = rows.map((x) => x.id);

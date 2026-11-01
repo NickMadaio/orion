@@ -1214,6 +1214,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 15:45. MKTG2201 ended 15:30. Nick did not leave home (no location change).",
+      "needs": [
+        {
+          "need": "location",
+          "detail": "did not leave home"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T15:45:00Z",
         "events": [
@@ -1368,6 +1374,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Calendar has MKTG2201 Mon 13:30-15:30 (fixed class), ECON1115 Tue 11:00 (fixed), CS2100 Wed 09:00 (fixed), an ORION-owned gym block 17:00-18:30 daily, an ORION-owned side-project block 19:30-20:30. Now 15:45. MKTG2201 ended 15:30. Nick did not leave home (no location change). [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "needs": [
+        {
+          "need": "location",
+          "detail": "did not leave home"
+        }
+      ],
       "live": true
     },
     "turns": [
@@ -1972,6 +1984,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "A task \"finish resume\" slipped 6 times in 2 weeks and is in the brief daily. Now 21:00.",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "finish resume slipped 6 times in 2 weeks (slips.jsonl)"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T21:00:00Z",
         "events": [
@@ -2132,6 +2150,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "A task \"finish resume\" slipped 6 times in 2 weeks and is in the brief daily. Now 21:00. [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "finish resume slipped 6 times in 2 weeks (slips.jsonl)"
+        }
+      ],
       "live": true
     },
     "turns": [
@@ -2166,6 +2190,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "ORION earlier sent \"Looks like MKTG2201 didn't happen today\". Nick was actually in class (phone on silent).",
+      "needs": [
+        {
+          "need": "outreach_unlinked",
+          "detail": "ORION earlier sent \"Looks like MKTG2201 didn't happen today\""
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T16:00:00Z",
         "events": [
@@ -2322,6 +2352,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "ORION earlier sent \"Looks like MKTG2201 didn't happen today\". Nick was actually in class (phone on silent).",
+      "needs": [
+        {
+          "need": "outreach_unlinked",
+          "detail": "ORION earlier sent \"Looks like MKTG2201 didn't happen today\""
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T16:00:00Z",
         "events": [

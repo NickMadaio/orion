@@ -115,6 +115,15 @@ Schema (validated up front; a bad file runs nothing):
   for a live one; `setup.notes` overrides it ("at 12:47" for sandbox items, "N min ago" for either). A value already
   shaped like a real id is left alone. Each result's `setup.applied` lists `outreach:<id>`. At undo the rows are
   removed by truncation (only while the old content is still a prefix; a live row appended meanwhile goes too).
+- **`setup.knowledge`** `[{ title, body }]` writes vault notes (`<brain vault>/00 Inbox/gate-fixture-<slug>.md`) that
+  `orion-brain search/read` find live; **`setup.canary`** `{ "rel/path": text }` writes files in `~/Documents/zz-sweep-canary`.
+  `eval-fixtures.json` (a sandbox file) names every file written; the undo deletes only those, only inside the vault and
+  the canary folder, plus directories it created; `verify` fails if any `gate-fixture-*` note is left. `effect.fixtures`
+  says whether each seed was kept, changed or removed (that is how a "forget" is seen).
+- **`setup.needs`** `[{ need, detail? }]` is the audit of premises no file can carry. Checked: `focus_idle` (no session in
+  `orion-session status`), `apps_installed`, `file_exists`, `config_is`, `live_true`. Declared unmet, with the reason in
+  `setup.unmet`: `focus_running` (the Mac app owns the session; it is never faked), `screen`, `ambient`, `live_feed`,
+  `history`, `settings`, `contacts`, `location`, `outreach_unlinked`. Written by `tools/gen-setup.mjs` from a table.
 - What setup cannot make true: a focus session "running" (the session is real state, not a file), the real
   outreach history (only the synthetic row below is added), and the timestamp OpenClaw itself
   stamps on a turn, which is real time.

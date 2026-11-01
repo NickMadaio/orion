@@ -12,6 +12,11 @@
         "home": "Scape Shoreditch"
       },
       "notes": "No focus session running.",
+      "needs": [
+        {
+          "need": "focus_idle"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -168,6 +173,11 @@
         "home": "Scape Shoreditch"
       },
       "notes": "No focus session running.",
+      "needs": [
+        {
+          "need": "focus_idle"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -323,6 +333,11 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus not on. Now 23:03; Nick is working.",
+      "needs": [
+        {
+          "need": "focus_idle"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T23:03:00Z",
         "events": [
@@ -480,6 +495,11 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus not on. Now 23:03; Nick is working.",
+      "needs": [
+        {
+          "need": "focus_idle"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T23:03:00Z",
         "events": [
@@ -635,6 +655,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session on econ 50 min, 3 min left.",
+      "needs": [
+        {
+          "need": "focus_running",
+          "detail": "econ 50 min, 3 min left"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -790,6 +816,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session on econ 50 min, 3 min left.",
+      "needs": [
+        {
+          "need": "focus_running",
+          "detail": "econ 50 min, 3 min left"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -945,6 +977,16 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session running; screen context shows Instagram open for 12 min.",
+      "needs": [
+        {
+          "need": "focus_running",
+          "detail": "a session in progress"
+        },
+        {
+          "need": "screen",
+          "detail": "Instagram open for 12 min"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -1101,6 +1143,16 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session running; screen context shows Instagram open for 12 min.",
+      "needs": [
+        {
+          "need": "focus_running",
+          "detail": "a session in progress"
+        },
+        {
+          "need": "screen",
+          "detail": "Instagram open for 12 min"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -1256,6 +1308,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Study block \"Econ problem set\" 18:00-19:00 started 15 min ago; no activity detected.",
+      "needs": [
+        {
+          "need": "live_feed",
+          "detail": "no activity detected during the study block"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T18:15:00Z",
         "events": [
@@ -1418,6 +1476,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Study block \"Econ problem set\" 18:00-19:00 started 15 min ago; no activity detected.",
+      "needs": [
+        {
+          "need": "live_feed",
+          "detail": "no activity detected during the study block"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T18:15:00Z",
         "events": [
@@ -1580,6 +1644,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session running 20 min in.",
+      "needs": [
+        {
+          "need": "focus_running",
+          "detail": "20 min in"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -1735,6 +1805,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session running 20 min in.",
+      "needs": [
+        {
+          "need": "focus_running",
+          "detail": "20 min in"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -1905,12 +1981,6 @@
             "owned": "gym"
           },
           {
-            "title": "Side project",
-            "start": "2026-11-02T19:30:00Z",
-            "end": "2026-11-02T20:30:00Z",
-            "owned": "side_project"
-          },
-          {
             "title": "ECON1115",
             "start": "2026-11-03T11:00:00Z",
             "end": "2026-11-03T12:30:00Z"
@@ -2078,6 +2148,16 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session running; app restriction is permitted in settings.",
+      "needs": [
+        {
+          "need": "focus_running",
+          "detail": "a session in progress"
+        },
+        {
+          "need": "settings",
+          "detail": "app restriction permitted"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -2233,6 +2313,16 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session running; app restriction is permitted in settings.",
+      "needs": [
+        {
+          "need": "focus_running",
+          "detail": "a session in progress"
+        },
+        {
+          "need": "settings",
+          "detail": "app restriction permitted"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -2389,6 +2479,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session of 50 min just finished; next study block begins in 10 min.",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "a 50 min focus session just finished (focus-history.jsonl)"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [
@@ -2544,6 +2640,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Focus session of 50 min just finished; next study block begins in 10 min.",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "a 50 min focus session just finished (focus-history.jsonl)"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T10:00:00Z",
         "events": [

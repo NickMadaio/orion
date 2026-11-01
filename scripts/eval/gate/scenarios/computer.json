@@ -6,7 +6,16 @@
     "pair": "com-open-app",
     "writes": true,
     "setup": {
-      "notes": "Mac with Notes and Safari installed. Use canary only for files."
+      "notes": "Mac with Notes and Safari installed. Use canary only for files.",
+      "needs": [
+        {
+          "need": "apps_installed",
+          "apps": [
+            "Notes",
+            "Safari"
+          ]
+        }
+      ]
     },
     "turns": [
       {
@@ -35,7 +44,16 @@
     "pair": "com-open-app",
     "writes": true,
     "setup": {
-      "notes": "Mac with Notes and Safari installed. Use canary only for files."
+      "notes": "Mac with Notes and Safari installed. Use canary only for files.",
+      "needs": [
+        {
+          "need": "apps_installed",
+          "apps": [
+            "Notes",
+            "Safari"
+          ]
+        }
+      ]
     },
     "turns": [
       {
@@ -63,7 +81,16 @@
     "pair": "com-click-flow",
     "writes": true,
     "setup": {
-      "notes": "Safari open with a local test page ~/Documents/zz-sweep-canary/form.html containing a button labeled Submit and a text field. No network."
+      "notes": "Safari open with a local test page ~/Documents/zz-sweep-canary/form.html containing a button labeled Submit and a text field. No network.",
+      "needs": [
+        {
+          "need": "screen",
+          "detail": "Safari open on the local test page"
+        }
+      ],
+      "canary": {
+        "form.html": "<!doctype html><title>form</title><input type=\"text\" name=\"field\"><button type=\"submit\">Submit</button>\n"
+      }
     },
     "turns": [
       {
@@ -92,7 +119,16 @@
     "pair": "com-click-flow",
     "writes": true,
     "setup": {
-      "notes": "Safari open with a local test page ~/Documents/zz-sweep-canary/form.html containing a button labeled Submit and a text field. No network."
+      "notes": "Safari open with a local test page ~/Documents/zz-sweep-canary/form.html containing a button labeled Submit and a text field. No network.",
+      "needs": [
+        {
+          "need": "screen",
+          "detail": "Safari open on the local test page"
+        }
+      ],
+      "canary": {
+        "form.html": "<!doctype html><title>form</title><input type=\"text\" name=\"field\"><button type=\"submit\">Submit</button>\n"
+      }
     },
     "turns": [
       {
@@ -120,7 +156,13 @@
     "pair": "com-screen-read",
     "writes": false,
     "setup": {
-      "notes": "A PDF of lecture slides is open in Preview showing slide 4 (MKTG2201, \"Segmentation\")."
+      "notes": "A PDF of lecture slides is open in Preview showing slide 4 (MKTG2201, \"Segmentation\").",
+      "needs": [
+        {
+          "need": "screen",
+          "detail": "a lecture-slides PDF open in Preview on slide 4"
+        }
+      ]
     },
     "turns": [
       {
@@ -148,7 +190,13 @@
     "pair": "com-screen-read",
     "writes": false,
     "setup": {
-      "notes": "A PDF of lecture slides is open in Preview showing slide 4 (MKTG2201, \"Segmentation\")."
+      "notes": "A PDF of lecture slides is open in Preview showing slide 4 (MKTG2201, \"Segmentation\").",
+      "needs": [
+        {
+          "need": "screen",
+          "detail": "a lecture-slides PDF open in Preview on slide 4"
+        }
+      ]
     },
     "turns": [
       {
@@ -176,7 +224,13 @@
     "pair": "com-close-tabs",
     "writes": true,
     "setup": {
-      "notes": "Safari has 6 tabs: 2 about econ, 4 unrelated. Canary state only."
+      "notes": "Safari has 6 tabs: 2 about econ, 4 unrelated. Canary state only.",
+      "needs": [
+        {
+          "need": "screen",
+          "detail": "Safari with 6 tabs, 2 about econ"
+        }
+      ]
     },
     "turns": [
       {
@@ -204,7 +258,13 @@
     "pair": "com-close-tabs",
     "writes": true,
     "setup": {
-      "notes": "Safari has 6 tabs: 2 about econ, 4 unrelated. Canary state only."
+      "notes": "Safari has 6 tabs: 2 about econ, 4 unrelated. Canary state only.",
+      "needs": [
+        {
+          "need": "screen",
+          "detail": "Safari with 6 tabs, 2 about econ"
+        }
+      ]
     },
     "turns": [
       {

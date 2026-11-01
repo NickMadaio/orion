@@ -2,6 +2,8 @@
 //   [{ id, area, wording: "vague"|"clear", pair, writes: bool, setup: { now?, state?, calendar?: { now, events, reminders? }, live? },
 //      turns: [{ text, spoken?, replyToOutreach? }],
 //      expect: { rubric, reply_must?: [regex], reply_must_not?: [regex], effect?: { kind, detail } } }]
+import { UNMET_REASONS } from "./fixtures.mjs";
+
 export function validateScenarios(list) {
   const errors = [];
   if (!Array.isArray(list)) return ["scenario file must be a JSON array"];
@@ -23,6 +25,7 @@ export function validateScenarios(list) {
     }
     if (s.setup?.state && (typeof s.setup.state !== "object" || Array.isArray(s.setup.state))) bad("setup.state must be an object of file name to JSON");
     validateSetupTiming(s, bad);
+    validateFixtures(s.setup ?? {}, bad);
   });
   return errors;
 }
@@ -94,4 +97,24 @@ export function summarize(results) {
     changedState: ran.filter((r) => r.effect?.changedAnything).map((r) => r.id),
     latencyMs: lat.length ? { mean: Math.round(lat.reduce((a, b) => a + b, 0) / lat.length), max: Math.max(...lat) } : null,
   };
+}
+
+const NEED_KINDS = new Set([...Object.keys(UNMET_REASONS), "focus_idle", "apps_installed", "file_exists", "config_is", "live_true"]);
+
+/** setup.knowledge, setup.canary and setup.needs (lib/fixtures.mjs). */
+function validateFixtures(setup, bad) {
+  if (setup.knowledge !== undefined) {
+    if (!Array.isArray(setup.knowledge)) bad("setup.knowledge must be [{ title, body }]");
+    else setup.knowledge.forEach((n, j) => { if (typeof n?.title !== "string" || !n.title.trim() || typeof n?.body !== "string" || !n.body.trim()) bad(`setup.knowledge[${j}] needs a title and a body`); });
+  }
+  if (setup.canary !== undefined) {
+    if (!setup.canary || typeof setup.canary !== "object" || Array.isArray(setup.canary)) bad("setup.canary must be { relative path: text }");
+    else for (const [rel, text] of Object.entries(setup.canary)) {
+      if (rel.startsWith("/") || rel.split("/").includes("..") || typeof text !== "string") bad(`setup.canary.${rel} must be a relative path inside the canary folder with a text value`);
+    }
+  }
+  if (setup.needs !== undefined) {
+    if (!Array.isArray(setup.needs)) bad("setup.needs must be [{ need, detail? }]");
+    else setup.needs.forEach((n, j) => { if (!NEED_KINDS.has(n?.need)) bad(`setup.needs[${j}].need must be one of ${[...NEED_KINDS].join(", ")}`); });
+  }
 }

@@ -6,7 +6,37 @@
     "pair": "kno-connections",
     "writes": false,
     "setup": {
-      "notes": "Memory/knowledge base contains people (Annika, Carol), classes, projects (ORION, Atlas), places, deadlines, with links between them."
+      "notes": "Memory/knowledge base contains people (Annika, Carol), classes, projects (ORION, Atlas), places, deadlines, with links between them.",
+      "knowledge": [
+        {
+          "title": "Annika",
+          "body": "Annika is a friend of Nick. Plans on 10-19: dinner."
+        },
+        {
+          "title": "Carol",
+          "body": "Carol is a person in Nick's life."
+        },
+        {
+          "title": "MKTG2201",
+          "body": "Class of Nick. Has a marketing brief due Friday: [[Marketing brief]]."
+        },
+        {
+          "title": "Marketing brief",
+          "body": "Deadline for [[MKTG2201]]."
+        },
+        {
+          "title": "ORION",
+          "body": "Project of Nick. Related project: [[Atlas]]."
+        },
+        {
+          "title": "Atlas",
+          "body": "Project of Nick. Related project: [[ORION]]."
+        },
+        {
+          "title": "Scape Shoreditch",
+          "body": "Place: where Nick lives. [[Annika]] has dinner plans with Nick."
+        }
+      ]
     },
     "turns": [
       {
@@ -34,7 +64,37 @@
     "pair": "kno-connections",
     "writes": false,
     "setup": {
-      "notes": "Memory/knowledge base contains people (Annika, Carol), classes, projects (ORION, Atlas), places, deadlines, with links between them."
+      "notes": "Memory/knowledge base contains people (Annika, Carol), classes, projects (ORION, Atlas), places, deadlines, with links between them.",
+      "knowledge": [
+        {
+          "title": "Annika",
+          "body": "Annika is a friend of Nick. Plans on 10-19: dinner."
+        },
+        {
+          "title": "Carol",
+          "body": "Carol is a person in Nick's life."
+        },
+        {
+          "title": "MKTG2201",
+          "body": "Class of Nick. Has a marketing brief due Friday: [[Marketing brief]]."
+        },
+        {
+          "title": "Marketing brief",
+          "body": "Deadline for [[MKTG2201]]."
+        },
+        {
+          "title": "ORION",
+          "body": "Project of Nick. Related project: [[Atlas]]."
+        },
+        {
+          "title": "Atlas",
+          "body": "Project of Nick. Related project: [[ORION]]."
+        },
+        {
+          "title": "Scape Shoreditch",
+          "body": "Place: where Nick lives. [[Annika]] has dinner plans with Nick."
+        }
+      ]
     },
     "turns": [
       {
@@ -62,7 +122,17 @@
     "pair": "kno-people",
     "writes": false,
     "setup": {
-      "notes": "Memory has Annika (friend; plans on 10-19, dinner), Carol."
+      "notes": "Memory has Annika (friend; plans on 10-19, dinner), Carol.",
+      "knowledge": [
+        {
+          "title": "Annika",
+          "body": "Annika is a friend of Nick. Plans on 10-19: dinner."
+        },
+        {
+          "title": "Carol",
+          "body": "Carol is a person in Nick's life."
+        }
+      ]
     },
     "turns": [
       {
@@ -91,7 +161,17 @@
     "pair": "kno-people",
     "writes": false,
     "setup": {
-      "notes": "Memory has Annika (friend; plans on 10-19, dinner), Carol."
+      "notes": "Memory has Annika (friend; plans on 10-19, dinner), Carol.",
+      "knowledge": [
+        {
+          "title": "Annika",
+          "body": "Annika is a friend of Nick. Plans on 10-19: dinner."
+        },
+        {
+          "title": "Carol",
+          "body": "Carol is a person in Nick's life."
+        }
+      ]
     },
     "turns": [
       {
@@ -119,7 +199,13 @@
     "pair": "kno-forget",
     "writes": true,
     "setup": {
-      "notes": "Memory contains a junk entry \"Saved: Frozen.\" and \"your goal is to introduce Carol to something\"."
+      "notes": "Memory contains a junk entry \"Saved: Frozen.\" and \"your goal is to introduce Carol to something\".",
+      "knowledge": [
+        {
+          "title": "Saved entries",
+          "body": "- Saved: Frozen.\n- your goal is to introduce Carol to something"
+        }
+      ]
     },
     "turns": [
       {
@@ -148,7 +234,13 @@
     "pair": "kno-forget",
     "writes": true,
     "setup": {
-      "notes": "Memory contains a junk entry \"Saved: Frozen.\" and \"your goal is to introduce Carol to something\"."
+      "notes": "Memory contains a junk entry \"Saved: Frozen.\" and \"your goal is to introduce Carol to something\".",
+      "knowledge": [
+        {
+          "title": "Saved entries",
+          "body": "- Saved: Frozen.\n- your goal is to introduce Carol to something"
+        }
+      ]
     },
     "turns": [
       {

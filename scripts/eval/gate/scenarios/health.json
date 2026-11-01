@@ -955,6 +955,12 @@
     "setup": {
       "now": "2026-11-02T13:00:00Z",
       "notes": "health-log exists.",
+      "needs": [
+        {
+          "need": "file_exists",
+          "file": "health-log.json"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T13:00:00Z",
         "events": [
@@ -1107,6 +1113,12 @@
     "setup": {
       "now": "2026-11-02T13:00:00Z",
       "notes": "health-log exists.",
+      "needs": [
+        {
+          "need": "file_exists",
+          "file": "health-log.json"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T13:00:00Z",
         "events": [
@@ -1258,6 +1270,13 @@
     "setup": {
       "now": "2026-11-02T20:00:00Z",
       "notes": "Bedtime currently 00:00.",
+      "needs": [
+        {
+          "need": "config_is",
+          "key": "bedtime",
+          "value": "00:00"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T20:00:00Z",
         "events": [
@@ -1409,6 +1428,13 @@
     "setup": {
       "now": "2026-11-02T20:00:00Z",
       "notes": "Bedtime currently 00:00.",
+      "needs": [
+        {
+          "need": "config_is",
+          "key": "bedtime",
+          "value": "00:00"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T20:00:00Z",
         "events": [

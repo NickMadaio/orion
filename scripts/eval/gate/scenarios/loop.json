@@ -216,6 +216,13 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Bedtime is 00:00. It is 00:43 and Nick got \"Still up at 12:43 AM... go now and I'll protect it.\" CS2100 is at 09:00.",
+      "needs": [
+        {
+          "need": "config_is",
+          "key": "bedtime",
+          "value": "00:00"
+        }
+      ],
       "calendar": {
         "now": "2026-11-03T00:43:00Z",
         "events": [
@@ -380,6 +387,13 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Bedtime is 00:00. It is 00:43 and Nick got \"Still up at 12:43 AM... go now and I'll protect it.\" CS2100 is at 09:00.",
+      "needs": [
+        {
+          "need": "config_is",
+          "key": "bedtime",
+          "value": "00:00"
+        }
+      ],
       "calendar": {
         "now": "2026-11-03T00:43:00Z",
         "events": [
@@ -857,6 +871,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Morning brief sent at 08:00: \"Top of your list: finish resume and Student oyster card.\" It has been the top item 11 days.",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "finish resume has been the top item 11 days"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T08:05:00Z",
         "events": [
@@ -1021,6 +1041,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Morning brief sent at 08:00: \"Top of your list: finish resume and Student oyster card.\" It has been the top item 11 days.",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "finish resume has been the top item 11 days"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T08:05:00Z",
         "events": [
@@ -1377,6 +1403,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Nick has ignored the entire gym ladder (5 steps) ending \"I'll stop pinging about Gym\". Now 19:30; gym was 17:00.",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "the 5-step gym ladder in checkins.json; only its last message is seeded as outreach"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T19:30:00Z",
         "events": [
@@ -1537,6 +1569,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Nick has ignored the entire gym ladder (5 steps) ending \"I'll stop pinging about Gym\". Now 19:30; gym was 17:00. [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "the 5-step gym ladder in checkins.json; only its last message is seeded as outreach"
+        }
+      ],
       "live": true
     },
     "turns": [
@@ -1572,6 +1610,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "A 50 min focus session on econ just ended: \"Session done. Next: CS2100 at 9:00 AM.\" Now 17:00 and it is Mon.",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "the 50 min econ session that just ended (focus-history.jsonl)"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T17:00:00Z",
         "events": [
@@ -1737,6 +1781,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "A 50 min focus session on econ just ended: \"Session done. Next: CS2100 at 9:00 AM.\" Now 17:00 and it is Mon.",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "the 50 min econ session that just ended (focus-history.jsonl)"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T17:00:00Z",
         "events": [
@@ -2219,6 +2269,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Nick is awake at 03:00; CS2100 is 09:00; focus sessions ran late. No bedtime nudge fired. ORION sends \"go to bed\".",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "focus sessions ran late today"
+        }
+      ],
       "calendar": {
         "now": "2026-11-03T03:00:00Z",
         "events": [
@@ -2384,6 +2440,12 @@
         "home": "Scape Shoreditch"
       },
       "notes": "Nick is awake at 03:00; CS2100 is 09:00; focus sessions ran late. No bedtime nudge fired. ORION sends \"go to bed\".",
+      "needs": [
+        {
+          "need": "history",
+          "detail": "focus sessions ran late today"
+        }
+      ],
       "calendar": {
         "now": "2026-11-03T03:00:00Z",
         "events": [

@@ -26,6 +26,10 @@ export function paths(home = homedir()) {
     config: join(home, ".openclaw/openclaw.json"),
     env: join(home, "Desktop/ORION/.env"),
     sessions: join(home, ".openclaw/agents/main/sessions"),
+    // Where orion-brain search reads (ORION_BRAIN_VAULT, else the Obsidian vault) and the test folder the computer items may touch.
+    brainVault: process.env.ORION_BRAIN_VAULT || join(home, "Documents/orionBrain"),
+    canary: join(home, "Documents/zz-sweep-canary"),
+    appDirs: [join(home, "Applications"), "/Applications", "/System/Applications", "/System/Cryptexes/App/System/Applications"],
   };
 }
 

@@ -8,6 +8,12 @@
     "setup": {
       "now": "2026-11-02T06:00:00Z",
       "notes": "Nick is rehearsing a marketing presentation aloud for 15 min. ORION is listening (always-on voice).",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "rehearsing a presentation aloud, always-on voice"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T06:00:00Z",
         "events": [
@@ -169,6 +175,12 @@
     "setup": {
       "now": "2026-11-02T06:00:00Z",
       "notes": "Nick is rehearsing a marketing presentation aloud for 15 min. ORION is listening (always-on voice).",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "rehearsing a presentation aloud, always-on voice"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T06:00:00Z",
         "events": [
@@ -322,6 +334,12 @@
     "setup": {
       "now": "2026-11-02T21:29:00Z",
       "notes": "Friends are in the room. Voice always on.",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "friends in the room, voice always on"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T21:29:00Z",
         "events": [
@@ -483,6 +501,12 @@
     "setup": {
       "now": "2026-11-02T21:29:00Z",
       "notes": "Friends are in the room. Voice always on.",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "friends in the room, voice always on"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T21:29:00Z",
         "events": [
@@ -635,6 +659,12 @@
     "setup": {
       "now": "2026-11-02T15:00:00Z",
       "notes": "Nick is on a phone call with a family member; voice always on.",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "on a phone call with a family member"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T15:00:00Z",
         "events": [
@@ -793,6 +823,12 @@
     "writes": false,
     "setup": {
       "notes": "Nick is on a phone call with a family member; voice always on. [Live tier: runs on the real calendar at the real time; times in the turn are relative to the real clock.]",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "on a phone call with a family member"
+        }
+      ],
       "live": true
     },
     "turns": [
@@ -825,6 +861,12 @@
     "setup": {
       "now": "2026-11-02T12:00:00Z",
       "notes": "Voice on. Nick is mumbling while working.",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "mumbling while working, voice on"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T12:00:00Z",
         "events": [
@@ -981,6 +1023,12 @@
     "setup": {
       "now": "2026-11-02T12:00:00Z",
       "notes": "Voice on. Nick is mumbling while working.",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "mumbling while working, voice on"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T12:00:00Z",
         "events": [
@@ -1133,6 +1181,12 @@
     "setup": {
       "now": "2026-11-02T22:00:00Z",
       "notes": "A TV show is playing with dialogue (\"I'm going to kill you\", \"set an alarm for dawn\", \"I'm going to die\").",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "a TV show playing dialogue"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T22:00:00Z",
         "events": [
@@ -1294,6 +1348,12 @@
     "setup": {
       "now": "2026-11-02T22:00:00Z",
       "notes": "A TV show is playing with dialogue (\"I'm going to kill you\", \"set an alarm for dawn\", \"I'm going to die\").",
+      "needs": [
+        {
+          "need": "ambient",
+          "detail": "a TV show playing dialogue"
+        }
+      ],
       "calendar": {
         "now": "2026-11-02T22:00:00Z",
         "events": [

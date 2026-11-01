@@ -149,3 +149,39 @@ test("validateScenarios accepts the new setup keys and rejects malformed ones", 
   assert.match(validateScenarios([item({ canary: { "../x": "y" } })])[0], /relative path/);
   assert.match(validateScenarios([item({ needs: [{ need: "teleport" }] })])[0], /need must be one of/);
 });
+
+test("vault: a note the item appends to, a new Learned note and a deleted note are reported, then restored and verified", async () => {
+  const { p } = fakeHome();
+  mkdirSync(join(p.brainVault, "20 Areas/Me"), { recursive: true });
+  writeFileSync(join(p.brainVault, "20 Areas/Me/Nick.md"), "# Nick\n- likes tea\n");
+  writeFileSync(join(p.brainVault, "00 Inbox/old.md"), "old\n");
+  const snap = await snapshotState(p);
+  const fs = await import("node:fs");
+  fs.appendFileSync(join(p.brainVault, "20 Areas/Me/Nick.md"), "- hates being called buddy, no emojis\n");
+  mkdirSync(join(p.brainVault, "20 Areas/Learned"), { recursive: true });
+  writeFileSync(join(p.brainVault, "20 Areas/Learned/prefs.md"), "- no emojis\n");
+  fs.rmSync(join(p.brainVault, "00 Inbox/old.md"));
+  const effect = await effectSince(p, snap);
+  assert.deepEqual(effect.vault.changed.map((c) => [c.path, c.added]), [["20 Areas/Me/Nick.md", ["- hates being called buddy, no emojis"]]]);
+  assert.deepEqual(effect.vault.created.map((c) => c.path), ["20 Areas/Learned/prefs.md"]);
+  assert.deepEqual(effect.vault.deleted.map((c) => c.path), ["00 Inbox/old.md"]);
+  assert.equal(effect.changedAnything, true);
+  assert.equal((await verifyRestore(p, snap)).ok, false);
+  const actions = await restoreState(p, snap, effect);
+  assert.ok(actions.some((a) => /restored vault note 20 Areas\/Me\/Nick.md/.test(a)));
+  const v = await verifyRestore(p, snap);
+  assert.deepEqual(v.problems, []);
+  assert.equal(readFileSync(join(p.brainVault, "20 Areas/Me/Nick.md"), "utf8"), "# Nick\n- likes tea\n");
+  assert.ok(!existsSync(join(p.brainVault, "20 Areas/Learned")), "the folder the item created is gone");
+  assert.equal(readFileSync(join(p.brainVault, "00 Inbox/old.md"), "utf8"), "old\n");
+});
+
+test("vault: dot folders are not the vault's notes and an untouched vault reports nothing", async () => {
+  const { p } = fakeHome();
+  mkdirSync(join(p.brainVault, ".obsidian"), { recursive: true });
+  const snap = await snapshotState(p);
+  writeFileSync(join(p.brainVault, ".obsidian/workspace.md"), "ui state");
+  const effect = await effectSince(p, snap);
+  assert.deepEqual(effect.vault, { created: [], changed: [], deleted: [] });
+  assert.deepEqual((await verifyRestore(p, snap)).problems, []);
+});

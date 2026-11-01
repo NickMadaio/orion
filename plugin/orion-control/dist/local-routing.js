@@ -877,7 +877,10 @@ export function registerLocalRouting(api, options) {
         const task = run.card?.record?.shouldBe?.kind && !/^(?:unknown|sleep|free)$/.test(run.card.record.shouldBe.kind) ? run.card.record.shouldBe.title ?? undefined : run.card?.record?.next?.title ?? undefined;
         if (run.focusMove) {
             const out = await runFocusMove(run.focusMove, { ...(options.sessionExec ? { exec: options.sessionExec } : {}), ...(options.realityRun ? { run: options.realityRun } : {}), now: at, ...(task ? { task } : {}),
-                ...(options.readDayJson ? { readDay: () => withTimeout(options.readDayJson([]).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) } : {}) });
+                ...(options.readDayJson ? { readDay: () => withTimeout(options.readDayJson([]).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) } : {}),
+                // run-1101020721 foc-doomscroll-v: a doomscroll may start a session only when typed or addressed (room speech never starts one).
+                mayStart: !run.spoken || addressed(run.message),
+                ...(options.readDeadlines ? { readDeadlines: () => withTimeout(options.readDeadlines().catch(() => null), options.dayReadMs ?? DAY_READ_MS) } : {}) });
             if (out.pendingSession)
                 offer({ session: out.pendingSession });
             if (out.flow) {

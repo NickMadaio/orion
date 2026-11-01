@@ -2,6 +2,7 @@ import type { Day, FlowResult } from "./schedule-flow.js";
 import type { SessionExec } from "./session-flow.js";
 import { type BreakMove } from "./break-intent.js";
 import type { ScriptRun } from "./reality.js";
+import type { DeadlineRead } from "./deadline-read.js";
 export type FocusMove = {
     kind: "stall";
     minutes: number;
@@ -14,6 +15,7 @@ export type FocusMove = {
     kind: "doomscroll";
     app: string;
     instead?: string;
+    duty?: true;
 } | {
     kind: "side-missed";
     label: string;
@@ -41,6 +43,10 @@ type Deps = {
     now: Date;
     task?: string; /** today's calendar (show --json), for the block he is in now */
     readDay?: () => Promise<Day | undefined>;
+    /** Typed, or spoken and addressed to ORION: only then may a doomscroll start a session (room speech never does; work-start.ts). */
+    mayStart?: boolean;
+    /** The calendar's deadlines and dated to-dos, for the top study item when no block is current. */
+    readDeadlines?: () => Promise<DeadlineRead | null | undefined>;
 };
 /** The study or work block on his calendar right now, with at least ten minutes left; never a class, gym, meal or rest. */
 export declare function currentWorkBlock(day: Day | undefined, now: Date): {

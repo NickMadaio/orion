@@ -23,13 +23,14 @@ import { parseSessionJson } from "./session-json.js";
 import { readBreak, runBreak, type BreakMove } from "./break-intent.js";
 import type { ScriptRun } from "./reality.js";
 import { ampm, toMin } from "./intent-time.js";
+import type { DeadlineRead } from "./deadline-read.js";
 
 export type FocusMove =
   | { kind: "stall"; minutes: number }
   | BreakMove
   | { kind: "extend"; minutes: number }
   | { kind: "block" }
-  | { kind: "doomscroll"; app: string; instead?: string }
+  | { kind: "doomscroll"; app: string; instead?: string; duty?: true }
   | { kind: "side-missed"; label: string };
 /** What the turn does: a fixed reply (flow), or a reminder the worker must set, plus what a "yes" next turn starts. */
 export type FocusOutcome = { calls?: string[]; outputs?: string[]; flow?: FlowResult; reminder?: { args: string; say: string; action: "alarm_set"; label: string; at: string }; pendingSession?: string; writes?: number };
@@ -43,6 +44,8 @@ const NOT_BLOCK = /\bblock (?:off|out)\b|\bcalendar\b|\btime block\b|\bstudy blo
 const APPS = String.raw`(?:my phone|tiktok|tik tok|instagram|insta|youtube|yt|reddit|twitter|x|snapchat|snap|netflix|shorts|reels|discord)`;
 const DOOM = new RegExp(String.raw`\b(?:i'?m|im|i am|i'?ve been|ive been|been|was|i keep|keep)\s+(?:on|scrolling(?: on)?|watching|stuck on|doomscrolling(?: on)?|going on|wasting time on)\s+(${APPS})\b`, "i");
 const DOOM_GUILT = /\binstead\b|\bshould(?:'?ve| have| be)\b|\bsupposed to\b|\bnot (?:studying|working)\b|\bprocrastinat\w*|\bagain\b|\bfor (?:\d+|an?|like)\b|\bhelp\b/i;
+// run-1101020721 foc-doomscroll-v: his own words say he should be studying or working ("instead of studying", "supposed to be revising").
+const STUDY_DUTY = /\binstead of (?:studying|working|revising|doing (?:my |the |some )?(?:work|homework|hw|pset|problem set|essay|assignment|coursework|revision|reading)|(?:my |the )?(?:work|homework|hw|pset|problem set|essay|assignment|coursework|revision|reading))\b|\b(?:should(?:'?ve| have)? be(?:en)?|supposed to be|meant to be|gotta be|need to be)\s+(?:studying|working|revising|doing (?:my )?(?:work|homework|hw|pset))\b|\bnot (?:studying|working|revising)\b/i;
 const SIDE_MISSED = /\b(?:didn'?t|did not|didnt|haven'?t|havent|have not|never)\s+(?:do|get to|work on|touch|start|film|edit|get around to)\s+(?:any\s+|my\s+|the\s+|on\s+)?(youtube(?: stuff)?|side project|video|editing|content|channel|the channel)\b/i;
 const WORD_MIN: Record<string, number> = { sec: 5, second: 5, min: 5, minute: 5, bit: 5, moment: 5, few: 5 };
 
@@ -62,7 +65,7 @@ export function readFocusMove(message: string): FocusMove | null {
   const doom = DOOM.exec(m);
   if (doom && DOOM_GUILT.test(m) && !/\b(?:start|begin|set)\b/i.test(m)) {
     const instead = /\binstead of\s+(?:doing\s+|my\s+|the\s+)?([a-z][a-z ]{1,30}?)(?=[.,!?]|$|\s+(?:and|but|lol|rn|right now)\b)/i.exec(m)?.[1];
-    return { kind: "doomscroll", app: doom[1]!, ...(instead ? { instead } : {}) };
+    return { kind: "doomscroll", app: doom[1]!, ...(instead ? { instead } : {}), ...(STUDY_DUTY.test(m) ? { duty: true as const } : {}) };
   }
   const side = SIDE_MISSED.exec(m);
   if (side && !/\?\s*$/.test(m)) return { kind: "side-missed", label: /youtube|video|editing|content|channel/i.test(side[1]!) ? "YouTube" : "Side project" };
@@ -79,7 +82,11 @@ const isoLocal = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad
 const GENERIC = /^(?:studying|study|work|working|stuff|homework|things|it)$/i;
 const say = (text: string, calls: string[] = [], outputs: string[] = []): FlowResult => ({ outcome: "say", kind: "plain", text, ...(calls.length ? { calls, outputs } : {}) });
 
-type Deps = { exec?: SessionExec; run?: ScriptRun; now: Date; task?: string; /** today's calendar (show --json), for the block he is in now */ readDay?: () => Promise<Day | undefined> };
+type Deps = { exec?: SessionExec; run?: ScriptRun; now: Date; task?: string; /** today's calendar (show --json), for the block he is in now */ readDay?: () => Promise<Day | undefined>;
+  /** Typed, or spoken and addressed to ORION: only then may a doomscroll start a session (room speech never does; work-start.ts). */
+  mayStart?: boolean;
+  /** The calendar's deadlines and dated to-dos, for the top study item when no block is current. */
+  readDeadlines?: () => Promise<DeadlineRead | null | undefined> };
 
 /** Kinds of block a focus session belongs to: study, deadline work, the side project, or a block titled as coursework. */
 const WORK_KINDS = new Set(["study", "deadline", "work", "side_project"]);
@@ -91,6 +98,32 @@ export function currentWorkBlock(day: Day | undefined, now: Date): { title: stri
     && (WORK_KINDS.has(x.kind ?? "") || (!x.kind || x.kind === "other") && WORK_TITLE.test(x.title)));
   return b ? { title: b.title, end: b.end } : undefined;
 }
+/** The study or work block that ended in the last 30 minutes (he drifted off it). */
+function justEndedWorkBlock(day: Day | undefined, now: Date): string | undefined {
+  const at = now.getHours() * 60 + now.getMinutes();
+  return day?.blocks.filter((x) => toMin(x.end) <= at && at - toMin(x.end) <= 30 && x.kind !== "class" && !x.fixed
+    && (WORK_KINDS.has(x.kind ?? "") || (!x.kind || x.kind === "other") && WORK_TITLE.test(x.title))).at(-1)?.title;
+}
+const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** The nearest deadline or dated to-do from today on. */
+function topDeadline(due: DeadlineRead | null | undefined, now: Date): string | undefined {
+  const today = ymd(now);
+  const rows = [...(due?.events ?? []).map((e) => ({ title: e.title, at: e.start })), ...(due?.tasks ?? []).map((t) => ({ title: t.title, at: t.due }))]
+    .filter((r) => r.title && r.at.slice(0, 10) >= today).sort((a, b) => a.at.localeCompare(b.at));
+  return rows[0]?.title;
+}
+/** What he should be studying, most relevant first: a just-ended block, today's ended session, what he named, the top deadline. */
+async function studyItem(move: Extract<FocusMove, { kind: "doomscroll" }>, status: Record<string, unknown>, day: Day | undefined, deps: Deps): Promise<string> {
+  const ended = justEndedWorkBlock(day, deps.now);
+  if (ended) return ended;
+  const last = typeof status.task === "string" && status.task !== "Focus" && status.dayKey === ymd(deps.now) ? status.task : undefined;
+  if (last) return last;
+  const named = move.instead?.trim().replace(/^(?:(?:doing|my|the|some)\s+)+/i, "");
+  if (named && !GENERIC.test(named)) return named;
+  const due = deps.readDeadlines ? await deps.readDeadlines().catch(() => undefined) : undefined;
+  return topDeadline(due, deps.now) ?? (deps.task && !/\b(?:gym|lunch|dinner|sleep)\b/i.test(deps.task) ? deps.task : "studying");
+}
+
 type Ran = { calls: string[]; outputs: string[] };
 async function call(exec: SessionExec, args: string[], ran: Ran): Promise<Record<string, unknown> | null> {
   const out = await exec([...args, "--json"]).catch(() => ({ stdout: "", code: 1 }));
@@ -148,13 +181,24 @@ export async function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOu
     if (running) return { flow: say(`Your ${task} session is still running, ${Math.max(1, Math.round(Number(status.remainingSeconds ?? 0) / 60))} minutes left. Put ${move.app} down and get back to it.`, ran.calls, ran.outputs) };
     const known = Object.keys(status).length > 0;
     // Wave 6 B (orchestrator decision): a study or work block current on his calendar is restarted as a focus session, said in one line.
-    const current = known && deps.readDay ? currentWorkBlock(await deps.readDay().catch(() => undefined), now) : undefined;
+    const today = known && deps.readDay ? await deps.readDay().catch(() => undefined) : undefined;
+    const current = currentWorkBlock(today, now);
     if (current) {
       const state = await call(deps.exec, ["start", current.title, "--until", current.end], ran);
       if (started(state)) {
         const left = Number(state?.remainingSeconds);
         const until = Number.isFinite(left) && left > 0 ? clock(plus(now, Math.round(left / 60))) : ampm(toMin(current.end));
         return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Put ${move.app} down: I've restarted a focus session on ${current.title} until ${until}.` } };
+      }
+    }
+    // run-1101020721 foc-doomscroll-v: his words say he should be studying, so a typed or addressed turn starts 25 minutes, said in one line.
+    if (known && move.duty && deps.mayStart) {
+      const item = await studyItem(move, status, today, deps);
+      const state = await call(deps.exec, ["start", item, "--minutes", "25"], ran);
+      if (started(state)) {
+        const left = Number(state?.remainingSeconds);
+        const until = clock(plus(now, Number.isFinite(left) && left > 0 ? Math.round(left / 60) : 25));
+        return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Put ${move.app} down: I've started 25 minutes on ${item}, till ${until} (say "stop the session" to end it).` } };
       }
     }
     const back = block ? `get back to ${block}` : "get back to your block";

@@ -22,6 +22,17 @@
     ["macro", "MKTG2201", false],
     ["cs", "DS Lab 05", false],
     ["gym", "Side project", false],
-    ["my class", "MKTG2201", false]
+    ["my class", "MKTG2201", false],
+    ["marking", "ECON1115", false],
+    ["science", "CS2100", false],
+    ["science", "DS Lab 05", false],
+    ["science", "Science fair prep", true],
+    ["data science lab", "DS Lab 05", true],
+    ["data science", "DS Lab 05", true],
+    ["data science lab", "CS lab", false],
+    ["computer science", "CS2100", true],
+    ["dinner with mark", "Dinner with Mark", true],
+    ["marketting", "MKTG2201", true],
+    ["marking", "DS Lab 05", false]
   ]
 }

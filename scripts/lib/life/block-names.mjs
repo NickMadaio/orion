@@ -8,9 +8,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const PREFIX_WORDS = {
-  mktg: ["marketing"], mkt: ["marketing"], mark: ["marketing"],
+  mktg: ["marketing"], mkt: ["marketing"],
   econ: ["econ", "economics", "macro", "micro", "macroeconomics", "microeconomics"], eco: ["econ", "economics"],
-  cs: ["computer", "science", "compsci", "programming"], ds: ["data", "science"],
+  cs: ["computer science", "compsci", "programming"], ds: ["data science"],
   math: ["math", "maths", "mathematics"], mth: ["math", "maths"], stat: ["stats", "statistics"],
   phys: ["physics"], chem: ["chemistry"], biol: ["biology", "bio"], bio: ["biology"],
   psyc: ["psych", "psychology"], psy: ["psych", "psychology"], engl: ["english"], eng: ["english"], hist: ["history"],
@@ -63,9 +63,10 @@ export function titleWords(title, aliases = courseAliases()) {
   const own = titleTokens(title); const data = []; const generic = [];
   for (const t of own) {
     const m = CODE.exec(t);
-    if (!m) continue;
+    // A bare code's letters in a title ("DS Lab 05") bring the generic words too, like the letters of "DS1000" would.
+    if (!m) { if (PREFIX_WORDS[t]) generic.push(...PREFIX_WORDS[t].map((w) => w.replace(/ /g, "_"))); continue; }
     data.push(m[1], ...(aliases.get(t) ?? []));
-    generic.push(...(PREFIX_WORDS[m[1]] ?? []));
+    generic.push(...(PREFIX_WORDS[m[1]] ?? []).map((w) => w.replace(/ /g, "_")));
   }
   return { own, data, generic };
 }
@@ -81,7 +82,12 @@ export function nameLevel(name, title, aliases = courseAliases()) {
   const fits = (pool) => long.every((w) => pool.some((x) => sameWord(w, x))) && short.every((q) => hasQualifier(q, tw.own) || pool.includes(q));
   if (fits([...tw.own, ...tw.data])) return 2;
   if (words.length === 1 && words[0].length >= 2 && initials(title) === words[0]) return 2;
-  if (fits([...tw.own, ...tw.data, ...tw.generic])) return 1;
+  // The code's generic words match exactly (no typos, no prefixes): "marking" is not "mkt", "science" alone is no course.
+  const spoken = ` ${long.join(" ")} `;
+  const phrased = tw.generic.reduce((acc, g) => (g.includes("_") ? acc.replace(` ${g.replace(/_/g, " ")} `, ` ${g} `) : acc), spoken).trim().split(" ").filter(Boolean);
+  const own = [...tw.own, ...tw.data];
+  const fitsGeneric = phrased.every((w) => own.some((x) => sameWord(w, x)) || tw.generic.includes(w)) && short.every((q) => hasQualifier(q, tw.own) || own.includes(q));
+  if (fitsGeneric) return 1;
   return 0;
 }
 export const namesTitle = (name, title, aliases) => nameLevel(name, title, aliases) > 0;

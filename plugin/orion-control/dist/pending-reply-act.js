@@ -1,6 +1,7 @@
 import { clockTimes } from "./pending-reply-read.js";
 import { DAY_END, addCommand, blockNamed, clockOn, dayArgs, dayWord, flowText, flowWrote, freeSlot, h12, isProtected, moveCommand, nowAndNext, justStarted, nowMinOf, placedAt, safeTitle, toMin, unseen, wakeDayIsToday, } from "./pending-reply-day.js";
 import { bedtime } from "./pending-reply-bed.js";
+import { dayEndFor } from "./life-window.js";
 import { namesBlock } from "./anchor-write-guard.js";
 /** He said a time that has already gone today: nothing is written. */
 const PAST_LINE = "That time's already gone today, so nothing changed. Give me a later one.";
@@ -349,7 +350,8 @@ async function planCheck(c, title, r) {
     if (!block)
         return c.done(`Okay. Should ${title} move or come off today? Give me a time and I'll move it.`, null);
     const length = toMin(block.end) - toMin(block.start);
-    const start = freeSlot(day, length, c.nowMin + 30, DAY_END, block); // plans changed: not the next ten minutes
+    // Wave 6: up to his bedtime less wind-down (life-window.ts), not a fixed 10 PM (20:30-24:00 free read as "no free 90 min left").
+    const start = freeSlot(day, length, c.nowMin + 30, dayEndFor(c.deps.stateDir), block); // plans changed: not the next ten minutes
     if (start === undefined)
         return c.done(`Okay. There's no free ${length} min left today for ${block.title} — want it tomorrow? Give me a time.`, null);
     return c.done(`Okay — want ${block.title} moved to ${h12(start)}, or somewhere else? Say yes, or a time.`, { kind: "move-offer", title: block.title, to: start, which: "today", at: c.now.getTime() });

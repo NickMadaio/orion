@@ -3,7 +3,8 @@ import { type ReplanAsk } from "./day-replan.js";
 import { type Refusal } from "./intent-gate.js";
 import { type ClockContext, type DayWord } from "./intent-time.js";
 import type { AskContext } from "./schedule-flow.js";
-export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend" | "dayplan";
+import { type CompoundPart } from "./compound-intent.js";
+export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend" | "dayplan" | "compound";
 /** A clock that cannot be used as said: already behind him today, or 9 tomorrow with no am/pm. */
 export type TimeIssue = {
     kind: "passed";
@@ -65,6 +66,8 @@ export type CalendarIntent = {
     date?: string;
     /** dayplan: "only doing two things today. X from now until 6pm, then home, Y until 12 am" (day-plan.ts) */
     dayplan?: DayPlanAsk;
+    /** compound: two or three changes in one sentence ("move gym to right after marketing and then put side project at 8"), compound-intent.ts */
+    parts?: CompoundPart[];
 };
 export type IntentRead = {
     intent: CalendarIntent;

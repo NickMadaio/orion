@@ -77,6 +77,7 @@ import { askKind, ownAnswer, readGraphFile, readHealthFile, type AskKind, type C
 import { declareOnly, readReality, runReality, undoReality, type RealityRead, type ScriptRun } from "./reality.js";
 import { pluginNow } from "./plugin-clock.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn, type PendingTurn } from "./pending-reply.js";
+import { bedtimeFromState, focusRunning } from "./bed-state.js";
 import { readPreference, savePreference, type Preference } from "./preference-remember.js";
 import { readDayDefault, runDayDefault, type DayDefault } from "./day-defaults.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
@@ -1178,7 +1179,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
     const pending = on && !cutOff && !quietTurn && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
       ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, Date.now()),
-        ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir) }) : undefined;
+        ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir) })
+        // Wave 6 (bed-state.ts): past his bedtime with no nudge in reach, a stall or "going to bed" is still the bedtime reply.
+        ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, Date.now()) }) : undefined;
     if (sessionKey && !cutOff && !pending) pendingMemory.setMemo(sessionKey, null);
     const run: Run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
@@ -1358,6 +1361,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           readDay: () => (options.readDayJson ? options.readDayJson(read.reality.kind === "no-classes" && read.reality.tomorrow ? ["--date", "tomorrow"] : []) : Promise.resolve(undefined)),
           readDayOn: (dateArgs: string[]) => (options.readDayJson ? options.readDayJson(dateArgs) : Promise.resolve(undefined)),
           slipsOf: (what: string) => slips.filter((s) => s.planned?.kind === what || (s.planned?.title ?? "").toLowerCase().includes(what.toLowerCase())).length,
+          ...(options.stateDir ? { stateDir: options.stateDir } : {}),   // Wave 6: slip-history.ts
           ...(next ? { next } : {}) };
         if (read.rest) await declareOnly(read, deps).catch(() => null);
         else {

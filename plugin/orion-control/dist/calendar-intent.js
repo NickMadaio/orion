@@ -16,6 +16,7 @@ import { parseReorder, parseReplanRequest } from "./day-replan.js";
 import { readUntilShape } from "./direct-add.js";
 import { COURTESY, fixTypos, refusalOf, TAKEN_BACK } from "./intent-gate.js";
 import { ceil5, CLOCK, hhmm, parseClock, resolveEnd, resolveStart, spokenTimesToDigits, takeLength, toMin } from "./intent-time.js";
+import { readCompound } from "./compound-intent.js";
 // Any other day, said any way (review 2026-10-20: "add gym at 6 thurs" booked "gym thurs" today). Over-cautious on purpose: a false hit only means the normal path.
 const WEEKDAY = /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun|mondays?|weekends?|week|month|year|days|fortnight|the day after|tmrw night after)\b|\b\d{1,2}(?:st|nd|rd|th)\b|\b\d{1,2}\/\d{1,2}\b|\b(?:january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/i;
 const TOMORROW = /\b(?:tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
@@ -304,6 +305,10 @@ function parseShapes(raw, ctx) {
     const pushAll = day === "today" ? pushAllMinutes(raw) : null;
     if (pushAll !== null)
         return { verb: "move", items: [{ name: "everything", by: pushAll }], day, all: true };
+    // Wave 6 (gate loop-voice-cutoff-c): two changes in one sentence, each read on its own; planned as one call (compound-intent.ts).
+    const parts = readCompound(fixed.replace(COURTESY, "").trim(), cleanName);
+    if (parts)
+        return { verb: "compound", items: parts.map((p) => ({ name: p.name })), day, parts };
     return readTimedAdd(fixed, day, now) ?? readBareAdd(fixed, day, now) ?? readMove(fixed, day, now) ?? readExtend(fixed, day, now) ?? readRemove(fixed, day);
 }
 /** The intent, when there is one (anything else: the normal path). */

@@ -25,6 +25,7 @@ import { notBooked, refused, sideNotes, wrote, writesIn } from "./scheduler-out.
 import { pluginNow } from "./plugin-clock.js";
 import { readNamedWrite, runNamedWrite, type NamedWrite } from "./calendar-resolve.js";
 import { readMultiDay, runMultiDay, type MultiDayPlan } from "./calendar-days.js";
+import { deferralsOf, slipAck } from "./slip-history.js";
 
 export type Clause =
   | { verb: "remove"; names: string[] }
@@ -47,7 +48,9 @@ export type DayRequestMore = NamedWrite | MultiDayPlan;
 
 export type RequestScript = (script: "orion-declare" | "orion-reschedule" | "orion-tasks", args: string[]) => Promise<{ stdout: string; code: number }>;
 export type RequestDeps = { run: RequestScript; readDay: () => Promise<Day | undefined>; readDayOn?: (dateArgs: string[]) => Promise<Day | undefined>; now: Date;
-  slipsOf?: (what: string) => number };
+  slipsOf?: (what: string) => number;
+  /** Wave 6: ORION's state dir, for how often a deferred plan already slid (slip-history.ts). */
+  stateDir?: string };
 export type RequestOutcome = { flow: FlowResult; facts: string[]; writes: number };
 
 const clean = (m: string) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
@@ -416,7 +419,9 @@ async function runTomorrow(r: Extract<DayRequest, { kind: "to-tomorrow" }>, deps
     off = drop.ok ? ` and off today (it was ${ampm(toMin(b.start))})` : `, but I couldn't take today's ${ampm(toMin(b.start))} one off`;
   }
   const slips = (deps.slipsOf?.(title) ?? 0);
-  const slipLine = r.defer && slips >= 2 ? ` That's ${slips + 1} times it's slipped this week, so tomorrow let's just start: the first 15 minutes, nothing more.` : "";
+  // Wave 6 (slip-history.ts): two weeks of his own record, not only "twice this week" (a plan that slides every few days never tripped it).
+  const history = r.defer && deps.stateDir ? slipAck(deferralsOf(deps.stateDir, title, deps.now)) : "";
+  const slipLine = history || (r.defer && slips >= 2 ? ` That's ${slips + 1} times it's slipped this week, so tomorrow let's just start: the first 15 minutes, nothing more.` : "");
   const assume = assumed !== undefined ? ` (I took ${r.part} as ${ampm(assumed)})` : "";
   const lead = already ? `${cap(label({ title } as DayBlock))} is already on tomorrow, ${where}` : `${cap(label({ title } as DayBlock))} is on tomorrow${where ? (where.startsWith("at") ? ` ${where}` : `, ${where}`) : ""}, ${minutes} minutes${assume}`;
   if (!x.writes) return { flow: say(`${lead}.${slipLine}`, x.calls, x.outputs), facts: [], writes: 0 };

@@ -49,7 +49,9 @@ export type RealityDeps = { run: ScriptRun; readDay: () => Promise<Day | undefin
   /** Another day, by orion-reschedule's --date words ("tomorrow", a weekday, YYYY-MM-DD). Unset: only today is read. */
   readDayOn?: (dateArgs: string[]) => Promise<Day | undefined>;
   /** How many times this kind or title slipped in the last 7 days (the state card), for "that's the fourth gym skip this week". */
-  slipsOf?: (what: string) => number };
+  slipsOf?: (what: string) => number;
+  /** Wave 6: ORION's state dir (day-requests.ts reads how often a deferred plan already slid). */
+  stateDir?: string };
 /** What a reality turn did: the reply, the declared fact ids and how many calendar writes (each is one orion-reschedule undo). */
 export type RealityOutcome = { flow: FlowResult; facts: string[]; writes: number };
 

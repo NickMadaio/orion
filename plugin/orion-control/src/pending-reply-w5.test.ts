@@ -112,15 +112,17 @@ describe("a start rung's 'still not started' line, with any dash", () => {
 
 describe("going to bed answers the bedtime line, even after ORION asked something in between", () => {
   const BED = "Still up at 12:43 AM. 8h to your alarm. Go now and I'll protect it.";
-  it("'ok one more thing' → worker; 'fine going to bed now' → goodnight, alarm checked against CS2100, one quiet check", async () => {
+  // Wave 6 (gate run-1101003318): "ok one more thing" is no longer the worker's ("What is the one more thing?"): a 15 min limit and one
+  // check-back, so "fine going to bed now" after it adds no second check.
+  it("'ok one more thing' → a limit and a check; 'fine going to bed now' → goodnight, alarm checked against CS2100, no second check", async () => {
     const sent = at("2026-11-03", "00:43");
     const dir = stateWith([{ text: BED, sent }]);
     const h = harness({ now: sent, stateDir: dir });
-    expect(await h.turn(`${label(BED)}${APP}ok one more thing`)).toMatch(/^(?:WORKER|DRAFT)/);
+    expect(await h.turn(`${label(BED)}${APP}ok one more thing`)).toMatch(/^Okay — one more thing, 15 min max .* I'll check at 12:58 AM\./);
     h.clock.now = at("2026-11-03", "00:44");
     const reply = await h.turn(`${APP}fine going to bed now`);
-    expect(reply).toBe("Good — goodnight. Your alarm's on automatic, so it goes off before CS2100. CS2100 at 9:00 AM stays, nothing before it. If you're still up at 1:04 AM, I'll check in.");
-    expect(adds(h)).toEqual([["add", "20", "bed", "--because", "fine going to bed now"]]);
+    expect(reply).toBe("Good — goodnight. Your alarm's on automatic, so it goes off before CS2100. CS2100 at 9:00 AM stays, nothing before it.");
+    expect(adds(h)).toEqual([["add", "15", "bed", "--because", "ok one more thing"]]);
     expect(h.flows).toEqual([]);
   });
   it.each(["ok ok heading to bed", "gnight", "fine im off to sleep"])("held out: '%s'", async (said) => {

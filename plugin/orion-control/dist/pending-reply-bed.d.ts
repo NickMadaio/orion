@@ -7,6 +7,11 @@ type BedMemo = Extract<Memo, {
 }>;
 /** Under this much sleep (minutes, from the cap to his wake time) the night is short and tomorrow gets a nap. */
 export declare const SHORT_NIGHT_MIN: number;
+/** "one more thing" past bedtime: the limit ORION gives it, said as his limit in the reply (Wave 6). */
+export declare const ONE_MORE_MIN = 15;
+export declare function readBedStall(message: string): Extract<Reply, {
+    kind: "defer";
+}> | undefined;
 /** The manual wake alarm still ahead (wake-request.json, written by orion-wake), in minutes on the day he wakes into; undefined for none. */
 export declare function manualAlarm(stateDir: string | undefined, now: Date): number | undefined;
 export declare function bedtime(c: Ctx, r: Reply, memo?: BedMemo): Promise<PendingOutcome | undefined>;

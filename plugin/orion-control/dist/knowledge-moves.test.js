@@ -169,6 +169,23 @@ describe("runKnowledgeMove: links and profile", () => {
         const out = await runKnowledgeMove({ kind: "links", subject: "zebra club" }, run);
         expect(out.text).toBe("I don't have anything called \"zebra club\" in your notes or knowledge graph.");
     });
+    it("links: a subject that is no node falls back to the nearest one, and the reply names the fallback", async () => {
+        const { run } = fake(() => ({ subject: "econ quiz", found: true, title: "ECON9", type: "course", facts: [], fallback: { from: "econ quiz", via: "ECON9 Quiz 2", why: "class" }, links: [
+                { label: "ECON9 Quiz 2", kind: "part_of", dir: "in", type: "assessment", via: "note" },
+                { label: "Main Hall", kind: "held_at", dir: "out", via: "note" },
+            ] }));
+        const out = await runKnowledgeMove({ kind: "links", subject: "econ quiz" }, run);
+        expect(out.text).toMatch(/^I don't have a note called "econ quiz" itself, so here's the nearest: ECON9, the class "ECON9 Quiz 2" belongs to\./);
+        expect(out.text).toContain("ECON9 links to: ECON9 Quiz 2 (part of it), Main Hall (held at).");
+    });
+    it("links: a fuzzy-title fallback says which note it took", async () => {
+        const { run } = fake(() => ({ subject: "atlas app", found: true, title: "Atlas", type: "project", facts: [], fallback: { from: "atlas app", via: "Atlas", why: "title" }, links: [{ label: "ORION", kind: "related", dir: "out", via: "note" }] }));
+        const out = await runKnowledgeMove({ kind: "links", subject: "atlas app" }, run);
+        expect(out.text).toBe("I don't have a note called \"atlas app\" itself, so here's the closest one, Atlas. Atlas links to: ORION (related).");
+    });
+    it.each(["whats linked to my econ quiz", "what's connected to the cs exam", "show me what ties into my mktg deadline"])("links route (held out): %s", (said) => {
+        expect(readKnowledgeMove(said)?.kind).toBe("links");
+    });
     it("profile: classes, gym, side project, home and priorities lead; trivia after", async () => {
         const { run } = fake(() => ({ name: "Nick Madaio", school: "Northeastern University London", classes: ["CS3000", "ECON1"], gym: "90 min every day (a must, never dropped)", sideProject: "at least 1 hour a day",
             priorities: "classes → gym → study", home: "London", commute: "15 min commute to Office", builds: ["Atlas"], working: [], trivia: ["Falls asleep around 1:00 AM"], learned: ["Nick is allergic to peanuts"] }));

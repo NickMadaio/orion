@@ -111,6 +111,42 @@ export function linksFor(subject, { notes = [], graph = null, mentionLimit = 5 }
     for (const n of mentioned) add({ label: n.title, kind: "mentioned in", dir: "in", via: "note" });
   }
   const facts = (node?.facts ?? []).map((f) => f.text).filter(Boolean).slice(0, 2);
-  if (!note && !node) return { subject, found: false, facts: [], links: [] };
+  if (!note && !node) {
+    const near = nearest(subject, notes, graph);
+    if (!near) return { subject, found: false, facts: [], links: [] };
+    const out = linksFor(near.title, { notes, graph, mentionLimit });
+    return out.found ? { ...out, subject, fallback: { from: subject, via: near.via, why: near.why } } : { subject, found: false, facts: [], links: [] };
+  }
   return { subject, found: true, title: note?.title ?? node.label, type: note?.type || node?.type || "", facts, links: rows };
+}
+
+// ---- nearest node (gate run-1101020721 kno-connections-v: "the cs midterm" is no node, but CS2100 AE1 is its deadline) ----
+const FILLER = new Set(["my", "the", "a", "an", "thing", "things", "stuff", "whats", "what", "related", "to", "of", "for", "about", "with", "on", "in", "and", "that", "this", "like"]);
+const DEADLINE_TYPE = /^(?:assessment|deadline|exam|todo|to-do|task|assignment|quiz)$/i;
+const DEADLINE_WORDS = /\b(?:deadline|due|exam|midterm|quiz|assessment|assignment|hand-?in)\b/i;
+const COURSE_CODE = /^[a-z]{2,5}\s?\d{3,4}$/i;
+
+function courseOf(note, notes, graph) {
+  const typeOf = new Map(notes.map((n) => [compact(n.title), n.type]));
+  const isCourse = (t) => /^(?:course|class)$/i.test(typeOf.get(compact(t)) ?? "")
+    || (graph?.nodes ?? []).some((n) => n.type === "course" && compact(n.label) === compact(t)) || COURSE_CODE.test(t.trim());
+  return [...note.relations.map((r) => r.target), ...note.mentions].find(isCourse);
+}
+
+/** The note nearest a subject that is not itself a node: every word of it in the note, most of them in the title. */
+function nearest(subject, notes, graph) {
+  const terms = words(subject).filter((t) => !FILLER.has(t));
+  if (!terms.length) return undefined;
+  const has = (ws, t) => ws.some((w) => w.startsWith(t));
+  const scored = notes.map((n) => {
+    const all = words(`${n.title} ${n.text}`);
+    if (!terms.every((t) => has(all, t))) return null;
+    const inTitle = terms.filter((t) => has(words(n.title), t)).length;
+    return { n, inTitle };
+  }).filter(Boolean).sort((a, b) => b.inTitle - a.inTitle || a.n.title.length - b.n.title.length);
+  const best = scored[0]?.n;
+  if (!best) return undefined;
+  const deadline = DEADLINE_TYPE.test(best.type) || DEADLINE_WORDS.test(`${best.title} ${best.text}`);
+  const course = deadline ? courseOf(best, notes, graph) : undefined;
+  return course && compact(course) !== compact(best.title) ? { title: course, via: best.title, why: "class" } : { title: best.title, via: best.title, why: "title" };
 }

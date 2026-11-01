@@ -93,7 +93,19 @@ const phrase = (l: Link): string => {
   return words === "mentions" ? (l.type || "mentioned") : words;
 };
 const LINK_LIMIT = 10;
-function linksReply(out: { found: boolean; subject: string; title?: string; facts?: string[]; links: Link[] }): string {
+type Fallback = { from: string; via: string; why: "class" | "title" };
+type LinksOut = { found: boolean; subject: string; title?: string; facts?: string[]; links: Link[]; fallback?: Fallback };
+/** run-1101020721 kno-connections-v: a subject that is no node falls back to the nearest one, and the reply says which. */
+function fallbackLine(f: Fallback, title: string): string {
+  return f.why === "class"
+    ? `I don't have a note called ${quote(f.from)} itself, so here's the nearest: ${title}, the class ${quote(f.via)} belongs to.`
+    : `I don't have a note called ${quote(f.from)} itself, so here's the closest one, ${title}.`;
+}
+function linksReply(out: LinksOut): string {
+  const body = linksBody(out);
+  return out.found && out.fallback ? `${fallbackLine(out.fallback, out.title ?? out.subject)} ${body}` : body;
+}
+function linksBody(out: LinksOut): string {
   if (!out.found) return `I don't have anything called ${quote(out.subject)} in your notes or knowledge graph.`;
   const title = out.title ?? out.subject;
   const fact = out.facts?.[0] ? `, ${lower1(out.facts[0].replace(/[.\s]+$/, ""))},` : "";
@@ -194,7 +206,7 @@ export async function runKnowledgeMove(move: KnowledgeMove, run: KnowledgeRun): 
     case "forget-pick": return forgetPick(move, run, log);
     case "forget-undo": return forgetUndo(move, run, log);
     case "links": {
-      const out = await call<{ found: boolean; subject: string; title?: string; facts?: string[]; links: Link[] }>(run, "orion-brain", ["links", move.subject], log);
+      const out = await call<LinksOut>(run, "orion-brain", ["links", move.subject], log);
       return { ...log, text: out ? linksReply(out) : "I couldn't read your knowledge graph just now. Ask me again in a moment." };
     }
     case "profile": {

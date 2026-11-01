@@ -92,7 +92,17 @@ const phrase = (l) => {
     return words === "mentions" ? (l.type || "mentioned") : words;
 };
 const LINK_LIMIT = 10;
+/** run-1101020721 kno-connections-v: a subject that is no node falls back to the nearest one, and the reply says which. */
+function fallbackLine(f, title) {
+    return f.why === "class"
+        ? `I don't have a note called ${quote(f.from)} itself, so here's the nearest: ${title}, the class ${quote(f.via)} belongs to.`
+        : `I don't have a note called ${quote(f.from)} itself, so here's the closest one, ${title}.`;
+}
 function linksReply(out) {
+    const body = linksBody(out);
+    return out.found && out.fallback ? `${fallbackLine(out.fallback, out.title ?? out.subject)} ${body}` : body;
+}
+function linksBody(out) {
     if (!out.found)
         return `I don't have anything called ${quote(out.subject)} in your notes or knowledge graph.`;
     const title = out.title ?? out.subject;

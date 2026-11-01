@@ -159,6 +159,47 @@ test("links reads relations, role-named people and backlinks, not the note body"
   assert.ok(!out.links.some((l) => /Lectures twice/.test(l.label)));
 });
 
+// Gate run-1101020721 kno-connections-v: a subject that is no node ("the cs midterm") was a dead end. It now falls back to the
+// nearest node, the class the deadline belongs to, or a fuzzy title, and says which one it used.
+const BRIEF = `---
+title: Pitch deck brief
+type: note
+---
+
+Deadline for [[MKTG9100]].
+`;
+const MKTG = `---
+title: MKTG9100
+type: course
+---
+
+## Relations
+- held_at [[West Wing]]
+`;
+test("links falls back from a missing subject to the class whose deadline it is, and says so", () => {
+  const w = world();
+  writeFileSync(join(w.vault, "Courses", "Pitch deck brief.md"), BRIEF);
+  writeFileSync(join(w.vault, "Courses", "MKTG9100.md"), MKTG);
+  for (const said of ["cs midterm", "my cs mid-term exam", "the cs midterm thing"]) {
+    const out = w.run("links", said);
+    assert.equal(out.found, true, said);
+    assert.equal(out.title, "CS3000", said);
+    assert.deepEqual(out.fallback, { from: said, via: "CS3000 Midterm", why: "class" }, said);
+    assert.ok(out.links.some((l) => l.label === "Main Hall"), said);
+  }
+  const mk = w.run("links", "mktg deadline");
+  assert.equal(mk.title, "MKTG9100");
+  assert.equal(mk.fallback.via, "Pitch deck brief");
+});
+
+test("links falls back to a fuzzy title when no deadline matches, and never to a guess", () => {
+  const w = world();
+  const out = w.run("links", "cs3001 lab stuff");
+  assert.equal(out.title, "CS3001");
+  assert.equal(out.fallback.why, "title");
+  assert.equal(w.run("links", "physics midterm").found, false);
+});
+
 test("links says when nothing by that name exists", () => {
   const w = world();
   assert.deepEqual(w.run("links", "quantum basket weaving"), { subject: "quantum basket weaving", found: false, facts: [], links: [] });

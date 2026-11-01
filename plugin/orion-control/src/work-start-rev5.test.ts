@@ -1,8 +1,13 @@
 // REV5 MUST 4 (2026-10-31): a casual "let's …" starts a focus session only for work, and only when it was typed or said to ORION.
 // "i'll hit you up" was a session on "you up"; a "let's do karaoke" from the TV turned on app blocking.
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { useCourseAliases } from "./block-names.js";
 import { workStartTask } from "./work-start.js";
 import { isSessionStart, startsSession } from "./session-flow.js";
+
+// Wave 6 B: a course from his data counts as work (work-start.ts); these cases run with no course data so they never read the Mac's files.
+beforeEach(() => useCourseAliases(new Map()));
+afterEach(() => useCourseAliases(undefined));
 
 const ECON = { title: "ECON1115", start: "11:00", end: "12:30", fixed: true, kind: "class" };
 

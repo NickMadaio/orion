@@ -1,5 +1,6 @@
 import type { Day, FlowResult } from "./schedule-flow.js";
 import { type DayRequest } from "./day-requests.js";
+import type { DeadlineRead } from "./deadline-read.js";
 export type Reality = {
     kind: "no-classes";
     names: string[];
@@ -66,6 +67,8 @@ export type RealityDeps = {
     slipsOf?: (what: string) => number;
     /** Wave 6: ORION's state dir (day-requests.ts reads how often a deferred plan already slid). */
     stateDir?: string;
+    /** His deadlines, for what freed class time is spent on (freed-class-time.ts). */
+    readDeadlines?: () => Promise<DeadlineRead | null | undefined>;
 };
 /** What a reality turn did: the reply, the declared fact ids and how many calendar writes (each is one orion-reschedule undo). */
 export type RealityOutcome = {

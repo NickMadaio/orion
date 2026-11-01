@@ -95,7 +95,11 @@ describe("a call counts only when it reached the tool", () => {
     await build(R02);
     const args = { steps: [{ action: "alarm_set", at: "2026-10-16T21:00", label: "charge laptop" }] };
     await f.fire("after_tool_call", { toolName: "tool_call", params: wrap(args, "orion_task_run"), result: "executed=true" }, ctx);
-    expect(await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Reminder set." }, ctx)).toEqual([undefined]);
+    // Counted as set, so no "you have NOT set the reminder" retry. Wave 6 B: the worker's own paraphrase ("Reminder set.") is
+    // replaced by code's line, which is worded on the plugin clock (foc-pomodoro-break-v said "tomorrow" for an alarm today).
+    const [out] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Reminder set." }, ctx) as Array<{ reason?: string; retry?: { instruction: string } } | undefined>;
+    expect(out?.reason).toBe("reply must be the scheduler's");
+    expect(out?.retry?.instruction).toMatch(/9(?::00)? PM/);
   });
 });
 

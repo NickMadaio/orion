@@ -612,7 +612,7 @@ export const liveExtractReminder = async (message: string, clock?: string): Prom
  */
 export const EXACT_REPLY_PROMPT = "Reply to Nick with exactly this text and nothing else, and do not call any tools:";
 
-const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on.";
+const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on. Scripts named orion-… are commands you run with the exec tool, never tools of their own, and you never tell Nick which tools are or are not available.";
 
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
 export function dateLine(now = pluginNow()): string {
@@ -952,7 +952,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     const task = run.card?.record?.shouldBe?.kind && !/^(?:unknown|sleep|free)$/.test(run.card.record.shouldBe.kind) ? run.card.record.shouldBe.title ?? undefined : run.card?.record?.next?.title ?? undefined;
     if (run.focusMove) {
-      const out = await runFocusMove(run.focusMove, { ...(options.sessionExec ? { exec: options.sessionExec } : {}), ...(options.realityRun ? { run: options.realityRun } : {}), now: at, ...(task ? { task } : {}) });
+      const out = await runFocusMove(run.focusMove, { ...(options.sessionExec ? { exec: options.sessionExec } : {}), ...(options.realityRun ? { run: options.realityRun } : {}), now: at, ...(task ? { task } : {}),
+        ...(options.readDayJson ? { readDay: () => withTimeout(options.readDayJson!([]).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) } : {}) });
       if (out.pendingSession) offer({ session: out.pendingSession });
       if (out.flow) { wrote(out.flow, out.writes ?? 0); if (out.flow.outcome === "done" && /orion-session start/.test(out.flow.calls.join(" "))) recordOther(key, "focus"); }
       if (out.reminder) {
@@ -1362,6 +1363,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           readDayOn: (dateArgs: string[]) => (options.readDayJson ? options.readDayJson(dateArgs) : Promise.resolve(undefined)),
           slipsOf: (what: string) => slips.filter((s) => s.planned?.kind === what || (s.planned?.title ?? "").toLowerCase().includes(what.toLowerCase())).length,
           ...(options.stateDir ? { stateDir: options.stateDir } : {}),   // Wave 6: slip-history.ts
+          ...(options.readDeadlines ? { readDeadlines: options.readDeadlines } : {}),
           ...(next ? { next } : {}) };
         if (read.rest) await declareOnly(read, deps).catch(() => null);
         else {
@@ -1966,6 +1968,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
         }
         if (!called) { owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?" : "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
+        // Wave 6 B (foc-pomodoro-break-v): once it is set, the reply is code's line (worded on pluginNow), never the worker's paraphrase of the tool result.
+        else if (!run.flow && run.reminder.say) run.flow = { outcome: "done", calls: [], outputs: [], reply: run.reminder.say };
       }
       // 2026-10-19 backstop: the worker was refused `orion-reschedule <write>` and no flow acted. Its reply is never "I can't" or "I need you to
       // confirm" (he had confirmed): the sentence the guard asked it to write is read by the schedule flow (all its guards), else an honest line.

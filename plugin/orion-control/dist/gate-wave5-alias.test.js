@@ -71,8 +71,11 @@ describe("classes named by subject are cancelled (sch-no-class, rea-correction-q
         expect(off).toEqual(expect.arrayContaining(["ECON1115", "MKTG2201"]));
         expect(reply).not.toMatch(NOT_THERE);
         expect(reply).toMatch(/ECON1115/);
-        if (fill)
-            expect(r.runs.some((a) => a[0] === "fill")).toBe(true);
+        // Wave 6 B: the freed time is planned by priority with one `day --plan`, never the routine `fill` (freed-class-time.ts).
+        if (fill) {
+            expect(r.runs.some((a) => a[0] === "day")).toBe(true);
+            expect(r.runs.some((a) => a[0] === "fill")).toBe(false);
+        }
     });
 });
 describe("a missed class is recorded by its subject name (rea-didnt-go-class)", () => {

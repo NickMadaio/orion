@@ -10,6 +10,7 @@ import { spokenReply } from "./schedule-reply.js";
 import { asksToShiftAfter, namesOwnEvent, newStartFor, overrunIsMove } from "./own-event-writes.js";
 import { isSessionStart, parseSessionRequest } from "./session-flow.js";
 import { workStartTask } from "./work-start.js";
+import { useCourseAliases } from "./block-names.js";
 import { checkWork } from "./work-check.js";
 import { GENERAL_INSTRUCTIONS } from "./job-instructions.js";
 // The gate sandbox's titles are bare course codes; Nick's live calendar has the long titles. Both must work.
@@ -158,10 +159,16 @@ describe("foc-start-v: a casual 'let's work on X' starts a focus session in code
         expect(r.sessions).toEqual(["ok lets work on econ"]);
         expect(t.exact ?? "").not.toMatch(/tool|available|retry/i);
     });
-    it("REV5: with no econ on his day or in his deadlines, 'ok lets work on econ' starts nothing", async () => {
-        const r = route({ now: "10:00" });
-        await r.turn("ok lets work on econ");
-        expect(r.sessions).toEqual([]);
+    it("REV5: with no econ on his day, in his deadlines or among his courses, 'ok lets work on econ' starts nothing", async () => {
+        useCourseAliases(new Map()); // wave 6 B: a course from his data is work on any day (wave6-b-start.test.ts)
+        try {
+            const r = route({ now: "10:00" });
+            await r.turn("ok lets work on econ");
+            expect(r.sessions).toEqual([]);
+        }
+        finally {
+            useCourseAliases(undefined);
+        }
     });
     it("REV5: said out loud without 'orion', a work line starts nothing; with 'orion' it does", async () => {
         const SPOKEN = "[Orion app context]\nNick SAID this out loud and your answer will be SPOKEN: short.\n\nUser message:\n";

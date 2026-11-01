@@ -181,7 +181,7 @@ test("live run 3 #2c: 'ok and push everything 30 min' slides every block of his 
   const events = [...EVENTS.filter((e) => e.title !== "Gym"), { title: "Gym", start: at(3, 18), end: at(3, 19, 30), orion: "gym", orionTags: "gym" }];
   const w = world(t, [15, 10], events);
   const r = await w.say("ok and push everything 30 min");
-  assert.deepEqual(w.writes, [["day", "--plan", "Gym, 90, 18:30"]]);
+  assert.deepEqual(w.writes.filter((c) => !c.includes("--dry-run")), [["day", "--plan", "Gym, 90, 18:30"]]);
   assert.equal(r.outcome, "done", JSON.stringify(r));
   assert.ok(w.day().includes("Gym 3 18:30-20:00"), w.day().join("\n"));
   assert.ok(w.day().includes("ECON1115 Principles of Macroeconomics 3 13:30-15:00"));

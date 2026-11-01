@@ -6,7 +6,8 @@
 import type { Day, FlowResult } from "./schedule-flow.js";
 import type { ToolResult } from "./work-check.js";
 import type { Memo, PendingDeps, PendingOutcome, PendingTurn } from "./pending-reply.js";
-import { clockTimes, type Details, type Offer, type Reply } from "./pending-reply-read.js";
+import { otherDayNamed } from "./booking-day.js";
+import { clockTimes, detailsOf, type Details, type Offer, type Reply } from "./pending-reply-read.js";
 import {
   DAY_END, addCommand, blockNamed, clockOn, dayArgs, dayWord, firstFixed, flowText, flowWrote, freeSlot, h12, isProtected, moveCommand, nowAndNext,
   justStarted, nowMinOf, placedAt, safeTitle, toMin, unseen, wakeDayIsToday, type Which,
@@ -241,12 +242,17 @@ async function brief(c: Ctx, items: string[], r: Reply, fromMemo: boolean): Prom
     const idx = keys.map((k) => said.indexOf(k)).filter((i) => i >= 0);
     return { item, index: idx.length ? Math.min(...idx) : -1 };
   });
+  // His own day and length win over the defaults (today, 45 min): "tomorrow at 10am, 45 min" is neither. A weekday or date is another path's.
+  if (r.kind === "counter" && otherDayNamed(said)) return undefined;
+  const stated = r.kind === "counter" ? detailsOf(said) : undefined;
+  const which: Which = stated?.day === "tomorrow" ? "tomorrow" : "today";
+  const minutes = stated?.minutes ?? 45;
   const booked: string[] = []; const kept: string[] = []; const failed: string[] = []; const written: Array<{ item: string; title: string; at: number }> = [];
   let cursor = c.nowMin + 15;
   const today = await c.day("today");
   for (const p of places) {
     // W5: the brief's items come from his to-do list (scripts/lib/life/morning-brief.mjs); one already on today's calendar is not booked twice.
-    const there = onToday(today, p.item);
+    const there = which === "today" ? onToday(today, p.item) : undefined;
     if (there && (r.kind !== "counter" || p.index >= 0)) { kept.push(`${p.item} is already on today at ${h12(toMin(there.start))}`); continue; }
     let at: number | undefined;
     if (r.kind === "counter") {
@@ -255,25 +261,27 @@ async function brief(c: Ctx, items: string[], r: Reply, fromMemo: boolean): Prom
       const t = times.find((x) => x.index > p.index && x.index < nextIdx) ?? times.find((x) => x.index < p.index && !places.some((y) => y.index > x.index && y.index < p.index));
       if (!t) continue;
       at = !t.meridiem && t.at < 8 * 60 ? t.at + 12 * 60 : t.at;
-      if (at <= c.nowMin) { failed.push(`${p.item} (that time's already gone today)`); continue; }
+      if (which === "today" && at <= c.nowMin) { failed.push(`${p.item} (that time's already gone today)`); continue; }
     } else {
-      at = freeSlot(today, 45, cursor, DAY_END);
+      at = freeSlot(today, 45, cursor, DAY_END);   // no day or length said: the first free 45 min today
       if (at === undefined) { failed.push(p.item); continue; }
     }
     const title = safeTitle(p.item, p.item);
-    const flow = await c.schedule(addCommand(title, 45, "today", at, c.now));
+    const flow = await c.schedule(addCommand(title, minutes, which, at, c.now));
     if (!flowWrote(flow)) { failed.push(`${p.item}${flowText(flow) ? ` (${flowText(flow)})` : ""}`); continue; }
     written.push({ item: p.item, title, at });
     cursor = at + 50;
   }
-  const after = written.length ? await c.day("today") : undefined;
+  const after = written.length ? await c.day(which) : undefined;
   for (const w of written) {
     const seen = placedAt(after, w.title, w.at);
     if (seen === undefined) failed.push(`${w.item} (the calendar took it, but I can't see it at the time I asked, so check it)`);
     else booked.push(`${w.item} at ${h12(seen)}`);
   }
   if (!booked.length && !failed.length && !kept.length) return undefined;   // his words named none of the items: a request of his own, not this answer
-  const okLine = booked.length ? `Booked today: ${booked.join(", ")} (45 min each — say if one needs longer).` : "";
+  const dayLabel = which === "tomorrow" ? "tomorrow" : "today";
+  const lengthNote = stated?.minutes ? ` (${minutes} min)` : booked.length > 1 ? " (45 min each — say if one needs longer)" : " (45 min — say if it needs longer)";
+  const okLine = booked.length ? `Booked ${dayLabel}: ${booked.join(", ")}${lengthNote}.` : "";
   const badLine = failed.length ? ` Not booked: ${failed.join("; ")}.` : "";
   return c.done(`${okLine}${badLine}`.trim(), null);
 }

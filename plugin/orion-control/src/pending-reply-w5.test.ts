@@ -289,3 +289,31 @@ describe("REV5: goodnight alarm ignores skipped and online classes, and never go
     expect(h.wakes.flat().join(" ")).not.toMatch(/-/);
   });
 });
+
+describe("W8-A: his day and length beat the brief's defaults (today, 45 min)", () => {
+  const BRIEF = "Top of your list: finish resume and Student oyster card.";
+  const ask = async (said: string) => {
+    const h = harness({ now: at("2026-11-02", "21:00"), stateDir: stateWith([{ text: BRIEF, sent: at("2026-11-02", "20:55") }]) });
+    const reply = await h.turn(`${label(BRIEF, 5)}${APP}${said}`);
+    return { h, reply };
+  };
+  it.each([
+    ["push the finish resume thing to tomorrow at 10am, 45 min", "add a 45 min finish resume tomorrow at 10am", "Booked tomorrow"],
+    ["do finish resume tmrw 9am for an hour", "add a 60 min finish resume tomorrow at 9am", "Booked tomorrow"],
+    ["finish resume at 10pm for 20 mins", "add a 20 min finish resume at 10pm", "Booked today"],
+  ])("'%s'", async (said, cmd, lead) => {
+    const { h, reply } = await ask(said);
+    expect(h.flows).toEqual([cmd]);
+    expect(reply).toContain(lead);
+    expect(reply).not.toContain("each");
+  });
+  it("a single item never says '45 min each'", async () => {
+    const { reply } = await ask("finish resume at 10pm");
+    expect(reply).toContain("45 min — say if it needs longer");
+    expect(reply).not.toContain("each");
+  });
+  it.each(["finish resume on friday at 10am", "do finish resume on the 4th at 10am", "finish resume next week at 10am"])("a day it cannot honour is not booked on today: '%s'", async (said) => {
+    const { h } = await ask(said);
+    expect(h.flows.every((f) => !/^add a 45 min finish resume at/.test(f))).toBe(true);
+  });
+});

@@ -156,5 +156,8 @@ export function takeLength(text) {
     }
     if (!Number.isFinite(minutes) || minutes < 5 || minutes > 720)
         return { rest: text };
-    return { minutes, rest: `${text.slice(0, m.index)} ${text.slice(m.index + m[0].length)}`.replace(/\s+/g, " ").trim() };
+    // "an hour of youtube editing": the "of" belongs to the length phrase, never to the title.
+    const end = m.index + m[0].length;
+    const of = /^\s+of\s+(?=\S)/i.exec(text.slice(end));
+    return { minutes, rest: `${text.slice(0, m.index)} ${text.slice(end + (of ? of[0].length : 0))}`.replace(/\s+/g, " ").trim() };
 }

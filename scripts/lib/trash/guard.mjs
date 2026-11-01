@@ -5,6 +5,9 @@
 //   - it sits strictly inside ~/Desktop, ~/Documents or ~/Downloads (never one of those roots, never the home folder);
 //   - no part of its path is hidden (".something"), and it is not a symlink;
 //   - it is not the ORION repo, not inside it, does not contain it, and holds no .git anywhere inside;
+//   - it is not the brain vault (ORION_BRAIN_VAULT, else ~/Documents/orionBrain), not inside it, and does not contain it (REV6 item 2:
+//     "delete Nick.md" moved the vault's own Nick note);
+//   - paths are compared by their real (on-disk) spelling, case-folded (REV6 item 3: ~/Desktop/orion/README.md is the repo);
 //   - the caller passes --confirm with its exact name (the plugin does so only when Nick named it, or said yes to a question
 //     that named it).
 // Every move is logged in orion-controlled/trash-log.jsonl with where it came from, so `restore` can put it back.
@@ -14,8 +17,18 @@ import { basename, dirname, join, relative, sep } from "node:path";
 export const ROOTS = ["Desktop", "Documents", "Downloads"];
 const MAX_SCAN = 20000;
 
-const inside = (child, parent) => { const r = relative(parent, child); return r !== "" && !r.startsWith("..") && !r.startsWith(sep) && r !== ".."; };
-const real = (p) => { try { return realpathSync(p); } catch { return p; } };
+const insideRaw = (child, parent) => { const r = relative(parent, child); return r !== "" && !r.startsWith("..") && !r.startsWith(sep) && r !== ".."; };
+/** The on-disk spelling (realpathSync.native canonicalises case on macOS); a missing path keeps its own last part. */
+const real = (p) => {
+  try { return realpathSync.native(p); } catch { /* missing */ }
+  try { return join(realpathSync.native(dirname(p)), basename(p)); } catch { return p; }
+};
+// Folded for comparison: the Mac's disk is case-insensitive, so ORION and orion are one folder.
+const fold = (p) => real(p).toLowerCase();
+const inside = (child, parent) => insideRaw(fold(child), fold(parent));
+const same = (a, b) => fold(a) === fold(b);
+/** The brain vault: ORION_BRAIN_VAULT, else ~/Documents/orionBrain (the same rule orion-brain reads it by). */
+export const vaultPath = (home, env = process.env) => env.ORION_BRAIN_VAULT || join(home, "Documents", "orionBrain");
 
 /** Does a folder hold a .git (file or folder) anywhere inside? Too big to check counts as yes. */
 export function holdsGit(dir) {
@@ -35,7 +48,7 @@ export function holdsGit(dir) {
 }
 
 /** Why this path may not be trashed, or null when it may. Nothing here changes anything. */
-export function refusal(path, { home, repo }) {
+export function refusal(path, { home, repo, vault = vaultPath(home) }) {
   let st;
   try { st = lstatSync(path); } catch { return "it does not exist"; }
   if (st.isSymbolicLink()) return "it is a link, not a file or folder";
@@ -43,9 +56,9 @@ export function refusal(path, { home, repo }) {
   const realHome = real(home);
   const root = ROOTS.map((r) => real(join(realHome, r))).find((r) => inside(target, r));
   if (!root) return "it is not inside your Desktop, Documents or Downloads folder";
-  if (relative(root, target).split(sep).some((part) => part.startsWith("."))) return "it is a hidden file or folder";
-  const realRepo = real(repo);
-  if (target === realRepo || inside(target, realRepo) || inside(realRepo, target)) return "it is part of the ORION project";
+  if (relative(fold(root), fold(target)).split(sep).some((part) => part.startsWith("."))) return "it is a hidden file or folder";
+  if (same(target, repo) || inside(target, repo) || inside(repo, target)) return "it is part of the ORION project";
+  if (same(target, vault) || inside(target, vault) || inside(vault, target)) return "it is part of your notes vault (orionBrain)";
   if (st.isDirectory() && holdsGit(target)) return "it holds a git repository";
   return null;
 }
@@ -93,8 +106,8 @@ export function findByName(name, { home, root, within, depth = 4 }) {
 }
 
 /** Move it into the Trash (a unique name there), after every check, and log it. */
-export function moveToTrash(path, { home, repo, trashDir, controlledDir, confirm, now = new Date() }) {
-  const why = refusal(path, { home, repo });
+export function moveToTrash(path, { home, repo, vault, trashDir, controlledDir, confirm, now = new Date() }) {
+  const why = refusal(path, { home, repo, ...(vault ? { vault } : {}) });
   if (why) return { ok: false, refused: why };
   if (!confirm || confirm.trim().toLowerCase() !== basename(path).toLowerCase()) return { ok: false, refused: "it needs a confirmation that names it" };
   mkdirSync(trashDir, { recursive: true });

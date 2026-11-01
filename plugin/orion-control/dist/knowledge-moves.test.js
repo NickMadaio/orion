@@ -166,7 +166,7 @@ describe("runKnowledgeMove: links and profile", () => {
     });
 });
 describe("runKnowledgeMove: trash", () => {
-    const junk = { path: "/h/Documents/zz/junk.txt", shown: "Documents/zz/junk.txt", name: "junk.txt", kind: "file" };
+    const junk = { path: "/h/Documents/zz/junk.txt", shown: "Documents/zz/junk.txt", name: "junk.txt", kind: "file", exact: true };
     const folder = { path: "/h/Documents/zz/old", shown: "Documents/zz/old", name: "old", kind: "folder", items: 3 };
     it("a file he named: moved to the Trash with a confirmation naming it, and the reply says so", async () => {
         const { run, calls } = fake((_s, args) => (args[0] === "find" ? { name: "junk.txt", matches: [junk] } : { ok: true, from: junk.shown, to: "/h/.Trash/junk.txt", id: "x" }));
@@ -198,6 +198,39 @@ describe("runKnowledgeMove: trash", () => {
         expect(calls).toHaveLength(1);
         const none = await runKnowledgeMove({ kind: "trash", name: "ghost.txt", folder: false }, fake(() => ({ name: "ghost.txt", matches: [] })).run);
         expect(none.text).toBe("I couldn't find ghost.txt in your Desktop, Documents or Downloads, so nothing was touched.");
+    });
+    // REV6 item 2: a vault note, a loose name match or a name with no place named moved at once; --confirm came from the find.
+    it("the vault's note is refused and nothing is moved", async () => {
+        const nick = { path: "/h/Documents/orionBrain/20 Areas/Me/Nick.md", shown: "Documents/orionBrain/20 Areas/Me/Nick.md", name: "Nick.md", kind: "file", exact: true, refused: "it is part of your notes vault (orionBrain)" };
+        const { run, calls } = fake((_s, args) => (args[0] === "find" ? { name: "Nick.md", matches: [nick] } : { ok: true }));
+        const out = await runKnowledgeMove({ kind: "trash", name: "Nick.md", folder: false }, run);
+        expect(out.text).toBe("I won't move Nick.md to the Trash: it is part of your notes vault (orionBrain). Nothing was touched.");
+        expect(calls.map((c) => c.args[0])).toEqual(["find"]);
+    });
+    it("a loose match (another spelling) is asked about by its real name; the yes moves it", async () => {
+        const todo = { path: "/h/Desktop/To-Do.md", shown: "Desktop/To-Do.md", name: "To-Do.md", kind: "file", exact: false };
+        const { run, calls } = fake((_s, args) => (args[0] === "find" ? { name: "todo.md", matches: [todo] } : { ok: true, from: todo.shown, to: "/h/.Trash/To-Do.md", id: "z" }));
+        const ask = await runKnowledgeMove({ kind: "trash", name: "todo.md", folder: false, root: "desktop" }, run);
+        expect(ask.text).toBe("Move To-Do.md (Desktop/To-Do.md) to the Trash? Say yes and I'll do it.");
+        expect(calls.map((c) => c.args[0])).toEqual(["find"]);
+        const yes = readKnowledgeMove("yes", { held: ask.held });
+        const done = await runKnowledgeMove(yes, run);
+        expect(calls[1]?.args).toEqual(["move", todo.path, "--confirm", "To-Do.md"]);
+        expect(done.text).toMatch(/^Moved To-Do\.md \(Desktop\) to the Trash\./);
+    });
+    it("an exact name with no folder or root named is asked about first", async () => {
+        const notes = { path: "/h/Documents/a/b/notes.txt", shown: "Documents/a/b/notes.txt", name: "notes.txt", kind: "file", exact: true };
+        const { run, calls } = fake((_s, args) => (args[0] === "find" ? { name: "notes.txt", matches: [notes] } : { ok: true }));
+        const ask = await runKnowledgeMove({ kind: "trash", name: "notes.txt", folder: false }, run);
+        expect(ask.text).toBe("Move notes.txt (Documents/a/b/notes.txt) to the Trash? Say yes and I'll do it.");
+        expect(calls).toHaveLength(1);
+    });
+    it("held out: an exact name inside the folder he named moves at once", async () => {
+        const draft = { path: "/h/Downloads/misc/draft-v2.pdf", shown: "Downloads/misc/draft-v2.pdf", name: "draft-v2.pdf", kind: "file", exact: true };
+        const { run, calls } = fake((_s, args) => (args[0] === "find" ? { name: "draft-v2.pdf", matches: [draft] } : { ok: true, from: draft.shown, to: "/h/.Trash/draft-v2.pdf", id: "d" }));
+        const out = await runKnowledgeMove({ kind: "trash", name: "draft-v2.pdf", folder: false, within: "misc" }, run);
+        expect(calls[1]?.args).toEqual(["move", draft.path, "--confirm", "draft-v2.pdf"]);
+        expect(out.text).toMatch(/^Moved draft-v2\.pdf \(Downloads\/misc\) to the Trash\./);
     });
     it("a pending confirmation expires", () => {
         const pending = new KnowledgePending();

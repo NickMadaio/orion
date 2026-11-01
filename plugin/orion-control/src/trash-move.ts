@@ -4,7 +4,8 @@
  "delete <file> from the <folder> folder in documents" ended in `exec rm`, refused by the allowlist. rm is never used: the move
  goes through scripts/orion-trash, which only ever renames into the Trash, inside Desktop/Documents/Downloads, never a hidden item,
  the ORION repo or anything holding .git, and only with a confirmation naming the item. This reads the request; knowledge-run.ts
- runs it. A file he named in so many words is that confirmation; a folder is asked about first, by name.
+ runs it. A file spelled exactly as he said, in the root or folder he named, moves; anything else (a folder, a loose
+ match, no place named) is asked about first, by name (REV6).
  Not a trash move: anything without a named item ("clean up my documents folder" asks what to remove, and is the worker's).
 */
 export type TrashMove = { kind: "trash"; name: string; folder: boolean; root?: "desktop" | "documents" | "downloads"; within?: string };

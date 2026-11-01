@@ -68,7 +68,7 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   }
   // The diff is taken BEFORE the undo: it is the record of what the item did to Nick's world (or to the sandbox).
   const effect = await effectSince(p, base, { seeded: plan.sandbox });
-  const actions = await restoreState(p, snap, effect, { seededOutreachIds });
+  const actions = await restoreState(p, snap, effect, { seededOutreachIds, runId: `${stamp}-${item.id}` });
   const verified = await verifyRestore(p, snap, { seededOutreachIds });
   rmSync(join(opts.outDir, "inflight-snapshot.json"), { force: true });
   return {
@@ -138,7 +138,7 @@ export async function recover(outDir, p = paths()) {
   if (!existsSync(file)) return { recovered: false, reason: "no in-flight snapshot: nothing to recover" };
   const { id, snap, seededOutreachIds = [] } = JSON.parse(readFileSync(file, "utf8"));
   const effect = await effectSince(p, snap);
-  const actions = await restoreState(p, snap, effect, { seededOutreachIds });
+  const actions = await restoreState(p, snap, effect, { seededOutreachIds, runId: `recover-${id}` });
   const verified = await verifyRestore(p, snap, { seededOutreachIds });
   if (verified.ok) rmSync(file, { force: true });
   return { recovered: verified.ok, id, actions, verified };

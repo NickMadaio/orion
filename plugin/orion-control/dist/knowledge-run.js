@@ -160,7 +160,22 @@ async function trash(move, run, log) {
         const items = f.items === undefined ? "" : `, ${f.items} item${f.items === 1 ? "" : "s"}`;
         return { ...log, text: `Move the folder ${quote(f.name)} (${f.shown}${items}) to the Trash? Say yes and I'll do it.`, held: { kind: "trash-confirm", path: f.path, name: f.name, shown: f.shown, folder: true } };
     }
+    if (!placedAsSaid(f, move))
+        return { ...log, text: `Move ${f.name} (${f.shown}) to the Trash? Say yes and I'll do it.`, held: { kind: "trash-confirm", path: f.path, name: f.name, shown: f.shown } };
     return moveIt({ path: f.path, name: f.name, shown: f.shown }, false, run, log);
+}
+/**
+ REV6 MUST 2: the find is loose (case, punctuation, four levels across all three roots), and --confirm is filled from it, so it is no
+ confirmation. A file moves at once only when its name is exactly what he said AND it sits in the root or folder he named; otherwise
+ he is asked, by its real name and place, as folders already are.
+*/
+function placedAsSaid(f, move) {
+    if (f.exact !== true || f.name !== move.name)
+        return false;
+    const dirs = f.shown.split("/").slice(0, -1).map((d) => d.toLowerCase());
+    if (move.within)
+        return dirs.slice(1).includes(move.within.toLowerCase());
+    return !!move.root && dirs[0] === move.root;
 }
 async function moveIt(f, folder, run, log) {
     const done = await call(run, "orion-trash", ["move", f.path, "--confirm", f.name], log);

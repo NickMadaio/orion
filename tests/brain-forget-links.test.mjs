@@ -201,3 +201,20 @@ test("profile with no records invents nothing", () => {
   assert.equal(p.gym, "");
   assert.equal(p.home, "");
 });
+
+// REV6 item 5: forget, put back, forget the same line again: "put it back" said "That was already back." while it stayed archived.
+test("a line forgotten a second time after a restore comes back on the second restore", () => {
+  const w = world();
+  const before = w.nick();
+  const [priya] = w.run("forget", "priya").matches;
+  assert.equal(w.run("forget", "--apply", priya.id).archived.length, 1);
+  assert.equal(w.run("forget", "--restore", priya.id).restored.length, 1);
+  assert.equal(w.nick(), before);
+  assert.equal(w.run("forget", "--apply", priya.id).archived.length, 1);
+  assert.ok(!/Priya/.test(w.nick()));
+  const again = w.run("forget", "--restore", priya.id);
+  assert.equal(again.restored.length, 1);
+  assert.equal(w.nick(), before);
+  assert.equal(w.run("forget", "--restore", priya.id).restored.length, 0, "now it really is back: nothing left to restore");
+  assert.equal(w.nick(), before);
+});

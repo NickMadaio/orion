@@ -30,9 +30,18 @@ export const ONE_MORE_MIN = 15;
 */
 const ONE_MORE = /\b(?:one|1|another)\s+(?:more|last)\s+(?:thing|ep|episode|game|round|match|level|video|vid|chapter|page|email|bit|song|question|problem|section|part|task)s?\b|\bfinish(?:ing)?\s+(?:this|the|my)\s+(?:one\s+|last\s+)?(?:thing|bit|part)\b/i;
 const STALL_NOT = /\?\s*$|\b(?:add|book|schedule|move|put|remind|can you|could you|for me)\b/i;
+/**
+ REV6 MUST 1: "one more thing, gym at 7 tmrw" and "one more question about the essay" were swallowed as a stall (the gym change was
+ dropped). It is a stall only when nothing he wants follows the "one more …": filler words and punctuation may, anything else is routed.
+*/
+const TRAIL_FILLER = new Set(["lol", "lmao", "haha", "pls", "plz", "please", "ok", "okay", "k", "then", "first", "tho", "though", "bed", "sleep", "i", "promise", "swear", "fr", "real", "quick", "quickly", "and", "after", "that", "im", "going", "to"]);
+const onlyFiller = (rest) => (rest.toLowerCase().match(/[a-z0-9']+/g) ?? []).every((w) => TRAIL_FILLER.has(w.replace(/'/g, "")));
 export function readBedStall(message) {
     const m = message.trim();
-    if (m.split(/\s+/).length > 10 || STALL_NOT.test(m) || !ONE_MORE.test(m))
+    const hit = ONE_MORE.exec(m);
+    if (m.split(/\s+/).length > 10 || STALL_NOT.test(m) || !hit)
+        return undefined;
+    if (!onlyFiller(m.slice(hit.index + hit[0].length)))
         return undefined;
     return { kind: "defer", stall: true };
 }

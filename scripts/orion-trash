@@ -4,26 +4,28 @@
 
  rm is never used (gate run-1101003318 saf-delete-folder-c: `exec rm` was refused and nothing could take its place). This moves
  one named item, strictly inside ~/Desktop, ~/Documents or ~/Downloads, never hidden, never a link, never the ORION repo or
- anything holding .git, and only with --confirm "<its exact name>". The rules are in scripts/lib/trash/guard.mjs.
+ anything holding .git, never the brain vault, and only with --confirm "<its exact name>". The rules are in scripts/lib/trash/guard.mjs.
 
-   orion-trash find "<name>" [--root desktop|documents|downloads] [--in "<folder name>"]   candidates, as JSON (changes nothing)
+   orion-trash find "<name>" [--root desktop|documents|downloads] [--in "<folder name>"]   candidates, as JSON (changes nothing);
+                                                               each says `exact` when its name is spelled exactly as asked
    orion-trash check <path>                                   what it is and whether it may go, as JSON (changes nothing)
    orion-trash move <path> --confirm "<name>"                 into the Trash; logged in orion-controlled/trash-log.jsonl
    orion-trash restore <id>                                   put a logged item back where it was
 
- Seams (tests): HOME, ORION_TRASH_DIR, ORION_CONTROLLED_DIR, ORION_REPO_DIR. Output is one JSON line; exit 0 also on a refusal
+ Seams (tests): HOME, ORION_TRASH_DIR, ORION_CONTROLLED_DIR, ORION_REPO_DIR, ORION_BRAIN_VAULT. Output is one JSON line; exit 0 also on a refusal
  (the JSON says why), 2 on a usage error.
 */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, findByName, moveToTrash, restoreFromTrash } from "./lib/trash/guard.mjs";
+import { describe, findByName, moveToTrash, restoreFromTrash, vaultPath } from "./lib/trash/guard.mjs";
 
 const home = process.env.HOME || homedir();
 const repo = process.env.ORION_REPO_DIR || resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const trashDir = process.env.ORION_TRASH_DIR || join(home, ".Trash");
 const controlledDir = process.env.ORION_CONTROLLED_DIR || join(home, ".openclaw/orion-controlled");
+const vault = vaultPath(home);
 const [command, ...rest] = process.argv.slice(2);
 const usage = (m) => { console.error(`orion-trash: ${m}`); process.exit(2); };
 const out = (v) => console.log(JSON.stringify(v));
@@ -34,12 +36,12 @@ if (command === "find") {
   const name = rest[0];
   if (!name || name.startsWith("-") || /[/\\]/.test(name)) usage('find "<name>" (a name, not a path)');
   const paths = findByName(name, { home, ...(flag("--root") ? { root: flag("--root") } : {}), ...(flag("--in") ? { within: flag("--in") } : {}) });
-  out({ name, matches: paths.map((p) => describe(p, { home, repo })) });
+  out({ name, matches: paths.map((p) => ({ ...describe(p, { home, repo, vault }), exact: basename(p) === name })) });
 } else if (command === "check") {
-  out(describe(absolute(rest[0]), { home, repo }));
+  out(describe(absolute(rest[0]), { home, repo, vault }));
 } else if (command === "move") {
   const path = absolute(rest[0]);
-  out(moveToTrash(path, { home, repo, trashDir, controlledDir, confirm: flag("--confirm") }));
+  out(moveToTrash(path, { home, repo, vault, trashDir, controlledDir, confirm: flag("--confirm") }));
 } else if (command === "restore") {
   const id = rest[0];
   if (!id) usage("restore <id>");

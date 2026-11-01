@@ -17,12 +17,17 @@ const WORKSPACE_FILES = ["USER.md", "MEMORY.md"];
 // Append-only inputs the item can add to; restored by truncation only when the old content is still a prefix.
 // logged.jsonl (what he said he did; day-questions habitAnswer reads it): a gate item is not Nick, and the gym fixture appends to it.
 // outreach.jsonl: the gate seeds a row per `replyToOutreach` text (lib/seed-outreach.mjs); truncation removes it.
-const RESTORED_LOGS = ["inbound-turns.jsonl", "memory-archive.jsonl", "trash-log.jsonl", "logged.jsonl"];
+// memory-archive.jsonl is paired with the vault and workspace restore (REV6 item 8): a row is dropped only when its line is back in
+// its file; a row whose line is not back is kept (it is that line's only record) and flagged as a HAZARD.
+const RESTORED_LOGS = ["inbound-turns.jsonl", "memory-archive.jsonl", "logged.jsonl"];
+// trash-log.jsonl is NOT truncated (REV6 item 8): a real file trashed during an item stays in the Trash, and without its row
+// `orion-trash restore` cannot find it. New rows are reported, never rewound.
+const KEPT_LOGS = ["trash-log.jsonl"];
 // outreach.jsonl is NOT truncated (REV4 item 7): the live system may append real rows during an item, and a truncation drops them.
 // Only the rows the gate seeded are removed, matched by id; every other change is reported, not rewound.
 const SEEDED_LOGS = ["outreach.jsonl"];
 // Append-only records that are evidence (ledgers, audits): REPORTED, never rewound.
-const REPORTED_LOGS = ["task-ledger.jsonl", "slips.jsonl", "held.jsonl", "life-history.jsonl", "focus-history.jsonl", "outbox.jsonl"];
+const REPORTED_LOGS = ["task-ledger.jsonl", "slips.jsonl", "held.jsonl", "life-history.jsonl", "focus-history.jsonl", "outbox.jsonl", ...KEPT_LOGS];
 
 const read = (p) => { try { return readFileSync(p, "utf8"); } catch { return null; } };
 const entriesOf = (raw) => { try { return JSON.parse(raw ?? "[]").map((e) => JSON.stringify(e)); } catch { return []; } };
@@ -143,12 +148,12 @@ export async function effectSince(p, snap, { seeded = null } = {}) {
 }
 
 /** Put it all back. Returns what it did, as strings. */
-export async function restoreState(p, snap, effect, { maxJournal = 10, seededOutreachIds = [] } = {}) {
+export async function restoreState(p, snap, effect, { maxJournal = 10, seededOutreachIds = [], runId } = {}) {
   // The sandbox goes first: while eval-calendar.json and the marker exist, `orion-reschedule undo` would undo the
   // sandbox's journal instead of his.
   // Fixture files (vault notes, canary files) go first: the manifest naming them is itself a sandbox file.
   const actions = [...restoreFixtures(p), ...restoreSandbox(p, snap)];
-  if (snap.vault) actions.push(...restoreVault(p, snap.vault));
+  if (snap.vault) actions.push(...restoreVault(p, snap.vault, { runId }));
   const grew = effect.calendar.newEntries.length;
   for (let i = 0; i < Math.min(grew, maxJournal); i++) {
     const r = await run(p.node, [join(p.scripts, "orion-reschedule"), "undo"], { timeoutMs: 60000 });
@@ -172,8 +177,15 @@ export async function restoreState(p, snap, effect, { maxJournal = 10, seededOut
   for (const f of RESTORED_LOGS) {
     const file = join(p.ctrl, f), before = snap.logs[f], now = read(file);
     if (now === before) continue;
-    if (before !== null && (now ?? "").startsWith(before)) { writeFileSync(file, before); actions.push(`truncated ${f}`); } else actions.push(`NOT RESTORED ${f}: rewritten by something else`);
+    if (!(now ?? "").startsWith(before ?? "")) { actions.push(`NOT RESTORED ${f}: rewritten by something else`); continue; }
+    const added = (now ?? "").slice((before ?? "").length);
+    const stranded = f === "memory-archive.jsonl" ? strandedArchiveRows(p, added) : [];
+    const text = `${before ?? ""}${stranded.map((l) => `${l}\n`).join("")}`;
+    if (before === null && !stranded.length) rmSync(file, { force: true }); else writeFileSync(file, text);
+    actions.push(`truncated ${f}`);
+    if (stranded.length) actions.push(`HAZARD memory-archive.jsonl: ${stranded.length} archived line(s) are not back in their files after the restore; their rows were kept: ${stranded.map((l) => clip(l, 200)).join(" | ")}`);
   }
+  actions.push(...reportKeptLogs(p, snap));
   actions.push(...restoreSeededLogs(p, snap, seededOutreachIds));
   actions.push(...await restoreTodos(p, snap));
   const status = await sessionStatus(p);
@@ -187,6 +199,27 @@ export async function restoreState(p, snap, effect, { maxJournal = 10, seededOut
 }
 
 const rowId = (line) => { try { return JSON.parse(line).id; } catch { return undefined; } };
+
+/** Archive rows added during the item whose line is not back in its file (vault note, USER.md or a journal day) after the restore. */
+function strandedArchiveRows(p, added) {
+  return added.split("\n").filter(Boolean).filter((l) => {
+    let r;
+    try { r = JSON.parse(l); } catch { return false; }
+    if (r.restored || typeof r.raw !== "string" || typeof r.file !== "string") return false;
+    const base = r.store === "vault" ? p.brainVault : p.workspace;
+    return !(read(join(base, r.file)) ?? "").split("\n").includes(r.raw);
+  });
+}
+
+/** Logs that are kept as they are: what the item added is reported (so the run says a real file went to the Trash), never rewound. */
+function reportKeptLogs(p, snap) {
+  return KEPT_LOGS.flatMap((f) => {
+    const before = snap.logs[f] ?? "", now = read(join(p.ctrl, f)) ?? "";
+    if (now === before) return [];
+    const added = now.startsWith(before) ? now.slice(before.length).split("\n").filter(Boolean) : null;
+    return [added ? `REPORTED ${f}: ${added.length} row(s) added during the item, kept so they can be restored: ${added.map((l) => clip(l, 200)).join(" | ")}` : `REPORTED ${f}: rewritten during the item; not rewound`];
+  });
+}
 
 /** Remove only the seeded rows (by id). Anything else that differs from the snapshot is reported, never rewound. */
 function restoreSeededLogs(p, snap, seededIds) {

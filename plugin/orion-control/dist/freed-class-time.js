@@ -12,6 +12,8 @@ export function cancelledFrom(stdout) {
     return [...stdout.matchAll(/cancelled (.+?) (\d{2}:\d{2})[–-](\d{2}:\d{2})/g)].map((m) => ({ title: m[1].trim(), start: m[2], end: m[3] }));
 }
 const has = (day, kind, nowMin) => day.blocks.some((b) => b.kind === kind && toMin(b.end) > nowMin);
+/** REV6 item 6: any gym block today counts, finished or not (a 7 AM gym already done is still today's gym). */
+const hasAnyToday = (day, kind) => day.blocks.some((b) => b.kind === kind);
 /** What goes where in the freed time, in priority order. Pure. */
 export function planFreedTime(ctx) {
     const buffer = ctx.day.plan?.bufferMinutes ?? 5;
@@ -21,7 +23,7 @@ export function planFreedTime(ctx) {
         .sort((a, b) => a.from - b.from);
     const plans = [];
     const gymMinutes = ctx.day.plan?.anchors.find((a) => /\bgym\b/i.test(a.title))?.minutes ?? 90;
-    if (!has(ctx.day, "gym", ctx.nowMin)) {
+    if (!hasAnyToday(ctx.day, "gym")) {
         const room = spans.find((s) => s.to - s.from >= gymMinutes);
         if (room) {
             plans.push({ title: "Gym", minutes: gymMinutes, start: hhmm(room.from), why: "gym" });

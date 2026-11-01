@@ -2,6 +2,8 @@
 // preferences in "20 Areas/Me/Nick.md" and under "20 Areas/Learned/", and may create notes anywhere) is snapshotted,
 // reported as an effect when it changes, and put back at undo. New files are removed, directories the item created
 // are removed when empty. Dot directories (.obsidian, .git, ...) are not the vault's notes and are left alone.
+// REV6 item 7: what the restore removes or overwrites may be Nick's own (a daily note, an edit made in the item's window), so
+// every such version is first copied to orion-controlled/gate-vault-quarantine/<run>/<same path> and the report names it.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
@@ -45,15 +47,33 @@ export function vaultDelta(before, after) {
 
 export const vaultChanged = (d) => Boolean(d.created.length || d.changed.length || d.deleted.length);
 
-/** Put the vault's notes back to `snap`. Returns what it did. */
-export function restoreVault(p, snap) {
+/** The quarantine folder for one run: a single safe path segment under orion-controlled. */
+export const quarantineDir = (p, runId) => join(p.ctrl, "gate-vault-quarantine", String(runId || new Date().toISOString()).replace(/[^\w.-]+/g, "-").replace(/^[.-]+/, "") || "run");
+
+/** Copy the version about to be removed or overwritten into the quarantine; a failed copy means the note is left as it is. */
+function quarantine(p, runId, f, text) {
+  const to = join(quarantineDir(p, runId), f);
+  try { mkdirSync(dirname(to), { recursive: true }); writeFileSync(to, text); return to; } catch { return null; }
+}
+
+/** Put the vault's notes back to `snap`, quarantining every version it removes or overwrites. Returns what it did. */
+export function restoreVault(p, snap, { runId } = {}) {
   const now = vaultSnapshot(p);
   const actions = [];
   for (const f of Object.keys(now.files)) {
-    if (snap.files[f] === undefined) { rmSync(join(p.brainVault, f), { force: true }); actions.push(`removed new vault note ${f}`); }
+    if (snap.files[f] !== undefined) continue;
+    const kept = quarantine(p, runId, f, now.files[f]);
+    if (!kept) { actions.push(`NOT REMOVED new vault note ${f}: it could not be quarantined first`); continue; }
+    rmSync(join(p.brainVault, f), { force: true });
+    actions.push(`removed new vault note ${f} (quarantined to ${kept})`);
   }
   for (const [f, text] of Object.entries(snap.files)) {
     if (now.files[f] === text) continue;
+    if (now.files[f] !== undefined) {
+      const kept = quarantine(p, runId, f, now.files[f]);
+      if (!kept) { actions.push(`NOT RESTORED vault note ${f}: its current version could not be quarantined first`); continue; }
+      actions.push(`quarantined the changed vault note ${f} to ${kept}`);
+    }
     mkdirSync(dirname(join(p.brainVault, f)), { recursive: true });
     writeFileSync(join(p.brainVault, f), text);
     actions.push(`${now.files[f] === undefined ? "recreated" : "restored"} vault note ${f}`);

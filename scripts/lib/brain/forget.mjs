@@ -136,12 +136,26 @@ export function archiveEntries(dirs, ids, now = new Date()) {
   return { archived, missing: ids.filter((id) => !archived.some((a) => a.id === id)) };
 }
 
+/**
+ The archive rows not yet put back, by replaying the log in order (REV6 item 5: forget, restore, forget again left the second
+ archive row unreachable, because any restore marker for the id hid every row with it). A marker closes the open rows for its id
+ that it names by archivedAt; a marker from before that field closes every open row for its id written before it.
+*/
+export function stillArchived(rows) {
+  let open = [];
+  for (const r of rows) {
+    if (!r.restored) { open = [...open, r]; continue; }
+    const named = Array.isArray(r.archivedAt) ? new Set(r.archivedAt) : null;
+    open = open.filter((o) => o.id !== r.restored || (named !== null && !named.has(o.archivedAt)));
+  }
+  return open;
+}
+
 /** Put archived entries back where they were (at their old line, or the end of the file if it has shrunk). */
 export function restoreEntries(dirs, ids, now = new Date()) {
   const archivePath = join(dirs.controlledDir, "memory-archive.jsonl");
   const rows = (safeRead(archivePath) ?? "").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-  const restoredIds = new Set(rows.filter((r) => r.restored).map((r) => r.restored));
-  const todo = rows.filter((r) => !r.restored && ids.includes(r.id) && !restoredIds.has(r.id));
+  const todo = stillArchived(rows).filter((r) => ids.includes(r.id));
   const restored = [];
   for (const r of [...todo].sort((a, b) => a.line - b.line)) {
     const path = join(baseOf(dirs, r.store), r.file);
@@ -150,6 +164,7 @@ export function restoreEntries(dirs, ids, now = new Date()) {
     writeAtomic(path, [...lines.slice(0, at), r.raw, ...lines.slice(at)].join("\n"));
     if (!restored.some((x) => x.id === r.id)) restored.push({ id: r.id, text: displayText(r.raw) });
   }
-  if (restored.length) appendFileSync(archivePath, restored.map((x) => `${JSON.stringify({ restored: x.id, at: now.toISOString() })}\n`).join(""));
+  // Each marker names the archive rows it undid (their archivedAt), so a later forget of the same line is a new, open row.
+  if (restored.length) appendFileSync(archivePath, restored.map((x) => `${JSON.stringify({ restored: x.id, archivedAt: [...new Set(todo.filter((r) => r.id === x.id).map((r) => r.archivedAt))], at: now.toISOString() })}\n`).join(""));
   return { restored, missing: ids.filter((id) => !restored.some((x) => x.id === id)) };
 }

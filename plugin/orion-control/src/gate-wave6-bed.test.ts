@@ -95,6 +95,30 @@ describe("past bedtime with no nudge in reach, his stall is the bedtime reply", 
   });
 });
 
+describe("REV6 item 1: 'one more thing' is a stall only when nothing he wants follows it", () => {
+  it.each([
+    "one more thing, gym at 7 tmrw",
+    "one more question about the essay",
+    "one more thing, can you move gym to 7 tmrw",          // held out
+    "one more q what time is my first class",              // held out
+  ])("12:40 AM, no nudge: '%s' is not swallowed as a stall", async (said) => {
+    const h = harness(at("2026-11-03", "00:40"), lateState());
+    const out = await h.turn(`${APP}${said}`);
+    expect(out).not.toMatch(/then bed/);
+    expect(adds(h.checkins)).toEqual([]);
+    expect(bedtimeFromState({ message: said, now: at("2026-11-03", "00:40"), stateDir: lateState(), focusActive: false })?.reply).not.toEqual({ kind: "defer", stall: true });
+  });
+  it("held out: 'one more thing lol' with nothing after it IS the stall", async () => {
+    const h = harness(at("2026-11-03", "00:40"), lateState());
+    expect(await h.turn(`${APP}one more thing lol`)).toMatch(/^Okay — one more thing, 15 min max/);
+    expect(adds(h.checkins)).toHaveLength(1);
+  });
+  it("readBedStall: filler after the stall still counts; content after it does not", () => {
+    for (const s of ["one more thing lol", "ok one more ep then bed", "one more thing pls!!", "1 more game first ok"]) expect(readBedStall(s), s).toEqual({ kind: "defer", stall: true });
+    for (const s of ["one more thing, gym at 7 tmrw", "one more question about the essay", "one more thing my essay is due at 9"]) expect(readBedStall(s), s).toBeUndefined();
+  });
+});
+
 describe("pure pieces", () => {
   it("pastBedtime reads the configured bedtime and ends the night at 5 AM", () => {
     const dir = lateState("23:30");

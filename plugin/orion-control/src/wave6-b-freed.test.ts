@@ -35,6 +35,13 @@ describe("planFreedTime: priorities, not routines", () => {
     expect(plans[0]).toMatchObject({ title: "Gym", start: "11:00", minutes: 90 });
     expect(plans.map((p) => p.title)).toEqual(["Gym", "Study MKTG2201"]);
   });
+  // REV6 item 6: gym 7:00–8:30 AM already done; a cancelled 2 PM class booked a second 90-minute gym.
+  it("a gym block earlier today (already over) still counts: no second gym", () => {
+    const morningGym = { title: "Gym", start: "07:00", end: "08:30", fixed: false, kind: "gym" };
+    const twoPm = [{ title: "MKTG2201", start: "14:00", end: "16:00" }];
+    const plans = planFreedTime({ day: dayWith([morningGym, SIDE]), cancelled: twoPm, nowMin: 13 * 60, deadlines: [] });
+    expect(plans.map((p) => p.title)).toEqual(["Study MKTG2201"]);
+  });
   it("time already past is not planned", () => {
     expect(planFreedTime({ day: dayWith([GYM]), cancelled, nowMin: 16 * 60, deadlines: [] })).toEqual([]);
     expect(planFreedTime({ day: dayWith([GYM]), cancelled, nowMin: 12 * 60 + 10, deadlines: [] }).map((p) => p.start)).toEqual(["13:30"]);

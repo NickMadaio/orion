@@ -179,3 +179,22 @@ describe("ToolBudget", () => {
         expect(b.size()).toBeLessThanOrEqual(64);
     });
 });
+// REV6 item 4: orion-brain is allowlisted whole, so text the worker merely read could run `forget --apply <ids>` silently.
+// Only knowledge-run.ts (code, not the model) archives or restores saved memories; orion-trash is never the worker's at all.
+describe("REV6: the worker cannot archive memories or trash files itself", () => {
+    it.each([
+        `/opt/orion/scripts/orion-brain forget --apply 3f2a9c01de`,
+        "orion-brain forget --restore 3f2a9c01de",
+        `~/Desktop/ORION/scripts/orion-brain "forget" "--apply" ab12cd34ef`,
+        `node /opt/orion/scripts/orion-brain forget --apply ab12cd34ef 99aa88bb77`,
+        `/opt/orion/scripts/orion-trash move /x/Desktop/a.txt --confirm a.txt`,
+        "orion-trash find notes.md",
+    ])("blocked: %s", (command) => {
+        const out = guardToolCall("exec", { command }, { scriptNames: () => [...names, "orion-trash"] });
+        expect(out && "block" in out && out.block).toBe(true);
+    });
+    it.each([`orion-brain forget "my wifi"`, "orion-brain search creatine", "orion-brain links Priya"])("still allowed: %s", (command) => {
+        const out = exec(command);
+        expect(out && "block" in out).toBeFalsy();
+    });
+});

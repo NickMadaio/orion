@@ -102,10 +102,27 @@ function fixAgendaArgs(rest: string): { rest: string } | { blockReason: string }
   return next === rest.trim() ? undefined : { rest: next };
 }
 
+/**
+ REV6 SHOULD 4: orion-brain is allowlisted whole, so text the worker merely read could run `orion-brain forget --apply <ids>` and
+ archive his memories silently. Archiving and restoring belong to knowledge-run.ts (code, with his words); orion-trash is never the
+ worker's (knowledge-run.ts runs it, and it stays off the allowlist). Matched on words, quotes stripped, under any path or interpreter.
+*/
+const CODE_ONLY_REASON = "That change is not yours to run: forgetting or restoring saved memories, and moving files to the Trash, happen only when Nick asks in his own words, and ORION's code runs them. Tell him what you would remove and let him ask.";
+function codeOnly(command: string): boolean {
+  const words = command.split(/\s+/).map((w) => w.replace(/^["']+|["']+$/g, "")).filter(Boolean);
+  const at = (name: string) => words.findIndex((w) => w === name || w.endsWith(`/${name}`));
+  if (at("orion-trash") >= 0) return true;
+  const brain = at("orion-brain");
+  if (brain < 0) return false;
+  const rest = words.slice(brain + 1);
+  return rest.includes("forget") && rest.some((w) => w === "--apply" || w === "--restore" || w.startsWith("--apply=") || w.startsWith("--restore="));
+}
+
 function guardExec(toolName: string, params: Rec, deps: GuardDeps): GuardResult {
   const key = (["command", "cmd", "script"] as const).find((k) => typeof params[k] === "string");
   if (!key) return undefined;
   const trimmed = (params[key] as string).trim();
+  if (codeOnly(trimmed)) return block(CODE_ONLY_REASON);
   const m = /^(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed);
   if (!m) return undefined;
   // review 5 LOW (2026-10-16): `~/Desktop/ORION/scripts/orion-agenda` is the same file as the absolute path.

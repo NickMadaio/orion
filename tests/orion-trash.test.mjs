@@ -78,3 +78,42 @@ test("a relative path or a path given to find is a usage error", () => {
   assert.equal(run("move", "Documents/zz-canary/junk.txt", "--confirm", "junk.txt").status, 2);
   assert.equal(run("find", "../etc/passwd").status, 2);
 });
+
+// REV6 item 2: the brain vault (an allowed root, not hidden, no .git) was trashable: "delete Nick.md" moved a vault note at once.
+test("the brain vault and anything holding it are refused, at the default place and at ORION_BRAIN_VAULT", () => {
+  const { h, run } = home();
+  mkdirSync(join(h, "Documents", "orionBrain", "20 Areas", "Me"), { recursive: true });
+  writeFileSync(join(h, "Documents", "orionBrain", "20 Areas", "Me", "Nick.md"), "# Nick");
+  const note = join(h, "Documents", "orionBrain", "20 Areas", "Me", "Nick.md");
+  assert.match(run("move", note, "--confirm", "Nick.md").json.refused, /notes vault/);
+  assert.match(run("move", join(h, "Documents", "orionBrain"), "--confirm", "orionBrain").json.refused, /notes vault/);
+  assert.match(run("find", "Nick.md").json.matches[0].refused, /notes vault/);
+  assert.ok(existsSync(note));
+  // An elsewhere vault named by ORION_BRAIN_VAULT: its notes are refused, and a folder holding it is too.
+  mkdirSync(join(h, "Desktop", "work", "brain"), { recursive: true });
+  writeFileSync(join(h, "Desktop", "work", "brain", "todo.md"), "t");
+  const env = { PATH: process.env.PATH, HOME: h, ORION_TRASH_DIR: join(h, ".Trash"), ORION_CONTROLLED_DIR: join(h, "ctl"), ORION_REPO_DIR: join(h, "Desktop", "ORION"), ORION_BRAIN_VAULT: join(h, "Desktop", "work", "brain") };
+  const runV = (...args) => JSON.parse(spawnSync(process.execPath, [TRASH, ...args], { encoding: "utf8", env }).stdout);
+  assert.match(runV("move", join(h, "Desktop", "work", "brain", "todo.md"), "--confirm", "todo.md").refused, /notes vault/);
+  assert.match(runV("move", join(h, "Desktop", "work"), "--confirm", "work").refused, /notes vault/);
+  assert.ok(existsSync(join(h, "Desktop", "work", "brain", "todo.md")));
+});
+
+test("find marks an exact-name match apart from a loose one", () => {
+  const { canary, run } = home();
+  writeFileSync(join(canary, "To-Do.md"), "x");
+  const loose = run("find", "todo.md").json.matches;
+  assert.deepEqual(loose.map((m) => [m.name, m.exact]), [["To-Do.md", false]]);
+  assert.deepEqual(run("find", "junk.txt").json.matches.map((m) => m.exact), [true]);
+});
+
+// REV6 item 3: ~/Desktop/orion/README.md is the repo on a case-insensitive disk, and was allowed.
+test("a case variant of the ORION repo path is still the ORION project", () => {
+  const { h, run } = home();
+  writeFileSync(join(h, "Desktop", "ORION", "README.md"), "r");
+  const variant = join(h, "Desktop", "orion", "README.md");
+  if (!existsSync(variant)) return;   // a case-sensitive disk has no such path: nothing to bypass
+  assert.match(run("move", variant, "--confirm", "README.md").json.refused, /ORION/);
+  assert.match(run("move", join(h, "desktop", "Orion"), "--confirm", "Orion").json.refused, /ORION|not inside/);
+  assert.ok(existsSync(join(h, "Desktop", "ORION", "README.md")));
+});

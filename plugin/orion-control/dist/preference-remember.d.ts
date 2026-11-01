@@ -7,6 +7,7 @@ export type RememberRun = (args: string[]) => Promise<{
     stdout: string;
     code: number;
 }>;
+export declare const MAX_FACT = 80;
 /** The preference(s) he stated in this message, or undefined. Pure. */
 export declare function readPreference(message: string): Preference | undefined;
 /** Writes it with orion-remember --user and answers from the result. Nothing is claimed unless the script says it was remembered. */

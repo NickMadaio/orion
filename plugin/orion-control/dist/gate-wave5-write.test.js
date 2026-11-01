@@ -9,6 +9,7 @@ import { compile } from "./schedule-flow.js";
 import { spokenReply } from "./schedule-reply.js";
 import { asksToShiftAfter, namesOwnEvent, newStartFor, overrunIsMove } from "./own-event-writes.js";
 import { isSessionStart, parseSessionRequest } from "./session-flow.js";
+import { workStartTask } from "./work-start.js";
 import { checkWork } from "./work-check.js";
 import { GENERAL_INSTRUCTIONS } from "./job-instructions.js";
 // The gate sandbox's titles are bare course codes; Nick's live calendar has the long titles. Both must work.
@@ -133,6 +134,8 @@ describe("rea-spontaneous-nap-v: a nap with no times never lands on his class", 
         expect(r.writes()[0]).toEqual(["orion-reschedule", "log", "Nap", "--from", "16:15", "--to", "now"]);
     });
 });
+const ECON_BLOCK = { title: "ECON1115", start: "11:00", end: "12:30", fixed: true, kind: "class" };
+const KNOWN = [ECON_BLOCK, { title: "CS2100", start: "09:00", end: "10:30", fixed: true, kind: "class" }];
 describe("foc-start-v: a casual 'let's work on X' starts a focus session in code", () => {
     it.each([
         ["ok lets work on econ", "econ"],
@@ -141,17 +144,33 @@ describe("foc-start-v: a casual 'let's work on X' starts a focus session in code
         ["lemme get on the essay", "the essay"],
         ["right lets crack on with the problem set", "the problem set"],
     ])("%s", (m, task) => {
-        expect(isSessionStart(m)).toBe(true);
-        expect(parseSessionRequest(m)?.task).toBe(task);
+        // REV5 MUST 4: a course name must resolve to a block on his day (or a deadline); a work noun stands on its own.
+        expect(workStartTask(m, KNOWN)).toBe(task);
+        expect(parseSessionRequest(m, { start: true, task })?.task).toBe(task);
     });
     it.each(["lets work on econ tomorrow", "i need to work on econ at some point", "what should i work on", "worked on econ earlier", "lets do lunch", "lets do it", "gonna do the dishes", "ok lets hit the gym", "gonna work on econ later tonight", "ok lets work on econ at 4"])("not a start now: %s", (m) => {
         expect(isSessionStart(m)).toBe(false);
+        expect(workStartTask(m, KNOWN)).toBeUndefined();
     });
     it("the exact gate turn takes the code path even when the desk picked app_open", async () => {
-        const r = route({ now: "10:00", decide: { move: "tool", tool: "app_open", args: { application: "Econ" }, say: "Opening Econ on your Mac." } });
+        const r = route({ now: "10:00", day: day("10:00", [ECON_BLOCK]), decide: { move: "tool", tool: "app_open", args: { application: "Econ" }, say: "Opening Econ on your Mac." } });
         const t = await r.turn("ok lets work on econ");
         expect(r.sessions).toEqual(["ok lets work on econ"]);
         expect(t.exact ?? "").not.toMatch(/tool|available|retry/i);
+    });
+    it("REV5: with no econ on his day or in his deadlines, 'ok lets work on econ' starts nothing", async () => {
+        const r = route({ now: "10:00" });
+        await r.turn("ok lets work on econ");
+        expect(r.sessions).toEqual([]);
+    });
+    it("REV5: said out loud without 'orion', a work line starts nothing; with 'orion' it does", async () => {
+        const SPOKEN = "[Orion app context]\nNick SAID this out loud and your answer will be SPOKEN: short.\n\nUser message:\n";
+        const r = route({ now: "10:00", day: day("10:00", [ECON_BLOCK]) });
+        await r.turn(`${SPOKEN}ok lets work on econ`);
+        await r.turn(`${SPOKEN}okay let's do karaoke`);
+        expect(r.sessions).toEqual([]);
+        await r.turn(`${SPOKEN}orion lets work on econ`);
+        expect(r.sessions).toHaveLength(1);
     });
 });
 describe("no tool-availability chatter reaches Nick", () => {

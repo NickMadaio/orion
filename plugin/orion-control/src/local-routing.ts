@@ -67,6 +67,7 @@ import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInput
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
+import { casualStartTask, workStartTask, type KnownName } from "./work-start.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, roomQuiet, roomTalk } from "./chatter.js";
 import { planLighten, readLighten, runLighten, saysYes, type LightenPending, type LightenRead } from "./day-lighten.js";
 import { readFocusMove, runFocusMove, type FocusMove } from "./focus-moves.js";
@@ -862,6 +863,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     return { outcome: "say", kind: "plain", text: REFUSED_NOTHING_CHANGED };
   };
+  /** REV5 MUST 4 (work-start.ts): the names a casual focus start may resolve to — today's blocks and the deadlines' titles. Read-only. */
+  const knownNames = async (): Promise<KnownName[]> => {
+    const [day, due] = await Promise.all([
+      options.readDayJson ? withTimeout(options.readDayJson([]).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) : Promise.resolve(undefined),
+      options.readDeadlines ? withTimeout(options.readDeadlines().catch(() => null), options.dayReadMs ?? DAY_READ_MS) : Promise.resolve(undefined),
+    ]);
+    return [...(day?.blocks ?? []), ...(due?.events ?? []).map((e) => ({ title: e.title })), ...(due?.tasks ?? []).map((t) => ({ title: t.title }))];
+  };
   /** 2026-10-30 gate (anchor-guards.ts): gym put off. An excuse is pushed back on, a real reason moves it, "tomorrow" books it there first. */
   const gymTurn = async (run: Run): Promise<void> => {
     const skip = run.gymSkip!;
@@ -1230,7 +1239,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run?.reality) return undefined;   // 2026-10-30: what he said happened is code's (reality.ts), never a drafted "Noted!"
       // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
       const draftText = withoutDayClaims(d?.answer ?? "");
-      if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "")) return { handled: true, reply: { text: draftText }, reason: "front desk answered" };
+      if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "") && !casualStartTask(run?.message ?? "")) return { handled: true, reply: { text: draftText }, reason: "front desk answered" };
       return undefined;
     });
 
@@ -1424,8 +1433,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Merge of r2-routing-polish (front-desk session start counts) with r2-front-desk-tools (a timer is
       // timer_set whatever the front desk picked): a front-desk "session start" for "set a timer for 25 min"
       // started a focus session before the tool move ran, so the hint never applies to a timer request.
-      const hint = isTimerRequest(run.message) ? {} : sessionHint(run.settled);
-      if (!run.flow && startsSession(run.message, hint) && options.sessionFlow) {
+      const deskHint = isTimerRequest(run.message) ? {} : sessionHint(run.settled);
+      // REV5 MUST 4: a casual "let's work on X" counts only typed or said to ORION by name, and X must be work or a name on his day / deadlines.
+      const casual = !run.spoken || addressed(run.message);
+      const known = !run.flow && casual && options.sessionFlow && casualStartTask(run.message) && !workStartTask(run.message) ? await knownNames() : [];
+      const casualTask = casual ? workStartTask(run.message, known) : undefined;
+      const hint = casualTask && !startsSession(run.message, deskHint, { casual: false }) ? { ...deskHint, start: true, task: casualTask } : deskHint;
+      if (!run.flow && startsSession(run.message, deskHint, { casual, known }) && options.sessionFlow) {
         run.flow = await options.sessionFlow(run.message, hint).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
         if (run.flow.outcome === "done") {
           recordOther(run.sessionKey, "focus");

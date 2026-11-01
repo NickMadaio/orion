@@ -249,3 +249,33 @@ it("readPendingTurn: a bed reply binds to the card's bedtime push after ORION re
     const other = readPendingTurn({ message: "yeah", now: at("2026-11-03", "00:44"), lastPush: { text: "Still up at 12:43 AM. Go now.", at: sent.toISOString() }, lastReplyAt: sent.getTime() + 30_000 });
     expect(other).toBeUndefined();
 });
+// REV5 SHOULD 6: the alarm is checked against the first class he will actually go to. A class he said he is skipping (declared-facts.json,
+// kind skip) or one that is online does not pull his alarm earlier; and a class just after midnight never gives a negative time.
+describe("REV5: goodnight alarm ignores skipped and online classes, and never goes below 00:00", () => {
+    const BED = "Still up at 12:43 AM. 8h to your alarm. Go now and I'll protect it.";
+    const withAlarm = (sent, alarmAt) => { const dir = stateWith([{ text: BED, sent }]); writeFileSync(join(dir, "wake-request.json"), JSON.stringify({ at: alarmAt.toISOString(), setAt: sent.toISOString() })); return dir; };
+    it("a skipped first class: the alarm is checked against the next one and left alone", async () => {
+        const sent = at("2026-11-03", "00:43");
+        const dir = withAlarm(sent, at("2026-11-03", "09:30"));
+        writeFileSync(join(dir, "declared-facts.json"), JSON.stringify({ schemaVersion: 1, facts: [{ id: "fact-1", date: "2026-11-03", at: sent.toISOString(), kind: "skip", text: "skipping cs tomorrow", title: "CS2100" }] }));
+        const h = harness({ now: sent, stateDir: dir });
+        const reply = await h.turn(`${label(BED)}${APP}going to bed`);
+        expect(h.wakes).toEqual([]);
+        expect(reply).toContain("Your alarm's set for 9:30 AM.");
+        expect(reply).not.toContain("CS2100");
+    });
+    it("an online first class does not move the alarm", async () => {
+        const sent = at("2026-11-03", "00:43");
+        const h = harness({ now: sent, stateDir: withAlarm(sent, at("2026-11-03", "09:30")), tomorrow: { date: "2026-11-03", now: null, blocks: [b("CS2100 (Online)", "09:00", "10:30", true, "class"), b("ECON1115", "11:00", "12:30", true, "class")] } });
+        const reply = await h.turn(`${label(BED)}${APP}going to bed`);
+        expect(h.wakes).toEqual([]);
+        expect(reply).toContain("Your alarm's set for 9:30 AM.");
+    });
+    it("a class at 12:30 AM clamps the moved alarm to 00:00, never a negative time", async () => {
+        const sent = at("2026-11-02", "23:50");
+        const h = harness({ now: sent, stateDir: withAlarm(sent, at("2026-11-03", "00:50")), tomorrow: { date: "2026-11-03", now: null, blocks: [b("Late lab", "00:30", "01:30", true, "class")] } });
+        await h.turn(`${label(BED)}${APP}going to bed`);
+        expect(h.wakes).toEqual([["00:00"]]);
+        expect(h.wakes.flat().join(" ")).not.toMatch(/-/);
+    });
+});

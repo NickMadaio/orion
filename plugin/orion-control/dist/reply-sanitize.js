@@ -10,6 +10,7 @@
 */
 import { stripExecFailed } from "./memory-facts.js";
 import { acknowledgement, acknowledgesFailure, failedTools, wroteSomething } from "./tool-failure.js";
+import { outcomeOf } from "./work-check.js";
 const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
 const GMAIL_OTHER = "I couldn't read your Gmail just now.";
@@ -149,6 +150,19 @@ export function sanitizeReply(reply, ctx = {}) {
     return text || REPLY_FAILED;
 }
 /*
+ Wave 8 B (gate run-1101080052, per-legit-vs-excuse-c): "Gym is bumped to 10:30 AM tonight because of your 9:30 AM deadline." went out
+ with no calendar write: the worker restated his own sentence as done. An affirmative "<thing> is/got moved|bumped|pushed|shifted to <time>"
+ is a claim that a move happened; with no successful write (and nothing awaiting approval) this turn it is never sent as it stands.
+*/
+const MOVE_CLAIM = /\b(?:is|are|got|gets|was|has been|have been|'s|now)\s+(?:now\s+)?(?:bumped|moved|pushed|shifted|rescheduled|switched)(?:\s+(?:back|up|later|over))?\s+(?:to|till|until|for)\s+\d/i;
+const MOVE_HEDGE = /\?\s*$|\b(?:if|should|would|could|can|want|unless|when|once|whether|will|won'?t|can'?t|couldn'?t|didn'?t|haven'?t|hasn'?t|isn'?t|wasn'?t|not|never|no|nothing|n't)\b/i;
+export const NOTHING_MOVED = "I haven't changed your calendar. Nothing was moved yet. Tell me the block and the time and I'll do it.";
+function restatesMoveWithoutWrite(reply, tools) {
+    if (!MOVE_CLAIM.test(reply) || MOVE_HEDGE.test(reply))
+        return false;
+    return !wroteSomething(tools) && !tools.some((t) => outcomeOf(t) === "pending");
+}
+/*
  The last line of defence (gate run-1031202318 cluster 4). Raw tool text is cut (sanitizeReply, strict on a turn with a failed tool);
  when a tool the host ran failed, the reply must own it in words the host accepts as an acknowledgement, which also stops the host
  appending its own "Exec failed" payload, and a bare "Done" with no successful write behind it is replaced rather than left standing.
@@ -156,6 +170,8 @@ export function sanitizeReply(reply, ctx = {}) {
 */
 export function finalizeReply(reply, tools, ctx = {}) {
     const failed = ctx.codeAuthored ? [] : failedTools(tools);
+    if (!ctx.codeAuthored && restatesMoveWithoutWrite(reply, tools))
+        return NOTHING_MOVED;
     const clean = sanitizeReply(reply, { ...(ctx.mailFailed ? { mailFailed: true } : {}), ...(failed.length ? { strict: true } : {}), ...(ctx.codeAuthored ? { codeAuthored: true } : {}) });
     if (ctx.codeAuthored || !failed.length || !(ctx.hostTools && ctx.hostTools > 0))
         return clean;

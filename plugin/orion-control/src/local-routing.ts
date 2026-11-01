@@ -64,6 +64,7 @@ import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocu
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
+import { readStatedMove } from "./stated-move.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
@@ -880,6 +881,24 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     ]);
     return [...(day?.blocks ?? []), ...(due?.events ?? []).map((e) => ({ title: e.title })), ...(due?.tasks ?? []).map((t) => ({ title: t.title }))];
   };
+  /** Wave 8 B: gym is not on today's calendar and he named tomorrow: book it there (the usual placement), say what was assumed. */
+  const bookTomorrowGym = async (run: Run, skip: Extract<GymSkip, { kind: "tomorrow" }>): Promise<void> => {
+    const at = skip.at ? ["--at", skip.at] : [];
+    const add = await options.realityRun!("orion-reschedule", ["add", "Gym", "90", ...at, "--date", "tomorrow"]).catch(() => ({ stdout: "", code: 1 }));
+    run.tools.push({ canonical: `exec orion-reschedule add "Gym" 90 ${at.length ? `${at.join(" ")} ` : ""}--date tomorrow`, stdout: add.stdout, exit: add.code });
+    if (refused(add) || notBooked(add.stdout, "Gym")) {
+      if (wrote(add)) { const back = await options.realityRun!("orion-reschedule", ["undo"]).catch(() => ({ stdout: "", code: 1 })); run.tools.push({ canonical: "exec orion-reschedule undo", stdout: back.stdout, exit: back.code }); }
+      run.flow = { outcome: "say", kind: "plain", text: `Gym wasn't on today's calendar, and there's no room for 90 minutes of it tomorrow${at.length ? ` at ${ampm12(at[1]!)}` : ""}, so nothing changed. Tell me what to move tomorrow and I'll fit it.` };
+      return;
+    }
+    const when = /(\d{2}:\d{2})[–-](\d{2}:\d{2})/.exec(add.stdout) ?? (at.length ? [at[1]!, at[1]!] : null);
+    const assumed = skip.assumed ? ` (I took ${skip.assumed} as ${ampm12(skip.at!)})` : "";
+    const also = sideNotes("Gym", [add.stdout]);
+    recordChange(run.sessionKey, []);
+    if (run.sessionKey) lastReality.set(run.sessionKey, { facts: [], writes: 1, at: Date.now() });
+    run.flow = { outcome: "done", calls: run.tools.map((t) => t.canonical), outputs: run.tools.map((t) => t.stdout),
+      reply: `Booked: gym tomorrow${when ? ` at ${ampm12(when[1]!)}` : ""}, 90 minutes${assumed}. Gym wasn't on today's calendar, so there was nothing to take off today.${also.length ? ` To fit it tomorrow: ${also.join("; ")}.` : ""} Say "undo" to take it back.` };
+  };
   /** 2026-10-30 gate (anchor-guards.ts): gym put off. An excuse is pushed back on, a real reason moves it, "tomorrow" books it there first. */
   const gymTurn = async (run: Run): Promise<void> => {
     const skip = run.gymSkip!;
@@ -887,6 +906,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const day = options.readDayJson ? await withTimeout(options.readDayJson([]).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) : undefined;
     const gym = day?.blocks.find((b) => b.kind === "gym" || /\bgym\b/i.test(b.title));
     if (day) markRead(run, "day");
+    if (skip.kind === "stated") {   // wave 8 B (stated-move.ts): "gym is bumped to 10:30" is a request; the flow moves it or adds it
+      const flow = options.scheduleFlow ? await options.scheduleFlow(`move ${skip.name} to ${ampm12(skip.at)} ${skip.day}`, clock(), { deadlineAt: flowDeadline(run.started) }).catch(() => undefined) : undefined;
+      if (flow && flow.outcome !== "fallback") { run.flow = flow; if (flow.outcome === "done") settleSchedule(run); }
+      else say(`I haven't changed your calendar: I couldn't move ${skip.name} to ${ampm12(skip.at)} just now. Say it again and I'll retry.`);
+      return;
+    }
     if (skip.kind === "excuse") {
       const skipsThisWeek = (run.card?.slipsWeek ?? []).filter((s) => s.planned?.kind === "gym" || /\bgym\b/i.test(s.planned?.title ?? "")).length;
       say(gymPushback({ skipsThisWeek, firm: run.card?.record?.strictness === "firm", ...(gym ? { gymAt: gym.start } : {}) }));
@@ -900,7 +925,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       return;
     }
     // "move it to tomorrow": tomorrow's 90 minutes first, and today's comes off only once that is booked. One "undo" takes both back.
-    if (!options.realityRun || !gym) { say(gym ? "I couldn't move gym just now, so it's still on today." : "Gym isn't on today's calendar, so there's nothing to move. Want me to put 90 minutes in tomorrow?", gym ? "plain" : "ask"); return; }
+    // Wave 8 B: "move it to tomorrow" with no gym today is still an explicit target: tomorrow's gym is booked, and he is told today had none.
+    if (!options.realityRun || (!gym && skip.kind !== "tomorrow")) { say(gym ? "I couldn't move gym just now, so it's still on today." : "Gym isn't on today's calendar, so there's nothing to move. Want me to put 90 minutes in tomorrow?", gym ? "plain" : "ask"); return; }
+    if (!gym) { await bookTomorrowGym(run, skip); return; }
     const nowD = (options.now ?? pluginNow)();
     const nowHm = `${String(nowD.getHours()).padStart(2, "0")}:${String(nowD.getMinutes()).padStart(2, "0")}`;
     // REV2 finding 8: "ill do gym tmrw" before today's gym is over would delete a gym day on a whim: pushback and one question.
@@ -1141,7 +1168,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const reality = on && !cutOff && !quietTurn && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
     const realityWhole = !!reality && !reality.rest;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
-    const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? undefined : undefined;
+    const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
     const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
     // 2026-10-31: tired / sick / slept badly / stressed (day-lighten.ts), a focus phrase (focus-moves.ts), or his "yes" to what one proposed.
     const held = sessionKey ? ownPending.get(sessionKey) : undefined;

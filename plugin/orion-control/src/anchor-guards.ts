@@ -13,11 +13,12 @@
  it now gets a fixed confirm-first line and nothing runs.
 */
 import { ordinal } from "./state-card.js";
+import type { StatedMove } from "./stated-move.js";
 
 /** tomorrow: at is the start he named, or the part of the day he gave ("tmrw morning" = 09:00, assumed: said back as an assumption). */
 /** deferred: "ill do gym tmrw" (his plan), not "move gym to tomorrow" (an instruction). REV2 finding 8: a deferral while today's gym is
  *  still ahead deletes a gym day on an excuse, so the gym turn pushes back and asks instead of moving it. */
-export type GymSkip = { kind: "excuse" } | { kind: "legit"; reason: string; at?: string } | { kind: "tomorrow"; at?: string; assumed?: string; deferred?: boolean };
+export type GymSkip = StatedMove | { kind: "excuse" } | { kind: "legit"; reason: string; at?: string } | { kind: "tomorrow"; at?: string; assumed?: string; deferred?: boolean };
 
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion)[,\s]+)*(?:should|can|could|do|is|what|when|why|how)\b/i;
 const PAST = /\b(?:didn'?t|didnt|did not|never|skipped|missed)\b/i;

@@ -9,11 +9,12 @@ import { blocksNamed, planReplan, type DayReplan, type ReplanAsk } from "./day-r
 import { parseDirectAdd, type DirectAdd } from "./direct-add.js";
 import { planDayPlan, type DayPlanned } from "./day-plan.js";
 import { planCompound } from "./compound-intent.js";
+import { ownedMoveAsAdd } from "./owned-move-add.js";
 import { ampm, hhmm, parseClock, resolveEnd, span, toMin } from "./intent-time.js";
 import type { AskContext, Day, DayBlock } from "./schedule-flow.js";
 
 export type IntentPlan =
-  | { kind: "run"; argv: string[]; replan?: Extract<DayReplan, { args: string[] }>; direct?: Extract<DirectAdd, { args: string[] }>; dayplan?: DayPlanned; title: string }
+  | { kind: "run"; argv: string[]; replan?: Extract<DayReplan, { args: string[] }>; direct?: Extract<DirectAdd, { args: string[] }>; dayplan?: DayPlanned; title: string; note?: string }
   | { kind: "say"; say: "ask" | "cannot" | "plain"; text: string };
 
 const DEFAULT_ADD_MINUTES = 30;
@@ -179,7 +180,11 @@ export function planIntent(intent: CalendarIntent, day: Day, ctx: { message: str
       return "say" in plan ? { kind: "say", say: plan.say, text: plan.text } : { kind: "run", argv: plan.args, dayplan: plan, title: plan.items[0]!.title };
     }
     case "add": return planAdd(intent, day, ctx.message, ctx.askContext);
-    case "move": return planMove(intent, day);
+    case "move": {   // wave 8 B (owned-move-add.ts): an owned block not on the day, moved to a stated time, is added there
+      const asAdd = ownedMoveAsAdd(intent, day);
+      const added = asAdd ? planAdd(asAdd.intent, day, ctx.message, ctx.askContext) : undefined;
+      return added ? (added.kind === "run" ? { ...added, note: asAdd!.note } : added) : planMove(intent, day);
+    }
     case "extend": return planExtend(intent, day);
     case "remove": return planRemove(intent, day);
     case "compound": return intent.parts ? planCompound(intent.parts, day, intent.day) : undefined;   // Wave 6 (compound-intent.ts)

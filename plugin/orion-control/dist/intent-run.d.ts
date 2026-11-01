@@ -14,6 +14,7 @@ export type IntentPlan = {
     }>;
     dayplan?: DayPlanned;
     title: string;
+    note?: string;
 } | {
     kind: "say";
     say: "ask" | "cannot" | "plain";

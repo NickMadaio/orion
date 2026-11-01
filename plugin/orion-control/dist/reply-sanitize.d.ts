@@ -1,4 +1,4 @@
-import type { ToolResult } from "./work-check.js";
+import { type ToolResult } from "./work-check.js";
 export declare const REPLY_FAILED = "I couldn't finish that just now.";
 /** `strict`: this turn had a failed tool, so paths, long CLI flags, JSON and stack frames are tool text, not prose. */
 export type SanitizeContext = {
@@ -15,6 +15,7 @@ export declare function mailReadFailed(tools: ReadonlyArray<{
 export declare const ONE_PART_FAILED = "One part didn't work.";
 /** The reply with raw CLI/tool spans removed (known failures become one short line). Returns the input when it is clean. */
 export declare function sanitizeReply(reply: string, ctx?: SanitizeContext): string;
+export declare const NOTHING_MOVED = "I haven't changed your calendar. Nothing was moved yet. Tell me the block and the time and I'll do it.";
 export type FinalizeContext = {
     mailFailed?: boolean;
     /** Tool calls the host itself ran this turn (the host's raw "Exec failed" payload exists only for these). */

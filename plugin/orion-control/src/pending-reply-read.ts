@@ -136,7 +136,7 @@ export function clockTimes(m: string): Array<{ at: number; index: number; meridi
 const TOMORROW = /\b(?:tomorrow|tmrw|tmr|tmrow|2moro|tomoz)\b/i;
 const TONIGHT = /\b(?:tonight|this evening|later today|today)\b/i;
 const PART: Array<[RegExp, Part]> = [[/\bmorning\b|\bfirst thing\b|\bearly\b/i, "morning"], [/\bafternoon\b|\bafter lunch\b/i, "afternoon"], [/\bevening\b|\btonight\b/i, "evening"]];
-const AFTER = /\bafter (?:my |the |his )?([a-z][a-z0-9' ]{1,30}?)(?=\s+(?:tomorrow|tmrw|today|tonight|on|at|for|then|and)\b|[,.!?]|$)/i;
+const AFTER = /\bafter (?:my |the |his )?([a-z][a-z0-9' ]{1,30}?)(?=\s+(?:tomorrow|tmrw|today|tonight|on|at|for|then|and|pls|plz|please|thanks)\b|[,.!?]|$)/i;
 
 /** The details of a counter-offer, or undefined when it names none. */
 export function detailsOf(message: string): Details | undefined {

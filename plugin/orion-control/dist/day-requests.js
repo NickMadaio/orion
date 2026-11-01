@@ -21,6 +21,7 @@ import { ampm, ceil5, CLOCK, hhmm, parseClock, resolveStart, takeLength, toMin }
 import { blocksNamed } from "./day-replan.js";
 import { gymPushback } from "./anchor-guards.js";
 import { notBooked, refused, sideNotes, wrote, writesIn } from "./scheduler-out.js";
+import { compoundReply, knockOn } from "./compound-reply.js";
 import { pluginNow } from "./plugin-clock.js";
 import { readNamedWrite, runNamedWrite } from "./calendar-resolve.js";
 import { readMultiDay, runMultiDay } from "./calendar-days.js";
@@ -230,7 +231,7 @@ const say = (text, calls = [], outputs = []) => ({ outcome: "say", kind: "plain"
 const done = (reply, calls, outputs) => {
     const notes = sideNotes(reply, outputs);
     const text = !notes.length ? reply : / Say "undo"[\s\S]*$|\s*(?:Each day is its own change[\s\S]*)$/.test(reply)
-        ? reply.replace(/ Say "undo"[\s\S]*$|\s*(?:Each day is its own change[\s\S]*)$/, (tail) => ` Also: ${notes.join("; ")}.${tail}`) : `${reply} Also: ${notes.join("; ")}.`;
+        ? reply.replace(/ Say "undo"[\s\S]*$|\s*(?:Each day is its own change[\s\S]*)$/, (tail) => ` ${knockOn(notes)}${tail}`) : `${reply} ${knockOn(notes)}`;
     return { outcome: "done", calls, outputs, reply: text };
 };
 const nowMin = (deps) => deps.now.getHours() * 60 + deps.now.getMinutes();
@@ -334,7 +335,7 @@ async function runDeadline(r, deps) {
     const changed = x.writes > 0 || (r.book && x.outputs.some((o) => /^Added /m.test(o)));
     // What booking the sessions moved is said too (the demo moved Gym 5:00 → 5:20 PM to fit Monday's session).
     const moved = [...new Set(x.outputs.flatMap((o) => [...o.matchAll(/^\s*moved (.+?): (\d{2}:\d{2}) → (\d{2}:\d{2})/gm)].map((mv) => `${mv[1]} ${ampm(toMin(mv[2]))} → ${ampm(toMin(mv[3]))}`)))];
-    const text = `${changed ? "Done: " : ""}${cap(lines.join(". "))}.${moved.length ? ` To make room: ${moved.join("; ")}.` : ""}${x.writes ? ` ${UNDO.replace("it", "the calendar change")}` : ""}`;
+    const text = `${changed ? "Done: " : ""}${cap(lines.join(". "))}.${moved.length ? ` ${knockOn(moved)}` : ""}${x.writes ? ` ${UNDO.replace("it", "the calendar change")}` : ""}`;
     return { flow: changed ? done(text, x.calls, x.outputs) : say(text, x.calls, x.outputs), facts: [], writes: x.writes };
 }
 async function runClauses(r, deps) {
@@ -443,7 +444,8 @@ async function runClauses(r, deps) {
         return { flow: say(`${lead}Nothing changed: ${notes.join("; ")}.${keepLine}`, x.calls, x.outputs), facts: [], writes: 0 };
     if (!said.length)
         return { flow: done(`${lead}Not done: ${notes.join("; ")}.${keepLine} The scheduler still changed your calendar. ${UNDO}`, x.calls, x.outputs), facts: [], writes: x.writes };
-    return { flow: done(`${lead}Done: ${said.join("; ")}.${notes.length ? ` Not done: ${notes.join("; ")}.` : ""}${keepLine} ${UNDO}`, x.calls, x.outputs), facts: [], writes: x.writes };
+    const knock = sideNotes(said.join(" "), x.outputs);
+    return { flow: done(`${lead}${compoundReply({ did: said, knock, couldnt: notes, tail: keepLine, undo: true })}`, x.calls, x.outputs), facts: [], writes: x.writes };
 }
 const PART_AT = { morning: 9 * 60, afternoon: 14 * 60, evening: 19 * 60 };
 async function runTomorrow(r, deps) {

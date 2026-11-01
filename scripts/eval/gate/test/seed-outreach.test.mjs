@@ -115,3 +115,10 @@ test("ageFromNotes ignores times inside the quoted nudge and honours am/pm", asy
   assert.equal(ageFromNotes("ORION nudged at 12:30 am about bed", late, { sandbox: true }), 13);
   assert.equal(ageFromNotes('Session done: "Next: CS2100 at 9:00 AM." Now 17:00', Date.UTC(2026, 10, 2, 17, 0), { sandbox: true }), null);
 });
+
+test("ageFromNotes ignores day facts like 'CS2100 is at 09:00'", async () => {
+  const { ageFromNotes } = await import("../lib/seed-outreach.mjs");
+  const late = Date.UTC(2026, 10, 3, 0, 43);
+  assert.equal(ageFromNotes('Bedtime is 00:00. It is 00:43 and Nick got "Still up at 12:43 AM... go now." CS2100 is at 09:00.', late, { sandbox: true }), null);
+  assert.equal(ageFromNotes('Nick got "Leave in 13 min." at 12:47.', Date.UTC(2026, 10, 2, 12, 50), { sandbox: true }), 3);
+});

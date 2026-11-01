@@ -24,7 +24,9 @@ export function ageFromNotes(notes, nowMs, { sandbox }) {
   if (!sandbox) return null;   // a clock time in the notes belongs to the sandbox clock, not the real one
   // Times inside the quoted nudge ("Leave ... for MKTG2201 at 1:30 PM.") are its content, not when it was sent.
   const unquoted = notes.replace(/"[^"]*"/g, " ").replace(/\u201c[^\u201d]*\u201d/g, " ");
-  const at = unquoted.match(/\bat\s+(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
+  // Only a time that says when the nudge went out ("got ... at 12:47"), never a fact about the day ("CS2100 is at 09:00").
+  const at = [...unquoted.matchAll(/\bat\s+(\d{1,2}):(\d{2})\s*(am|pm)?\b/gi)]
+    .find((m) => { const before = unquoted.slice(Math.max(0, m.index - 30), m.index); return (before.trim() === "" || /\b(got|sent|received|nudged|pinged|pushed)\b/i.test(before)) && !/\b(is|was|starts?)\s*$/i.test(before); });
   if (!at) return null;
   const now = new Date(nowMs);
   let hour = Number(at[1]);

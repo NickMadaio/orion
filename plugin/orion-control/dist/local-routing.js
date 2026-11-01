@@ -81,6 +81,7 @@ import { readPreference, savePreference } from "./preference-remember.js";
 import { readDayDefault, runDayDefault } from "./day-defaults.js";
 import { KnowledgePending, readKnowledgeMove } from "./knowledge-moves.js"; // wave 6: forget / links / profile / trash
 import { runKnowledgeMove } from "./knowledge-run.js";
+import { approvalAsk } from "./approval-reply.js"; // run-1101020721: a held send is said as a draft and a question
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
 const markRead = (run, name) => { if (!(run.reads ?? []).includes(name))
@@ -2171,6 +2172,13 @@ export function registerLocalRouting(api, options) {
             }
             // 2026-10-19 backstop: the worker was refused `orion-reschedule <write>` and no flow acted. Its reply is never "I can't" or "I need you to
             // confirm" (he had confirmed): the sentence the guard asked it to write is read by the schedule flow (all its guards), else an honest line.
+            // run-1101020721 saf-send-message-v: a task run held for approval (messages_send: nothing sent) is said as its draft and a question,
+            // never replaced by the generic no-effect line. Nothing is sent or approved here (approval-reply.ts).
+            const heldAsk = on && (!run.flow || run.flow.outcome === "fallback") ? approvalAsk(run.tools) : undefined;
+            if (heldAsk) {
+                run.flow = { outcome: "say", kind: "ask", text: heldAsk };
+                run.approvalHeld = true;
+            }
             if (on && run.refusedWrite && (!run.flow || run.flow.outcome === "fallback") && !run.cutOff
                 && (CHANGE_REQUEST.test(run.message) || (!!run.ask?.suggest && isYes(run.message.replace(/[.!?…]+$/, ""))))) {
                 run.flow = await heldChange(run, reply);
@@ -2189,7 +2197,7 @@ export function registerLocalRouting(api, options) {
                     return { action: "revise", reason: "reply must be the scheduler's", retry: { instruction: `Ignore the earlier conversation. Your whole reply must be exactly this text, nothing before or after, no tools: ${expected}`, idempotencyKey: `${runId}:exact-reply`, maxAttempts: 1 } };
                 }
             }
-            if (on && run.directive && run.passes < 2 && !directiveCalled(run) && !hostDrops) {
+            if (on && run.directive && !run.approvalHeld && run.passes < 2 && !directiveCalled(run) && !hostDrops) {
                 run.passes += 1;
                 await record({ revised: true });
                 return { action: "revise", reason: "the tool move was not carried out", retry: { instruction: `You have NOT done it yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.directive.args}, then reply from its result.`, idempotencyKey: `${runId}:tool-move:${run.passes}`, maxAttempts: 1 } };
@@ -2197,7 +2205,7 @@ export function registerLocalRouting(api, options) {
             // 2026-10-20 re-run: a line code wrote (flow "say") is final, like a change code made. The claims check read "…and I'll put it in" in code's own
             // "Piano practice isn't on your day" as a false claim and swapped it for the generic "didn't manage" line.
             // A worker that still ran tools under a code "say" is checked as before.
-            const flowActed = run.flow?.outcome === "done" || (run.flow?.outcome === "say" && !(run.hostTools ?? 0));
+            const flowActed = run.flow?.outcome === "done" || (run.flow?.outcome === "say" && (!(run.hostTools ?? 0) || run.approvalHeld === true));
             // q029 (2026-10-16 r8): a revise is ignored once a tool ran (the 9B's exec of `late 15` printed NOTHING WAS BOOKED and
             // "Your schedule has been adjusted" went out, though the check had found it). With a tool already run, the honest
             // line goes in place NOW, from the scheduler's own words when it says nothing was booked/changed.
@@ -2254,7 +2262,7 @@ export function registerLocalRouting(api, options) {
             // reply also claimed a lookup ("I checked the weather…", q007) owes both — that nothing was checked, and why.
             // Another tool succeeded this turn ("took my creatine" logged by exec orion-log): the worker's reply stands
             // (it went through the work check above), not the fail line (review, 2026-10-16).
-            if (on && run.directive && !directiveCalled(run) && !anotherToolSucceeded(run.tools, run.directive.action)) {
+            if (on && run.directive && !run.approvalHeld && !directiveCalled(run) && !anotherToolSucceeded(run.tools, run.directive.action)) {
                 const claimedLookup = findings.some((f) => LOOKUP_CLAIM.test(f));
                 owed = claimedLookup ? `${LOOKUP_UNCHECKED} ${run.directive.failLine}` : run.directive.failLine;
                 remember([runId, sessionKeyNow], owed);

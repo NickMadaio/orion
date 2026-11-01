@@ -17,7 +17,7 @@ const WORKSPACE_FILES = ["USER.md", "MEMORY.md"];
 // Append-only inputs the item can add to; restored by truncation only when the old content is still a prefix.
 // logged.jsonl (what he said he did; day-questions habitAnswer reads it): a gate item is not Nick, and the gym fixture appends to it.
 // outreach.jsonl: the gate seeds a row per `replyToOutreach` text (lib/seed-outreach.mjs); truncation removes it.
-const RESTORED_LOGS = ["inbound-turns.jsonl", "logged.jsonl"];
+const RESTORED_LOGS = ["inbound-turns.jsonl", "memory-archive.jsonl", "trash-log.jsonl", "logged.jsonl"];
 // outreach.jsonl is NOT truncated (REV4 item 7): the live system may append real rows during an item, and a truncation drops them.
 // Only the rows the gate seeded are removed, matched by id; every other change is reported, not rewound.
 const SEEDED_LOGS = ["outreach.jsonl"];

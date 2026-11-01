@@ -26,6 +26,7 @@ import { pluginNow } from "./plugin-clock.js";
 import { readNamedWrite, runNamedWrite } from "./calendar-resolve.js";
 import { readMultiDay, runMultiDay } from "./calendar-days.js";
 import { deferralsOf, slipAck } from "./slip-history.js";
+import { shiftNote } from "./shift-note.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can i|could i|what|when|why|how|which)\b/i;
 /** REV2 finding 3: a line about someone else's day ("my brother got a midterm friday", "she has a quiz") is never put on his calendar. */
@@ -407,7 +408,8 @@ async function runClauses(r, deps) {
                 args.push("--length-explicit"); // his own length or end time; the 30 default keeps his minimums
             const out = await x.exec(args);
             if (out.ok) {
-                said.push(`${c.name} ${placedAt(out.stdout, c.name) ?? (at !== undefined ? `at ${ampm(at)}` : "added")}`);
+                const why = at !== undefined && !c.after ? shiftNote(out.stdout, c.name) : "";
+                said.push(`${c.name} ${placedAt(out.stdout, c.name) ?? (at !== undefined ? `at ${ampm(at)}` : "added")}${why ? ` (${why.replace(/\.? Say if you want another time\.$/, "")})` : ""}`);
                 lastAdded = c.name;
             }
             else
@@ -486,9 +488,12 @@ async function runTomorrow(r, deps) {
     const slipLine = history || (r.defer && slips >= 2 ? ` That's ${slips + 1} times it's slipped this week, so tomorrow let's just start: the first 15 minutes, nothing more.` : "");
     const assume = assumed !== undefined ? ` (I took ${r.part} as ${ampm(assumed)})` : "";
     const lead = already ? `${cap(label({ title }))} is already on tomorrow, ${where}` : `${cap(label({ title }))} is on tomorrow${where ? (where.startsWith("at") ? ` ${where}` : `, ${where}`) : ""}, ${minutes} minutes${assume}`;
+    // His stated time is his: when the scheduler could not keep it, the reply says what was in the way (its own SHIFTED line).
+    const why = add?.ok && at !== undefined && !assumed ? shiftNote(add.stdout, title) : "";
+    const whyLine = why ? ` ${why}` : "";
     if (!x.writes)
         return { flow: say(`${lead}.${slipLine}`, x.calls, x.outputs), facts: [], writes: 0 };
-    return { flow: done(`Done: ${lead}${off}.${slipLine} ${UNDO}`, x.calls, x.outputs), facts: [], writes: x.writes };
+    return { flow: done(`Done: ${lead}${off}.${whyLine}${slipLine} ${UNDO}`, x.calls, x.outputs), facts: [], writes: x.writes };
 }
 async function runThen(r, deps) {
     const x = runner(deps);

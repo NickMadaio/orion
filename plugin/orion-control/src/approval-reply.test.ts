@@ -31,6 +31,25 @@ describe("approvalAsk", () => {
   });
 });
 
+// Wave 4 review finding 3: a graph with several held steps showed only the first send, so a "yes" approved steps he never saw.
+describe("every held step is shown, or the ask is generic", () => {
+  const graph = (steps: Array<Record<string, unknown>>) => `orion_task_run ${JSON.stringify({ graph: { goal: "x", steps } })}`;
+  it("two sends: both drafts are listed", () => {
+    const line = approvalAsk([{ canonical: graph([{ action: "messages_send", arguments: { recipient: "priya", body: "omw" } }, { action: "messages_send", arguments: { recipient: "sam", body: "cant tonight" } }]), stdout: HELD }])!;
+    expect(line).toContain('"omw"');
+    expect(line).toContain('"cant tonight"');
+    expect(line).toContain("Priya");
+    expect(line).toContain("Sam");
+    expect(line).toMatch(/haven't sent (?:them|either)/i);
+    expect(line).toMatch(/\?$/);
+  });
+  it("a send plus another action: the generic ask, never only the draft", () => {
+    const line = approvalAsk([{ canonical: graph([{ action: "messages_send", arguments: { recipient: "priya", body: "omw" } }, { action: "file_delete", arguments: { path: "notes" } }]), stdout: HELD }])!;
+    expect(line).not.toContain('"omw"');
+    expect(line).toMatch(/needs your OK/);
+  });
+});
+
 // Wave 4 review finding 4: any tool output saying "NO MESSAGE WAS SENT" read as a held send. Only an orion_task_run result with a
 // structured needs_approval status is held.
 describe("only a structured needs_approval from orion_task_run is held", () => {

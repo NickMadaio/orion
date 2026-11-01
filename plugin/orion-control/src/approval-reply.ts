@@ -49,10 +49,16 @@ const name = (s: string) => (/^[a-z][a-z' -]*$/.test(s) ? s.replace(/\b[a-z]/g, 
 export function approvalAsk(tools: readonly Tool[]): string | undefined {
   const held = [...tools].reverse().find((t) => isTaskRun(t.canonical) && heldResult(t.stdout));
   if (!held) return undefined;
-  const send = stepsOf(held.canonical).find((s) => s.action === "messages_send");
-  if (!send) return "I haven't done that yet: it needs your OK first. Want me to go ahead?";
-  const who = field(send, "recipient", "to");
-  const body = field(send, "body", "text");
-  if (!body) return `I haven't sent anything${who ? ` to ${name(who)}` : ""} yet. What should it say?`;
-  return `Here's the draft${who ? ` to ${name(who)}` : ""}: "${body}". I haven't sent it. Want me to send it?`;
+  // Wave 4 review finding 3: a "yes" approves the whole held run, so every step is shown, or none is (the generic ask).
+  const GENERIC = "I haven't done that yet: it needs your OK first. Want me to go ahead?";
+  const steps = stepsOf(held.canonical);
+  if (!steps.length || steps.some((s) => s.action !== "messages_send")) return GENERIC;
+  const drafts = steps.map((s) => ({ who: field(s, "recipient", "to"), body: field(s, "body", "text") }));
+  if (drafts.length === 1) {
+    const { who, body } = drafts[0]!;
+    if (!body) return `I haven't sent anything${who ? ` to ${name(who)}` : ""} yet. What should it say?`;
+    return `Here's the draft${who ? ` to ${name(who)}` : ""}: "${body}". I haven't sent it. Want me to send it?`;
+  }
+  if (drafts.some((d) => !d.body || !d.who)) return GENERIC;
+  return `Here are the drafts: ${drafts.map((d) => `to ${name(d.who!)}, "${d.body}"`).join("; ")}. I haven't sent them. Want me to send them?`;
 }

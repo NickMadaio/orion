@@ -19,6 +19,7 @@
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { parseSessionJson } from "./session-json.js";
 import { readBreak, runBreak } from "./break-intent.js";
+import { ampm, toMin } from "./intent-time.js";
 const ACK = String.raw `^(?:(?:ya|yah|yeah|yea|yep|yup|ok(?:ay)?|k|sure|fine|alright|aight|mhm|uh huh|hmm)[,.!\s]+)*`;
 const STALL = new RegExp(`${ACK}(?:(?:i'?ll\\s+|im\\s+|i'?m\\s+|gonna\\s+)?(?:start(?:ing)?(?:\\s+it)?|get(?:ting)?\\s+(?:on it|started|going)|on it|doing it|do it|be there)\\s+)?(?:in\\s+(?:a\\s+)?(sec|second|min|minute|bit|moment|few|(\\d{1,2}))(?:\\s*(?:mins?|minutes?|m|secs?))?|(\\d{1,2})\\s*more\\s*(?:mins?|minutes?)|after this(?:\\s+(?:video|episode|one|game|round))?|(?:give me|gimme|gimmie) (?:a (?:sec|second|minute|min)|(\\d{1,2})\\s*(?:mins?|minutes?)?))\\s*(?:lol|haha)?[.!]*$`, "i");
 const EXTEND = /^(?:(?:actually|ok(?:ay)?|yeah|nah|wait|hmm|no)[,\s]+)*(?:keep (?:going|it going|the (?:session|timer|focus(?: session)?) going)|(?:give me |i need |i want )?(?:another|a few more|(\d{1,3}) more)(?:\s*(?:min(?:ute)?s?|m))?|extend (?:it|this|the session|my session|my focus(?: session)?)(?: by (\d{1,3})\s*(?:min(?:ute)?s?|m))?|(?:a )?(?:bit|little) longer|not done yet)(?:\s+(?:for a bit|a bit longer|a little longer|longer|please|pls|on this))*\s*[.!]*$/i;
@@ -65,6 +66,16 @@ const plus = (now, min) => new Date(now.getTime() + min * 60_000);
 const isoLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const GENERIC = /^(?:studying|study|work|working|stuff|homework|things|it)$/i;
 const say = (text, calls = [], outputs = []) => ({ outcome: "say", kind: "plain", text, ...(calls.length ? { calls, outputs } : {}) });
+/** Kinds of block a focus session belongs to: study, deadline work, the side project, or a block titled as coursework. */
+const WORK_KINDS = new Set(["study", "deadline", "work", "side_project"]);
+const WORK_TITLE = /\b(?:study|revis\w*|homework|hw|problem set|pset|essay|assignment|coursework|reading|project|[A-Z]{2,5}\d{3,5})\b/i;
+/** The study or work block on his calendar right now, with at least ten minutes left; never a class, gym, meal or rest. */
+export function currentWorkBlock(day, now) {
+    const at = now.getHours() * 60 + now.getMinutes();
+    const b = day?.blocks.find((x) => toMin(x.start) <= at && toMin(x.end) - at >= 10 && x.kind !== "class" && !x.fixed
+        && (WORK_KINDS.has(x.kind ?? "") || (!x.kind || x.kind === "other") && WORK_TITLE.test(x.title)));
+    return b ? { title: b.title, end: b.end } : undefined;
+}
 async function call(exec, args, ran) {
     const out = await exec([...args, "--json"]).catch(() => ({ stdout: "", code: 1 }));
     ran.calls.push(`exec orion-session ${args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")} --json`);
@@ -129,6 +140,16 @@ export async function runFocusMove(move, deps) {
         if (running)
             return { flow: say(`Your ${task} session is still running, ${Math.max(1, Math.round(Number(status.remainingSeconds ?? 0) / 60))} minutes left. Put ${move.app} down and get back to it.`, ran.calls, ran.outputs) };
         const known = Object.keys(status).length > 0;
+        // Wave 6 B (orchestrator decision): a study or work block current on his calendar is restarted as a focus session, said in one line.
+        const current = known && deps.readDay ? currentWorkBlock(await deps.readDay().catch(() => undefined), now) : undefined;
+        if (current) {
+            const state = await call(deps.exec, ["start", current.title, "--until", current.end], ran);
+            if (started(state)) {
+                const left = Number(state?.remainingSeconds);
+                const until = Number.isFinite(left) && left > 0 ? clock(plus(now, Math.round(left / 60))) : ampm(toMin(current.end));
+                return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Put ${move.app} down: I've restarted a focus session on ${current.title} until ${until}.` } };
+            }
+        }
         const back = block ? `get back to ${block}` : "get back to your block";
         if (!known)
             return { flow: say(`Put ${move.app} down and ${back}.`, ran.calls, ran.outputs) };

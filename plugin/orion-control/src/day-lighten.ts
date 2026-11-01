@@ -18,6 +18,7 @@ import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import type { DeadlineRead } from "./deadline-read.js";
 import type { ScriptRun } from "./reality.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
+import { spokenAfterWrite } from "./lighten-said.js";
 
 export type LightenKind = "tired" | "sick" | "slept" | "stressed";
 export type LightenRead = { kind: LightenKind; doIt: boolean; rank: boolean; nap?: { minutes: number; at?: string; afterClass?: boolean }; cut: string[] };
@@ -224,6 +225,7 @@ export function planLighten(read: LightenRead, ctx: { day?: Day; deadlines?: Dea
 export async function runLighten(steps: LightenStep[], run: ScriptRun, context = ""): Promise<{ flow: FlowResult; writes: number }> {
   const calls: string[] = []; const outputs: string[] = []; const said: string[] = [];
   let failed: LightenStep | undefined; let writes = 0;
+  const done: Array<{ step: LightenStep; stdout: string }> = [];
   for (const step of steps) {
     const out = await run("orion-reschedule", step.args).catch(() => ({ stdout: "", code: 1 }));
     calls.push(`exec orion-reschedule ${step.args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`); outputs.push(out.stdout);
@@ -236,7 +238,13 @@ export async function runLighten(steps: LightenStep[], run: ScriptRun, context =
     }
     if (refused(out) || own) { failed = step; break; }
     if (wrote(out)) writes += 1;
-    said.push(step.said);
+    said.push(step.said); done.push({ step, stdout: out.stdout });
+  }
+  // Wave 6 B: what each step did is said from the day after the writes, not from the plan (lighten-said.ts).
+  if (writes && done.length) {
+    const after = await run("orion-reschedule", ["show", "--json"]).then((r) => (r.code === 0 ? JSON.parse(r.stdout) as Day : undefined)).catch(() => undefined);
+    const day = Array.isArray(after?.blocks) ? after : undefined;
+    done.forEach((d, i) => { said[i] = spokenAfterWrite(d.step, d.stdout, day); });
   }
   const reply0 = `${said.length ? `Done: ${listed(said)}.` : ""}`;
   const also = sideNotes(`${reply0} ${said.join(" ")} ${steps.map((s) => s.args[1] ?? "").join(" ")}`, outputs);

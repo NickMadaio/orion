@@ -44,7 +44,7 @@ function route(decide: (message: string) => Decision, opts: { now?: Date; sessio
     decideImpl: async (i: { message: string }) => decide(i.message), brainSearch: async () => "",
     scheduleFlow: async (m: string) => { flows.push(m); return { outcome: "fallback", reason: "test" }; },
     readDayJson: async () => opts.day ?? DAY, readDeadlines: async () => DEADLINES,
-    realityRun: async (_s: string, args: string[]) => { writes.push(args); return { stdout: args[0] === "add" ? `Booked ${args[1]} 21:00–22:00` : "ok", code: 0 }; },
+    realityRun: async (_s: string, args: string[]) => { if (args[0] !== "show") writes.push(args); return { stdout: args[0] === "add" ? `Booked ${args[1]} 21:00–22:00` : "ok", code: 0 }; },
     sessionExec: async (args: string[]) => {
       sessionCalls.push(args);
       if (args[0] === "status") return { stdout: JSON.stringify(session ?? { ok: true, status: "none" }), code: 0 };

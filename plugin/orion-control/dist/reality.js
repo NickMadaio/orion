@@ -4,6 +4,7 @@ import { pluginNow } from "./plugin-clock.js";
 import { intentOf, namesTitle, pickByTime, resolveBlockName, whichOne } from "./block-names.js";
 import { napWindow } from "./nap-window.js";
 import { asksToShiftAfter, namesOwnEvent, nothingToMove } from "./own-event-writes.js";
+import { fillFreedTime } from "./freed-class-time.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim();
 const QUESTION = /\?\s*$|^(?:(?:so|ok|hey|orion|wait)[,\s]+)*(?:do|did|does|is|are|am|was|were|have|has|will|should|can|could|what|when|why|how)\b/i;
 // Not a fact about his day: a condition, a wish, or someone else's ("she didnt go to the gym").
@@ -13,10 +14,13 @@ const REMINDERS_OFF = /\b(?:cancel|stop|turn off|no more)\s+(?:the\s+|my\s+|all\
 const CLASS_WORD = "(?:class(?:es)?|lectures?|seminars?|tutorials?|recitations?)";
 const GENERIC_NO = new RegExp(`\\b(?:no|don'?t have(?: any)?|dont have(?: any)?|do not have(?: any)?|haven'?t got(?: any)?|there(?:'s| is| are) no)\\s+(?:more\\s+)?${CLASS_WORD}\\b(?!\\s+(?:until|till|til|before|after|for)\\b)`, "i");
 const CANCELLED = /\b([a-z0-9']+?)(?:'s|\s+is|\s+are|\s+was|\s+got|\s+has been|\s+have been|'re)\s+(?:been\s+)?(?:cancell?ed|canceled|called off)\b/i;
+// Wave 6 B: "econ and mktg both got cancelled": two names before one "cancelled".
+const PAIR_CANCELLED = /\b([a-z0-9]+)\s+(?:and|&|n)\s+([a-z0-9]+)\s+(?:(?:are|were|both|got|have been|r|have)\s+){0,3}(?:cancell?ed|canceled|called off)\b/i;
 const BOTH_CANCELLED = /\b(?:both|they)(?:'re|\s+are|\s+were|\s+got)?\s+(?:both\s+)?cancell?ed\b/i;
 const NAMED_NO = /\b(?:no|don'?t have|dont have|do not have)\s+([a-z0-9]+)(?:\s+(?:and|or)\s+(?:no\s+)?([a-z0-9]+))?\s+(?:class(?:es)?\s+|lectures?\s+)?(?:today|tomorrow|tmrw)\b/i;
 const KEEP = /\bi (?:still|do) have (?:my |the |a )?([a-z0-9]+)/i;
-const FILL = /\b(?:use (?:the|that) time|fill (?:the|that|my) (?:time|gaps?|day)|plan (?:the|my) (?:free )?time)\b/i;
+// Wave 6 B: "fill that time", "make use of the gap", "use those hours" are the same ask.
+const FILL = /\b(?:(?:make (?:good |some )?use of|use|fill(?: up)?|plan) (?:the|that|those|this|my|it'?s|the free|that free) ?(?:free )?(?:time|gaps?|hours?|slots?|day)|fill (?:it|them) (?:in|up))\b/i;
 const OTHER_CHANGE = /\b(?:put|add|book|schedule|reschedule|move|push|pull|swap|plan|remind|cancel the|delete|drop|extend|shorten|make it (?:an?|\d|longer|shorter|later|earlier))\b/i;
 const NOT_A_NAME = new Set(["class", "classes", "lecture", "lectures", "time", "idea", "plans", "plan", "way", "one", "clue", "reason", "need", "school", "work", "more", "the", "my", "any", "gym", "both", "they", "it", "all", "that", "this", "everything", "anything"]);
 const MISSED = /\b(?:i\s+)?(?:didn'?t|didnt|did not|never)\s+(?:go|make it|get|went)\s+(?:to\s+)?(?:the\s+|my\s+)?([a-z0-9][a-z0-9 ]{1,30}?)(?=\s*(?:today|this morning|this afternoon|tonight|earlier|lol|tbh|btw|[,.!]|$))/i;
@@ -107,7 +111,8 @@ export function readReality(message, now = pluginNow()) {
     const tomorrow = /\b(?:tomorrow|tmrw)\b/.test(m);
     const named = NAMED_NO.exec(m);
     const cancelled = CANCELLED.exec(m);
-    const names = [named?.[1], named?.[2], cancelled?.[1]].filter((w) => !!w && !NOT_A_NAME.has(w) && !new RegExp(`^${CLASS_WORD}$`).test(w));
+    const pair = PAIR_CANCELLED.exec(m);
+    const names = [named?.[1], named?.[2], cancelled?.[1], pair?.[1], pair?.[2]].filter((w) => !!w && !NOT_A_NAME.has(w) && !new RegExp(`^${CLASS_WORD}$`).test(w));
     if (GENERIC_NO.test(m) || names.length || (BOTH_CANCELLED.test(m) && names.length) || (cancelled && new RegExp(`^${CLASS_WORD}$`).test(cancelled[1] ?? ""))) {
         const keep = KEEP.exec(m)?.[1];
         return { reality: { kind: "no-classes", names: GENERIC_NO.test(m) && !names.length ? [] : [...new Set(names)], ...(keep ? { keep } : {}), tomorrow, fill: FILL.test(m) }, rest: rest && !FILL.test(m) };
@@ -208,17 +213,13 @@ async function noClasses(r, deps) {
         return { flow: say(`Noted: no classes ${day0}. There weren't any on your calendar to cancel.${keptLine}`, calls, outputs), facts, writes: 0 };
     let reply = `Got it, no ${r.names.length ? listed(cancelled.map((c) => c.split(" (")[0])) : "classes"} ${day0}. I've marked ${listed(cancelled)} cancelled (still in Apple Calendar), so no leave reminders for ${cancelled.length > 1 ? "them" : "it"}.${keptLine}`;
     let writes = 1;
-    if (r.fill && !r.tomorrow) {
-        const fill = await deps.run("orion-reschedule", ["fill"]).catch(() => ({ stdout: "", code: 1 }));
-        calls.push("exec orion-reschedule fill");
-        outputs.push(fill.stdout);
-        const placed = fill.stdout.split("\n").map((l) => l.trim()).filter((l) => /^(?:added|placed|booked|\+)/i.test(l) || /\d{2}:\d{2}–\d{2}:\d{2}/.test(l)).slice(0, 4);
-        if (fill.code === 0 && !/NOTHING WAS/.test(fill.stdout)) {
-            writes += 1;
-            reply += placed.length ? ` In the free time: ${placed.map(clause).join("; ")}.` : " I filled the free time.";
-        }
-        else
-            reply += " I couldn't fill the free time just now.";
+    // Wave 6 B: the freed class time goes by his priorities, not the routine fill (freed-class-time.ts).
+    if (r.fill && !r.tomorrow && day) {
+        const filled = await fillFreedTime({ day, offStdout: off.stdout, now: deps.now, run: deps.run, ...(deps.readDeadlines ? { readDeadlines: deps.readDeadlines } : {}) });
+        calls.push(...filled.calls);
+        outputs.push(...filled.outputs);
+        writes += filled.writes;
+        reply += filled.text;
     }
     return { flow: done(`${reply} Say "undo" to put ${cancelled.length > 1 ? "them" : "it"} back.`, calls, outputs), facts, writes };
 }

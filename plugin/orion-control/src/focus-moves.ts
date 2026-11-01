@@ -17,11 +17,12 @@
    side-missed  an hour of the side project tonight (his daily rule), or first thing tomorrow when tonight has no room
 */
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
-import type { FlowResult } from "./schedule-flow.js";
+import type { Day, FlowResult } from "./schedule-flow.js";
 import type { SessionExec } from "./session-flow.js";
 import { parseSessionJson } from "./session-json.js";
 import { readBreak, runBreak, type BreakMove } from "./break-intent.js";
 import type { ScriptRun } from "./reality.js";
+import { ampm, toMin } from "./intent-time.js";
 
 export type FocusMove =
   | { kind: "stall"; minutes: number }
@@ -78,7 +79,18 @@ const isoLocal = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad
 const GENERIC = /^(?:studying|study|work|working|stuff|homework|things|it)$/i;
 const say = (text: string, calls: string[] = [], outputs: string[] = []): FlowResult => ({ outcome: "say", kind: "plain", text, ...(calls.length ? { calls, outputs } : {}) });
 
-type Deps = { exec?: SessionExec; run?: ScriptRun; now: Date; task?: string };
+type Deps = { exec?: SessionExec; run?: ScriptRun; now: Date; task?: string; /** today's calendar (show --json), for the block he is in now */ readDay?: () => Promise<Day | undefined> };
+
+/** Kinds of block a focus session belongs to: study, deadline work, the side project, or a block titled as coursework. */
+const WORK_KINDS = new Set(["study", "deadline", "work", "side_project"]);
+const WORK_TITLE = /\b(?:study|revis\w*|homework|hw|problem set|pset|essay|assignment|coursework|reading|project|[A-Z]{2,5}\d{3,5})\b/i;
+/** The study or work block on his calendar right now, with at least ten minutes left; never a class, gym, meal or rest. */
+export function currentWorkBlock(day: Day | undefined, now: Date): { title: string; end: string } | undefined {
+  const at = now.getHours() * 60 + now.getMinutes();
+  const b = day?.blocks.find((x) => toMin(x.start) <= at && toMin(x.end) - at >= 10 && x.kind !== "class" && !x.fixed
+    && (WORK_KINDS.has(x.kind ?? "") || (!x.kind || x.kind === "other") && WORK_TITLE.test(x.title)));
+  return b ? { title: b.title, end: b.end } : undefined;
+}
 type Ran = { calls: string[]; outputs: string[] };
 async function call(exec: SessionExec, args: string[], ran: Ran): Promise<Record<string, unknown> | null> {
   const out = await exec([...args, "--json"]).catch(() => ({ stdout: "", code: 1 }));
@@ -135,6 +147,16 @@ export async function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOu
     const block = move.instead && !GENERIC.test(move.instead.trim()) ? move.instead.trim() : deps.task;
     if (running) return { flow: say(`Your ${task} session is still running, ${Math.max(1, Math.round(Number(status.remainingSeconds ?? 0) / 60))} minutes left. Put ${move.app} down and get back to it.`, ran.calls, ran.outputs) };
     const known = Object.keys(status).length > 0;
+    // Wave 6 B (orchestrator decision): a study or work block current on his calendar is restarted as a focus session, said in one line.
+    const current = known && deps.readDay ? currentWorkBlock(await deps.readDay().catch(() => undefined), now) : undefined;
+    if (current) {
+      const state = await call(deps.exec, ["start", current.title, "--until", current.end], ran);
+      if (started(state)) {
+        const left = Number(state?.remainingSeconds);
+        const until = Number.isFinite(left) && left > 0 ? clock(plus(now, Math.round(left / 60))) : ampm(toMin(current.end));
+        return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Put ${move.app} down: I've restarted a focus session on ${current.title} until ${until}.` } };
+      }
+    }
     const back = block ? `get back to ${block}` : "get back to your block";
     if (!known) return { flow: say(`Put ${move.app} down and ${back}.`, ran.calls, ran.outputs) };
     return { flow: say(`Put ${move.app} down and ${back}. No focus session is running right now; want 25 minutes on ${block ?? "it"}? Say yes and I'll start it.`, ran.calls, ran.outputs), pendingSession: `start a 25 min focus session${block ? ` on ${block}` : ""}` };

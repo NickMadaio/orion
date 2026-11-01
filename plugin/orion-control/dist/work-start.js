@@ -4,7 +4,7 @@
  the tool orion-session here because it isn't available". Saying he is about to work on something, now, is a focus start like
  "start a focus session on econ": code starts it. Pure; session-flow.ts uses it next to its own START and MODE_ON readers.
 */
-import { blocksNamedBy, isClassBlock } from "./block-names.js";
+import { blocksNamedBy, courseAliases, isClassBlock } from "./block-names.js";
 const LEAD = String.raw `^\W*(?:(?:hey|orion|ok(?:ay)?|ok so|alright|aight|right|cool|yeah|ya|yep|k|so|and|now|anyway)\b[\s,.!]*)*`;
 const WHO = String.raw `(?:let'?s|lets|lemme|let me|i'?m gonna|im gonna|i'?m going to|im going to|gonna|time to|i'?ll|ill|i'?m about to|im about to)`;
 // REV5 MUST 4 (2026-10-31): "do" and "hit" made "i'll hit you up", "let's do karaoke" and "i'll do the talking" focus sessions, with
@@ -43,6 +43,9 @@ export function workStartTask(message, known = []) {
         return undefined;
     if (WORK_NOUN.test(task))
         return task;
-    const names = known.filter(workable);
+    // Wave 6 B (gate run-1101003318, foc-start-v): "ok lets work on econ" on a day with no econ block missed. A course he takes (his
+    // course aliases, from his data) is work on any day, whether or not it meets today.
+    const courses = [...courseAliases().keys()].map((code) => ({ title: code.toUpperCase(), kind: "class" }));
+    const names = [...known, ...courses].filter(workable);
     return names.length && blocksNamedBy(task, names.map(asBlock), { intent: "study" }).length ? task : undefined;
 }

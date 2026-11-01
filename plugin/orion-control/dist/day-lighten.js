@@ -1,4 +1,5 @@
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
+import { spokenAfterWrite } from "./lighten-said.js";
 const LEAD = String.raw `(?:i'?m|im|i am|feel(?:ing)?|i feel|so|really|super|very|kinda|pretty|totally|completely|absolutely|literally)`;
 const TIRED = new RegExp(String.raw `\b${LEAD}\s+(?:so\s+|really\s+|super\s+|very\s+|kinda\s+|pretty\s+|totally\s+|completely\s+|absolutely\s+|literally\s+)*(?:tired|exhausted|knackered|wrecked|shattered|drained|wiped(?: out)?|fried|zonked|sleepy|burnt out|burned out|running on empty)\b(?!\s+of\b)|\bcan(?:'?t|not)?\s+barely (?:think|function|keep my eyes open|stay awake|focus)\b|\brunning on (?:empty|fumes|no sleep)\b|\bno energy\b`, "i");
 const SICK = new RegExp(String.raw `\b(?:i'?m|im|i am|feel(?:ing)?|think i'?m|i think i'?m)\s+(?:\w+\s+)?(?:sick|ill|unwell|poorly|feverish|nauseous|coming down with)\b(?!\s+of\b)|\bfeel(?:ing)?\s+(?:like\s+)?(?:crap|shit|garbage|trash|death|awful|terrible|horrible|rubbish)\b|\b(?:getting|got|have|caught)\s+(?:a\s+|the\s+)?(?:cold|flu|fever|bug|migraine|stomach bug|covid)\b`, "i");
@@ -206,6 +207,7 @@ export async function runLighten(steps, run, context = "") {
     const said = [];
     let failed;
     let writes = 0;
+    const done = [];
     for (const step of steps) {
         const out = await run("orion-reschedule", step.args).catch(() => ({ stdout: "", code: 1 }));
         calls.push(`exec orion-reschedule ${step.args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`);
@@ -226,6 +228,13 @@ export async function runLighten(steps, run, context = "") {
         if (wrote(out))
             writes += 1;
         said.push(step.said);
+        done.push({ step, stdout: out.stdout });
+    }
+    // Wave 6 B: what each step did is said from the day after the writes, not from the plan (lighten-said.ts).
+    if (writes && done.length) {
+        const after = await run("orion-reschedule", ["show", "--json"]).then((r) => (r.code === 0 ? JSON.parse(r.stdout) : undefined)).catch(() => undefined);
+        const day = Array.isArray(after?.blocks) ? after : undefined;
+        done.forEach((d, i) => { said[i] = spokenAfterWrite(d.step, d.stdout, day); });
     }
     const reply0 = `${said.length ? `Done: ${listed(said)}.` : ""}`;
     const also = sideNotes(`${reply0} ${said.join(" ")} ${steps.map((s) => s.args[1] ?? "").join(" ")}`, outputs);

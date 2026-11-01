@@ -1,4 +1,4 @@
-import type { FlowResult } from "./schedule-flow.js";
+import type { Day, FlowResult } from "./schedule-flow.js";
 import type { SessionExec } from "./session-flow.js";
 import { type BreakMove } from "./break-intent.js";
 import type { ScriptRun } from "./reality.js";
@@ -39,8 +39,14 @@ type Deps = {
     exec?: SessionExec;
     run?: ScriptRun;
     now: Date;
-    task?: string;
+    task?: string; /** today's calendar (show --json), for the block he is in now */
+    readDay?: () => Promise<Day | undefined>;
 };
+/** The study or work block on his calendar right now, with at least ten minutes left; never a class, gym, meal or rest. */
+export declare function currentWorkBlock(day: Day | undefined, now: Date): {
+    title: string;
+    end: string;
+} | undefined;
 /** Carries the move out and says only what the session or the scheduler shows. */
 export declare function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOutcome>;
 export {};

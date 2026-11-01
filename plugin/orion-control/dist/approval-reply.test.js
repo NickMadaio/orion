@@ -28,6 +28,22 @@ describe("approvalAsk", () => {
         expect(approvalAsk([])).toBeUndefined();
     });
 });
+// Wave 4 review finding 4: any tool output saying "NO MESSAGE WAS SENT" read as a held send. Only an orion_task_run result with a
+// structured needs_approval status is held.
+describe("only a structured needs_approval from orion_task_run is held", () => {
+    it("a failed send's text is not an approval ask", () => {
+        const failed = JSON.stringify({ result: { executed: false, outcome: "NO MESSAGE WAS SENT. NOT DONE.", status: "failed" } });
+        expect(approvalAsk([{ canonical: sendCall("priya", "omw"), stdout: failed }])).toBeUndefined();
+    });
+    it("another tool's output quoting the phrase is not held", () => {
+        const status = JSON.stringify({ result: { status: "needs_approval" } });
+        expect(approvalAsk([{ canonical: "exec cat notes.txt", stdout: "NO MESSAGE WAS SENT" }])).toBeUndefined();
+        expect(approvalAsk([{ canonical: "exec orion-brain search x", stdout: status }])).toBeUndefined();
+    });
+    it("a status buried in plain text is not structured", () => {
+        expect(approvalAsk([{ canonical: sendCall("priya", "omw"), stdout: 'log: "status": "needs_approval" (old run)' }])).toBeUndefined();
+    });
+});
 function router() {
     const handlers = new Map();
     const api = { on: (name, fn) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) };

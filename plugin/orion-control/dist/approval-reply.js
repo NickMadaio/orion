@@ -1,17 +1,43 @@
-const HELD = /"status"\s*:\s*"needs_approval"|NO MESSAGE WAS SENT/;
-const DONE = /"executed"\s*:\s*true|DONE — this really happened/;
-function stepsOf(canonical) {
+const TASK_RUN = /(?:^|:)orion_task_run$/;
+function callOf(canonical) {
     const at = canonical.indexOf("{");
     if (at < 0)
-        return [];
+        return undefined;
     try {
-        const p = JSON.parse(canonical.slice(at));
-        const inner = p.args ?? p;
-        return inner.steps ?? inner.graph?.steps ?? [];
+        return JSON.parse(canonical.slice(at));
     }
     catch {
-        return [];
+        return undefined;
     }
+}
+/** An orion_task_run call: named so as the tool, or so in a tool_call's id. Never any other tool whose output mentions it. */
+function isTaskRun(canonical) {
+    const head = canonical.trim().split(/[\s{]/, 1)[0] ?? "";
+    if (TASK_RUN.test(head))
+        return true;
+    const c = callOf(canonical);
+    return [c?.id, c?.name].some((v) => typeof v === "string" && TASK_RUN.test(v));
+}
+/** Wave 4 review finding 4: held only by a structured "status": "needs_approval" in the run's JSON result, never by its wording. */
+function heldResult(stdout) {
+    const text = stdout.trim();
+    const body = text.startsWith("{") ? text : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+    let o;
+    try {
+        o = JSON.parse(body);
+    }
+    catch {
+        return false;
+    }
+    if (!o || typeof o !== "object")
+        return false;
+    const layers = [o, o.result, o.details].filter((x) => !!x && typeof x === "object");
+    return layers.some((l) => l.status === "needs_approval") && !layers.some((l) => l.executed === true);
+}
+function stepsOf(canonical) {
+    const p = callOf(canonical);
+    const inner = p?.args ?? p;
+    return inner?.steps ?? inner?.graph?.steps ?? [];
 }
 const field = (s, ...keys) => {
     for (const k of keys) {
@@ -24,7 +50,7 @@ const field = (s, ...keys) => {
 const name = (s) => (/^[a-z][a-z' -]*$/.test(s) ? s.replace(/\b[a-z]/g, (c) => c.toUpperCase()) : s);
 /** The reply for a task run held for approval this turn (the draft and a question), or undefined. */
 export function approvalAsk(tools) {
-    const held = [...tools].reverse().find((t) => HELD.test(t.stdout) && !DONE.test(t.stdout));
+    const held = [...tools].reverse().find((t) => isTaskRun(t.canonical) && heldResult(t.stdout));
     if (!held)
         return undefined;
     const send = stepsOf(held.canonical).find((s) => s.action === "messages_send");

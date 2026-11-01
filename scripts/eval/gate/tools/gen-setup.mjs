@@ -117,7 +117,8 @@ const KNOWLEDGE = {
     { title: "Atlas", body: "Project of Nick. Related project: [[ORION]]." },
     { title: "Scape Shoreditch", body: "Place: where Nick lives. [[Annika]] has dinner plans with Nick." }],
   "kno-people": PEOPLE,
-  "kno-forget": [{ title: "Saved entries", body: "- Saved: Frozen.\n- your goal is to introduce Carol to something" }],
+  // The shape `orion-brain learn` writes ("Saved: Frozen." was only ORION's reply to such a learn): run-1101020721.
+  "kno-forget": [{ title: "Saved entries", body: "## Learned\n- [fact] Frozen. (2026-10-25)\n- [fact] Nick's goal is to introduce Carol to something. (2026-10-25)" }],
   "per-who-am-i": [NICK_NOTE],
   "per-legit-vs-excuse": [{ title: "Gym pattern", body: "Nick often skips gym when he is tired." }],
   "per-excuse": [{ title: "Gym excuses", body: "Nick has said \"not feeling it\" about gym 4 times this month." }],

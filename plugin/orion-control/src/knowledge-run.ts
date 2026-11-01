@@ -38,7 +38,11 @@ async function archive(ids: string[], run: KnowledgeRun, log: KnowledgeOut): Pro
   return out?.archived;
 }
 
-const forgotLine = (gone: Entry[]) => (gone.length ? `Forgot ${list(gone.map((g) => quote(g.text)))}.` : "");
+const sameText = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const forgotLine = (gone: Entry[]) => {
+  const said = [...new Map(gone.map((g) => [sameText(g.text), quote(g.text)])).values()];
+  return said.length ? `Forgot ${list(said)}.` : "";
+};
 const undoHeld = (gone: Entry[]): KnowledgeHeld | undefined => (gone.length ? { kind: "forget-undo", ids: gone.map((g) => g.id), texts: gone.map((g) => g.text) } : undefined);
 
 async function forget(move: Extract<KnowledgeMove, { kind: "forget" }>, run: KnowledgeRun, log: KnowledgeOut): Promise<KnowledgeOut> {
@@ -48,8 +52,10 @@ async function forget(move: Extract<KnowledgeMove, { kind: "forget" }>, run: Kno
     if (!out) return { ...log, text: UNREACHABLE };
     found.push({ topic, matches: out.matches ?? [] });
   }
-  const sure = found.filter((f) => f.matches.length === 1 || (move.all && f.matches.length > 1));
-  const unsure = move.all ? undefined : found.find((f) => f.matches.length > 1);
+  // The same line saved in two notes is one memory (run-1101020721: a learned line and its copy): never "which one?" about twins.
+  const oneMemory = (ms: Entry[]) => ms.length === 1 || (ms.length > 1 && new Set(ms.map((m) => sameText(m.text))).size === 1);
+  const sure = found.filter((f) => oneMemory(f.matches) || (move.all && f.matches.length > 1));
+  const unsure = move.all ? undefined : found.find((f) => !oneMemory(f.matches));
   const none = found.filter((f) => !f.matches.length).map((f) => f.topic);
   const gone = await archive([...new Set(sure.flatMap((f) => f.matches.map((m) => m.id)))], run, log);
   if (!gone) return { ...log, text: UNREACHABLE };

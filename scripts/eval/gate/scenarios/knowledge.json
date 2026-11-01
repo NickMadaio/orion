@@ -203,7 +203,7 @@
       "knowledge": [
         {
           "title": "Saved entries",
-          "body": "- Saved: Frozen.\n- your goal is to introduce Carol to something"
+          "body": "## Learned\n- [fact] Frozen. (2026-10-25)\n- [fact] Nick's goal is to introduce Carol to something. (2026-10-25)"
         }
       ]
     },
@@ -238,7 +238,7 @@
       "knowledge": [
         {
           "title": "Saved entries",
-          "body": "- Saved: Frozen.\n- your goal is to introduce Carol to something"
+          "body": "## Learned\n- [fact] Frozen. (2026-10-25)\n- [fact] Nick's goal is to introduce Carol to something. (2026-10-25)"
         }
       ]
     },

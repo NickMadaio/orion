@@ -129,6 +129,22 @@ describe("runKnowledgeMove: forget", () => {
         expect(out.text).toContain("WiFi password");
         expect(out.text).toMatch(/nothing saved about "the moon"/i);
     });
+    it("the same saved line in two notes is one memory: both copies archived, no 'which one' about identical lines", async () => {
+        const twin = [{ id: "dddddddddd", text: "Nick's goal is to introduce Carol to something.", where: "your \"Nick\" note", copies: 1 }, { id: "eeeeeeeeee", text: "Nick's goal is to introduce Carol to something", where: "your \"Saved entries\" note", copies: 1 }];
+        const archived = [];
+        const { run } = fake((_s, args) => {
+            if (args[1] === "--apply") {
+                archived.push(...args.slice(2));
+                return { archived: twin.filter((t) => args.includes(t.id)), missing: [] };
+            }
+            return { query: args[1], matches: args[1] === "carol thing" ? twin : [] };
+        });
+        const out = await runKnowledgeMove({ kind: "forget", targets: ["carol thing"], all: false }, run);
+        expect(archived.sort()).toEqual(["dddddddddd", "eeeeeeeeee"]);
+        expect(out.held?.kind).toBe("forget-undo");
+        expect(out.text).not.toMatch(/which/i);
+        expect(out.text.match(/introduce Carol/g)?.length).toBe(1);
+    });
     it("the store is unreachable: an honest line, no internals", async () => {
         const { run } = fake(() => undefined);
         const out = await runKnowledgeMove({ kind: "forget", targets: ["priya"], all: false }, run);

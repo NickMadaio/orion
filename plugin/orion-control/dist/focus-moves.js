@@ -123,7 +123,7 @@ export async function runFocusMove(move, deps) {
     }
     if (!deps.exec)
         return {};
-    // break: break-intent.ts reads the session itself (pause + return reminder; a restart only when he asked for it)
+    // break: break-intent.ts reads the session itself (a timed break that hands back to the block; run-1101020721)
     if (move.kind === "break")
         return runBreak(move, { exec: deps.exec, now, ...(deps.task ? { task: deps.task } : {}) });
     const status = await call(deps.exec, ["status"], ran) ?? {};

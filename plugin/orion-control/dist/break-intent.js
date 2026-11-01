@@ -52,38 +52,32 @@ async function restartAfter(move, exec, now, task, status, ran) {
         return { flow: say(`I couldn't end the session for the break, so it's still going.`, ran) };
     const state = await call(exec, ["start", task, "--sequence", `${move.minutes} break, ${move.work} work`], ran);
     if (state && RUNNING.has(String(state.status ?? ""))) {
-        return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Break till ${clock(new Date(now.getTime() + move.minutes * 60_000))}${lengthNote(move)}. Then ${task} starts again by itself, ${move.work} minutes.` }, writes: 1 };
+        const then = task === "Focus" ? `Then a ${move.work}-minute focus block starts by itself.` : `Then ${task} starts again by itself, ${move.work} minutes.`;
+        return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Break till ${clock(new Date(now.getTime() + move.minutes * 60_000))}${lengthNote(move)}. ${then} Say "stop the session" if you're done for now.` }, writes: 1 };
     }
     const after = await sessionNow(exec, ran);
     const where = after === "running" ? "A session is running, but not the break timer I tried to set." : after === "none" ? "No session is running now." : "I can't tell what the session is doing right now.";
     return { flow: say(`The break timer didn't start. ${where}${running ? " Your earlier session was ended and its focus time is saved." : ""}`, ran) };
 }
-/** Carries a break out and says only what orion-session returned. Never starts a session unless he asked for the restart. */
+/** Carries a break out and says only what orion-session returned: a timed break that hands back to the block by itself. */
 export async function runBreak(move, deps) {
     const { exec, now } = deps;
     const ran = { calls: [], outputs: [] };
     const status = await call(exec, ["status"], ran);
     const state = String(status?.status ?? "");
-    const running = RUNNING.has(state);
     const task = typeof status?.task === "string" && status.task && status.task !== "Focus" ? status.task : deps.task ?? "Focus";
     if (move.restart)
         return restartAfter(move, exec, now, task, status, ran);
-    if (running && state === "running" && status?.phase !== undefined && status.phase !== "focus") {
+    if (state === "running" && status?.phase !== undefined && status.phase !== "focus") {
         return { flow: say(`You're already on a break: ${minutesOf(status.remainingSeconds)} minutes left, and the session picks you back up by itself.`, ran) };
     }
-    let paused = "";
-    if (state === "running") {
-        const left = minutesOf(status?.remainingSeconds);
-        if (!(await call(exec, ["pause"], ran)))
-            return { flow: say(`I couldn't pause ${task} just now, so it's still running (${left} minutes left) and I haven't set a return reminder.`, ran) };
-        paused = `Paused ${task} with ${left} minutes left. `;
-    }
-    else if (state === "paused" || state === "waiting-for-return")
-        paused = `${task} is already paused. `;
+    // run-1101020721 foc-pomodoro-break-v: a vague break is the same timed break as "then restart": code starts it and says it. Handing the
+    // return alarm to the worker said "tomorrow" and never resumed the block. Only an unreadable session falls back to a nudge.
+    if (status)
+        return restartAfter(move, exec, now, task, status, ran);
     const at = new Date(now.getTime() + move.minutes * 60_000);
     const label = `back from break: ${task === "Focus" ? "next block" : task}`;
-    const resume = running ? `say resume and the ${task} block carries on` : `then ${task === "Focus" ? "it's back to your next block" : `it's back to ${task}`}`;
-    const noRead = status ? "" : "I couldn't read your focus session just now, so I haven't touched it. ";
-    const text = `${noRead}${paused}Break till ${clock(at)}${lengthNote(move)}. I'll nudge you then; ${resume}.`;
+    const resume = `then ${task === "Focus" ? "it's back to your next block" : `it's back to ${task}`}`;
+    const text = `I couldn't read your focus session just now, so I haven't touched it. Break till ${clock(at)}${lengthNote(move)}. I'll nudge you then; ${resume}.`;
     return { reminder: { action: "alarm_set", label, at: isoLocal(at), args: JSON.stringify({ steps: [{ action: "alarm_set", at: isoLocal(at), label }] }), say: text }, calls: ran.calls, outputs: ran.outputs };
 }

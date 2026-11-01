@@ -34,7 +34,7 @@ export declare function frontDeskRequest({ message, clock, history, context }: F
         properties: {
             move: {
                 type: string;
-                enum: ("ask" | "answer" | "tool" | "escalate" | "ignore")[];
+                enum: ("ignore" | "ask" | "answer" | "tool" | "escalate")[];
             };
             tool: {
                 type: string;

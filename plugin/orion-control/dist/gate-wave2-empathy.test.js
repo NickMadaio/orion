@@ -187,12 +187,13 @@ describe("cluster 6: focus phrases", () => {
     it.each([["ya in a sec", 5], ["gimme 5 min", 5], ["ok ok in 15", 15], ["after this video", 10], ["give me 20 minutes", 20]])("a stall: %s", (said, minutes) => {
         expect(readFocusMove(said)).toEqual({ kind: "stall", minutes });
     });
-    it("foc-pomodoro-break-v: 'need a break' sets a return reminder, starts no session, and says its default length", async () => {
+    // run-1101020721: the vague break is code's timed break that hands back to the block (the worker-set alarm said "tomorrow").
+    it("foc-pomodoro-break-v: 'need a break' runs a timed break in code, says its default length, and resumes by itself", async () => {
         const r = route(() => ({ move: "tool", tool: "session", args: { do: "pause" } }), { now: MON(10, 0) });
         const t = await r.turn("need a break");
-        expect(r.sessionCalls.map((c) => c[0])).toEqual(["status"]);
-        expect(t.built?.systemPrompt).toMatch(/alarm_set[\s\S]*2026-11-02T10:10/);
-        expect(t.built?.systemPrompt).toMatch(/Break till 10:10 AM \(10 minutes is my default/);
+        expect(r.sessionCalls.map((c) => c[0])).toEqual(["status", "start"]);
+        expect(t.built?.systemPrompt ?? "").not.toMatch(/alarm_set/);
+        expect(t.exact).toMatch(/^Break till 10:10 AM \(10 minutes is my default[^)]*\)\. Then .* starts? .*by itself/);
     });
     it("foc-pomodoro-break-c: 'take a 10 min break then restart the session' with a session running finishes it first", async () => {
         const r = route(() => ({ move: "tool", tool: "session", args: { do: "pause" } }), { now: MON(10, 0), session: { ok: true, status: "running", task: "econ", remainingSeconds: 120 } });

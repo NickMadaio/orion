@@ -117,6 +117,7 @@ import { canonicalActionHash, hash } from "./validator.js";
 import { protectedConflict } from "./protected-paths.js";
 import { redactOutput, SANDBOX_EXEC, sandboxProfile, terminalEnvironment } from "./terminal-sandbox.js";
 import { AtlasBridgeError, requestAtlas } from "./atlas.js";
+import { pluginNowMs } from "./plugin-clock.js";
 
 export interface ExecutionContext {
   roots: Record<ControlledRoot, string>;
@@ -2332,6 +2333,9 @@ async function manageReminder(
 ): Promise<ExecutionResult> {
   const file = remindersPath(context.remindersPath);
   const now = Date.now();
+  // "due in" is worded on the plugin clock, the same clock resolveAlarmTime set it on (gate run-1101020721: a same-day alarm in the
+  // sandbox was described against the Mac's clock and said as "tomorrow"). Expiry and ids stay on real time.
+  const saidNow = pluginNowMs();
   // Anything already past is dropped on every touch of the store, so a machine
   // that was asleep when a timer was due does not wake up and fire a backlog.
   const live = (await readReminders(file)).filter((entry) => entry.dueAt > now);
@@ -2343,7 +2347,7 @@ async function manageReminder(
       output: {
         reminders: live.map((entry) => ({
           ...entry,
-          dueIn: describeDuration((entry.dueAt - now) / 1000),
+          dueIn: describeDuration((entry.dueAt - saidNow) / 1000),
         })),
       },
     };
@@ -2408,7 +2412,7 @@ async function manageReminder(
     target: reminder.id,
     output: {
       ...reminder,
-      dueIn: describeDuration((dueAt - now) / 1000),
+      dueIn: describeDuration((dueAt - saidNow) / 1000),
       dueAtLocal: new Date(dueAt).toLocaleString(),
     },
   };

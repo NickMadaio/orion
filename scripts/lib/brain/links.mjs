@@ -135,15 +135,32 @@ function courseOf(note, notes, graph) {
   return [...note.relations.map((r) => r.target), ...note.mentions].find((t) => isCourse(t, notes, graph));
 }
 
-/** The note nearest a subject that is not itself a node: every word of it in the note, most of them in the title. */
+// Wave 4 review finding 6: a term under 4 letters matches whole words only ("ai" never finds "aid"); a course code's letter and digit runs
+// are words of their own ("cs" in "cs3001"). Each term scores how much of the word it covers, and the match as a whole must be close.
+const SHORT = 4;
+const MIN_QUALITY = 0.6;
+const parts = (w) => [w, ...(w.match(/[a-z]+|\d+/g) ?? [])];
+/** How well a term matches the best word: 1 for the whole word (or a code's letter/digit run), the covered share for a prefix, 0 for none. */
+function fit(ws, t) {
+  let best = 0;
+  for (const w of ws) {
+    if (parts(w).includes(t)) return 1;
+    if (t.length >= SHORT && w.startsWith(t)) best = Math.max(best, t.length / w.length);
+  }
+  return best;
+}
+
+/** The note nearest a subject that is not itself a node: every word of it in the note, closely, most of them in the title. */
 function nearest(subject, notes, graph) {
   const terms = words(subject).filter((t) => !FILLER.has(t));
   if (!terms.length) return undefined;
-  const has = (ws, t) => ws.some((w) => w.startsWith(t));
   const scored = notes.map((n) => {
     const all = words(`${n.title} ${n.text}`);
-    if (!terms.every((t) => has(all, t))) return null;
-    const inTitle = terms.filter((t) => has(words(n.title), t)).length;
+    const fits = terms.map((t) => fit(all, t));
+    if (fits.some((f) => f === 0)) return null;
+    if (fits.reduce((a, b) => a + b, 0) / fits.length < MIN_QUALITY) return null;
+    const title = words(n.title);
+    const inTitle = terms.filter((t) => fit(title, t) > 0).length;
     return { n, inTitle };
   }).filter(Boolean).sort((a, b) => b.inTitle - a.inTitle || a.n.title.length - b.n.title.length);
   const best = scored[0]?.n;

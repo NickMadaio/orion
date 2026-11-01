@@ -266,3 +266,28 @@ test("a line forgotten a second time after a restore comes back on the second re
   assert.equal(w.run("forget", "--restore", priya.id).restored.length, 0, "now it really is back: nothing left to restore");
   assert.equal(w.nick(), before);
 });
+
+// Wave 4 review finding 6: the nearest-node fallback matched any word that merely started with a term, so "ai" found "aid" and a
+// two-letter subject could land on an unrelated note. Short terms (under 4 letters) match whole words only (a course code's letter
+// part counts: "cs" in "CS3001"), and the match as a whole must be close, not a run of loose prefixes.
+import { linksFor } from "../scripts/lib/brain/links.mjs";
+const note = (title, text, type = "note") => ({ title, type, file: `${title}.md`, relations: [], roles: [], mentions: [], text });
+
+test("links nearest: a short term matches whole words only", () => {
+  const notes = [note("Aid station rota", "Volunteer at the first aid station by the laboratory doors.")];
+  assert.equal(linksFor("ai lab", { notes }).found, false);
+  assert.equal(linksFor("the ml exam", { notes: [note("Mlle Durand", "French exams with Mlle Durand.")] }).found, false);
+});
+
+test("links nearest: loose prefixes alone are not a match", () => {
+  const notes = [note("Statue trip", "Introductions at the statue garden.")];
+  assert.equal(linksFor("intro stat", { notes }).found, false);
+});
+
+test("links nearest: a course code's letters are a whole word, and close matches still land", () => {
+  const notes = [note("CS3001", "Weekly lab, room 4.", "course"), note("Aid station rota", "first aid")];
+  const out = linksFor("cs lab stuff", { notes });
+  assert.equal(out.found, true);
+  assert.equal(out.title, "CS3001");
+  assert.equal(linksFor("aid rota thing", { notes }).title, "Aid station rota");
+});

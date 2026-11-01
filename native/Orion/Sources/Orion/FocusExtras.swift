@@ -110,8 +110,13 @@ final class FocusExtrasCoordinator {
 
     /// Main-thread only: what `apply` last saw.
     private var sessionIsLive = false
-    /// Confined to `work`: whether THIS session's Focus change took effect.
-    private var changedFocusMode = false
+
+    /// Focus on/off on its own serial queue: never main, and never behind the
+    /// distraction review's model call on `work`. Any attempted "on" is undone.
+    private lazy var focusSwitch = SessionFocusSwitch(
+        enable: { [focus] in focus.enableForSession() },
+        disable: { [focus] in focus.disableForSession() }
+    )
 
     /// Read from `work` while the main thread writes it, hence the lock. Each
     /// session start gets a new generation, so a review queued for a session
@@ -180,12 +185,11 @@ final class FocusExtrasCoordinator {
             // Off main: running a Shortcut is process work, and doing it here
             // (inside SessionService.publish on main) is what pumped the nested
             // run loop in the 2026-11-01 deadlock.
-            work.async { [weak self] in
-                guard let self, self.liveness.isLive(generation) else { return }
-                let outcome = self.focus.enableForSession()
-                self.changedFocusMode = outcome.worked
+            let liveness = self.liveness
+            let mode = focus.sessionMode
+            focusSwitch.enable(isLive: { liveness.isLive(generation) }) { [weak self] outcome in
                 guard let message = outcome.message else { return }
-                let problem = "Focus (\(self.focus.sessionMode)): \(message)"
+                let problem = "Focus (\(mode)): \(message)"
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.liveness.isLive(generation) else { return }
                     self.problems = self.problems + [problem]
@@ -259,13 +263,8 @@ final class FocusExtrasCoordinator {
 
     private func end() {
         liveness.end()
-        // Only undo what was actually done. On `work`, after any enable that
-        // is still queued, and never on main.
-        work.async { [weak self] in
-            guard let self, self.changedFocusMode else { return }
-            _ = self.focus.disableForSession()
-            self.changedFocusMode = false
-        }
+        // Only undo what was attempted. Serial with the enable, never on main.
+        focusSwitch.disable()
         music.resumeAfterSession()
         camera.setEnabled(false)
         problems = []

@@ -9,8 +9,8 @@
 //     handler instead — no run loop is pumped.
 //  2. A `Pipe()` nobody reads holds about 64 KB. A child that writes more
 //     blocks forever on write, never exits, and the wait never returns. Both
-//     stdout and stderr are drained on their own threads from the moment the
-//     child starts.
+//     stdout and stderr are drained by readability handlers from the moment
+//     the child starts, and closed when the call returns.
 //
 //  And a timeout: a child that will not finish is asked to stop (SIGTERM),
 //  then made to (SIGKILL), and the caller is told it timed out.
@@ -57,8 +57,8 @@ public enum BoundedProcess {
         }
 
         let drained = DispatchGroup()
-        let stdoutBox = drain(out.fileHandleForReading, group: drained)
-        let stderrBox = drain(err.fileHandleForReading, group: drained)
+        let stdoutDrain = PipeDrain(out.fileHandleForReading, group: drained)
+        let stderrDrain = PipeDrain(err.fileHandleForReading, group: drained)
 
         var timedOut = false
         if exited.wait(timeout: .now() + timeout) == .timedOut {
@@ -70,40 +70,66 @@ public enum BoundedProcess {
             }
         }
         // A grandchild that inherited the pipe can hold it open past the
-        // child's exit. Take what arrived rather than wait on it.
+        // child's exit. Take what arrived, then close our read ends so neither
+        // a handler nor a descriptor outlives this call.
         _ = drained.wait(timeout: .now() + grace)
+        stdoutDrain.close()
+        stderrDrain.close()
 
         let status = process.isRunning ? -1 : process.terminationStatus
-        return BoundedProcessResult(status: status, stdout: stdoutBox.data,
-                                    stderr: stderrBox.data, timedOut: timedOut,
+        return BoundedProcessResult(status: status, stdout: stdoutDrain.data,
+                                    stderr: stderrDrain.data, timedOut: timedOut,
                                     launchFailure: nil)
-    }
-
-    /// Read a pipe to EOF on its own thread, so the child can never block on
-    /// a full pipe.
-    private static func drain(_ handle: FileHandle, group: DispatchGroup) -> DataBox {
-        let box = DataBox()
-        group.enter()
-        DispatchQueue.global(qos: .utility).async {
-            box.set(handle.readDataToEndOfFile())
-            group.leave()
-        }
-        return box
     }
 }
 
-/// A lock-guarded slot the drain thread fills and the caller reads.
-private final class DataBox: @unchecked Sendable {
+/// Reads one pipe as data arrives, via a readability handler rather than a
+/// blocked thread, so the child can never stall on a full pipe and closing
+/// the drain leaves nothing behind.
+private final class PipeDrain: @unchecked Sendable {
     private let lock = NSLock()
-    private var value = Data()
+    private let handle: FileHandle
+    private let group: DispatchGroup
+    private var buffer = Data()
+    private var finished = false
 
-    func set(_ data: Data) {
+    init(_ handle: FileHandle, group: DispatchGroup) {
+        self.handle = handle
+        self.group = group
+        group.enter()
+        handle.readabilityHandler = { [weak self] _ in self?.readAvailable() }
+    }
+
+    /// POSIX read rather than `availableData`, which raises an Objective-C
+    /// exception on a closed descriptor instead of returning an error.
+    private func readAvailable() {
         lock.lock(); defer { lock.unlock() }
-        value = data
+        guard !finished else { return }
+        var chunk = [UInt8](repeating: 0, count: 65_536)
+        let got = read(handle.fileDescriptor, &chunk, chunk.count)
+        if got > 0 {
+            buffer.append(contentsOf: chunk[0..<got])
+        } else if got == 0 || (errno != EAGAIN && errno != EINTR) {
+            finishLocked()
+        }
+    }
+
+    private func finishLocked() {
+        guard !finished else { return }
+        finished = true
+        handle.readabilityHandler = nil
+        group.leave()
+    }
+
+    /// Stop reading and release the descriptor, whether or not EOF came.
+    func close() {
+        lock.lock(); defer { lock.unlock() }
+        finishLocked()
+        try? handle.close()
     }
 
     var data: Data {
         lock.lock(); defer { lock.unlock() }
-        return value
+        return buffer
     }
 }

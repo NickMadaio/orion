@@ -295,14 +295,14 @@ final class AppState: ObservableObject {
     /// proposes, he authorizes. Reachable from the socket so the escape works
     /// without the gateway, the local model, or the UI being up.
     ///
-    /// Both callbacks hop to main. `release` and `arm` arrive on the socket
-    /// thread, and on 2026-11-01 `release` → speak → `turns.append` there
-    /// took Combine's lock off main and deadlocked against SwiftUI. Async, never
-    /// sync: the socket thread must not wait on main.
+    /// Both callbacks reach main asynchronously. `release` and `arm` arrive on
+    /// the socket thread, and on 2026-11-01 `release` → speak → `turns.append`
+    /// there took Combine's lock off main and deadlocked against SwiftUI. The
+    /// socket thread must never wait on main. Speech goes through
+    /// `speakSession`'s single async path, so it keeps its order relative to
+    /// session lines.
     private(set) lazy var enforcer = Enforcer(
-        speak: { [weak self] line in
-            DispatchQueue.main.async { self?.speakEnforcement(line) }
-        },
+        speak: { [weak self] line in self?.speakEnforcement(line) },
         intervene: { [weak self] action in
             DispatchQueue.main.async { self?.applyEnforcementIntervention(action) }
         },
@@ -982,18 +982,16 @@ final class AppState: ObservableObject {
     }
 
     /// Acknowledge the focus effect on screen without unsolicited speech.
-    @discardableResult
     ///
-    /// SessionEffects calls this from the session queue (a socket `start` or
-    /// `finish` pumps effects there), so the `turns` write goes to main. The
-    /// effect is acknowledged at once: showing the line cannot fail.
+    /// Called from the session queue (SessionEffects), the socket thread
+    /// (Enforcer.release) and main. Every line takes the same always-async hop,
+    /// even from main, so lines appear in the order they were said and the
+    /// `turns` write is always on main. The effect is acknowledged at once:
+    /// showing the line cannot fail.
+    @discardableResult
     private func speakSession(_ line: String) -> Bool {
         guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return true }
-        if Thread.isMainThread {
-            append(.orion, line)
-        } else {
-            DispatchQueue.main.async { [weak self] in self?.append(.orion, line) }
-        }
+        MainThreadHop.post { [weak self] in self?.append(.orion, line) }
         return true
     }
 

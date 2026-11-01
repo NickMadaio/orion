@@ -22,10 +22,25 @@ final class MessageBridge: MessageReading {
         self.reader = reader
     }
 
+    /// How long the socket thread waits for main before saying it is busy.
+    private static let mainTimeout: TimeInterval = 2
+    private static let busy = "Orion is busy right now; ask again in a moment."
+
+    /// The reader's @Published state belongs to main, and the socket calls in
+    /// on its own thread. Read it on main through an async hop with a timeout
+    /// (never main.sync), so a busy main costs a bounded wait, not a hang.
+    private func onMain<T>(_ read: @escaping (MessagesReader) -> T) -> T? {
+        let reader = self.reader
+        return MainThreadHop.snapshot(timeout: Self.mainTimeout) { read(reader) }
+    }
+
+    private var messagesSnapshot: [Message] { onMain { $0.messages } ?? [] }
+
     /// Nil when readable. Full Disk Access has no API, so this is inferred from
     /// whether the database actually opened — see MessagesReader.Access.
     var unavailable: String? {
-        switch reader.access {
+        guard let access = onMain({ $0.access }) else { return Self.busy }
+        switch access {
         case .granted:
             return nil
         case .unknown:
@@ -41,14 +56,14 @@ final class MessageBridge: MessageReading {
     }
 
     func recent(limit: Int) -> [MessageLine] {
-        Array(reader.messages.prefix(limit)).map(line)
+        Array(messagesSnapshot.prefix(limit)).map(line)
     }
 
     /// Matched loosely against the handle and the chat name, because he will
     /// say "Carla" and the database holds a phone number.
     func from(_ who: String, limit: Int) -> [MessageLine] {
         let needle = who.lowercased()
-        return reader.messages
+        return messagesSnapshot
             .filter {
                 $0.handle.lowercased().contains(needle)
                     || $0.chatName.lowercased().contains(needle)
@@ -59,7 +74,7 @@ final class MessageBridge: MessageReading {
 
     func chats(limit: Int) -> [ChatLine] {
         var seen: [String: (Date, Int)] = [:]
-        for message in reader.messages {
+        for message in messagesSnapshot {
             let who = message.chatName.isEmpty ? message.handle : message.chatName
             guard !who.isEmpty else { continue }
             let existing = seen[who]

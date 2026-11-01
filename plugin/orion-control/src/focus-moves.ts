@@ -42,7 +42,23 @@ const EXTEND_NEEDS = /\b(?:for a bit|a bit longer|a little longer|longer|more|an
 const BLOCK = /\b(?:block|lock|hide|shut off|cut off|stop me (?:from )?(?:using|opening|going on))\b[^.?!]{0,40}\b(?:apps?|distract\w*|instagram|insta|tiktok|youtube|reddit|twitter|social media|games?|websites?|sites?|stuff|my phone)\b/i;
 const NOT_BLOCK = /\bblock (?:off|out)\b|\bcalendar\b|\btime block\b|\bstudy block\b/i;
 const APPS = String.raw`(?:my phone|tiktok|tik tok|instagram|insta|youtube|yt|reddit|twitter|x|snapchat|snap|netflix|shorts|reels|discord)`;
-const DOOM = new RegExp(String.raw`\b(?:i'?m|im|i am|i'?ve been|ive been|been|was|i keep|keep)\s+(?:on|scrolling(?: on)?|watching|stuck on|doomscrolling(?: on)?|going on|wasting time on)\s+(${APPS})\b`, "i");
+const DOOM = new RegExp(String.raw`\b(i'?m|im|i am|i'?ve been|ive been|been|was|i keep|keep)\s+(?:on|scrolling(?: on)?|watching|stuck on|doomscrolling(?: on)?|going on|wasting time on)\s+(${APPS})\b`, "i");
+// Wave 4 review finding 2: only his own confession, now, may start anything. Who said it (subject), when (a past time) and whose words
+// (quoted or forwarded) are read by category.
+const FIRST_PRESENT = /^(?:i'?m|im|i am|i'?ve been|ive been|i keep)$/i;
+const SUBJECTLESS = /^(?:been|keep)$/i;
+const LEAD_FILLER = /^(?:(?:ugh|ok(?:ay)?|lol|honestly|man|bro|so|and|like|omg|god|welp|yeah|ya|tbh|lowkey|ngl|help|bruh)[,!.\s]*)*$/i;
+const PAST_TIME = /\b(?:yesterday|last (?:night|week|weekend|time|semester|term|month)|earlier|the other (?:day|night)|ago)\b/i;
+const REPORTED = /\b(?:said|says|texted|texts|wrote|writes|messaged|sent|told me|replied|posted|tweeted|asked)\b|["\u201c\u201d]|:\s/i;
+const TIME_TAIL = /\s+(?:today|tonight|right now|rn|now|this (?:morning|afternoon|evening|week)|all day|again|anymore|lol|haha|for (?:an?|\d+|like (?:an?|\d+)) (?:hours?|hrs?|min(?:ute)?s?))$/i;
+const trimTime = (s: string): string => { const t = s.replace(TIME_TAIL, "").trim(); return t === s.trim() ? t : trimTime(t); };
+/** His own scrolling, said now: a first-person present subject (or none, leading the message), no past time, not someone's quoted words. */
+function hisOwnNow(m: string, doom: RegExpExecArray): boolean {
+  if (PAST_TIME.test(m) || REPORTED.test(m)) return false;
+  const subject = doom[1]!;
+  if (FIRST_PRESENT.test(subject)) return true;
+  return SUBJECTLESS.test(subject) && LEAD_FILLER.test(m.slice(0, doom.index).trim());
+}
 const DOOM_GUILT = /\binstead\b|\bshould(?:'?ve| have| be)\b|\bsupposed to\b|\bnot (?:studying|working)\b|\bprocrastinat\w*|\bagain\b|\bfor (?:\d+|an?|like)\b|\bhelp\b/i;
 // run-1101020721 foc-doomscroll-v: his own words say he should be studying or working ("instead of studying", "supposed to be revising").
 const STUDY_DUTY = /\binstead of (?:studying|working|revising|doing (?:my |the |some )?(?:work|homework|hw|pset|problem set|essay|assignment|coursework|revision|reading)|(?:my |the )?(?:work|homework|hw|pset|problem set|essay|assignment|coursework|revision|reading))\b|\b(?:should(?:'?ve| have)? be(?:en)?|supposed to be|meant to be|gotta be|need to be)\s+(?:studying|working|revising|doing (?:my )?(?:work|homework|hw|pset))\b|\bnot (?:studying|working|revising)\b/i;
@@ -63,9 +79,10 @@ export function readFocusMove(message: string): FocusMove | null {
   if (ext && EXTEND_NEEDS.test(m)) return { kind: "extend", minutes: Math.min(120, Number(ext[1] ?? ext[2] ?? 25)) };
   if (BLOCK.test(m) && !NOT_BLOCK.test(m)) return { kind: "block" };
   const doom = DOOM.exec(m);
-  if (doom && DOOM_GUILT.test(m) && !/\b(?:start|begin|set)\b/i.test(m)) {
-    const instead = /\binstead of\s+(?:doing\s+|my\s+|the\s+)?([a-z][a-z ]{1,30}?)(?=[.,!?]|$|\s+(?:and|but|lol|rn|right now)\b)/i.exec(m)?.[1];
-    return { kind: "doomscroll", app: doom[1]!, ...(instead ? { instead } : {}), ...(STUDY_DUTY.test(m) ? { duty: true as const } : {}) };
+  if (doom && hisOwnNow(m, doom) && DOOM_GUILT.test(m) && !/\b(?:start|begin|set)\b/i.test(m)) {
+    const said = /\binstead of\s+(?:doing\s+|my\s+|the\s+)?([a-z][a-z ]{1,30}?)(?=[.,!?]|$|\s+(?:and|but|lol|rn|right now)\b)/i.exec(m)?.[1];
+    const instead = said ? trimTime(said) : undefined;
+    return { kind: "doomscroll", app: doom[2]!, ...(instead ? { instead } : {}), ...(STUDY_DUTY.test(m) ? { duty: true as const } : {}) };
   }
   const side = SIDE_MISSED.exec(m);
   if (side && !/\?\s*$/.test(m)) return { kind: "side-missed", label: /youtube|video|editing|content|channel/i.test(side[1]!) ? "YouTube" : "Side project" };

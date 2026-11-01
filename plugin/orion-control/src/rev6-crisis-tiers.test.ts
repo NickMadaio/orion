@@ -56,14 +56,14 @@ describe("NOTHING: idioms and ordinary lines", () => {
 });
 
 describe("the gentle check-in line", () => {
-  it("is one short warm question, names the cause when he gave one, never preachy", () => {
+  it("is one short dry tease, names the cause when he gave one, never a check-in or preachy", () => {
     expect(gentleCheckIn("i hate my life rn the wifi is down")).toMatch(/wifi/i);
     for (const m of GENTLE) {
       const line = gentleCheckIn(m);
       expect(line.split(/[.?!]\s/).length, m).toBeLessThanOrEqual(2);
       expect(line.length, m).toBeLessThan(70);
-      expect(line, m).toMatch(/\?$/);
-      expect(line, m).not.toMatch(/samaritans|999|crisis|therapy|please reach out|you should/i);
+      expect(line, m).not.toMatch(/\?/);
+      expect(line, m).not.toMatch(/samaritans|999|crisis|therapy|please reach out|you should|checking in|you ok|alright/i);
     }
   });
   it("varies across messages, and is stable for the same one", () => {

@@ -41,32 +41,21 @@ describe("readBreak (held-out phrasings)", () => {
         expect(readBreak(said)).toBeNull();
     });
 });
-// Gate run-1101020721 foc-pomodoro-break-v: a vague break handed the return alarm to the worker, which said "tomorrow" and never
-// resumed the block. Now code runs it all: a break timer that hands back to the block by itself, said from the session's result.
-describe("a vague break is a timed break that hands back to the block", () => {
-    it.each(["need a break", "ok i need a quick break lol", "lemme grab a break", "can i take a break"])("just-ended session: %s", async (said) => {
+// Wave 4 review finding 1 supersedes run-1101020721's "a vague break starts the break-then-block sequence": with nothing running that
+// started a 50-minute block. A running block is paused (never finished) with a return nudge; nothing running gets the alarm-only reply.
+describe("a vague break moves only a block that is running or paused", () => {
+    it.each(["need a break", "ok i need a quick break lol", "lemme grab a break", "can i take a break"])("just-ended session: alarm only, %s", async (said) => {
         const s = session(pretty({ ok: true, status: "finished", phase: "abandoned", task: "econ" }));
-        const out = await runBreak(readBreak(said), { exec: s.exec, now: NOW });
-        expect(s.calls.map((c) => c[0])).toEqual(["status", "start"]);
-        expect(s.calls[1]).toEqual(["start", "econ", "--sequence", "10 break, 50 work", "--json"]);
-        expect(out.reminder).toBeUndefined();
-        expect(out.flow).toMatchObject({ outcome: "done" });
-        const reply = out.flow.reply;
-        expect(reply).toMatch(/^Break till 10:10 AM \(10 minutes is my default[^)]*\)\. Then econ starts again by itself, 50 minutes\./);
-        expect(reply).toMatch(/stop the session/);
-        expect(reply).not.toMatch(/tomorrow/);
+        const out = await runBreak(readBreak(said), { exec: s.exec, now: NOW, mayStart: true });
+        expect(s.calls.map((c) => c[0])).toEqual(["status"]);
+        expect(out.flow).toBeUndefined();
+        expect(out.reminder?.say).toMatch(/^Break till 10:10 AM \(10 minutes is my default[^)]*\)\. I'll nudge you then; then it's back to econ\.$/);
     });
-    it("a running block is ended (its focus time kept), then the break hands back to it", async () => {
+    it("a running block is paused, its time kept, and the nudge set", async () => {
         const s = session(FOCUS);
-        const out = await runBreak(readBreak("taking a 15 min break"), { exec: s.exec, now: NOW });
-        expect(s.calls.map((c) => c[0])).toEqual(["status", "finish", "start"]);
-        expect(out.flow.reply).toMatch(/^Break till 10:15 AM\. Then econ starts again by itself, 50 minutes\./);
-    });
-    it("nothing known about the block: the break still hands back to a focus block, named honestly", async () => {
-        const s = session(IDLE);
-        const out = await runBreak(readBreak("need a break"), { exec: s.exec, now: NOW });
-        expect(s.calls[1]).toEqual(["start", "Focus", "--sequence", "10 break, 50 work", "--json"]);
-        expect(out.flow.reply).toMatch(/Then a 50-minute focus block starts by itself/);
+        const out = await runBreak(readBreak("taking a 15 min break"), { exec: s.exec, now: NOW, mayStart: true });
+        expect(s.calls.map((c) => c[0])).toEqual(["status", "pause"]);
+        expect(out.reminder?.say).toBe("Paused econ with 20 minutes left. Break till 10:15 AM. I'll nudge you then; say resume and the econ block carries on.");
     });
     it("already on a break: said from the status, nothing changed", async () => {
         const s = session(pretty({ ok: true, status: "running", phase: "rest", remainingSeconds: 300 }));
@@ -83,16 +72,21 @@ describe("a vague break is a timed break that hands back to the block", () => {
     });
 });
 describe("a restart he asked for", () => {
-    it("real (pretty) output with a plain first line is read: the reply is the success, not 'nothing is running'", async () => {
-        const s = session(FOCUS);
-        const out = await runFocusMove(readFocusMove("take a 10 min break then restart the session"), { exec: s.exec, now: NOW });
-        expect(s.calls.map((c) => c[0])).toEqual(["status", "finish", "start"]);
+    it("nothing running, typed: the break-then-block sequence, read from real (pretty) output", async () => {
+        const s = session(IDLE);
+        const out = await runFocusMove(readFocusMove("take a 10 min break then restart the session"), { exec: s.exec, now: NOW, task: "econ", mayStart: true });
+        expect(s.calls.map((c) => c[0])).toEqual(["status", "start"]);
         expect(out.flow).toMatchObject({ outcome: "done" });
         expect(out.flow.reply).toBe("Break till 10:10 AM. Then econ starts again by itself, 50 minutes. Say \"stop the session\" if you're done for now.");
     });
+    it("a running session is paused, not finished", async () => {
+        const s = session(FOCUS);
+        await runFocusMove(readFocusMove("take a 10 min break then restart the session"), { exec: s.exec, now: NOW, mayStart: true });
+        expect(s.calls.map((c) => c[0])).toEqual(["status", "pause"]);
+    });
     it("a start that fails is checked against the session before anything is claimed", async () => {
         const s = session(IDLE, { start: { stdout: "orion-session: Orion is not running", code: 3 } });
-        const out = await runFocusMove(readFocusMove("take a 10 min break then restart the session"), { exec: s.exec, now: NOW, task: "econ" });
+        const out = await runFocusMove(readFocusMove("take a 10 min break then restart the session"), { exec: s.exec, now: NOW, task: "econ", mayStart: true });
         expect(s.calls.map((c) => c[0])).toEqual(["status", "start", "status"]);
         expect(JSON.stringify(out.flow)).toMatch(/The break timer didn't start\. No session is running now\./);
     });

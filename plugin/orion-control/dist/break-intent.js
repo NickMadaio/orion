@@ -5,6 +5,19 @@ const WORD_NUM = { five: 5, ten: 10, fifteen: 15, twenty: 20, thirty: 30, forty:
 const ASKS = /\b(?:need|needa|want|wanna|take|taking|takin|gonna take|going to take|gonna grab|grab|have|get|can i|could i|may i|let me|lemme|time for|gimme|give me|im taking|i'?m taking|requesting)\b|^break\b|\bbreak time\b/i;
 // Not a request for a rest: "break down", a question about one, a refusal, a meal break, a streak.
 const NOT_A_BREAK = /\bbreak(?:ing)?\s+(?:down|up|into|in|out|through|even|off|the (?:ice|rules|habit|cycle)|my (?:streak|fast))\b|\b(?:no|dont|don't|do not|didnt|didn't|never|skip|skipping|without|not)\b[^.]{0,20}\bbreaks?\b|\b(?:lunch|dinner|coffee|spring|winter|summer|fall|reading|study)\s+break\b|\bcoffee\b|\?|\b(?:when|what|how long|how much|why)\b/i;
+// Not his own rest: a break from someone or something that is not an activity, "we"/"us", an idiom. By category, never by phrase.
+const NOT_HIS = /\b(?:we|us|our|let'?s|each other)\b|\b(?:catch|cut|lucky|big)\s+(?:me\s+)?(?:a|some)?\s*break\b|\b(?:lucky|big) break\b/i;
+const IDIOM = /\b(?:give me|gimme|gimmie)\s+a\s+break\b/i;
+/** What a "break from X" is from may be work he is resting from (an activity, his study things, "it"/"this" alone); anything else is a person, class or relationship. */
+const FROM_REST = /^(?:(?:my|the|this|that|all (?:this|the|that))\s+)?(?:work\w*|stud\w*|revis\w*|homework|hw|coursework|psets?|problem sets?|essays?|assignments?|reading|screens?|laptop|desk|code|coding|\w+ing)\b|^(?:it|this|that|everything)\s*(?:$|[,.!]|(?:for|then|and|till|until|pls|please|lol|rn)\b)/i;
+function notHisRest(m) {
+    if (NOT_HIS.test(m))
+        return true;
+    if (IDIOM.test(m) && lengthOf(m) === undefined)
+        return true;
+    const from = /\bbreak from\s+(.*)$/.exec(m);
+    return !!from && !FROM_REST.test(from[1].trim());
+}
 const RESTART = /\b(?:then|and then|after(?: that)?|and)\s+(?:(?:please|pls)\s+)?(?:restart|start(?: it)? (?:again|back up)|resume|continue|come back|go again|get back|back to|back on|pick (?:it|things) (?:back )?up)\b/i;
 function lengthOf(m) {
     if (/\b(?:half an hour|half hour|30 ?min)\b/.test(m))
@@ -21,7 +34,7 @@ function lengthOf(m) {
 /** A request to rest, or null. Never a question about a break, a refusal, or a meal. */
 export function readBreak(message) {
     const m = message.trim().toLowerCase().replace(/\s+/g, " ");
-    if (!/\bbreak\b/.test(m) || m.split(" ").length > 16 || NOT_A_BREAK.test(m) || !ASKS.test(m))
+    if (!/\bbreak\b/.test(m) || m.split(" ").length > 16 || NOT_A_BREAK.test(m) || !ASKS.test(m) || notHisRest(m))
         return null;
     const said = lengthOf(m);
     const minutes = Math.min(60, Math.max(1, said ?? DEFAULT_MINUTES));
@@ -46,10 +59,7 @@ async function sessionNow(exec, ran) {
     return !state ? "unknown" : RUNNING.has(String(state.status ?? "")) ? "running" : "none";
 }
 const lengthNote = (move) => (move.assumed ? ` (${move.minutes} minutes is my default; tell me if you want a different length)` : "");
-async function restartAfter(move, exec, now, task, status, ran) {
-    const running = !!status && RUNNING.has(String(status.status ?? ""));
-    if (running && !(await call(exec, ["finish"], ran)))
-        return { flow: say(`I couldn't end the session for the break, so it's still going.`, ran) };
+async function startSequence(move, exec, now, task, ran) {
     const state = await call(exec, ["start", task, "--sequence", `${move.minutes} break, ${move.work} work`], ran);
     if (state && RUNNING.has(String(state.status ?? ""))) {
         const then = task === "Focus" ? `Then a ${move.work}-minute focus block starts by itself.` : `Then ${task} starts again by itself, ${move.work} minutes.`;
@@ -57,27 +67,37 @@ async function restartAfter(move, exec, now, task, status, ran) {
     }
     const after = await sessionNow(exec, ran);
     const where = after === "running" ? "A session is running, but not the break timer I tried to set." : after === "none" ? "No session is running now." : "I can't tell what the session is doing right now.";
-    return { flow: say(`The break timer didn't start. ${where}${running ? " Your earlier session was ended and its focus time is saved." : ""}`, ran) };
+    return { flow: say(`The break timer didn't start. ${where}`, ran) };
 }
-/** Carries a break out and says only what orion-session returned: a timed break that hands back to the block by itself. */
+function nudge(move, now, task, lead, back, ran) {
+    const at = new Date(now.getTime() + move.minutes * 60_000);
+    const label = `back from break: ${task === "Focus" ? "next block" : task}`;
+    const text = `${lead}Break till ${clock(at)}${lengthNote(move)}. I'll nudge you then; ${back}.`;
+    return { reminder: { action: "alarm_set", label, at: isoLocal(at), args: JSON.stringify({ steps: [{ action: "alarm_set", at: isoLocal(at), label }] }), say: text }, calls: ran.calls, outputs: ran.outputs };
+}
+const backTo = (task) => `then ${task === "Focus" ? "it's back to your next block" : `it's back to ${task}`}`;
+/** Carries a break out and says only what orion-session returned. A running block is paused (never finished); nothing starts unless asked. */
 export async function runBreak(move, deps) {
     const { exec, now } = deps;
     const ran = { calls: [], outputs: [] };
     const status = await call(exec, ["status"], ran);
     const state = String(status?.status ?? "");
     const task = typeof status?.task === "string" && status.task && status.task !== "Focus" ? status.task : deps.task ?? "Focus";
-    if (move.restart)
-        return restartAfter(move, exec, now, task, status, ran);
-    if (state === "running" && status?.phase !== undefined && status.phase !== "focus") {
+    if (!status)
+        return nudge(move, now, task, "I couldn't read your focus session just now, so I haven't touched it. ", backTo(task), ran);
+    if (state === "running" && status.phase !== undefined && status.phase !== "focus") {
         return { flow: say(`You're already on a break: ${minutesOf(status.remainingSeconds)} minutes left, and the session picks you back up by itself.`, ran) };
     }
-    // run-1101020721 foc-pomodoro-break-v: a vague break is the same timed break as "then restart": code starts it and says it. Handing the
-    // return alarm to the worker said "tomorrow" and never resumed the block. Only an unreadable session falls back to a nudge.
-    if (status)
-        return restartAfter(move, exec, now, task, status, ran);
-    const at = new Date(now.getTime() + move.minutes * 60_000);
-    const label = `back from break: ${task === "Focus" ? "next block" : task}`;
-    const resume = `then ${task === "Focus" ? "it's back to your next block" : `it's back to ${task}`}`;
-    const text = `I couldn't read your focus session just now, so I haven't touched it. Break till ${clock(at)}${lengthNote(move)}. I'll nudge you then; ${resume}.`;
-    return { reminder: { action: "alarm_set", label, at: isoLocal(at), args: JSON.stringify({ steps: [{ action: "alarm_set", at: isoLocal(at), label }] }), say: text }, calls: ran.calls, outputs: ran.outputs };
+    if (state === "running") {
+        const left = minutesOf(status.remainingSeconds);
+        if (!(await call(exec, ["pause"], ran)))
+            return { flow: say(`I couldn't pause ${task} just now, so it's still running (${left} minutes left) and I haven't set a return reminder.`, ran) };
+        return nudge(move, now, task, `Paused ${task} with ${left} minutes left. `, `say resume and the ${task} block carries on`, ran);
+    }
+    if (RUNNING.has(state))
+        return nudge(move, now, task, `${task} is already paused. `, `say resume and the ${task} block carries on`, ran);
+    // Nothing running: a break starts nothing, unless he asked for the session back and this turn may start one.
+    if (move.restart && deps.mayStart === true)
+        return startSequence(move, exec, now, task, ran);
+    return nudge(move, now, task, "", backTo(task), ran);
 }

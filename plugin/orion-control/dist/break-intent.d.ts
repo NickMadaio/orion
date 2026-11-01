@@ -23,9 +23,10 @@ export type BreakOutcome = {
 };
 /** A request to rest, or null. Never a question about a break, a refusal, or a meal. */
 export declare function readBreak(message: string): BreakMove | null;
-/** Carries a break out and says only what orion-session returned: a timed break that hands back to the block by itself. */
+/** Carries a break out and says only what orion-session returned. A running block is paused (never finished); nothing starts unless asked. */
 export declare function runBreak(move: BreakMove, deps: {
     exec: SessionExec;
     now: Date;
-    task?: string;
+    task?: string; /** typed, or addressed to ORION */
+    mayStart?: boolean;
 }): Promise<BreakOutcome>;

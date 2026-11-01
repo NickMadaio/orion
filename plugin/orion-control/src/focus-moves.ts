@@ -166,8 +166,8 @@ export async function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOu
     return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Still time ${late ? "tomorrow" : "tonight"}: ${move.label} booked ${at(when[1]!)}–${at(when[2]!)}, your hour for the day.${also.length ? ` To fit it: ${also.join("; ")}.` : ""} Say "undo" to take it off.` }, writes: 1 };
   }
   if (!deps.exec) return {};
-  // break: break-intent.ts reads the session itself (a timed break that hands back to the block; run-1101020721)
-  if (move.kind === "break") return runBreak(move, { exec: deps.exec, now, ...(deps.task ? { task: deps.task } : {}) });
+  // break: break-intent.ts reads the session itself (a running block is paused; nothing starts unless asked; wave 4 review finding 1)
+  if (move.kind === "break") return runBreak(move, { exec: deps.exec, now, ...(deps.task ? { task: deps.task } : {}), ...(deps.mayStart !== undefined ? { mayStart: deps.mayStart } : {}) });
   const status = await call(deps.exec, ["status"], ran) ?? {};
   const running = RUNNING.has(String(status.status ?? ""));
   const task = taskOf(status, deps.task);

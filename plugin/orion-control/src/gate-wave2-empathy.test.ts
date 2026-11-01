@@ -48,6 +48,7 @@ function route(decide: (message: string) => Decision, opts: { now?: Date; sessio
     sessionExec: async (args: string[]) => {
       sessionCalls.push(args);
       if (args[0] === "status") return { stdout: JSON.stringify(session ?? { ok: true, status: "none" }), code: 0 };
+      if (args[0] === "pause" && session) { session = { ...session, status: "paused" }; return { stdout: JSON.stringify(session), code: 0 }; }
       if (args[0] === "finish") { session = null; return { stdout: JSON.stringify({ ok: true, status: "finished" }), code: 0 }; }
       if (args[0] === "start") { session = { ok: true, status: "running", task: args[1], remainingSeconds: 600 }; return { stdout: JSON.stringify(session), code: 0 }; }
       return { stdout: "{}", code: 1 };
@@ -186,19 +187,18 @@ describe("cluster 6: focus phrases", () => {
   it.each([["ya in a sec", 5], ["gimme 5 min", 5], ["ok ok in 15", 15], ["after this video", 10], ["give me 20 minutes", 20]])("a stall: %s", (said, minutes) => {
     expect(readFocusMove(said)).toEqual({ kind: "stall", minutes });
   });
-  // run-1101020721: the vague break is code's timed break that hands back to the block (the worker-set alarm said "tomorrow").
-  it("foc-pomodoro-break-v: 'need a break' runs a timed break in code, says its default length, and resumes by itself", async () => {
+  // Wave 4 review finding 1: a break with nothing running starts nothing (the old start was a 50-minute block); the nudge is set.
+  it("foc-pomodoro-break-v: 'need a break' with nothing running starts nothing; the return nudge at its default length", async () => {
     const r = route(() => ({ move: "tool", tool: "session", args: { do: "pause" } }), { now: MON(10, 0) });
     const t = await r.turn("need a break");
-    expect(r.sessionCalls.map((c) => c[0])).toEqual(["status", "start"]);
-    expect(t.built?.systemPrompt ?? "").not.toMatch(/alarm_set/);
-    expect(t.exact).toMatch(/^Break till 10:10 AM \(10 minutes is my default[^)]*\)\. Then .* starts? .*by itself/);
+    expect(r.sessionCalls.map((c) => c[0])).toEqual(["status"]);
+    expect(t.built?.systemPrompt).toMatch(/alarm_set[\s\S]*2026-11-02T10:10/);
   });
-  it("foc-pomodoro-break-c: 'take a 10 min break then restart the session' with a session running finishes it first", async () => {
+  it("foc-pomodoro-break-c: 'take a 10 min break then restart the session' with a session running pauses it, never finishes it", async () => {
     const r = route(() => ({ move: "tool", tool: "session", args: { do: "pause" } }), { now: MON(10, 0), session: { ok: true, status: "running", task: "econ", remainingSeconds: 120 } });
     const t = await r.turn("take a 10 min break then restart the session");
-    expect(r.sessionCalls.map((c) => c[0])).toEqual(["status", "finish", "start"]);
-    expect(t.exact).toMatch(/^Break till 10:10 AM\. Then econ starts again by itself/);
+    expect(r.sessionCalls.map((c) => c[0])).toEqual(["status", "pause"]);
+    expect(t.built?.systemPrompt).toMatch(/alarm_set[\s\S]*2026-11-02T10:10/);
     expect(t.final).not.toMatch(/Exec failed|didn't actually/);
   });
   it.each([["can i take a quick break", 10], ["gonna take a 15 min break", 15], ["ok i need a 5 minute break and then back to it", 5]])("a break: %s", (said, minutes) => {

@@ -153,9 +153,9 @@ export async function runFocusMove(move, deps) {
     }
     if (!deps.exec)
         return {};
-    // break: break-intent.ts reads the session itself (a timed break that hands back to the block; run-1101020721)
+    // break: break-intent.ts reads the session itself (a running block is paused; nothing starts unless asked; wave 4 review finding 1)
     if (move.kind === "break")
-        return runBreak(move, { exec: deps.exec, now, ...(deps.task ? { task: deps.task } : {}) });
+        return runBreak(move, { exec: deps.exec, now, ...(deps.task ? { task: deps.task } : {}), ...(deps.mayStart !== undefined ? { mayStart: deps.mayStart } : {}) });
     const status = await call(deps.exec, ["status"], ran) ?? {};
     const running = RUNNING.has(String(status.status ?? ""));
     const task = taskOf(status, deps.task);

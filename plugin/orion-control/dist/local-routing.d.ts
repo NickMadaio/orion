@@ -11,6 +11,7 @@ import { type PendingRun } from "./schedule-pending.js";
 import { type Probe, type QueuedMessage } from "./model-outage.js";
 import { type ConnectorRow, type HealthLog } from "./code-answers.js";
 import { type ScriptRun } from "./reality.js";
+import { type KnowledgeRun } from "./knowledge-run.js";
 import { type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -137,6 +138,8 @@ export type LocalRoutingOptions = {
     connectorStatus?: () => Promise<ConnectorRow[] | undefined>;
     /** Brain search used to pre-fetch notes for each message (tests pass a stub). */
     brainSearch?: (query: string) => Promise<string>;
+    /** Wave 6 (knowledge-run.ts): orion-brain forget/links/profile and orion-trash. Unset, those moves are not taken. */
+    knowledgeRun?: KnowledgeRun;
     /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
     nickNote?: () => string;
     /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */

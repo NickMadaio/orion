@@ -78,6 +78,8 @@ import { pluginNow } from "./plugin-clock.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn } from "./pending-reply.js";
 import { readPreference, savePreference } from "./preference-remember.js";
 import { readDayDefault, runDayDefault } from "./day-defaults.js";
+import { KnowledgePending, readKnowledgeMove } from "./knowledge-moves.js"; // wave 6: forget / links / profile / trash
+import { runKnowledgeMove } from "./knowledge-run.js";
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
 /** Notes what code read for the worker this turn, once (routing log, 2026-10-16 r8). */
 const markRead = (run, name) => { if (!(run.reads ?? []).includes(name))
@@ -605,6 +607,7 @@ export function registerLocalRouting(api, options) {
     const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); forgetMade(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" }));
     /** Per session: the last thing ORION created or changed (a block, or a focus session it started), for "make it an hour" (edit-followup.ts). */
     const lastMade = new Map();
+    const knowledgePending = new KnowledgePending(); // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
     const pendingMemory = new PendingMemory(); // 2026-10-31 (pending-reply.ts): what a nudge's reply agreed, for the next short reply
     const forgetMade = (key) => { if (key)
         lastMade.delete(key); };
@@ -1110,12 +1113,14 @@ export function registerLocalRouting(api, options) {
         const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
         const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
         const preference = free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
-        const knowledge = on && !quietTurn && isKnowledgeAsk(message);
+        const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
+        const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
+        const knowledge = on && !quietTurn && !kmove && isKnowledgeAsk(message);
         const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
         const pendingAt = (options.now ?? pluginNow)();
         const prior = sessionKey ? pendingMemory.beginTurn(sessionKey, pendingAt.getTime(), { crisis: isCrisis(message), replied: !hushed }, options.stateDir) : undefined;
         const dayDefault = free && !prior?.afterCrisis && !pendingYes && !lighten && !focusMove && !health && !reality && options.realityRun ? readDayDefault(message, parseOutreach(raw)?.text, pendingAt) ?? undefined : undefined;
-        const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove || !!health || !!dayDefault || !!preference;
+        const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove || !!health || !!dayDefault || !!preference || !!kmove;
         const intentRead = on && !cutOff && !quietTurn && !realityWhole && !guarded && options.scheduleFlow ? readIntent(message, { now: (options.now ?? pluginNow)(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey) } : {}) }) : undefined;
         // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
         const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
@@ -1136,7 +1141,7 @@ export function registerLocalRouting(api, options) {
         const deskContext = [card ? deskLine(card) : "", spokenTurn ? SPOKEN_DESK_NOTE : ""].filter(Boolean).join(" ") || undefined;
         const decision = cutOff
             ? Promise.resolve({ move: "ask", answer: GO_ON })
-            : codeFirst || own ? Promise.resolve({ move: "escalate", fallback: "code-first", ms: 0 })
+            : codeFirst || own || kmove ? Promise.resolve({ move: "escalate", fallback: "code-first", ms: 0 })
                 : Promise.resolve(deskHealth.begin()).then((call) => Promise.resolve()
                     .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs, ...(outreach ? { history: outreachHistory(outreach) } : {}), ...(deskContext ? { context: deskContext } : {}) }))
                     .then((d) => { deskHealth.record(d, call); return d; })
@@ -1145,7 +1150,7 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
         // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
         // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-        const pending = on && !cutOff && !quietTurn && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+        const pending = on && !cutOff && !quietTurn && !kmove && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
             ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, Date.now()),
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir) }) : undefined;
         if (sessionKey && !cutOff && !pending)
@@ -1167,6 +1172,15 @@ export function registerLocalRouting(api, options) {
                 ...(options.connectorStatus ? { connectorStatus: options.connectorStatus } : {}) }).catch(() => undefined), 6000);
             if (text)
                 run.ownText = text;
+        }
+        if (kmove && options.knowledgeRun) { // wave 6 (knowledge-run.ts): the reply is built from the scripts' JSON
+            const out = await withTimeout(runKnowledgeMove(kmove, options.knowledgeRun).catch(() => undefined), 12000);
+            if (out) {
+                run.ownText = out.text;
+                out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+                if (out.held && sessionKey)
+                    knowledgePending.set(sessionKey, out.held, Date.now());
+            }
         }
         if (sessionKey && !cutOff && !quietTurn && options.lateFlow) {
             const late = lateTurn(sessionKey, message);

@@ -19,7 +19,7 @@ import { execFile } from "node:child_process";
 import type { FlowResult } from "./schedule-flow.js";
 import { isEdit } from "./edit-followup.js";
 import { parseSessionJson } from "./session-json.js";
-import { workStartTask } from "./work-start.js";
+import { casualStartTask, workStartTask, type KnownName } from "./work-start.js";
 
 export type SessionExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 export type SessionRequest = { task: string; minutes?: number; until?: string; apps: string[] };
@@ -53,11 +53,16 @@ const MEAL_OR_ACTIVITY = /\b(?:lunch|dinner|breakfast|brunch|meal|snack|coffee|e
 // With a session word ("start a focus session until 8:30 pm") only a calendar verb makes it a calendar item.
 const calendarItem = (message: string): boolean => CALENDAR_VERB.test(message) || (!SESSION_WORD.test(message) && (CLOCK_SAID.test(message) || MEAL_OR_ACTIVITY.test(message)));
 
+/** casual: a casual "let's work on X" may count (REV5 MUST 4: only when typed, or said to ORION by name; the caller knows which).
+ *  known: blocks on his day and deadlines, so a course name ("econ") can resolve; without them only a work noun counts. */
+export type StartOpts = { casual?: boolean; known?: readonly KnownName[] };
 // "ok lets work on econ" is a start too (work-start.ts, gate foc-start-v).
-export const isSessionStart = (message: string): boolean => (START.test(message) || MODE_ON.test(message) || workStartTask(message) !== undefined) && !ruledOut(message) && !calendarItem(message);
-/** His words start a session, or the front desk read a start and nothing in his words rules one out (a calendar item does: review of efc37af). */
-export const startsSession = (message: string, hint: SessionHint = {}): boolean =>
-  isSessionStart(message) || (!!hint.start && !ruledOut(message) && !calendarItem(message));
+export const isSessionStart = (message: string, opts: StartOpts = {}): boolean =>
+  (START.test(message) || MODE_ON.test(message) || (opts.casual !== false && workStartTask(message, opts.known) !== undefined)) && !ruledOut(message) && !calendarItem(message);
+/** His words start a session, or the front desk read a start and nothing in his words rules one out (a calendar item does: review of efc37af).
+ *  REV5: when a casual start is not allowed (spoken, not to ORION), a desk-read start needs a session word in his words. */
+export const startsSession = (message: string, hint: SessionHint = {}, opts: StartOpts = {}): boolean =>
+  isSessionStart(message, opts) || (!!hint.start && !ruledOut(message) && !calendarItem(message) && (opts.casual !== false || SESSION_WORD.test(message)));
 
 const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
 
@@ -117,7 +122,7 @@ export function parseSessionRequest(message: string, hint: SessionHint = {}): Se
   const minutes = readMinutes(message) ?? (hint.minutes !== undefined && new RegExp(`(?<![\\d.])${hint.minutes}(?![\\d.])`).test(message) ? hint.minutes : undefined);
   const until = minutes === undefined ? readUntil(message) : undefined;
   const said = readTask(message);
-  const task = said === DEFAULT_TASK ? workStartTask(message) ?? said : said;
+  const task = said === DEFAULT_TASK ? casualStartTask(message) ?? said : said;
   return { task: task === DEFAULT_TASK && hint.task && message.toLowerCase().includes(hint.task.toLowerCase()) ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
 }
 

@@ -18,7 +18,7 @@
 import { execFile } from "node:child_process";
 import { isEdit } from "./edit-followup.js";
 import { parseSessionJson } from "./session-json.js";
-import { workStartTask } from "./work-start.js";
+import { casualStartTask, workStartTask } from "./work-start.js";
 export const ORION_SESSION = "/Users/nickmadaio/Desktop/ORION/scripts/orion-session";
 const DEFAULT_TASK = "Focus";
 const RUNNING_STATES = new Set(["running", "paused", "waiting-for-return"]);
@@ -44,9 +44,10 @@ const MEAL_OR_ACTIVITY = /\b(?:lunch|dinner|breakfast|brunch|meal|snack|coffee|e
 // With a session word ("start a focus session until 8:30 pm") only a calendar verb makes it a calendar item.
 const calendarItem = (message) => CALENDAR_VERB.test(message) || (!SESSION_WORD.test(message) && (CLOCK_SAID.test(message) || MEAL_OR_ACTIVITY.test(message)));
 // "ok lets work on econ" is a start too (work-start.ts, gate foc-start-v).
-export const isSessionStart = (message) => (START.test(message) || MODE_ON.test(message) || workStartTask(message) !== undefined) && !ruledOut(message) && !calendarItem(message);
-/** His words start a session, or the front desk read a start and nothing in his words rules one out (a calendar item does: review of efc37af). */
-export const startsSession = (message, hint = {}) => isSessionStart(message) || (!!hint.start && !ruledOut(message) && !calendarItem(message));
+export const isSessionStart = (message, opts = {}) => (START.test(message) || MODE_ON.test(message) || (opts.casual !== false && workStartTask(message, opts.known) !== undefined)) && !ruledOut(message) && !calendarItem(message);
+/** His words start a session, or the front desk read a start and nothing in his words rules one out (a calendar item does: review of efc37af).
+ *  REV5: when a casual start is not allowed (spoken, not to ORION), a desk-read start needs a session word in his words. */
+export const startsSession = (message, hint = {}, opts = {}) => isSessionStart(message, opts) || (!!hint.start && !ruledOut(message) && !calendarItem(message) && (opts.casual !== false || SESSION_WORD.test(message)));
 const WORD_NUMBERS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
 function readMinutes(message) {
     const m = message.toLowerCase();
@@ -106,7 +107,7 @@ export function parseSessionRequest(message, hint = {}) {
     const minutes = readMinutes(message) ?? (hint.minutes !== undefined && new RegExp(`(?<![\\d.])${hint.minutes}(?![\\d.])`).test(message) ? hint.minutes : undefined);
     const until = minutes === undefined ? readUntil(message) : undefined;
     const said = readTask(message);
-    const task = said === DEFAULT_TASK ? workStartTask(message) ?? said : said;
+    const task = said === DEFAULT_TASK ? casualStartTask(message) ?? said : said;
     return { task: task === DEFAULT_TASK && hint.task && message.toLowerCase().includes(hint.task.toLowerCase()) ? hint.task : task, ...(minutes !== undefined ? { minutes } : {}), ...(until ? { until } : {}), apps: readApps(message) };
 }
 const parse = parseSessionJson;

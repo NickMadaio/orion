@@ -5,6 +5,32 @@
 // Words that may mean he is not safe. Narrow on purpose: "I can't do this task", "end it at 5" or
 // "kill the lights" are ordinary requests, so every phrase here needs its "anymore"/"all"/"myself".
 // "hopeless" counts only about himself or his life — "this code is hopeless" is a bug report.
+// REV5 MUST 3 (2026-10-31): "i hate being alive", "i dont like living", "i dont mind dying", "i like the idea of not waking up" and
+// "remember i hate my life" were none of them distress, so the preference saver kept them ("Nick doesn't like being alive"). Covered
+// now by category, not by sentence: being against living or life; being drawn to dying, death, not waking up, sleeping forever,
+// disappearing or not existing; wishing to disappear; no point / not worth living; rather be dead. The same rule as above for idioms:
+// where a following word tells (living IN london, dying TO see, dying MY hair, death OF a salesman, rather die THAN), it stays clear.
+const AGAINST = String.raw `(?:hate|hating|can['’]?t stand|cant stand|sick of|tired of|done with|(?:don['’]?t|dont|do not) (?:like|enjoy|love))`;
+const LIVING = String.raw `(?:being alive|living|(?:my |this )?life|existing|my existence|being me)`;
+const PLACE_OR_THING = String.raw `(?!\s+(?:in|with|out|at|near|on|off|by|alone|here|there|together|next|so far|admin|hacks?|insurance|lessons?|coach|drawing|of the party|style|choices?|story|update)\b)`;
+const TOWARD = String.raw `(?:(?:don['’]?t|dont|do not|wouldn['’]?t|wouldnt|would not) mind|(?:like|love) the (?:idea|thought) of|(?:ok|okay|fine|at peace|cool) with|look(?:ing)? forward to|wish(?:ing)? for|long(?:ing)? for|ready (?:for|to)|welcome|think(?:ing)? (?:a lot |so much )?about|fantasi[sz]e about|dream(?:ing)? (?:about|of)|prefer|(?:like|love|want|wanna|would like|['’]?d like) to)`;
+const GONE = String.raw `(?:dying|death|being dead|not existing|not being alive|not being here|(?:not|never) waking up|disappearing|vanishing|sleeping forever|sleep forever|disappear|vanish|stop existing|not exist|cease to exist|die)`;
+const NOT_IDIOM = String.raw `(?!\s+(?:to|of|for|from|laughing|inside|my|his|her|the|it|them|into|under|behind|stranding|metal|note|row)\b)`;
+const LIFE_AND_DEATH = [
+    String.raw `\b${AGAINST}\s+${LIVING}\b${PLACE_OR_THING}`,
+    String.raw `\b${TOWARD}\s+${GONE}\b${NOT_IDIOM}`,
+    String.raw `\b(?:don['’]?t|dont|wouldn['’]?t|wouldnt) (?:mind|care) if i (?:die|died|didn['’]?t wake up|didnt wake up|don['’]?t wake up|dont wake up|never woke up|disappeared|wasn['’]?t here|wasnt here)\b${NOT_IDIOM}`,
+    String.raw `\b(?:hope|wish|pray)(?:\s+that)?\s+i\s+(?:don['’]?t|dont|do not|never|won['’]?t|wont)\s+wake up\b(?!\s+(?:late|early|before|at|in time|tired|sick|with|to|until|till|for|on|hungover|groggy|and|in a|in the)\b)`,
+    String.raw `\b(?:go|went|fall|falling|going) to sleep and (?:not|never) wake up\b|\bsleep and not wake up\b|\bnever wake up again\b`,
+    String.raw `\bwish (?:i could|i['’]?d|i would|i) (?:just )?(?:disappear|vanish|stop existing|not exist|cease to exist|die)\b(?!\s+(?:into|under|behind|for|from|of|laughing)\b)|\bwish i (?:didn['’]?t|didnt|did not) exist\b`,
+    String.raw `\bno point (?:in |to )?(?:anything|life|living|being alive|being here|existing|going on|carrying on|any of (?:this|it)|me being here|trying any ?more)\b`,
+    String.raw `\blife (?:is|feels|seems|['’]s)(?: so| completely| totally| just)? (?:pointless|meaningless|worthless|not worth (?:it|living))\b|\blife (?:isn['’]?t|isnt|is not|ain['’]?t) worth\b|\bnot worth living\b|\bnothing (?:left )?to live for\b`,
+    String.raw `\bwhat['’]?s the point (?:of|in) (?:living|life|being alive|existing|going on)\b`,
+    String.raw `\b(?:i['’]?d|id|i would) rather (?:be dead|not be alive|not exist|die)\b(?!\s+than\b)`,
+];
+/** The life-and-death space by itself (REV5): what must never be read as a preference, a plan or a setting, even where isCrisis's
+ *  narrower idiom rules would let a line through. Broad on purpose: a false hold costs only the worker answering instead. */
+export const touchesLifeOrDeath = (message) => CRISIS.test(message) || /\b(?:alive|living|life|lives|dying|die|died|death|dead|suicid\w*|kill\w*|existing|exist|existence|disappear\w*|vanish\w*|(?:not|never|don'?t|dont) wak(?:e|ing) up|sleep(?:ing)? forever|forever asleep)\b/i.test(message);
 const CRISIS = new RegExp([
     String.raw `\b(can['’]?t|cannot) (do|take|handle) (this|it) (any ?more|no more)\b`,
     String.raw `\bcan['’]?t go on( like this| any ?more)?\s*[.!]*$`,
@@ -37,6 +63,7 @@ const CRISIS = new RegExp([
     // 2026-10-16: "i'm a hopeless romantic" is an idiom, so an article before "hopeless" no longer counts.
     // "want to die laughing" stays excluded above: the explicit "laughing" makes the idiom unambiguous.
     String.raw `\b(i|i['’]?m|im|i am|feel\w*|everything(?:['’]s| is)?|it all(?: is)?|life(?: is)?)\s+(?:(?!an?\b)\w+\s+)?hopeless\b(?!\s+(at|with|romantic))`,
+    ...LIFE_AND_DEATH,
 ].join("|"), "i");
 // Heavy but not a crisis: he needs warmth and one small step, not a lookup.
 const OVERWHELMED = /\b(overwhelm\w*|stressed out|so stressed|burn(t|ed) out|freaking out|panick?ing|so anxious|can['’]?t cope|falling apart|(don['’]?t|do not) (even )?know where to (start|begin))\b/i;

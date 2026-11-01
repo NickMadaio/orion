@@ -97,7 +97,9 @@ export async function bedtime(c, r, memo) {
     return undefined;
 }
 /** "fine going to bed now": goodnight, the alarm checked against tomorrow's first fixed thing, one quiet check-back. */
-async function goingToBed(c, wake, anchor, alarm, memo) {
+async function goingToBed(c, wake, first, alarm, memo) {
+    // REV5 SHOULD 6: the alarm answers to the first fixed thing he will actually be at, not one he is skipping or that is online.
+    const anchor = first ? attendedFirst(wake, readSkips(c.deps.stateDir, wake?.date)) : undefined;
     const alarmLine = await protectAlarm(c, anchor, alarm);
     const tomorrow = anchor ? ` ${anchor.title} at ${h12(toMin(anchor.start))} stays${earlyClear(wake, anchor) ? ", nothing before it" : ""}.` : "";
     const checkAt = c.nowMin + BED_CHECK_MIN;
@@ -105,6 +107,28 @@ async function goingToBed(c, wake, anchor, alarm, memo) {
     const out = already ? undefined : await c.checkin(["add", String(BED_CHECK_MIN), "bed", "--because", (c.turn.said ?? "going to bed").slice(0, 120)]);
     const check = already ? "" : out && out.code === 0 ? ` If you're still up at ${h12(checkAt)}, I'll check in.` : "";
     return c.done(`Good — goodnight.${alarmLine}${tomorrow}${check}`, null);
+}
+/** A class he can join from bed: nothing to get up early for. */
+const REMOTE = /\b(?:online|zoom|remote|virtual|async(?:hronous)?|teams call|recorded)\b/i;
+const normTitle = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** What he declared off on the day he wakes into (declared-facts.json: kind skip names the block, kind no-classes takes every class). */
+export function readSkips(stateDir, date) {
+    if (!stateDir || !date)
+        return { titles: [], noClasses: false };
+    try {
+        const file = JSON.parse(readFileSync(join(stateDir, "declared-facts.json"), "utf8"));
+        const facts = file.schemaVersion === 1 && Array.isArray(file.facts) ? file.facts.filter((f) => f && f.date === date) : [];
+        return { titles: facts.filter((f) => f.kind === "skip" && typeof f.title === "string" && normTitle(f.title)).map((f) => normTitle(f.title)), noClasses: facts.some((f) => f.kind === "no-classes") };
+    }
+    catch {
+        return { titles: [], noClasses: false };
+    }
+}
+const isClass = (b) => b.kind === "class" || /^[A-Za-z]{2,5}\s?\d{3,5}\b/.test(b.title.trim());
+/** The first fixed block he will be at in person: skipped (the same rule as declared-facts cancels()) and online ones left out. */
+export function attendedFirst(day, skips) {
+    const off = (b) => REMOTE.test(b.title) || (skips.noClasses && isClass(b)) || skips.titles.some((t) => normTitle(b.title).includes(t));
+    return firstFixed(day ? { ...day, blocks: day.blocks.filter((b) => !off(b)) } : undefined);
 }
 /** Nothing ORION could move sits before the anchor on the day he wakes into. */
 const earlyClear = (day, anchor) => !(day?.blocks ?? []).some((b) => b !== anchor && toMin(b.start) < toMin(anchor.start) && b.kind !== "sleep" && !/^sleep\b/i.test(b.title));
@@ -119,7 +143,7 @@ async function protectAlarm(c, anchor, alarm) {
         return ` Your alarm's on automatic, so it goes off before ${anchor.title}.`;
     if (!c.deps.wake)
         return ` Your alarm's set for ${h12(alarm)}, after you'd need to be up for ${anchor.title} — move it earlier.`;
-    const to = toMin(anchor.start) - READY_MIN;
+    const to = Math.max(0, toMin(anchor.start) - READY_MIN); // REV5: a class just after midnight is 00:00, never "-1:-30"
     const hhmm = `${String(Math.floor(to / 60)).padStart(2, "0")}:${String(to % 60).padStart(2, "0")}`;
     const out = await c.deps.wake([hhmm]).catch(() => ({ stdout: "", code: 1 }));
     c.acc.tools.push({ canonical: `exec orion-wake ${hhmm}`, stdout: out.stdout, exit: out.code });

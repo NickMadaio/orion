@@ -57,7 +57,9 @@ export function refusal(path, { home, repo, vault = vaultPath(home) }) {
   const root = ROOTS.map((r) => real(join(realHome, r))).find((r) => inside(target, r));
   if (!root) return "it is not inside your Desktop, Documents or Downloads folder";
   if (relative(fold(root), fold(target)).split(sep).some((part) => part.startsWith("."))) return "it is a hidden file or folder";
-  if (same(target, repo) || inside(target, repo) || inside(repo, target)) return "it is part of the ORION project";
+  // The installed mirror runs this from ~/.openclaw/orion-remote, so the default `repo` is not the real one: always guard both.
+  const repos = [...new Set([repo, join(realHome, "Desktop", "ORION")].filter(Boolean))];
+  if (repos.some((r) => same(target, r) || inside(target, r) || inside(r, target))) return "it is part of the ORION project";
   if (same(target, vault) || inside(target, vault) || inside(vault, target)) return "it is part of your notes vault (orionBrain)";
   if (st.isDirectory() && holdsGit(target)) return "it holds a git repository";
   return null;

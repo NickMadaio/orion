@@ -117,3 +117,11 @@ test("a case variant of the ORION repo path is still the ORION project", () => {
   assert.match(run("move", join(h, "desktop", "Orion"), "--confirm", "Orion").json.refused, /ORION|not inside/);
   assert.ok(existsSync(join(h, "Desktop", "ORION", "README.md")));
 });
+
+test("~/Desktop/ORION is guarded even when the script runs from an installed mirror elsewhere", () => {
+  const { h } = home();
+  writeFileSync(join(h, "Desktop", "ORION", "README.md"), "r");
+  const r = spawnSync(process.execPath, [TRASH, "check", join(h, "Desktop", "orion", "README.md")], { encoding: "utf8",
+    env: { PATH: process.env.PATH, HOME: h, ORION_TRASH_DIR: join(h, ".Trash"), ORION_CONTROLLED_DIR: join(h, "ctl"), ORION_REPO_DIR: join(h, "mirror") } });
+  assert.match(JSON.parse(r.stdout).refused ?? "", /ORION project/);
+});

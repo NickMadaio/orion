@@ -77,6 +77,8 @@ export type RequestDeps = {
     readDayOn?: (dateArgs: string[]) => Promise<Day | undefined>;
     now: Date;
     slipsOf?: (what: string) => number;
+    /** Wave 6: ORION's state dir, for how often a deferred plan already slid (slip-history.ts). */
+    stateDir?: string;
 };
 export type RequestOutcome = {
     flow: FlowResult;

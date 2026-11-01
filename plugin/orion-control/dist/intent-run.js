@@ -1,6 +1,7 @@
 import { blocksNamed, planReplan } from "./day-replan.js";
 import { parseDirectAdd } from "./direct-add.js";
 import { planDayPlan } from "./day-plan.js";
+import { planCompound } from "./compound-intent.js";
 import { ampm, hhmm, parseClock, resolveEnd, span, toMin } from "./intent-time.js";
 const DEFAULT_ADD_MINUTES = 30;
 const cap = (t) => t.replace(/^./, (c) => c.toUpperCase());
@@ -200,8 +201,9 @@ export function planIntent(intent, day, ctx) {
         case "move": return planMove(intent, day);
         case "extend": return planExtend(intent, day);
         case "remove": return planRemove(intent, day);
+        case "compound": return intent.parts ? planCompound(intent.parts, day, intent.day) : undefined; // Wave 6 (compound-intent.ts)
         default: return undefined;
     }
 }
 /** The intents code runs before the front desk is asked (local-routing.ts): the ones whose words alone decide the change. */
-export const runsFirst = (intent) => intent.verb === "replan" || intent.verb === "reorder" || intent.verb === "dayplan" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid || intent.items[0]?.name === "it")) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));
+export const runsFirst = (intent) => intent.verb === "replan" || intent.verb === "reorder" || intent.verb === "dayplan" || intent.verb === "compound" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid || intent.items[0]?.name === "it")) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));

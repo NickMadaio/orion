@@ -8,6 +8,7 @@ import type { CalendarIntent, IntentItem, TimeIssue } from "./calendar-intent.js
 import { blocksNamed, planReplan, type DayReplan, type ReplanAsk } from "./day-replan.js";
 import { parseDirectAdd, type DirectAdd } from "./direct-add.js";
 import { planDayPlan, type DayPlanned } from "./day-plan.js";
+import { planCompound } from "./compound-intent.js";
 import { ampm, hhmm, parseClock, resolveEnd, span, toMin } from "./intent-time.js";
 import type { AskContext, Day, DayBlock } from "./schedule-flow.js";
 
@@ -181,10 +182,11 @@ export function planIntent(intent: CalendarIntent, day: Day, ctx: { message: str
     case "move": return planMove(intent, day);
     case "extend": return planExtend(intent, day);
     case "remove": return planRemove(intent, day);
+    case "compound": return intent.parts ? planCompound(intent.parts, day, intent.day) : undefined;   // Wave 6 (compound-intent.ts)
     default: return undefined;
   }
 }
 
 /** The intents code runs before the front desk is asked (local-routing.ts): the ones whose words alone decide the change. */
 export const runsFirst = (intent: CalendarIntent): boolean =>
-  intent.verb === "replan" || intent.verb === "reorder" || intent.verb === "dayplan" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid || intent.items[0]?.name === "it")) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));
+  intent.verb === "replan" || intent.verb === "reorder" || intent.verb === "dayplan" || intent.verb === "compound" || (intent.verb === "move" && (!!intent.all || !!intent.items[0]?.toSaid || intent.items[0]?.name === "it")) || (intent.verb === "add" && (!!intent.until || !!intent.items[0]?.start || !!intent.items[0]?.issue));

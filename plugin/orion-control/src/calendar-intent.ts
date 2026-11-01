@@ -17,8 +17,9 @@ import { readUntilShape } from "./direct-add.js";
 import { COURTESY, fixTypos, refusalOf, TAKEN_BACK, type Refusal } from "./intent-gate.js";
 import { ceil5, CLOCK, hhmm, parseClock, resolveEnd, resolveStart, spokenTimesToDigits, takeLength, toMin, type ClockContext, type DayWord } from "./intent-time.js";
 import type { AskContext } from "./schedule-flow.js";
+import { readCompound, type CompoundPart } from "./compound-intent.js";
 
-export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend" | "dayplan";
+export type Verb = "add" | "move" | "replan" | "reorder" | "remove" | "extend" | "dayplan" | "compound";
 /** A clock that cannot be used as said: already behind him today, or 9 tomorrow with no am/pm. */
 export type TimeIssue = { kind: "passed"; at: string; field: "start" | "end" } | { kind: "past-midnight"; at: string } | { kind: "ambiguous"; choices: [string, string] } | { kind: "from-now-not-today" };
 /** endSaid: an extend's end as he said it ("9"), read against the block's own start when the day is known. */
@@ -41,6 +42,8 @@ export type CalendarIntent = {
   date?: string;
   /** dayplan: "only doing two things today. X from now until 6pm, then home, Y until 12 am" (day-plan.ts) */
   dayplan?: DayPlanAsk;
+  /** compound: two or three changes in one sentence ("move gym to right after marketing and then put side project at 8"), compound-intent.ts */
+  parts?: CompoundPart[];
 };
 export type IntentRead = { intent: CalendarIntent } | { refused: Refusal | "unparsed" | "other-day"; tookBack?: true };
 /** What a follow-up needs from the request before it: the request, and the date it was for. */
@@ -296,6 +299,9 @@ function parseShapes(raw: string, ctx: { now: Date }): CalendarIntent | undefine
   // "ok and push everything 30 min" (live run 3): every block of his still ahead today slides that much; classes stay.
   const pushAll = day === "today" ? pushAllMinutes(raw) : null;
   if (pushAll !== null) return { verb: "move", items: [{ name: "everything", by: pushAll }], day, all: true };
+  // Wave 6 (gate loop-voice-cutoff-c): two changes in one sentence, each read on its own; planned as one call (compound-intent.ts).
+  const parts = readCompound(fixed.replace(COURTESY, "").trim(), cleanName);
+  if (parts) return { verb: "compound", items: parts.map((p) => ({ name: p.name })), day, parts };
   return readTimedAdd(fixed, day, now) ?? readBareAdd(fixed, day, now) ?? readMove(fixed, day, now) ?? readExtend(fixed, day, now) ?? readRemove(fixed, day);
 }
 

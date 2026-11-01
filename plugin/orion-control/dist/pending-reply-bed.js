@@ -12,7 +12,8 @@ import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ORION_WAKE } from "./wake-flow.js";
-import { DAY_END, addCommand, dayWord, firstFixed, flowText, flowWrote, freeSlot, h12, nowMinOf, placedSpan, toMin, unseen, wakeDayIsToday } from "./pending-reply-day.js";
+import { dayEndFor } from "./life-window.js";
+import { addCommand, dayWord, firstFixed, flowText, flowWrote, freeSlot, h12, nowMinOf, placedSpan, toMin, unseen, wakeDayIsToday } from "./pending-reply-day.js";
 /** Under this much sleep (minutes, from the cap to his wake time) the night is short and tomorrow gets a nap. */
 export const SHORT_NIGHT_MIN = 7 * 60;
 /** With no alarm of his own, he wakes this long before the first fixed thing (the phone's automatic alarm is first class minus get-ready time). */
@@ -21,6 +22,21 @@ const READY_MIN = 60;
 const LATEST_ALARM_LEAD = 30;
 /** The quiet check after "going to bed": once, this long after. */
 const BED_CHECK_MIN = 20;
+/** "one more thing" past bedtime: the limit ORION gives it, said as his limit in the reply (Wave 6). */
+export const ONE_MORE_MIN = 15;
+/**
+ Wave 6 (gate run-1101003318, loop-reply-bed-v): "ok one more thing" read as nothing, and the model asked "What is the one more thing?".
+ "one more <unit>", "one last <unit>", "finish this one bit": a stall of unstated length. Not a request ("add one more gym") or a question.
+*/
+const ONE_MORE = /\b(?:one|1|another)\s+(?:more|last)\s+(?:thing|ep|episode|game|round|match|level|video|vid|chapter|page|email|bit|song|question|problem|section|part|task)s?\b|\bfinish(?:ing)?\s+(?:this|the|my)\s+(?:one\s+|last\s+)?(?:thing|bit|part)\b/i;
+const STALL_NOT = /\?\s*$|\b(?:add|book|schedule|move|put|remind|can you|could you|for me)\b/i;
+export function readBedStall(message) {
+    const m = message.trim();
+    if (m.split(/\s+/).length > 10 || STALL_NOT.test(m) || !ONE_MORE.test(m))
+        return undefined;
+    return { kind: "defer", stall: true };
+}
+const oneMore = (said) => !!said && ONE_MORE.test(said);
 /** The manual wake alarm still ahead (wake-request.json, written by orion-wake), in minutes on the day he wakes into; undefined for none. */
 export function manualAlarm(stateDir, now) {
     if (!stateDir)
@@ -64,7 +80,7 @@ export async function bedtime(c, r, memo) {
         return goingToBed(c, wake, anchor, alarm, memo);
     if (r.kind === "workload" || (r.kind === "awake" && r.workload && !r.activity && r.minutes === undefined)) {
         const from = anchor ? toMin(anchor.end) + 5 : 10 * 60;
-        const start = freeSlot(wake, 60, from, DAY_END);
+        const start = freeSlot(wake, 60, from, dayEndFor(c.deps.stateDir));
         if (start === undefined)
             return c.done(`It'll keep till tomorrow — sleep matters more tonight.${anchorLine} Tell me what's due and I'll find it a slot.`, memoOut());
         const flow = await c.schedule(addCommand("catch-up work", 60, "tomorrow", start, c.now));
@@ -81,18 +97,21 @@ export async function bedtime(c, r, memo) {
         return c.done(`Then don't fight it — lights off, phone away, just lie down; rest still counts.${napLine}${anchorLine}`, memoOut());
     }
     if (r.kind === "awake" || r.kind === "defer") {
-        const minutes = r.minutes ?? 30;
+        const one = r.kind === "defer" && r.minutes === undefined && !r.activity && oneMore(c.turn.said);
+        const minutes = r.minutes ?? (one ? ONE_MORE_MIN : 30);
         const assumed = r.minutes === undefined;
         const target = c.nowMin + minutes;
         const what = r.activity ? ` on ${r.activity}` : "";
         if (memo?.checkinAt !== undefined && Math.abs(memo.checkinAt - target) <= 10) {
             return c.done(`Deal — ${h12(memo.checkinAt)}, then bed. I'll check then.${anchorLine}`, memoOut());
         }
-        const out = memo?.checkinId ? await c.checkin(["defer", String(minutes), memo.checkinId, "--because", r.activity ?? "staying up"]) : await c.checkin(["add", String(minutes), "bed", "--because", r.activity ?? "staying up"]);
+        const because = one ? c.turn.said.slice(0, 120) : r.activity ?? "staying up";
+        const out = memo?.checkinId ? await c.checkin(["defer", String(minutes), memo.checkinId, "--because", because]) : await c.checkin(["add", String(minutes), "bed", "--because", because]);
         const id = memo?.checkinId ?? out?.stdout.match(/\b(ci-[0-9a-f]+)\b/)?.[1];
         const napLine = await nap(target);
         const check = out && out.code === 0 ? ` I'll check at ${h12(target)}.` : " I couldn't set the check-back, so set yourself a timer.";
-        return c.done(`Okay — ${minutes} min${what}${assumed ? " (that's the cap)" : ""}, then bed.${check}${napLine}${anchorLine}`, memoOut({ ...(id ? { checkinId: id } : {}), ...(out?.code === 0 ? { checkinAt: target } : {}) }));
+        const lead = one ? `Okay — one more thing, ${minutes} min max (my limit, since it's past your bedtime)` : `Okay — ${minutes} min${what}${assumed ? " (that's the cap)" : ""}`;
+        return c.done(`${lead}, then bed.${check}${napLine}${anchorLine}`, memoOut({ ...(id ? { checkinId: id } : {}), ...(out?.code === 0 ? { checkinAt: target } : {}) }));
     }
     return undefined;
 }

@@ -365,7 +365,7 @@ describe("review MEDIUM 6: a single call that only partly fits never opens with 
     it("not-done first, then what changed", async () => {
         const { spokenReply } = await import("./schedule-reply.js");
         const out = "Changed Sunday 2026-10-25:\n  planned Study: 13:05–14:05\n  NOT BOOKED: Laundry (60 min) did not fit on Sunday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)";
-        expect(spokenReply([out])).toBe("Partly done. Not done: Laundry didn't fit. What did change: Study 1:05 PM–2:05 PM.");
+        expect(spokenReply([out])).toBe("Done — Study 1:05 PM–2:05 PM. But Laundry didn't fit. Say \"undo\" to revert.");
     });
 });
 describe("review MEDIUM 7: the end check matches the block exactly, not a shared word", () => {

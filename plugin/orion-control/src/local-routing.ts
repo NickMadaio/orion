@@ -44,6 +44,7 @@ import { type ReplanAsk } from "./day-replan.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
 import { asksDayRead, asksHabit, habitAnswer } from "./day-questions.js";
+import { answerAvailability } from "./availability-read.js";
 import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne, type EditTarget } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
 import { carriesNamedFlag, unnamedAnchorWrite } from "./anchor-write-guard.js";
@@ -1668,6 +1669,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           markRead(run, a.run.when === "tomorrow" ? "day-tomorrow" : "day");
         }
         settleSchedule(run);
+      }
+      // Wave 9 B (availability-read.ts): "am i free sat night" reads that day and answers from it (the model was handed today's list and said it had no calendar).
+      if (!run.flow && !run.cutOff && options.readDayJson) {
+        const free = await answerAvailability(run.message, (options.now ?? pluginNow)(), (a) => withTimeout(options.readDayJson!(a), options.dayReadMs ?? DAY_READ_MS));
+        if (free) { run.provided = true; markRead(run, "day"); run.flow = { outcome: "say", kind: "plain", text: free }; }
       }
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.

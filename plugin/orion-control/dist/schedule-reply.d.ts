@@ -13,7 +13,7 @@ export declare function summarize(outputs: string[], said: string[]): {
 /** A scheduler run that says it wrote nothing (its first line is "NOTHING WAS CHANGED/BOOKED"). */
 export declare const nothingWritten: (out: string) => boolean;
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
-export declare function spokenReply(outputs: string[], when?: string): string;
+export declare function spokenReply(outputs: string[], when?: string, kept?: string): string;
 /** What differs between two reads of the same day, in plain words: added, removed, moved. */
 export declare function dayDiff(before: Day, after: Day): string[];
 /** After a crash or an unknown outcome: what the calendar reads now against before, or that it cannot be known. Never "nothing changed". */

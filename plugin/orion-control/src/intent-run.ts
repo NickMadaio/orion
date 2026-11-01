@@ -14,7 +14,7 @@ import { ampm, hhmm, parseClock, resolveEnd, span, toMin } from "./intent-time.j
 import type { AskContext, Day, DayBlock } from "./schedule-flow.js";
 
 export type IntentPlan =
-  | { kind: "run"; argv: string[]; replan?: Extract<DayReplan, { args: string[] }>; direct?: Extract<DirectAdd, { args: string[] }>; dayplan?: DayPlanned; title: string; note?: string }
+  | { kind: "run"; argv: string[]; replan?: Extract<DayReplan, { args: string[] }>; direct?: Extract<DirectAdd, { args: string[] }>; dayplan?: DayPlanned; title: string; note?: string; pushAll?: true }
   | { kind: "say"; say: "ask" | "cannot" | "plain"; text: string };
 
 const DEFAULT_ADD_MINUTES = 30;
@@ -101,7 +101,7 @@ function planPushAll(intent: CalendarIntent, day: Day): IntentPlan {
   const last = ahead[ahead.length - 1]!;
   if (toMin(last.end) + by > 1440) return { kind: "say", say: "cannot", text: `${cap(label(last))} would run past midnight if everything moved ${by} minutes later, so I haven't moved anything.` };
   const argv = ["day", ...ahead.flatMap((b) => ["--plan", `${b.title.replace(/,/g, " ")}, ${toMin(b.end) - toMin(b.start)}, ${hhmm(toMin(b.start) + by)}`])];
-  return { kind: "run", argv, title: ahead[0]!.title };
+  return { kind: "run", argv, title: ahead[0]!.title, pushAll: true };
 }
 
 function planMove(intent: CalendarIntent, day: Day): IntentPlan | undefined {

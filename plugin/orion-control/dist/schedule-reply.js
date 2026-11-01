@@ -1,3 +1,4 @@
+import { clearedNotReplanned, partialReply, shiftReasons } from "./partial-reply.js";
 /** What the exec wrapper hands back when the scheduler died without a word. */
 export const UNKNOWN_OUTCOME = "OUTCOME UNKNOWN: the scheduler stopped before it reported back.";
 const ampm = (t) => { const [h, m] = t.split(":").map(Number); const hh = ((h ?? 0) + 11) % 12 + 1; return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
@@ -46,9 +47,11 @@ export function summarize(outputs, said) {
 /** A scheduler run that says it wrote nothing (its first line is "NOTHING WAS CHANGED/BOOKED"). */
 export const nothingWritten = (out) => /^\s*(?:MUST-HAVE )?NOTHING WAS (?:CHANGED|BOOKED)\b/.test(out);
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
-export function spokenReply(outputs, when) {
+export function spokenReply(outputs, when, kept) {
     // The plan a refused run lists is not what happened: only its failure lines are read.
     const lines = outputs.flatMap((o) => o.split("\n").map((l) => l.trim()).filter((l) => !nothingWritten(o) || FAILED.test(l)));
+    const shifts = shiftReasons(lines);
+    const planned = [];
     const said = [];
     const cut = [];
     const followed = [];
@@ -67,7 +70,9 @@ export function spokenReply(outputs, when) {
         }
         let m = l.match(/^planned (.+?): (\d{2}:\d{2})–(\d{2}:\d{2})/);
         if (m) {
-            said.push(`${m[1]} ${ampm(m[2])}–${ampm(m[3])}`);
+            planned.push(m[1]);
+            const why = shifts.get(norm(m[1]));
+            said.push(why ? `${m[1]} couldn't go at ${why.at} (${why.because} is there), so it's ${ampm(m[2])}–${ampm(m[3])}` : `${m[1]} ${ampm(m[2])}–${ampm(m[3])}`);
             continue;
         }
         m = l.match(/^(.+?) moved: \d{2}:\d{2} → (\d{2}:\d{2})–(\d{2}:\d{2})/);
@@ -103,13 +108,17 @@ export function spokenReply(outputs, when) {
     const all = said.length ? [...said, ...cut, ...rest] : [];
     // when: the day it was for ("Done: resume work 5:50 PM" for tomorrow sounded like today, q020).
     // A run that only partly fits never opens with "Done" (2026-10-25 review): what did not happen first, then what did.
-    if (failed && all.length && !logged)
-        return `Partly done${when ? ` for ${when}` : ""}. Not done: ${spokenFailure(failed)}. What did change: ${all.slice(0, 6).join("; ")}.`;
+    if (failed && all.length && !logged) {
+        const notBooked = failures.map((f) => f.match(/^(?:MUST-HAVE )?NOT BOOKED: (.+?) \(\d+ min\)/)?.[1]).filter((t) => !!t);
+        const gone = clearedNotReplanned(lines, planned, notBooked).map((t) => `took ${t} off`);
+        const heard = [...new Set(failures.map(spokenFailure).filter((t) => t !== "nothing could be booked"))];
+        return partialReply({ did: [...all.filter((t) => !/^cleared /.test(t)), ...gone].slice(0, 6), failures: heard.length ? heard : [spokenFailure(failed)], ...(kept ? { kept } : {}), ...(when ? { when } : {}) });
+    }
     const parts = [all.length ? `Done${when ? ` for ${when}` : ""}: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean);
     // A log carries its own one-line summary (what was logged, what moved, what is off today).
     if (logged)
         return [logged, failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean).join(" ");
-    return parts.join(" ") || "Nothing on your day changed.";
+    return [...parts, ...(all.length && kept ? [kept] : [])].join(" ") || "Nothing on your day changed.";
 }
 const spanOf = (b) => `${ampm(b.start)}–${ampm(b.end)}`;
 /** What differs between two reads of the same day, in plain words: added, removed, moved. */

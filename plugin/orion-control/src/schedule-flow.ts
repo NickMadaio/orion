@@ -21,6 +21,7 @@ import { dayPlanReply } from "./day-plan.js";
 import { editLength, type EditRequest, type EditTarget } from "./edit-followup.js";
 import { readIntent } from "./calendar-intent.js";
 import { planIntent } from "./intent-run.js";
+import { dropsGym, keptLine } from "./partial-reply.js";
 import { allTitleWords, blocksNamedBy } from "./block-names.js";
 import { repairStart, timeMismatch } from "./time-backstop.js";
 import { parseClock, resolveStart } from "./intent-time.js";
@@ -722,8 +723,15 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
       if (left() <= 0) return tooSlow;
       const off = offTime([planned.argv]);
       if (off) return takenBack(off as Extract<FlowResult, { outcome: "say" }>);
+      // "Push everything back": the Gym is never the block that falls off. A look first (the scheduler's own dry run, which also
+      // keeps his bed and wind-down settings); if the later hour leaves no room for it, nothing is written (wave 9 B).
+      if (planned.pushAll) {
+        const look = await exec([...withDateArgs(planned.argv, dateArgs), "--dry-run"]).catch(() => undefined);
+        if (look && dropsGym(look.stdout)) return takenBack({ outcome: "say", kind: "cannot", text: "Moving everything that much later would leave no room for Gym before your wind-down, so I haven't moved anything. Tell me a smaller push, or which block can go." });
+      }
       const ran = await execute([withDateArgs(planned.argv, dateArgs)], { exec, undoTop, when, undone, before: day, reread });
       if (ran.outcome === "done" && ran.uncertain) return { ...ran, ...remember };
+      if (planned.pushAll && ran.outcome === "done") return { ...ran, reply: spokenReply(ran.outputs, when, keptLine(day.blocks, day.now)), ...remember };
       // A whole-day plan (day-plan.ts): what he is told is read back from his calendar against what he asked, never "Done" for a mismatch.
       if (planned.dayplan && ran.outcome === "done") {
         const after: Day | undefined = await reread();

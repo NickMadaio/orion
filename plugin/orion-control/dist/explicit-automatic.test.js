@@ -13,7 +13,7 @@ const day = { date: "2030-10-22", now: "15:00", plan: { commuteMinutes: 45, buff
 async function flow(message) {
     const writes = [];
     const result = await runScheduleFlow({ message, clock: "x", now: NOW, ask: async () => { throw new Error("no form"); },
-        exec: async (a) => { if (a[0] !== "show")
+        exec: async (a) => { if (a[0] !== "show" && !a.includes("--dry-run"))
             writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify(day) : "Changed:", code: 0 }; } });
     return { result, writes };
 }

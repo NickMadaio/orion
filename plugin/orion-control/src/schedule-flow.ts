@@ -738,6 +738,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
         const was = e.end <= (day.now ?? "00:00") ? "already over" : "already started";
         return { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} Your earlier ${e.title} (${ampm(e.start)}–${ampm(e.end)}) is ${was}, so this is a second one.` };
       }
+      if (ran.outcome === "done" && planned.note) return { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} ${planned.note}` };
       return ran;
     }
   }

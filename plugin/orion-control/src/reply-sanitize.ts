@@ -10,7 +10,7 @@
 */
 import { stripExecFailed } from "./memory-facts.js";
 import { acknowledgement, acknowledgesFailure, failedTools, wroteSomething } from "./tool-failure.js";
-import type { ToolResult } from "./work-check.js";
+import { outcomeOf, type ToolResult } from "./work-check.js";
 
 const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
@@ -139,6 +139,19 @@ export function sanitizeReply(reply: string, ctx: SanitizeContext = {}): string 
   return text || REPLY_FAILED;
 }
 
+/*
+ Wave 8 B (gate run-1101080052, per-legit-vs-excuse-c): "Gym is bumped to 10:30 AM tonight because of your 9:30 AM deadline." went out
+ with no calendar write: the worker restated his own sentence as done. An affirmative "<thing> is/got moved|bumped|pushed|shifted to <time>"
+ is a claim that a move happened; with no successful write (and nothing awaiting approval) this turn it is never sent as it stands.
+*/
+const MOVE_CLAIM = /\b(?:is|are|got|gets|was|has been|have been|'s|now)\s+(?:now\s+)?(?:bumped|moved|pushed|shifted|rescheduled|switched)(?:\s+(?:back|up|later|over))?\s+(?:to|till|until|for)\s+\d/i;
+const MOVE_HEDGE = /\?\s*$|\b(?:if|should|would|could|can|want|unless|when|once|whether|will|won'?t|can'?t|couldn'?t|didn'?t|haven'?t|hasn'?t|isn'?t|wasn'?t|not|never|no|nothing|n't)\b/i;
+export const NOTHING_MOVED = "I haven't changed your calendar. Nothing was moved yet. Tell me the block and the time and I'll do it.";
+function restatesMoveWithoutWrite(reply: string, tools: ReadonlyArray<ToolResult>): boolean {
+  if (!MOVE_CLAIM.test(reply) || MOVE_HEDGE.test(reply)) return false;
+  return !wroteSomething(tools) && !tools.some((t) => outcomeOf(t) === "pending");
+}
+
 export type FinalizeContext = {
   mailFailed?: boolean;
   /** Tool calls the host itself ran this turn (the host's raw "Exec failed" payload exists only for these). */
@@ -156,6 +169,7 @@ export type FinalizeContext = {
 */
 export function finalizeReply(reply: string, tools: ReadonlyArray<ToolResult>, ctx: FinalizeContext = {}): string {
   const failed = ctx.codeAuthored ? [] : failedTools(tools);
+  if (!ctx.codeAuthored && restatesMoveWithoutWrite(reply, tools)) return NOTHING_MOVED;
   const clean = sanitizeReply(reply, { ...(ctx.mailFailed ? { mailFailed: true } : {}), ...(failed.length ? { strict: true } : {}), ...(ctx.codeAuthored ? { codeAuthored: true } : {}) });
   if (ctx.codeAuthored || !failed.length || !(ctx.hostTools && ctx.hostTools > 0)) return clean;
   const changeRequest = ctx.changeRequest === true;

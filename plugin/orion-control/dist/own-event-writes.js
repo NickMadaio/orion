@@ -35,6 +35,23 @@ const MOVE_AT = new RegExp(String.raw `\b${MOVE_VERB}\b([^.?!,;]*?)\bto\s+${CLOC
 const AT_INSTEAD = new RegExp(String.raw `(?:\bis|'s)\s+(?:now\s+)?at\s+${CLOCK}\s+(?:instead|now|today\s+instead)\b`, "gi");
 const AUX = new Set(["is", "was", "got", "gets", "has", "have", "been", "being", "be", "getting", "just", "also", "now", "s"]);
 const PARTICLE = new Set(["back", "forward", "up", "ahead", "over", "around", "round", "later", "earlier"]);
+/*
+ Wave 4 review 4 (2026-11-01): "dont move marketing to 2", "if marketing gets moved to 2 tell me" and "should i move dinner to 8" each
+ have a verb, an object and a time, and were read as him moving it. A move that is negated, conditional or asked is not one he is making.
+*/
+const NEGATED_MOVE = /\b(?:don'?t|dont|do not|never|no need to|not)\b(?:\s+\w+){0,3}\s*$/;
+const CONDITIONAL = /(?:^|\s)(?:if|in case|incase|when(?:ever)?|unless|once|what if|suppose|supposing|assuming|whether)\b/;
+const ASKED = /^\s*(?:(?:hey|so|ok(?:ay)?|orion|um+|hmm+)[,\s]+)*(?:should|shall|can|could|would|will|may|might|do|does|did|is|are|was|were|am|what|why|how|any (?:chance|way))\b/;
+/** "can you move dinner to 8?" asks ORION to do it: a request, not a question about it. */
+const ASKS_ORION = /\b(?:can|could|would|will|pls|please)\s+(?:you|u|ya)\b/;
+/** The rest of the sentence after a match ends in "?". */
+const askedAfter = (text, at) => { const m = /[.!?]/.exec(text.slice(at)); return m?.[0] === "?"; };
+/** The move at [from, to) is negated, conditional or a question. */
+function hedgedAt(text, from, to) {
+    const sentenceStart = Math.max(...[".", "!", "?"].map((c) => text.lastIndexOf(c, from - 1))) + 1;
+    const lead = text.slice(sentenceStart, from);
+    return NEGATED_MOVE.test(lead) || CONDITIONAL.test(lead) || (ASKED.test(lead) && !ASKS_ORION.test(lead)) || (askedAfter(text, to) && !ASKS_ORION.test(lead));
+}
 /** His words with their punctuation kept (clauses split on it); block-names normalises the names itself. */
 const lower = (t) => t.toLowerCase().replace(/[’`]/g, "'");
 /** The clause a match sits in: the text since the last , ; . ! ? before it, to the next one after it. */
@@ -51,11 +68,12 @@ function movesIn(message) {
         const clause = clauseAround(text, m.index, m.index + m[0].length);
         const object = m[1].split(/\bfrom\b/)[0].split(" ").filter((w) => w && !PARTICLE.has(w)).join(" ");
         const before = text.slice(0, m.index).split(/[,;.!?]/).at(-1);
-        out.push({ object: object || subjectOf(before), clause, clock: [m[2], m[3], m[4]] });
+        out.push({ object: object || subjectOf(before), clause, clock: [m[2], m[3], m[4]], hedged: hedgedAt(text, m.index, m.index + m[0].length) });
     }
     for (const m of text.matchAll(AT_INSTEAD)) {
         const before = text.slice(0, m.index).split(/[,;.!?]/).at(-1);
-        out.push({ object: subjectOf(before), clause: clauseAround(text, m.index, m.index + m[0].length), clock: [m[1], m[2], m[3]] });
+        const clause = clauseAround(text, m.index, m.index + m[0].length);
+        out.push({ object: subjectOf(before), clause, clock: [m[1], m[2], m[3]], hedged: hedgedAt(text, m.index, m.index + m[0].length) });
     }
     return out;
 }
@@ -80,7 +98,7 @@ function phraseNames(phrase, block, day) {
 /** The move he says for THIS block, if any: it is the object of a move verb with a new time, and no study word sits on a class. */
 function moveOf(message, block, others) {
     const day = others.includes(block) ? others : [...others, block];
-    return movesIn(message).find((m) => m.object && phraseNames(m.object, block, day) && !(isClassBlock(block) && intentOf(m.clause) === "study"));
+    return movesIn(message).find((m) => !m.hedged && m.object && phraseNames(m.object, block, day) && !(isClassBlock(block) && intentOf(m.clause) === "study"));
 }
 /**
  * He is moving THIS event: it is the object of his move verb ("move marketing to 2pm", "push my dinner with sam to 8", "marketing

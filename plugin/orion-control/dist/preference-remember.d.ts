@@ -1,7 +1,9 @@
 import type { FlowResult } from "./schedule-flow.js";
+/** refuse: not kept; the honest reply to give instead (review 3: negating gym/classes, turning off check-ins/alarms). */
 export type Preference = {
     fact: string;
     echo: string;
+    refuse?: string;
 };
 export type RememberRun = (args: string[]) => Promise<{
     stdout: string;

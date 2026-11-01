@@ -45,12 +45,12 @@ import { runsFirst } from "./intent-run.js";
 import { asksDayRead, asksHabit, habitAnswer } from "./day-questions.js";
 import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
-import { unnamedAnchorWrite } from "./anchor-write-guard.js";
+import { carriesNamedFlag, unnamedAnchorWrite } from "./anchor-write-guard.js";
 import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
 import { maybeRunComputerTask } from "./computer-loop.js";
 import { detectComputerIntent } from "./computer-intent.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
-import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed } from "./distress.js";
+import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply } from "./late-flow.js";
@@ -1221,7 +1221,7 @@ export function registerLocalRouting(api, options) {
             if (run && (run.room || run.hushed || run.pending || run.preference || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge))
                 return undefined; // 2026-10-31: code's, or the worker's textbook answer
             if (run?.ownText)
-                return { handled: true, reply: { text: run.ownText }, reason: "code answered from data" };
+                return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
             if (run && isOverwhelmed(run.message))
                 return undefined;
             // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
@@ -1239,7 +1239,7 @@ export function registerLocalRouting(api, options) {
             // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
             const draftText = withoutDayClaims(d?.answer ?? "");
             if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "") && !casualStartTask(run?.message ?? ""))
-                return { handled: true, reply: { text: draftText }, reason: "front desk answered" };
+                return { handled: true, reply: { text: withGentleCheckIn(run?.message ?? "", draftText) }, reason: "front desk answered" };
             return undefined;
         });
         api.on("before_prompt_build", guardedPrompt(async (event, ctx) => {
@@ -1997,26 +1997,43 @@ export function registerLocalRouting(api, options) {
         });
     // REV2 finding 18: a misread form falls back to the worker, which can run orion-reschedule. Gym and study are not protected by the
     // scheduler the way classes are, so a worker write that takes or moves one he did not name is refused (anchor-write-guard.ts).
+    // Wave 4 review MUST 1: `--named` lets the scheduler move a class or plan with people. Only code adds it (compile, after his own words
+    // name the event) and code runs the scheduler itself, so a worker exec carrying it is refused whatever the path or wrapper.
+    if (on)
+        api.on("before_tool_call", (event, ctx) => {
+            if (pick(event, ctx, "toolName") !== "exec")
+                return undefined;
+            const params = event.params ?? {};
+            const command = ["command", "cmd", "script"].map((k) => str(params[k]) ?? "").join(" ");
+            return carriesNamedFlag(command) ? { block: true, blockReason: "Orion own-event check: --named is ORION's own flag and is never passed by hand; classes and plans with people move only from his words through ORION's scheduler. Do not run another command; tell Nick nothing changed." } : undefined;
+        });
     if (on)
         api.on("before_tool_call", async (event, ctx) => {
             if (pick(event, ctx, "toolName") !== "exec")
                 return undefined;
             const run = runFor(event, ctx);
             const writes = writesIn(str(event.params?.command) ?? "").filter((a) => /^(?:drop|move|resize|swap|rename|displace)$/.test(a[0] ?? ""));
-            const readJson = options.readDayJson;
-            if (!run || !writes.length || !readJson)
+            if (!writes.length)
                 return undefined;
+            // Review MUST 1: with no day to check against (no reader, a failed read, a read past DAY_READ_MS) the write is refused, not waved
+            // through; with no run there are no words of his, so nothing protected counts as named.
+            const unread = { block: true, blockReason: "Orion anchor check: his day could not be read, so this change cannot be checked and was not made. Do not run another command; tell Nick nothing changed and to try again in a moment." };
+            const readJson = options.readDayJson;
+            if (!readJson)
+                return unread;
             // The same per-turn day read as the time backstop above (one read per turn, however many writes).
-            const days = (run.dayReads ??= new Map());
+            const days = run ? (run.dayReads ??= new Map()) : new Map();
             for (const args of writes) {
                 const date = args.includes("--date") ? ["--date", args[args.indexOf("--date") + 1]] : [];
                 const k = date.join(" ");
                 if (!days.has(k))
                     days.set(k, withTimeout(readJson(date).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS));
                 const day = await days.get(k);
-                const hit = day ? unnamedAnchorWrite(run.message, args, day.blocks) : null;
+                if (!day?.blocks)
+                    return unread;
+                const hit = unnamedAnchorWrite(run?.message ?? "", args, day.blocks);
                 if (hit)
-                    return { block: true, blockReason: `Orion anchor check: ${hit.title} is ${/gym/i.test(hit.kind ?? hit.title) ? "his daily gym" : "study for a deadline"}, and he did not name it, so it is not dropped or moved. Do not run another command; tell Nick nothing changed and ask whether he meant ${hit.title}.` };
+                    return { block: true, blockReason: `Orion anchor check: ${hit.title} is ${hit.fixed ? "a class or a plan with people" : /gym/i.test(hit.kind ?? hit.title) ? "his daily gym" : "study for a deadline"}, and he did not name it, so it is not dropped or moved. Do not run another command; tell Nick nothing changed and ask whether he meant ${hit.title}.` };
             }
             return undefined;
         });
@@ -2238,6 +2255,15 @@ export function registerLocalRouting(api, options) {
                 const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), codeAuthored: owed !== undefined });
                 if (clean !== before) {
                     owed = clean;
+                    remember([runId, sessionKeyNow], owed);
+                }
+            }
+            // Wave 4 review 2: a GENTLE turn ("i hate my life rn the wifi is down") ran as normal; its reply opens with one warm check-in line.
+            if (on && !run.hushed && (owed ?? reply).trim()) {
+                const before = owed ?? reply;
+                const gentle = withGentleCheckIn(run.message, before);
+                if (gentle !== before) {
+                    owed = gentle;
                     remember([runId, sessionKeyNow], owed);
                 }
             }

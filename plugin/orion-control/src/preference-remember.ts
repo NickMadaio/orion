@@ -15,7 +15,8 @@ import type { FlowResult } from "./schedule-flow.js";
 import { ORION_WAKE } from "./wake-flow.js";
 import { isCrisis, touchesLifeOrDeath } from "./distress.js";
 
-export type Preference = { fact: string; echo: string };
+/** refuse: not kept; the honest reply to give instead (review 3: negating gym/classes, turning off check-ins/alarms). */
+export type Preference = { fact: string; echo: string; refuse?: string };
 export type RememberRun = (args: string[]) => Promise<{ stdout: string; code: number }>;
 
 const FILLER = /^(?:(?:hey|yo|ugh|ok(?:ay)?|so|also|and|btw|fyi|orion|oh|just so you know|for the record|heads up)[,\s]+)*/;
@@ -68,6 +69,39 @@ const ORION_YOU = (s: string): string => s.replace(/\b(?:you|u)\b/g, "ORION");
 /** Trailing filler ("pls", "tbh", "lol") and punctuation off the end. */
 const trimEnd = (s: string): string => s.replace(/(?:\s+(?:pls|please|thanks|thx|ty|tbh|lol|lmao|ok|okay|orion))+\s*[.!,;]*$/, "").replace(/[\s.!,;]+$/g, "").trim();
 
+/*
+ Wave 4 review 3 (2026-11-01): "id rather skip gym", "i prefer no gym", "i hate classes", "i like skipping class", "i dont like check ins"
+ and "i hate alarms" were kept in USER.md, which steers every session: the daily gym, his classes and the check-ins and alarms that keep
+ the day moving would have been argued away by one passing line. They are never kept; the reply says so plainly. How he likes them laid
+ out ("i like gym in the evening", "i dont like gym in the morning", "i prefer short check ins") is still a preference.
+*/
+const GYM_WORD = /\b(?:gym|workouts?|working out|lifting|training)\b/;
+const CLASS_WORD = /\b(?:class(?:es)?|lectures?|seminars?|tutorials?|labs?)\b/;
+const CHECKIN_WORD = /\bcheck[- ]?ins?\b/;
+const ALARM_WORD = /\b(?:alarms?|wake[- ]?ups?)\b/;
+const LIKE_HEAD = /^(?:i (?:really |kinda |kind of |honestly |do |much |just )?(?:prefer|like|love|enjoy|(?:don'?t|dont|do not) mind)|i(?:'?d| would) (?:much |really |honestly )?rather)\s+/;
+const DISLIKE_HEAD = /^i (?:really |kinda |honestly |do |just )?(?:hate|despise|dislike|can'?t stand|cant stand|do not like|don'?t like|dont like)\s+/;
+const DROPS = /^(?:to )?(?:skip(?:ping)?|miss(?:ing)?|no|not (?:go(?:ing)?|do(?:ing)?|hav(?:e|ing)|get(?:ting)?)|never|without|drop(?:ping)?|cut(?:ting)?|ditch(?:ing)?|bail(?:ing)? on|less|fewer|none|turn(?:ing)? off|switch(?:ing)? off|get(?:ting)? rid of|cancel\w*|stop\w*|(?:have|having|get|getting) no)\b/;
+const LAID_OUT = new RegExp(String.raw`\b(?:${TIME_OF_DAY}|short(?:er)?|long(?:er)?|quick(?:er)?|brief|gentle|quiet(?:er)?|loud(?:er)?|before|after|first|last|back to back)\b`);
+const REFUSE_GYM = "I'm not saving that one: gym stays in your plan every day. If today's too much, tell me and I'll move it or make it shorter.";
+const REFUSE_CLASS = "I'm not saving that one: your classes stay on your calendar. If you're skipping a particular one, tell me which and I'll take just that one off.";
+const REFUSE_CHECKIN = "I'm not saving that or turning check-ins off; they stay on so the day keeps moving. If one comes at a bad time, tell me you're pushing it and I'll come back later.";
+const REFUSE_ALARM = "I'm not saving that or switching alarms off from chat. The wake-up alarm has its own switch in the phone app, under Tonight's settings.";
+/** The honest reply when this clause negates gym or classes or turns off check-ins or alarms; undefined otherwise. */
+function anchorRefusal(c: string): string | undefined {
+  const like = c.match(LIKE_HEAD);
+  const dislike = like ? undefined : c.match(DISLIKE_HEAD);
+  if (!like && !dislike) return undefined;
+  const rest = trimEnd(c.slice((like ?? dislike)![0].length)).replace(/^(?:the|my|going to(?: the)?|doing|having|getting)\s+/, "");
+  const against = like ? DROPS.test(rest) : !LAID_OUT.test(rest);
+  if (!against) return undefined;
+  if (GYM_WORD.test(rest)) return REFUSE_GYM;
+  if (CLASS_WORD.test(rest)) return REFUSE_CLASS;
+  if (CHECKIN_WORD.test(rest)) return REFUSE_CHECKIN;
+  if (ALARM_WORD.test(rest)) return REFUSE_ALARM;
+  return undefined;
+}
+
 /** One clause: a preference, or undefined. `kept`: he said "remember …", so a reaction-shaped clause still counts. */
 function clause(c: string, kept: boolean): Preference | undefined {
   for (const [re, verb3, verb2] of LIKE) {
@@ -111,6 +145,8 @@ export function readPreference(message: string): Preference | undefined {
   const said = body.replace(KEEP, "");
   if (SCHEDULING.test(said)) return undefined;
   const parts = said.split(/\s*(?:,|;|\band\b|\balso\b|\bplus\b)\s+(?=(?:i |i'd |don'?t |dont |do not |never |stop |quit |no more |be |talk |keep it |please ))/);
+  const refusal = parts.map((p) => anchorRefusal(p.trim())).find(Boolean);
+  if (refusal) return { fact: "", echo: "", refuse: refusal };
   const found = parts.map((p) => clause(p.trim(), kept));
   if (!found.length || found.some((f) => !f)) return undefined;
   const all = found as Preference[];
@@ -120,6 +156,7 @@ export function readPreference(message: string): Preference | undefined {
 
 /** Writes it with orion-remember --user and answers from the result. Nothing is claimed unless the script says it was remembered. */
 export async function savePreference(pref: Preference, run: RememberRun): Promise<FlowResult> {
+  if (pref.refuse) return { outcome: "say", kind: "plain", text: pref.refuse };   // review 3: never written to USER.md
   const args = ["--user", `Preference: ${pref.fact}.`];
   const out = await run(args).catch(() => ({ stdout: "", code: 1 }));
   const call = `exec orion-remember --user "Preference: ${pref.fact}."`;

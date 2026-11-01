@@ -30,7 +30,7 @@ const LIFE_AND_DEATH = [
 ];
 /** The life-and-death space by itself (REV5): what must never be read as a preference, a plan or a setting, even where isCrisis's
  *  narrower idiom rules would let a line through. Broad on purpose: a false hold costs only the worker answering instead. */
-export const touchesLifeOrDeath = (message) => CRISIS.test(message) || /\b(?:alive|living|life|lives|dying|die|died|death|dead|suicid\w*|kill\w*|existing|exist|existence|disappear\w*|vanish\w*|(?:not|never|don'?t|dont) wak(?:e|ing) up|sleep(?:ing)? forever|forever asleep)\b/i.test(message);
+export const touchesLifeOrDeath = (message) => CRISIS.test(message) || FULL_MORE.test(message) || /\b(?:alive|living|life|lives|dying|die|died|death|dead|suicid\w*|kill\w*|existing|exist|existence|disappear\w*|vanish\w*|(?:not|never|don'?t|dont) wak(?:e|ing) up|sleep(?:ing)? forever|forever asleep)\b/i.test(message);
 const CRISIS = new RegExp([
     String.raw `\b(can['’]?t|cannot) (do|take|handle) (this|it) (any ?more|no more)\b`,
     String.raw `\bcan['’]?t go on( like this| any ?more)?\s*[.!]*$`,
@@ -74,5 +74,76 @@ export const CRISIS_REPLY = "I'm really sorry it feels this heavy, Nick, and I'm
 // this check-in line follows it. Anything else in a continuation (more about how he feels, "i've got the pills here") keeps CRISIS_REPLY.
 export const SUPPORT_LINE = "Are you safe right now? If not, call 999, or Samaritans free on 116 123.";
 export const OVERWHELMED_NOTE = "Nick is feeling overwhelmed. Answer with warmth in two short spoken sentences: say you hear him, then suggest ONE small first step he could take in the next few minutes (a breath, a stretch, writing down the one thing due first). Do not call any tools, do not look anything up, and do not read out his schedule.";
-export const isCrisis = (message) => CRISIS.test(message);
+/*
+ Wave 4 review 2 (2026-11-01): crisis tiers, decided by the orchestrator (local-routing.ts) before any flow, tool or model.
+   FULL    the fixed CRISIS_REPLY. Every signal above, and now also by category: being a burden, no reason to keep going, life has no
+           meaning, no future. Ambiguous phrasings with no mundane cause stay here: a false alarm is cheaper than a miss.
+   GENTLE  "hate my life / done with life / rather die / sleeping forever" said with a clearly mundane cause or a joking marker in the
+           same message ("i hate my life rn the wifi is down", "honestly i'd rather die lol"). The turn runs as normal and the reply
+           opens with ONE short, warm check-in line (gentleCheckIn). Anything else in the message that reads as a signal keeps it FULL.
+   null    nothing; "i'd love to die on this hill" is an idiom. Preferences are still never saved near any of it (touchesLifeOrDeath).
+*/
+const FULL_MORE = new RegExp([
+    // being a burden (on himself, not "the burden of proof")
+    String.raw `\b(?:i['’]?m|im|i am|i feel(?: like)?|feel(?:ing)? like|i['’]?ve become|i always feel like|being)\s+(?:\w+\s+)?(?:a\s+|such a\s+|nothing but a\s+|just a\s+|so much of a\s+)?(?:huge\s+|massive\s+|total\s+)?burden\b`,
+    String.raw `\b(?:burden (?:to|on|for) (?:everyone|everybody|every1|my (?:family|friends|parents|mum|mom|dad)|the people|people|them all|you all)|(?:wasn['’]?t|wasnt|weren['’]?t|was not|not) (?:around|here) to burden)\b`,
+    // no reason to keep going
+    String.raw `\b(?:no|(?:don['’]?t|dont|do not|can['’]?t|cant|cannot) (?:see|find|think of|have|get)(?: a| any)?|not (?:a|any)|without (?:a|any)|nothing(?: left)?)\s+(?:real\s+|single\s+)?(?:reasons?|point|purpose)?\s*(?:to|in|for)\s+(?:keep(?:ing)? going|go(?:ing)? on|carry(?:ing)? on|keep(?:ing)? living|stay(?:ing)? alive|keep(?:ing)? trying|be(?:ing)? here any ?more)\b(?!\s+(?:with|on (?:this|that|the|it)|at (?:this|that|it)))`,
+    String.raw `\bnothing(?: left)? to keep going for\b|\bwhy (?:should i |would i |do i |even |bother )*(?:even )?(?:keep going|go on|carry on|keep living|stay alive)\b(?!\s+(?:with|on (?:this|that|the|it)))`,
+    // life has no meaning
+    String.raw `\b(?:my )?life (?:has|holds|had) (?:no|zero) (?:meaning|purpose|point|value)\b|\b(?:my )?life (?:doesn['’]?t|doesnt|does not) (?:mean|matter) (?:anything|a thing)\b|\bmy life means nothing\b`,
+    String.raw `\bno (?:meaning|purpose|point) (?:to|in) (?:my )?(?:life|living|existence|being alive)\b|\bnothing matters any ?more\b|\bmy (?:life|existence) (?:is|feels) (?:so |completely |totally )?(?:pointless|meaningless|worthless|empty)\b`,
+    // no future
+    String.raw `\bi (?:have|got|see) no future\b|\b(?:there['’]?s|there is|theres) no future for me\b|\bno future for me\b|\bmy future is (?:gone|over|hopeless|dead|ruined|pointless|nothing)\b`,
+    String.raw `\bi (?:don['’]?t|dont|do not|can['’]?t|cant|cannot) (?:have|see|picture|imagine) (?:a|any) future\b(?!\s+(?:where|in which|plans?|meetings?|events?|classes|sessions?|for (?:this|that|the|it|my (?:project|plan|code|business|company))))`,
+].join("|"), "i");
+// The heavy-but-everyday phrasings that may be GENTLE when a mundane cause or joke sits beside them.
+const SOFTENABLE = new RegExp([
+    String.raw `\b(?:hate|hating|sick of|tired of|done with|so done with|over) (?:my |this )?life\b`,
+    String.raw `\b(?:i['’]?d|id|i would|honestly i['’]?d) (?:honestly |literally |genuinely )?rather (?:die|be dead)\b`,
+    String.raw `\b${TOWARD}\s+(?:sleep(?:ing)?|sleep in) forever\b`,
+].join("|"), "gi");
+// A stated trivial cause, or a joking marker, in the same message.
+const MUNDANE = /\b(?:lol+|lmao+|lmfao|haha\w*|hehe\w*|rn|jk|kidding|xd|bruh|smh|wifi|wi-fi|internet|connection|signal|printer|laptop|charger|battery|traffic|bus|train|tube|queue|line|weather|rain|coffee|boring|bored|so slow|lecture|class|seminar|meeting|group (?:project|meeting|chat)|homework|this assignment|monday|mondays|(?:on|this) (?:a )?(?:mon|tues|wednes|thurs|fri|satur|sun)day|weekend|sleep in|lie in|alarm|hangover|hungover|game|fifa|exam season|deadline)\b|[😂🤣💀🙃😭]/i;
+// "die on this hill" / "a hill to die on": an idiom, cleared before any check.
+const IDIOM = /\b(?:die|dying|died|dies) on (?:this|that|a|the|my|which|what|every|any) (?:\w+ )?hill\b|\bhills? (?:i['’]?(?:d|ll|m)? |i would |i will |to |worth )?(?:\w+ )?(?:die|dying) on\b/gi;
+/** Which tier this message is: the fixed reply (full), a normal turn with one warm check-in first (gentle), or nothing. Pure. */
+export function crisisTier(message) {
+    const text = message.replace(IDIOM, " ");
+    const soft = new RegExp(SOFTENABLE.source, "i").test(text);
+    const rest = text.replace(SOFTENABLE, " ");
+    if (CRISIS.test(rest) || FULL_MORE.test(rest))
+        return "full";
+    if (soft)
+        return MUNDANE.test(rest) ? "gentle" : "full";
+    return null;
+}
+const CAUSES = [
+    [/\b(?:wifi|wi-fi|internet|connection|signal)\b/i, "the wifi"], [/\b(?:class|lecture|seminar)\b/i, "the class"], [/\bprinter\b/i, "the printer"],
+    [/\b(?:bus|train|tube|traffic)\b/i, "the commute"], [/\b(?:meeting|group (?:project|meeting|chat))\b/i, "the meeting"], [/\bhomework|assignment\b/i, "the homework"],
+];
+const OPENERS = [
+    (c) => (c ? `You ok, or is it just ${c}?` : "You ok, or just one of those days?"),
+    (c) => (c ? `Rough one, or mostly ${c}?` : "Rough one, or mostly joking?"),
+    (c) => (c ? `Just ${c} being annoying, or more than that?` : "Just a bad moment, or more than that?"),
+    (c) => (c ? `Checking in: is it only ${c}?` : "Checking in: you doing alright?"),
+    () => "You good though?",
+];
+/** The one short, warm check-in that opens a GENTLE turn: names his cause when he gave one, varies by message, stable for the same one. */
+export function gentleCheckIn(message) {
+    const cause = CAUSES.find(([re]) => re.test(message))?.[1];
+    let h = 0;
+    for (const ch of message)
+        h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const pick = OPENERS[h % OPENERS.length];
+    return pick(cause);
+}
+/** The reply with the gentle check-in in front, once (a text that already opens with it is left as it is). */
+export function withGentleCheckIn(message, text) {
+    if (crisisTier(message) !== "gentle" || !text.trim())
+        return text;
+    const line = gentleCheckIn(message);
+    return text.startsWith(line) ? text : `${line} ${text}`;
+}
+export const isCrisis = (message) => crisisTier(message) === "full";
 export const isOverwhelmed = (message) => !isCrisis(message) && OVERWHELMED.test(message);

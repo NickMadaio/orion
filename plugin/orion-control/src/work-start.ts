@@ -4,7 +4,7 @@
  the tool orion-session here because it isn't available". Saying he is about to work on something, now, is a focus start like
  "start a focus session on econ": code starts it. Pure; session-flow.ts uses it next to its own START and MODE_ON readers.
 */
-import { blocksNamedBy, type NamedBlock } from "./block-names.js";
+import { blocksNamedBy, isClassBlock, type NamedBlock } from "./block-names.js";
 
 /** A name he could mean: a block on his day, or a deadline (title only). */
 export type KnownName = { title: string; start?: string; end?: string; kind?: string; fixed?: boolean };
@@ -34,11 +34,19 @@ export function casualStartTask(message: string): string | undefined {
 
 const asBlock = (k: KnownName): NamedBlock => ({ title: k.title, start: k.start ?? "00:00", end: k.end ?? "00:00", ...(k.kind ? { kind: k.kind } : {}), ...(k.fixed !== undefined ? { fixed: k.fixed } : {}) });
 
+// Wave 4 review 5 (2026-11-01): "lets get started on sam" started a focus session named "sam" from "Dinner with Sam". A name worth a
+// focus session is a class, a study or work block, or a deadline: never a plan with people, another fixed event, or the gym.
+const WITH_PEOPLE = /\b(?:with|meet(?:ing|up)?|date|party|birthday|drinks)\b|\bw\//i;
+const GYM = /\b(?:gym|workout|lifting|training|run|yoga|swim)\b/i;
+const workable = (k: KnownName): boolean => k.kind !== "gym" && !GYM.test(k.title) && !WITH_PEOPLE.test(k.title)
+  && (!k.fixed || isClassBlock({ title: k.title, ...(k.kind ? { kind: k.kind } : {}), fixed: true }));
+
 /** The task when his words say he is starting work on it now ("econ", "the essay"), else undefined. Work means a work noun in it, or a
  *  name that resolves (blocksNamedBy) to a block on his day or a deadline in `known`. Pure. */
 export function workStartTask(message: string, known: readonly KnownName[] = []): string | undefined {
   const task = casualStartTask(message);
   if (!task) return undefined;
   if (WORK_NOUN.test(task)) return task;
-  return known.length && blocksNamedBy(task, known.map(asBlock), { intent: "study" }).length ? task : undefined;
+  const names = known.filter(workable);
+  return names.length && blocksNamedBy(task, names.map(asBlock), { intent: "study" }).length ? task : undefined;
 }

@@ -126,11 +126,13 @@ const DEADLINE_TYPE = /^(?:assessment|deadline|exam|todo|to-do|task|assignment|q
 const DEADLINE_WORDS = /\b(?:deadline|due|exam|midterm|quiz|assessment|assignment|hand-?in)\b/i;
 const COURSE_CODE = /^[a-z]{2,5}\s?\d{3,4}$/i;
 
-function courseOf(note, notes, graph) {
-  const typeOf = new Map(notes.map((n) => [compact(n.title), n.type]));
-  const isCourse = (t) => /^(?:course|class)$/i.test(typeOf.get(compact(t)) ?? "")
+function isCourse(t, notes, graph) {
+  const note = notes.find((n) => compact(n.title) === compact(t));
+  return /^(?:course|class)$/i.test(note?.type ?? "")
     || (graph?.nodes ?? []).some((n) => n.type === "course" && compact(n.label) === compact(t)) || COURSE_CODE.test(t.trim());
-  return [...note.relations.map((r) => r.target), ...note.mentions].find(isCourse);
+}
+function courseOf(note, notes, graph) {
+  return [...note.relations.map((r) => r.target), ...note.mentions].find((t) => isCourse(t, notes, graph));
 }
 
 /** The note nearest a subject that is not itself a node: every word of it in the note, most of them in the title. */
@@ -146,6 +148,8 @@ function nearest(subject, notes, graph) {
   }).filter(Boolean).sort((a, b) => b.inTitle - a.inTitle || a.n.title.length - b.n.title.length);
   const best = scored[0]?.n;
   if (!best) return undefined;
+  // A class note that holds every word is the class itself; following its links would land on its lab.
+  if (isCourse(best.title, notes, graph)) return { title: best.title, via: best.title, why: "title" };
   const deadline = DEADLINE_TYPE.test(best.type) || DEADLINE_WORDS.test(`${best.title} ${best.text}`);
   const course = deadline ? courseOf(best, notes, graph) : undefined;
   return course && compact(course) !== compact(best.title) ? { title: course, via: best.title, why: "class" } : { title: best.title, via: best.title, why: "title" };

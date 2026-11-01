@@ -192,6 +192,13 @@ test("links falls back from a missing subject to the class whose deadline it is,
   assert.equal(mk.fallback.via, "Pitch deck brief");
 });
 
+test("a class note that itself holds every word is the fallback, never its lab (live vault: cs midterm went to CS2101)", () => {
+  const w = world();
+  const out = w.run("links", "cs lectures");
+  assert.equal(out.title, "CS3000");
+  assert.equal(out.fallback.via, "CS3000");
+});
+
 test("links falls back to a fuzzy title when no deadline matches, and never to a guess", () => {
   const w = world();
   const out = w.run("links", "cs3001 lab stuff");

@@ -99,7 +99,7 @@ function planPushAll(intent, day) {
     if (toMin(last.end) + by > 1440)
         return { kind: "say", say: "cannot", text: `${cap(label(last))} would run past midnight if everything moved ${by} minutes later, so I haven't moved anything.` };
     const argv = ["day", ...ahead.flatMap((b) => ["--plan", `${b.title.replace(/,/g, " ")}, ${toMin(b.end) - toMin(b.start)}, ${hhmm(toMin(b.start) + by)}`])];
-    return { kind: "run", argv, title: ahead[0].title };
+    return { kind: "run", argv, title: ahead[0].title, pushAll: true };
 }
 function planMove(intent, day) {
     if (intent.all)

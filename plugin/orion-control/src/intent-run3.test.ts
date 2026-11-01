@@ -32,7 +32,7 @@ describe("1a. the intent layer reads block / set aside / pencil in, 'for N hrs' 
   it("through the flow: one add at 19:00, 120 minutes, the form never asked", async () => {
     const writes: string[][] = [];
     const r = await runScheduleFlow({ message: "can u block 2 hrs for econ homework tonight at 7", clock: "x", now: at(0, 18), ask: async () => { throw new Error("no form"); },
-      exec: async (a) => { if (a[0] !== "show") writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify(DAY) : "Changed:\n  planned econ homework: 19:00–21:00", code: 0 }; } });
+      exec: async (a) => { if (a[0] !== "show" && !a.includes("--dry-run")) writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify(DAY) : "Changed:\n  planned econ homework: 19:00–21:00", code: 0 }; } });
     expect(writes).toEqual([["add", "econ homework", "120", "--at", "19:00", "--length-explicit"]]);
     expect(r.outcome).toBe("done");
     expect(spokenReply((r as { outputs: string[] }).outputs)).toBe("Done: econ homework 7:00 PM–9:00 PM.");
@@ -74,7 +74,7 @@ describe("1b. the backstop: a time he said is the start every write uses, or not
     const writes: string[][] = [];
     const steps: Intent[] = [{ do: "add", what: "econ homework", minutes: 120 }];
     const r = await runScheduleFlow({ message: "can u block 2 hrs for econ homework tonight at 7, after dinner", clock: "x", now: at(15), ask: async () => ({ steps }),
-      exec: async (a) => { if (a[0] !== "show") writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify({ ...DAY, now: "15:00" }) : "Changed:\n  planned econ homework: 19:00–21:00", code: 0 }; } });
+      exec: async (a) => { if (a[0] !== "show" && !a.includes("--dry-run")) writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify({ ...DAY, now: "15:00" }) : "Changed:\n  planned econ homework: 19:00–21:00", code: 0 }; } });
     expect(writes).toEqual([["add", "econ homework", "120", "--at", "19:00"]]);
     expect(r.outcome).toBe("done");
   });
@@ -138,7 +138,7 @@ describe("3. 'push everything N min' is the late flow, in code; an honest line n
     const day: Day = { ...DAY, now: "15:00", blocks: [...DAY.blocks, { title: "walk", start: "14:30", end: "15:15", fixed: false }, { title: "Gym", start: "18:00", end: "19:30", fixed: false, kind: "gym" }, { title: "reading", start: "20:00", end: "20:30", fixed: false }] };
     const writes: string[][] = [];
     const r = await runScheduleFlow({ message: "ok and push everything 30 min", clock: "x", now: at(15), ask: async () => { throw new Error("no form"); },
-      exec: async (a) => { if (a[0] !== "show") writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify(day) : "Changed:\n  Gym moved: 18:00 → 18:30–20:00", code: 0 }; } });
+      exec: async (a) => { if (a[0] !== "show" && !a.includes("--dry-run")) writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify(day) : "Changed:\n  Gym moved: 18:00 → 18:30–20:00", code: 0 }; } });
     expect(writes).toEqual([["day", "--plan", "Gym, 90, 18:30", "--plan", "reading, 30, 20:30"]]);
     expect(r.outcome).toBe("done");
   });

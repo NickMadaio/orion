@@ -38,9 +38,10 @@ async function archive(ids: string[], run: KnowledgeRun, log: KnowledgeOut): Pro
   return out?.archived;
 }
 
-const sameText = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+// Wave 4 review finding 5: letters and digits in any script are kept; a line with none (emoji only) has an empty key, which is never "the same".
+const sameText = (s: string) => s.normalize("NFC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 const forgotLine = (gone: Entry[]) => {
-  const said = [...new Map(gone.map((g) => [sameText(g.text), quote(g.text)])).values()];
+  const said = [...new Map(gone.map((g) => [sameText(g.text) || `\u0000${g.id}`, quote(g.text)])).values()];
   return said.length ? `Forgot ${list(said)}.` : "";
 };
 const undoHeld = (gone: Entry[]): KnowledgeHeld | undefined => (gone.length ? { kind: "forget-undo", ids: gone.map((g) => g.id), texts: gone.map((g) => g.text) } : undefined);
@@ -53,7 +54,7 @@ async function forget(move: Extract<KnowledgeMove, { kind: "forget" }>, run: Kno
     found.push({ topic, matches: out.matches ?? [] });
   }
   // The same line saved in two notes is one memory (run-1101020721: a learned line and its copy): never "which one?" about twins.
-  const oneMemory = (ms: Entry[]) => ms.length === 1 || (ms.length > 1 && new Set(ms.map((m) => sameText(m.text))).size === 1);
+  const oneMemory = (ms: Entry[]) => ms.length === 1 || (ms.length > 1 && ms.every((m) => sameText(m.text)) && new Set(ms.map((m) => sameText(m.text))).size === 1);
   const sure = found.filter((f) => oneMemory(f.matches) || (move.all && f.matches.length > 1));
   const unsure = move.all ? undefined : found.find((f) => !oneMemory(f.matches));
   const none = found.filter((f) => !f.matches.length).map((f) => f.topic);

@@ -161,6 +161,35 @@ describe("runKnowledgeMove: forget", () => {
     expect(out.text.match(/introduce Carol/g)?.length).toBe(1);
   });
 
+  // Wave 4 review finding 5: sameText dropped every non-ASCII letter, so two different lines in another script (or two emoji-only
+  // lines) became the same empty key and both were archived without asking.
+  it.each([
+    [["我喜欢喝茶", "我喜欢喝咖啡"]],
+    [["José es mi compañero", "José es mi jefe"]],
+    [["🙂", "🎉"]],
+  ])("different lines that are not ASCII are never twins: %o", async (texts) => {
+    const ms = texts.map((text, i) => ({ id: `${"f".repeat(9)}${i}`, text, where: "your \"Nick\" note", copies: 1 }));
+    const archived: string[] = [];
+    const { run } = fake((_s, args) => {
+      if (args[1] === "--apply") { archived.push(...args.slice(2)); return { archived: ms.filter((t) => args.includes(t.id)), missing: [] }; }
+      return { query: args[1], matches: ms };
+    });
+    const out = await runKnowledgeMove({ kind: "forget", targets: ["x"], all: false }, run);
+    expect(archived).toEqual([]);
+    expect(out.held?.kind).toBe("forget-pick");
+  });
+  it("the same accented line saved twice is still one memory", async () => {
+    const ms = [{ id: "gggggggggg", text: "Café opens at 9.", where: "a", copies: 1 }, { id: "hhhhhhhhhh", text: "café opens at 9", where: "b", copies: 1 }];
+    const archived: string[] = [];
+    const { run } = fake((_s, args) => {
+      if (args[1] === "--apply") { archived.push(...args.slice(2)); return { archived: ms.filter((t) => args.includes(t.id)), missing: [] }; }
+      return { query: args[1], matches: ms };
+    });
+    const out = await runKnowledgeMove({ kind: "forget", targets: ["cafe"], all: false }, run);
+    expect(archived.sort()).toEqual(["gggggggggg", "hhhhhhhhhh"]);
+    expect(out.text.match(/opens at 9/g)?.length).toBe(1);
+  });
+
   it("the store is unreachable: an honest line, no internals", async () => {
     const { run } = fake(() => undefined);
     const out = await runKnowledgeMove({ kind: "forget", targets: ["priya"], all: false }, run);

@@ -108,8 +108,15 @@ final class FocusExtrasCoordinator {
     private let work = DispatchQueue(label: "com.nickmadaio.orion.focus-extras",
                                      qos: .utility)
 
+    /// Main-thread only: what `apply` last saw.
     private var sessionIsLive = false
+    /// Confined to `work`: whether THIS session's Focus change took effect.
     private var changedFocusMode = false
+
+    /// Read from `work` while the main thread writes it, hence the lock. Each
+    /// session start gets a new generation, so a review queued for a session
+    /// that has since ended (or been replaced) sees itself as not live.
+    private let liveness = SessionLiveness()
 
     /// The most recent problem from each, so the UI can show them separately.
     private(set) var problems: [String] = []
@@ -167,12 +174,23 @@ final class FocusExtrasCoordinator {
 
     private func begin(task: String, isFreshStart: Bool) {
         var found: [String] = []
+        let generation = liveness.begin()
 
         if extras.doNotDisturb {
-            let outcome = focus.enableForSession()
-            changedFocusMode = outcome.worked
-            if let message = outcome.message {
-                found.append("Focus (\(focus.sessionMode)): \(message)")
+            // Off main: running a Shortcut is process work, and doing it here
+            // (inside SessionService.publish on main) is what pumped the nested
+            // run loop in the 2026-11-01 deadlock.
+            work.async { [weak self] in
+                guard let self, self.liveness.isLive(generation) else { return }
+                let outcome = self.focus.enableForSession()
+                self.changedFocusMode = outcome.worked
+                guard let message = outcome.message else { return }
+                let problem = "Focus (\(self.focus.sessionMode)): \(message)"
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.liveness.isLive(generation) else { return }
+                    self.problems = self.problems + [problem]
+                    self.onLog?("[extras] \(problem)")
+                }
             }
         }
 
@@ -218,8 +236,20 @@ final class FocusExtrasCoordinator {
             }
             // Everything about this runs off the session's own thread and logs
             // every decision it makes.
+            // The session may end while this waits behind other work, and
+            // again while the model is reasoning: liveness is checked when the
+            // review starts and before every quit.
             work.async { [weak self] in
-                self?.distractions.closeDistractions(task: task)
+                guard let self else { return }
+                guard self.liveness.isLive(generation) else {
+                    self.onLog?("[distractions] the session ended before the review started, "
+                                + "so nothing was closed")
+                    return
+                }
+                let liveness = self.liveness
+                self.distractions.closeDistractions(
+                    task: task, stillLive: { liveness.isLive(generation) }
+                )
             }
         }
 
@@ -228,10 +258,13 @@ final class FocusExtrasCoordinator {
     }
 
     private func end() {
-        // Only undo what was actually done.
-        if changedFocusMode {
-            _ = focus.disableForSession()
-            changedFocusMode = false
+        liveness.end()
+        // Only undo what was actually done. On `work`, after any enable that
+        // is still queued, and never on main.
+        work.async { [weak self] in
+            guard let self, self.changedFocusMode else { return }
+            _ = self.focus.disableForSession()
+            self.changedFocusMode = false
         }
         music.resumeAfterSession()
         camera.setEnabled(false)

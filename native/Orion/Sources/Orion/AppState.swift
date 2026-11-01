@@ -294,9 +294,18 @@ final class AppState: ObservableObject {
     /// Drift enforcement. Off until Nick confirms an allowlist — the model
     /// proposes, he authorizes. Reachable from the socket so the escape works
     /// without the gateway, the local model, or the UI being up.
+    ///
+    /// Both callbacks hop to main. `release` and `arm` arrive on the socket
+    /// thread, and on 2026-11-01 `release` → speak → `turns.append` there
+    /// took Combine's lock off main and deadlocked against SwiftUI. Async, never
+    /// sync: the socket thread must not wait on main.
     private(set) lazy var enforcer = Enforcer(
-        speak: { [weak self] line in self?.speakEnforcement(line) },
-        intervene: { [weak self] action in self?.applyEnforcementIntervention(action) },
+        speak: { [weak self] line in
+            DispatchQueue.main.async { self?.speakEnforcement(line) }
+        },
+        intervene: { [weak self] action in
+            DispatchQueue.main.async { self?.applyEnforcementIntervention(action) }
+        },
         log: { OrionLog.write($0) }
     )
     /// Messages, for the socket.
@@ -974,8 +983,17 @@ final class AppState: ObservableObject {
 
     /// Acknowledge the focus effect on screen without unsolicited speech.
     @discardableResult
+    ///
+    /// SessionEffects calls this from the session queue (a socket `start` or
+    /// `finish` pumps effects there), so the `turns` write goes to main. The
+    /// effect is acknowledged at once: showing the line cannot fail.
     private func speakSession(_ line: String) -> Bool {
-        if !line.trimmingCharacters(in: .whitespaces).isEmpty { append(.orion, line) }
+        guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return true }
+        if Thread.isMainThread {
+            append(.orion, line)
+        } else {
+            DispatchQueue.main.async { [weak self] in self?.append(.orion, line) }
+        }
         return true
     }
 
@@ -1661,6 +1679,10 @@ final class AppState: ObservableObject {
     }
 
     private func append(_ role: Turn.Role, _ text: String) {
+        // `turns` is @Published: an off-main write is the 2026-11-01 deadlock.
+        // Debug-only trap, so a regression shows up in development without
+        // crashing the installed app.
+        assert(Thread.isMainThread, "AppState.append called off the main thread")
         turns.append(Turn(role: role, text: text))
         if role == .you { saveChat(.user, text: text) }
         if turns.count > 60 {

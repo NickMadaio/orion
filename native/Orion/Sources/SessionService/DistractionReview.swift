@@ -229,17 +229,22 @@ public final class DistractionCloser {
     private let quittable: QuittableApps
     private let reasoner: DistractionReasoning?
     private let clock: () -> Date
+    /// True while a harness run's eval marker is fresh. Injected for tests;
+    /// the default is the same rule scripts/lib/eval-mode.mjs uses.
+    private let isEvalMode: () -> Bool
 
     public var onLog: ((String) -> Void)?
 
     public init(apps: RunningAppsReading = RunningApps(),
                 quittable: QuittableApps,
                 reasoner: DistractionReasoning?,
-                clock: @escaping () -> Date = { Date() }) {
+                clock: @escaping () -> Date = { Date() },
+                isEvalMode: @escaping () -> Bool = { EvalMode.isActive() }) {
         self.apps = apps
         self.quittable = quittable
         self.reasoner = reasoner
         self.clock = clock
+        self.isEvalMode = isEvalMode
     }
 
     /// Decide, without doing anything. Every running app comes back with a
@@ -295,17 +300,39 @@ public final class DistractionCloser {
     /// The second screening is not belt and braces, it is the point: `review`
     /// may have run seconds or minutes ago, and `quit` re-reads the app's
     /// document state at the moment it is about to be asked to close.
+    ///
+    /// `stillLive` is asked again immediately before EVERY quit. The review
+    /// takes seconds (a model call), and on 2026-11-01 a session stopped at
+    /// 04:44:09 still had CurseForge quit at 04:44:13. A session that is over
+    /// closes nothing. Under a fresh eval marker the review runs and is logged
+    /// — what it WOULD close — but nothing is quit.
     @discardableResult
-    public func closeDistractions(task: String) -> [QuitOutcome] {
+    public func closeDistractions(task: String,
+                                  stillLive: () -> Bool = { true }) -> [QuitOutcome] {
+        guard stillLive() else {
+            onLog?("[distractions] the session ended before the review began, so nothing was closed")
+            return []
+        }
         let review = review(task: task)
         log(review)
 
-        return review.toClose.map { decision in
+        var outcomes: [QuitOutcome] = []
+        for decision in review.toClose {
+            guard stillLive() else {
+                onLog?("[distractions] the session is no longer live, so \(decision.name) "
+                       + "and anything after it stay open")
+                break
+            }
+            if isEvalMode() {
+                onLog?("[distractions] eval mode — would close \(decision.name), closed nothing")
+                continue
+            }
             let outcome = quittable.quit(bundleID: decision.bundleID, name: decision.name,
                                          authorizedBy: .reviewed(reason: decision.reason))
             onLog?("[distractions] \(decision.name): \(outcome.message)")
-            return outcome
+            outcomes.append(outcome)
         }
+        return outcomes
     }
 
     /// The audit trail, written so it can actually be read.

@@ -209,29 +209,33 @@ public protocol ShortcutRunning: AnyObject {
 /// The real one: `/usr/bin/shortcuts`.
 public final class ShortcutsCLI: ShortcutRunning {
 
-    private let executable = URL(fileURLWithPath: "/usr/bin/shortcuts")
+    private let executable: URL
+    private let baseArguments: [String]
+    /// A Shortcut that never finishes must not hold anything else up. Ten
+    /// seconds is far longer than a Focus toggle takes.
+    private let timeout: TimeInterval
 
-    public init() {}
+    /// `executable` and `baseArguments` exist so tests can stand a small
+    /// script in for `/usr/bin/shortcuts`.
+    public init(executable: URL = URL(fileURLWithPath: "/usr/bin/shortcuts"),
+                baseArguments: [String] = [],
+                timeout: TimeInterval = 10) {
+        self.executable = executable
+        self.baseArguments = baseArguments
+        self.timeout = timeout
+    }
 
+    /// Never `waitUntilExit`: see BoundedProcess for the deadlock and the
+    /// full-pipe hang it pumped.
     public func names() -> [String]? {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = ["list"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(decoding: data, as: UTF8.self)
-                .split(separator: "\n")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-        } catch {
-            return nil
-        }
+        let result = BoundedProcess.run(executable: executable,
+                                        arguments: baseArguments + ["list"],
+                                        timeout: timeout)
+        guard result.succeeded else { return nil }
+        return String(decoding: result.stdout, as: UTF8.self)
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     /// `-i` is `--input-path`: the CLI takes a FILE, not a literal string. That
@@ -253,18 +257,17 @@ public final class ShortcutsCLI: ShortcutRunning {
             return ShortcutRun(status: -1, launchFailure: error.localizedDescription)
         }
 
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = ["run", name, "-i", file.path]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return ShortcutRun(status: process.terminationStatus)
-        } catch {
-            return ShortcutRun(status: -1, launchFailure: error.localizedDescription)
+        let result = BoundedProcess.run(executable: executable,
+                                        arguments: baseArguments + ["run", name, "-i", file.path],
+                                        timeout: timeout)
+        if let failure = result.launchFailure {
+            return ShortcutRun(status: -1, launchFailure: failure)
         }
+        if result.timedOut {
+            return ShortcutRun(status: -1,
+                               launchFailure: "the Shortcut did not finish within \(Int(timeout)) seconds and was stopped")
+        }
+        return ShortcutRun(status: result.status)
     }
 }
 
@@ -358,6 +361,10 @@ public final class FocusModeControl {
 
     @discardableResult
     public func set(_ mode: FocusMode, to intent: FocusIntent) -> ExternalOutcome {
+        // The app calls this off main (FocusExtrasCoordinator's work queue):
+        // process work on main re-entered SwiftUI and deadlocked it on
+        // 2026-11-01. Not a precondition, because tests drive it with a fake
+        // runner from the main thread.
         let name = shortcutName
         let input = Self.input(mode: mode, intent: intent)
 

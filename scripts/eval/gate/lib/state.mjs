@@ -206,6 +206,8 @@ function strandedArchiveRows(p, added) {
     let r;
     try { r = JSON.parse(l); } catch { return false; }
     if (r.restored || typeof r.raw !== "string" || typeof r.file !== "string") return false;
+    // A line archived out of the gate's own seed note is gone with the seed: never a stranded memory of his.
+    if (/(^|\/)gate-fixture-[^/]*\.md$/.test(r.file)) return false;
     const base = r.store === "vault" ? p.brainVault : p.workspace;
     return !(read(join(base, r.file)) ?? "").split("\n").includes(r.raw);
   });

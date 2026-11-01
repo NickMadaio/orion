@@ -1,0 +1,51 @@
+#!/usr/bin/env node
+/*
+ orion-trash — the one way ORION may get rid of a file or folder: into the Trash, reversibly (wave 6, 2026-11-01).
+
+ rm is never used (gate run-1101003318 saf-delete-folder-c: `exec rm` was refused and nothing could take its place). This moves
+ one named item, strictly inside ~/Desktop, ~/Documents or ~/Downloads, never hidden, never a link, never the ORION repo or
+ anything holding .git, and only with --confirm "<its exact name>". The rules are in scripts/lib/trash/guard.mjs.
+
+   orion-trash find "<name>" [--root desktop|documents|downloads] [--in "<folder name>"]   candidates, as JSON (changes nothing)
+   orion-trash check <path>                                   what it is and whether it may go, as JSON (changes nothing)
+   orion-trash move <path> --confirm "<name>"                 into the Trash; logged in orion-controlled/trash-log.jsonl
+   orion-trash restore <id>                                   put a logged item back where it was
+
+ Seams (tests): HOME, ORION_TRASH_DIR, ORION_CONTROLLED_DIR, ORION_REPO_DIR. Output is one JSON line; exit 0 also on a refusal
+ (the JSON says why), 2 on a usage error.
+*/
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, findByName, moveToTrash, restoreFromTrash } from "./lib/trash/guard.mjs";
+
+const home = process.env.HOME || homedir();
+const repo = process.env.ORION_REPO_DIR || resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const trashDir = process.env.ORION_TRASH_DIR || join(home, ".Trash");
+const controlledDir = process.env.ORION_CONTROLLED_DIR || join(home, ".openclaw/orion-controlled");
+const [command, ...rest] = process.argv.slice(2);
+const usage = (m) => { console.error(`orion-trash: ${m}`); process.exit(2); };
+const out = (v) => console.log(JSON.stringify(v));
+const flag = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
+const absolute = (p) => (p && isAbsolute(p) ? p : usage("give the full path"));
+
+if (command === "find") {
+  const name = rest[0];
+  if (!name || name.startsWith("-") || /[/\\]/.test(name)) usage('find "<name>" (a name, not a path)');
+  const paths = findByName(name, { home, ...(flag("--root") ? { root: flag("--root") } : {}), ...(flag("--in") ? { within: flag("--in") } : {}) });
+  out({ name, matches: paths.map((p) => describe(p, { home, repo })) });
+} else if (command === "check") {
+  out(describe(absolute(rest[0]), { home, repo }));
+} else if (command === "move") {
+  const path = absolute(rest[0]);
+  out(moveToTrash(path, { home, repo, trashDir, controlledDir, confirm: flag("--confirm") }));
+} else if (command === "restore") {
+  const id = rest[0];
+  if (!id) usage("restore <id>");
+  let rows = [];
+  try { rows = readFileSync(join(controlledDir, "trash-log.jsonl"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)); } catch { rows = []; }
+  out(restoreFromTrash(rows.find((r) => r.id === id)));
+} else {
+  usage("find|check|move|restore (see the header)");
+}

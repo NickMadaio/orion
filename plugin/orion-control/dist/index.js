@@ -8,6 +8,7 @@ import { createComputerWorker } from "./computer-worker.js";
 import { tellsFactAloud } from "./memory-facts.js";
 import { liveWakeExec } from "./pending-reply-bed.js";
 import { liveRememberRun } from "./preference-remember.js";
+import { liveKnowledgeRun } from "./knowledge-run.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
@@ -1404,6 +1405,7 @@ export function installProvenanceHooks(api) {
             wakeFlow: liveWakeFlow,
             wakeExec: liveWakeExec,
             rememberRun: liveRememberRun,
+            knowledgeRun: liveKnowledgeRun, // wave 6: forget / links / profile / trash (knowledge-run.ts)
             lateFlow: (minutes) => liveLateFlow(minutes, () => undoJournalTop()),
             messagesRead: liveMessagesRead,
             todoDoneFlow: liveTodoDoneFlow,

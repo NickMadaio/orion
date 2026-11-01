@@ -1,0 +1,194 @@
+/*
+ Runs a knowledge move (knowledge-moves.ts) through the scripts that own the data, and says what they did (wave 6, 2026-11-01).
+
+   forget   orion-brain forget "<topic>" lists matching saved entries; orion-brain forget --apply <ids> archives them (reversible).
+   links    orion-brain links "<thing>": graph edges and the vault's relations, said as connections.
+   profile  orion-brain profile: classes, gym, side project, home and priorities first; trivia after.
+   trash    orion-trash find / move --confirm "<name>": into the Trash, never rm.
+ Every reply is built from the script's JSON. A script that fails is said plainly ("couldn't reach…, nothing was removed"),
+ never with its name, a flag or an error string.
+*/
+import { execFile } from "node:child_process";
+import { scriptPath } from "./tool-guards.js";
+async function call(run, script, args, log) {
+    const out = await run(script, args).catch(() => ({ stdout: "", code: 1 }));
+    log.calls.push(`exec ${script} ${args.map((a) => JSON.stringify(a)).join(" ")}`);
+    log.outputs.push(out.stdout);
+    if (out.code !== 0)
+        return undefined;
+    try {
+        return JSON.parse(out.stdout.trim().split("\n").at(-1) ?? "");
+    }
+    catch {
+        return undefined;
+    }
+}
+const quote = (s) => `"${s.replace(/[.\s]+$/, "")}"`;
+const list = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
+const UNREACHABLE = "I couldn't reach your saved memory just now, so nothing was removed. Ask me again in a moment.";
+async function archive(ids, run, log) {
+    if (!ids.length)
+        return [];
+    const out = await call(run, "orion-brain", ["forget", "--apply", ...ids], log);
+    return out?.archived;
+}
+const forgotLine = (gone) => (gone.length ? `Forgot ${list(gone.map((g) => quote(g.text)))}.` : "");
+const undoHeld = (gone) => (gone.length ? { kind: "forget-undo", ids: gone.map((g) => g.id), texts: gone.map((g) => g.text) } : undefined);
+async function forget(move, run, log) {
+    const found = [];
+    for (const topic of move.targets) {
+        const out = await call(run, "orion-brain", ["forget", topic], log);
+        if (!out)
+            return { ...log, text: UNREACHABLE };
+        found.push({ topic, matches: out.matches ?? [] });
+    }
+    const sure = found.filter((f) => f.matches.length === 1 || (move.all && f.matches.length > 1));
+    const unsure = move.all ? undefined : found.find((f) => f.matches.length > 1);
+    const none = found.filter((f) => !f.matches.length).map((f) => f.topic);
+    const gone = await archive([...new Set(sure.flatMap((f) => f.matches.map((m) => m.id)))], run, log);
+    if (!gone)
+        return { ...log, text: UNREACHABLE };
+    const nothing = none.length ? `I have nothing saved about ${list(none.map(quote))}${gone.length ? ", so nothing else was removed" : ", so nothing was removed"}.` : "";
+    if (unsure) {
+        const options = unsure.matches.slice(0, 5).map((m, i) => `${i + 1}) ${m.text.replace(/[.\s]+$/, "")}`).join("; ");
+        const ask = `A few saved things match ${quote(unsure.topic)}: ${options}. Which should I forget? A number, or "all".`;
+        return { ...log, text: [forgotLine(gone), nothing, ask].filter(Boolean).join(" "), held: { kind: "forget-pick", candidates: unsure.matches.slice(0, 5).map(({ id, text }) => ({ id, text })), topic: unsure.topic } };
+    }
+    const tail = gone.length ? " It's archived, not deleted, so say \"put it back\" if that was a mistake." : "";
+    return { ...log, text: [forgotLine(gone), nothing].filter(Boolean).join(" ") + tail, ...(undoHeld(gone) ? { held: undoHeld(gone) } : {}) };
+}
+async function forgetPick(move, run, log) {
+    if (!move.picked.length)
+        return { ...log, text: "Okay, I kept all of them." };
+    const gone = await archive(move.picked.map((p) => p.id), run, log);
+    if (!gone)
+        return { ...log, text: UNREACHABLE };
+    if (!gone.length)
+        return { ...log, text: "Those were already gone, so nothing changed." };
+    return { ...log, text: `${forgotLine(gone)} The rest stays.`, ...(undoHeld(gone) ? { held: undoHeld(gone) } : {}) };
+}
+async function forgetUndo(move, run, log) {
+    const out = await call(run, "orion-brain", ["forget", "--restore", ...move.held.ids], log);
+    if (!out)
+        return { ...log, text: "I couldn't put that back just now; it's still archived, so nothing is lost. Ask me again in a moment." };
+    return { ...log, text: out.restored.length ? `Put back ${list(out.restored.map((r) => quote(r.text)))}.` : "That was already back." };
+}
+// ---- links ---------------------------------------------------------------------------------------------------------------
+const phrase = (l) => {
+    const words = l.kind.replace(/[_-]+/g, " ").trim();
+    if (l.kind === "mentioned in")
+        return "mentions it";
+    if (l.dir === "in")
+        return `${words} it`;
+    const has = /^has (.+)$/.exec(words)?.[1];
+    if (has)
+        return has;
+    return words === "mentions" ? (l.type || "mentioned") : words;
+};
+const LINK_LIMIT = 10;
+function linksReply(out) {
+    if (!out.found)
+        return `I don't have anything called ${quote(out.subject)} in your notes or knowledge graph.`;
+    const title = out.title ?? out.subject;
+    const fact = out.facts?.[0] ? `, ${lower1(out.facts[0].replace(/[.\s]+$/, ""))},` : "";
+    if (!out.links.length)
+        return `${title}${fact} is in your notes, but nothing is linked to it yet.`;
+    const rank = (l) => (l.kind === "mentioned in" || l.kind === "mentions" ? 2 : /^nick$/i.test(l.label) ? 1 : 0);
+    const ordered = [...out.links].sort((a, b) => rank(a) - rank(b));
+    const shown = ordered.slice(0, LINK_LIMIT).map((l) => `${l.label} (${phrase(l)})`);
+    const more = ordered.length > LINK_LIMIT ? `, and ${ordered.length - LINK_LIMIT} more` : "";
+    return `${title}${fact} links to: ${shown.join(", ")}${more}.`;
+}
+const sentence = (s) => s.replace(/[.\s]+$/, "") + ".";
+const lower1 = (s) => s.charAt(0).toLowerCase() + s.slice(1);
+function distinct(lines, max) {
+    const key = (s) => new Set(s.toLowerCase().match(/[a-z]{4,}/g) ?? []);
+    return lines.reduceRight((kept, line) => {
+        if (kept.length >= max)
+            return kept;
+        const k = key(line);
+        const near = kept.some((x) => { const kx = key(x); const shared = [...k].filter((w) => kx.has(w)).length; return shared >= Math.min(k.size, kx.size) * 0.6; });
+        return near ? kept : [...kept, line];
+    }, []).reverse();
+}
+/** A saved line is in the third person ("Nick takes creatine"); said to him it is "you take creatine". */
+const IRREGULAR = { is: "you're", has: "you have", does: "you do", was: "you were" };
+const toYou = (s) => s
+    .replace(/\bNick's\b/g, "your")
+    .replace(/\bNick (is|has|does|was)\b/g, (_m, v) => IRREGULAR[v] ?? `you ${v}`)
+    .replace(/\bNick (\w+)\b/g, (_m, v) => `you ${/(?:ch|sh|ss|x)es$/.test(v) ? v.slice(0, -2) : /[^s]s$/.test(v) ? v.slice(0, -1) : v}`);
+function profileReply(p) {
+    const lead = p.name ? `You're ${p.name}${p.school ? `, at ${p.school}` : ""}.` : p.school ? `You're at ${p.school}.` : "";
+    const stable = [
+        lead,
+        p.classes?.length ? `Classes: ${list(p.classes)}.` : "",
+        p.gym ? `Gym: ${sentence(p.gym)}` : "",
+        p.sideProject ? `Side project: ${sentence(p.sideProject)}` : "",
+        p.home ? `Home: ${p.home}${p.commute ? `, ${p.commute}` : ""}.` : "",
+        p.priorities ? `Priorities, highest first: ${sentence(p.priorities)}` : "",
+        p.builds?.length || p.working?.length ? `You're ${[p.builds?.length ? `building ${list(p.builds)}` : "", p.working?.length ? `working on ${list(p.working)}` : ""].filter(Boolean).join(" and ")}.` : "",
+    ].filter(Boolean);
+    if (!stable.length)
+        return "I don't have your profile on record yet: no classes, gym or home saved. Tell me and I'll keep it.";
+    const trivia = (p.trivia ?? []).slice(0, 2).map((t) => lower1(t.replace(/\s*\([^)]*\)/g, "").replace(/[.\s]+$/, "")));
+    const extra = trivia.length ? `Routine-wise, you ${list(trivia.map((t) => t.replace(/^(falls|wakes|usually up)/, (w) => ({ falls: "fall", wakes: "wake", "usually up": "are usually up" })[w] ?? w)))}.` : "";
+    const told = distinct(p.learned ?? [], 3);
+    const learned = told.length ? `You've also told me: ${told.map((t) => toYou(t.replace(/[.\s]+$/, ""))).join("; ")}.` : "";
+    return [...stable, extra, learned].filter(Boolean).join(" ");
+}
+// ---- trash ---------------------------------------------------------------------------------------------------------------
+const parent = (shown) => shown.split("/").slice(0, -1).join("/") || shown;
+const movedLine = (f, folder) => `Moved ${folder ? "the folder " : ""}${f.name} (${parent(f.shown)}) to the Trash. Nothing else was touched, and you can put it back from the Trash.`;
+async function trash(move, run, log) {
+    const where = move.root ? `your ${move.root.charAt(0).toUpperCase()}${move.root.slice(1)}` : "your Desktop, Documents or Downloads";
+    if (/^(?:desktop|documents|docs|downloads?|home|library|applications)$/i.test(move.name))
+        return { ...log, text: `I won't move your whole ${move.name} folder to the Trash. Tell me which file or folder inside it.` };
+    const args = ["find", move.name, ...(move.root ? ["--root", move.root] : []), ...(move.within ? ["--in", move.within] : [])];
+    const out = await call(run, "orion-trash", args, log);
+    if (!out)
+        return { ...log, text: "I couldn't check your files just now, so nothing was touched." };
+    const kinds = out.matches.filter((f) => (move.folder ? f.kind === "folder" : f.kind === "file") || !move.folder);
+    if (!kinds.length)
+        return { ...log, text: `I couldn't find ${move.name}${move.within ? ` in ${move.within}` : ""} in ${where}, so nothing was touched.` };
+    const allowed = kinds.filter((f) => !f.refused);
+    if (!allowed.length)
+        return { ...log, text: `I won't move ${move.name} to the Trash: ${kinds[0].refused}. Nothing was touched.` };
+    if (allowed.length > 1)
+        return { ...log, text: `There's more than one ${move.name}: ${allowed.slice(0, 4).map((f, i) => `${i + 1}) ${f.shown}`).join("; ")}. Which folder is it in? Nothing was touched.` };
+    const f = allowed[0];
+    if (f.kind === "folder") {
+        const items = f.items === undefined ? "" : `, ${f.items} item${f.items === 1 ? "" : "s"}`;
+        return { ...log, text: `Move the folder ${quote(f.name)} (${f.shown}${items}) to the Trash? Say yes and I'll do it.`, held: { kind: "trash-confirm", path: f.path, name: f.name, shown: f.shown, folder: true } };
+    }
+    return moveIt({ path: f.path, name: f.name, shown: f.shown }, false, run, log);
+}
+async function moveIt(f, folder, run, log) {
+    const done = await call(run, "orion-trash", ["move", f.path, "--confirm", f.name], log);
+    if (!done)
+        return { ...log, text: `I couldn't move ${f.name} just now, so nothing was touched.` };
+    if (!done.ok)
+        return { ...log, text: `I didn't move ${f.name}: ${done.refused ?? "it was refused"}. Nothing was touched.` };
+    return { ...log, text: movedLine(f, folder) };
+}
+/** Runs one move; `held` is what the reply now waits on (one turn). */
+export async function runKnowledgeMove(move, run) {
+    const log = { text: "", calls: [], outputs: [] };
+    switch (move.kind) {
+        case "forget": return forget(move, run, log);
+        case "forget-pick": return forgetPick(move, run, log);
+        case "forget-undo": return forgetUndo(move, run, log);
+        case "links": {
+            const out = await call(run, "orion-brain", ["links", move.subject], log);
+            return { ...log, text: out ? linksReply(out) : "I couldn't read your knowledge graph just now. Ask me again in a moment." };
+        }
+        case "profile": {
+            const out = await call(run, "orion-brain", ["profile"], log);
+            return { ...log, text: out ? profileReply(out) : "I couldn't read what I have on you just now. Ask me again in a moment." };
+        }
+        case "trash": return trash(move, run, log);
+        case "trash-confirm":
+            return move.yes ? moveIt(move.held, !!move.held.folder, run, log) : { ...log, text: `Okay, I left ${move.held.name} where it is.` };
+    }
+}
+/** The real scripts (no shell, fixed argument lists), found by the plugin's scripts-dir resolver. Wired in by index.ts only. */
+export const liveKnowledgeRun = (script, args) => new Promise((resolve) => execFile(scriptPath(script), args, { timeout: 15000, maxBuffer: 1 << 20 }, (e, stdout) => resolve({ stdout: String(stdout ?? ""), code: e ? 1 : 0 })));

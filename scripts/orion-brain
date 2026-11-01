@@ -13,6 +13,11 @@
         add what he told you to a note's "## Learned" section (the note is
         created, linked to [[Nick]], if it does not exist yet)
    orion-brain recent                            what changed in the last week
+   orion-brain forget "<words>"                 saved entries matching the words, as JSON (nothing changes)
+   orion-brain forget --apply <id>...           archive those entries (reversible) and say which went
+   orion-brain forget --restore <id>...         put archived entries back where they were
+   orion-brain links "<thing>"                  what it is linked to: graph edges + the vault's relations, as JSON
+   orion-brain profile                          his standing facts (classes, gym, side project, home, priorities), as JSON
    orion-brain canvas-courses                    current Canvas courses, honouring Nick's exclusions
    orion-brain canvas-refresh <id> <course note> [--apply]
         preview/refresh source facts in an existing course and assessment notes
@@ -25,6 +30,9 @@ import { promisify } from "node:util";
 import { bmArgs } from "./lib/brain/bm.mjs";
 import { brainSearch } from "./lib/brain/search.mjs";
 import { loadGraph } from "./lib/brain/graph-search.mjs";
+import { archiveEntries, findEntries, restoreEntries } from "./lib/brain/forget.mjs";
+import { linksFor, readVault } from "./lib/brain/links.mjs";
+import { loadProfile } from "./lib/brain/profile.mjs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -45,6 +53,13 @@ const rankedSearch = async (q) => {
 const clean = (s, max) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
 // REV2 BRAIN: a note title is a name, never an option ("--help", "-rf") or a path ("../x", "a/b") for basic-memory to act on.
 const badTitle = (t) => /^-/.test(t) || /[/\\]/.test(t) || /\.\./.test(t);
+// Seams (tests and replays): the vault, the workspace and the controlled dir.
+const dirs = () => ({
+  vaultDir: process.env.ORION_BRAIN_VAULT || join(homedir(), "Documents/orionBrain"),
+  workspaceDir: process.env.ORION_WORKSPACE_DIR || join(homedir(), ".openclaw/workspace"),
+  controlledDir: process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled"),
+});
+const ID = /^[0-9a-f]{10}$/;
 
 try {
   if (command === "canvas-courses" || command === "canvas-refresh") {
@@ -107,10 +122,26 @@ try {
       bm(bmArgs.append(title, `${line}\n`));
       console.log(`Added to "${title}": ${line}`);
     }
+  } else if (command === "forget") {
+    const [flag, ...ids] = rest;
+    if (flag === "--apply" || flag === "--restore") {
+      if (!ids.length || !ids.every((id) => ID.test(id))) fail(`usage: orion-brain forget ${flag} <id>... (ids from orion-brain forget "<words>")`);
+      console.log(JSON.stringify(flag === "--apply" ? archiveEntries(dirs(), ids) : restoreEntries(dirs(), ids)));
+    } else {
+      const q = clean(rest.join(" "), 200); if (!q || /^-/.test(q)) fail('usage: orion-brain forget "<words>"');
+      console.log(JSON.stringify({ query: q, matches: findEntries(dirs(), q) }));
+    }
+  } else if (command === "links") {
+    const q = clean(rest.join(" "), 120); if (!q || /^-/.test(q)) fail('usage: orion-brain links "<thing>"');
+    const d = dirs();
+    console.log(JSON.stringify(linksFor(q, { notes: readVault(d.vaultDir), graph: loadGraph(d.controlledDir) })));
+  } else if (command === "profile") {
+    if (rest.length) fail("usage: orion-brain profile");
+    console.log(JSON.stringify(loadProfile(dirs())));
   } else if (command === "recent") {
     process.stdout.write(bm(bmArgs.recent()));
   } else {
-    fail("usage: orion-brain search|read|context|learn|recent|canvas-courses|canvas-refresh (see the header)");
+    fail("usage: orion-brain search|read|context|learn|recent|forget|links|profile|canvas-courses|canvas-refresh (see the header)");
   }
 } catch (e) {
   fail(`orion-brain: ${String(e.stderr || e.message).slice(0, 300)}`, 1);

@@ -611,8 +611,14 @@ export function partialReply(before: Day | undefined, after: Day | undefined, ou
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = pluginNow(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }: {
+/** The scheduler argv with the day it is for; `--length-explicit` stays last so no option value is ever read after it. */
+const withDateArgs = (argv: string[], dateArgs: string[]): string[] =>
+  argv.includes("--length-explicit") ? [...argv.filter((a) => a !== "--length-explicit"), ...dateArgs, "--length-explicit"] : [...argv, ...dateArgs];
+
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = pluginNow(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget, lengthDefaulted }: {
   message: string; clock: string; now?: Date; askContext?: AskContext;
+  /** The length in `message` is one ORION chose (a default), not Nick's words: saved minimums still apply to it. */
+  lengthDefaulted?: boolean;
   exec: (args: string[], signal?: AbortSignal) => Promise<{ stdout: string; code: number }>;
   /** budgetMs: how long this one call may take (turn-budget.ts); a model call past it is abandoned and answers null. */
   ask: (system: string, user: string, schema: object, budgetMs?: number) => Promise<{ steps?: Intent[] } | null>;
@@ -707,7 +713,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     const again = readIntent(message, { now: dayNow, ...(replanContext ? { last: replanContext } : {}), ...(askContext ? { ask: askContext } : {}) });
     const read2 = "intent" in again && again.intent.day === intent.day ? again.intent : intent;
     const settled = target ? { ...read2, target, day: (day.now ? "today" : "tomorrow") as "today" | "tomorrow" } : read2;
-    const planned = planIntent(settled, day, { message, ...(askContext ? { askContext } : {}) });
+    const planned = planIntent(settled, day, { message, ...(askContext ? { askContext } : {}), ...(lengthDefaulted ? { lengthDefaulted } : {}) });
     // An "outside" follow-up ("dinner then gym") changes nothing and keeps the request it followed as the one remembered.
     const replan: ReplanAsk | undefined = intent.replan && !intent.outside?.length ? { ...intent.replan, day: intent.day, date: day.date } : undefined;
     const remember = replan ? { replan } : {};
@@ -716,7 +722,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
       if (left() <= 0) return tooSlow;
       const off = offTime([planned.argv]);
       if (off) return takenBack(off as Extract<FlowResult, { outcome: "say" }>);
-      const ran = await execute([[...planned.argv, ...dateArgs]], { exec, undoTop, when, undone, before: day, reread });
+      const ran = await execute([withDateArgs(planned.argv, dateArgs)], { exec, undoTop, when, undone, before: day, reread });
       if (ran.outcome === "done" && ran.uncertain) return { ...ran, ...remember };
       // A whole-day plan (day-plan.ts): what he is told is read back from his calendar against what he asked, never "Done" for a mismatch.
       if (planned.dayplan && ran.outcome === "done") {

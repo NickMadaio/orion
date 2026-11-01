@@ -4,4 +4,5 @@ import type { Day } from "./schedule-flow.js";
 export declare function ownedMoveAsAdd(intent: CalendarIntent, day: Day): {
     intent: CalendarIntent;
     note: string;
+    defaultMinutes?: number;
 } | undefined;

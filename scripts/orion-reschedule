@@ -112,7 +112,7 @@ const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--minutes", "--named", "--no-replan", "--notify", "--now", "--plan",
+const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--length-explicit", "--minutes", "--named", "--no-replan", "--notify", "--now", "--plan",
   "--only", "--replace", "--say", "--shift", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -1141,9 +1141,9 @@ if (today && (command === "day" || command === "add") && !args.includes("--again
 }
 // His minimums ("naps at least 75 minutes, always": orion-life min nap 75).
 const raised = [];
-// `add "<title>" <minutes>` carries the length he (or the caller reading his words) chose: an explicit length beats a saved minimum (a stated
-// "30 min nap" was booked 75). Minimums still raise plans whose length ORION defaulted (day --plan, fill, todos).
-if (command !== "add") add = withMinimums(add, config.minimums);
+// `add ... --length-explicit` says the length is Nick's own words: it beats a saved minimum (a stated "30 min nap" was booked 75).
+// Every other add (the length ORION defaulted), day --plan, fill and todos still get his minimums raised.
+if (!(command === "add" && args.includes("--length-explicit"))) add = withMinimums(add, config.minimums);
 add = add.map((item) => { if (item.raisedFrom) raised.push(`${item.title} ${item.raisedFrom} → ${item.minutes} min (his minimum)`); return item; });
 const alreadyOver = add.filter((item) => today && Number.isInteger(item.at) && item.at + item.minutes <= nowMinute);
 add = add.filter((item) => !alreadyOver.includes(item));

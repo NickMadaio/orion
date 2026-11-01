@@ -29,7 +29,7 @@ type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) =>
 type Opts = { now: Date; today?: Day; tomorrow?: Day; stateDir?: string; napMin?: number; remember?: { stdout: string; code: number } };
 function harness(o: Opts) {
   const handlers = new Map<string, Handler[]>();
-  const flows: string[] = []; const checkins: string[][] = []; const sessions: string[] = []; const wakes: string[][] = []; const remembered: string[][] = [];
+  const flows: string[] = []; const flowMeta: Array<boolean | undefined> = []; const checkins: string[][] = []; const sessions: string[] = []; const wakes: string[][] = []; const remembered: string[][] = [];
   const days = { today: o.today ?? MON(), tomorrow: o.tomorrow ?? TUE() };
   const clock = { now: o.now };
   const write = (message: string) => {
@@ -46,7 +46,7 @@ function harness(o: Opts) {
     warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "w5-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Mon 12:00", now: () => clock.now,
     ...(o.stateDir ? { stateDir: o.stateDir } : {}),
     decideImpl: async (): Promise<Decision> => ({ move: "escalate", tier: "standard" }),
-    scheduleFlow: async (message: string): Promise<FlowResult> => { flows.push(message); write(message); return { outcome: "done", calls: [`exec orion-reschedule (${message})`], outputs: ["Done."], marks: [`m${flows.length}`], reply: "Done." }; },
+    scheduleFlow: async (message: string, _clock?: string, opts?: { lengthDefaulted?: boolean }): Promise<FlowResult> => { flows.push(message); flowMeta.push(opts?.lengthDefaulted); write(message); return { outcome: "done", calls: [`exec orion-reschedule (${message})`], outputs: ["Done."], marks: [`m${flows.length}`], reply: "Done." }; },
     sessionFlow: async (message: string): Promise<FlowResult> => { sessions.push(message); return { outcome: "done", calls: ["exec orion-session start"], outputs: ["{}"], reply: "Focus session on CS lab started: 50 min." }; },
     readDayJson: async (args: string[]) => (args.includes("tomorrow") || clock.now.getHours() < 5 ? days.tomorrow : days.today),
     checkinRun: async (args: string[]) => { checkins.push(args); return args[0] === "find" ? { stdout: '{"open":false}', code: 1 } : { stdout: "ok ci-abc123", code: 0 }; },
@@ -63,7 +63,7 @@ function harness(o: Opts) {
     const [built] = (await fire("before_prompt_build", { prompt, messages: [] }, ctx)) as Array<{ appendContext?: string; systemPrompt?: string } | undefined>;
     return built?.appendContext?.match(/Your whole reply must be exactly: ([\s\S]*)\]$/)?.[1] ?? `WORKER: ${built?.systemPrompt?.slice(0, 80) ?? ""}`;
   };
-  return { turn, flows, checkins, sessions, wakes, remembered, days, clock };
+  return { turn, flows, flowMeta, checkins, sessions, wakes, remembered, days, clock };
 }
 const stateWith = (rows: Array<{ text: string; sent: Date }>): string => {
   const dir = mkdtempSync(join(tmpdir(), "w5-state-"));
@@ -315,5 +315,40 @@ describe("W8-A: his day and length beat the brief's defaults (today, 45 min)", (
   it.each(["finish resume on friday at 10am", "do finish resume on the 4th at 10am", "finish resume next week at 10am"])("a day it cannot honour is not booked on today: '%s'", async (said) => {
     const { h } = await ask(said);
     expect(h.flows.every((f) => !/^add a 45 min finish resume at/.test(f))).toBe(true);
+  });
+});
+
+describe("W8 review: an 'after X' anchor that lives on a later day is still found; only a missing anchor falls back", () => {
+  const MISSED = "Looks like MKTG2201 didn't happen today - it happens. Want me to fit in time to catch up on it (the recording or notes), or leave it?";
+  const noGymToday: Day = { date: "2026-11-02", now: null, blocks: [b("MKTG2201", "13:30", "15:30", true, "class")] };
+  it.each(["after gym", "put it after gym please", "sometime after gym"])("gym is on tomorrow only: '%s' books after it there", async (said) => {
+    const h = harness({ now: at("2026-11-02", "15:50"), today: noGymToday });
+    const reply = await h.turn(`${label(MISSED, 10)}${APP}${said}`);
+    expect(h.flows).toEqual(["add a 60 min MKTG catch-up tomorrow at 6:35pm"]);
+    expect(reply).not.toMatch(/isn't on/);
+  });
+  it("gym is still ahead today and absent tomorrow: it is found today, not replaced by a free slot tomorrow", async () => {
+    const withGym: Day = { date: "2026-11-02", now: null, blocks: [b("MKTG2201", "13:30", "15:30", true, "class"), b("Gym", "17:00", "18:30")] };
+    const h = harness({ now: at("2026-11-02", "15:50"), today: withGym, tomorrow: { date: "2026-11-03", now: null, blocks: [] } });
+    const reply = await h.turn(`${label(MISSED, 10)}${APP}after gym`);
+    expect(h.flows).toEqual(["add a 60 min MKTG catch-up at 6:35pm"]);
+    expect(reply).not.toMatch(/isn't on/);
+  });
+  it("the anchor is on neither day: the first free time in the part of day he named, said plainly", async () => {
+    const empty: Day = { date: "2026-11-03", now: null, blocks: [] };
+    const h = harness({ now: at("2026-11-02", "15:50"), today: noGymToday, tomorrow: empty });
+    const reply = await h.turn(`${label(MISSED, 10)}${APP}after gym tonight`);
+    const hour = /at (\d+)(?::\d+)?pm$/.exec(h.flows[0] ?? "")?.[1];
+    expect(Number(hour)).toBeGreaterThanOrEqual(5);
+    expect(h.flows[0]).not.toContain("tomorrow");
+    expect(reply).toMatch(/Gym isn't on today yet, so that's the first free time/);
+  });
+  it("a length ORION defaulted is passed as defaulted; one he said is not", async () => {
+    const d = harness({ now: at("2026-11-02", "15:50") });
+    await d.turn(`${label(MISSED, 10)}${APP}sure whenever`);
+    expect(d.flowMeta).toEqual([true]);
+    const s = harness({ now: at("2026-11-02", "15:50") });
+    await s.turn(`${label(MISSED, 10)}${APP}sure, 90 min at 8pm`);
+    expect(s.flowMeta[0]).toBeUndefined();
   });
 });

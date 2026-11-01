@@ -61,7 +61,7 @@ describe("a: 'yes' / 'put X until T' run as an add from now, never the form", ()
   it("'yes, put cs lab until 10:30' accepts ORION's offer: CS Lab 21:55 to 22:30 (10:30 is the evening)", async () => {
     const r = await flow("yes, put cs lab until 10:30", { ask: BLANK_ASK });
     expect(r.formAsked).toBe(0);
-    expect(r.adds).toEqual([["add", "CS Lab", "35", "--at", "21:55", "--again"]]);
+    expect(r.adds).toEqual([["add", "CS Lab", "35", "--at", "21:55", "--again", "--length-explicit"]]);
     expect(r.result.outcome).toBe("done");
   });
   it("a bare 'yes' accepts the same offer, to the time the ask named", async () => {
@@ -77,15 +77,15 @@ describe("a: 'yes' / 'put X until T' run as an add from now, never the form", ()
   it("'put CS lab from now until ten thirty' (spelled out) is the same add", async () => {
     const r = await flow("put CS lab from now until ten thirty");
     expect(r.formAsked).toBe(0);
-    expect(r.adds).toEqual([["add", "cs lab", "35", "--at", "21:55", "--again"]]);
+    expect(r.adds).toEqual([["add", "cs lab", "35", "--at", "21:55", "--again", "--length-explicit"]]);
   });
   it("'Can you please put CS lab from now until ten thirty?' after 'I'm fine…' is the same add", async () => {
     const r = await flow("I'm fine. It's... I'm just annoyed. Can you please put CS lab from now until ten thirty?");
-    expect(r.adds).toEqual([["add", "cs lab", "35", "--at", "21:55", "--again"]]);
+    expect(r.adds).toEqual([["add", "cs lab", "35", "--at", "21:55", "--again", "--length-explicit"]]);
   });
   it("the continuation, with the noise before it and 'CS' for the title: 'Put CS for right now until ten thirty'", async () => {
     const r = await flow("Pissing Okay. Okay. Yes. Yes. Put CS for right now until ten thirty.");
-    expect(r.adds).toEqual([["add", "cs lab", "35", "--at", "21:55", "--again"]]);
+    expect(r.adds).toEqual([["add", "cs lab", "35", "--at", "21:55", "--again", "--length-explicit"]]);
   });
   it("an end time already past is refused with a reason, nothing booked", async () => {
     const r = await flow("put cs lab until 9:30 pm");

@@ -47,7 +47,7 @@ export type PendingTurn = { reply: Reply; offer?: Offer; memo?: Memo; sentAt?: n
 
 export type PendingDeps = {
   now: Date;
-  schedule?: (command: string) => Promise<FlowResult>;
+  schedule?: (command: string, meta?: { lengthDefaulted?: boolean }) => Promise<FlowResult>;
   session?: (words: string) => Promise<FlowResult>;
   checkin?: (args: string[]) => Promise<{ stdout: string; code: number }>;
   readDay?: (dateArgs: string[]) => Promise<Day | undefined>;

@@ -635,7 +635,9 @@ export function partialReply(before, after, outputs, when) {
  *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
  *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
  *  a title answer compiles the stored anchor again with that title. */
-export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = pluginNow(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }) {
+/** The scheduler argv with the day it is for; `--length-explicit` stays last so no option value is ever read after it. */
+const withDateArgs = (argv, dateArgs) => argv.includes("--length-explicit") ? [...argv.filter((a) => a !== "--length-explicit"), ...dateArgs, "--length-explicit"] : [...argv, ...dateArgs];
+export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now = pluginNow(), undo = [], undoTop = () => null, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget, lengthDefaulted }) {
     const left = () => (signal?.aborted ? -1 : deadlineAt === undefined ? Infinity : deadlineAt - Date.now());
     // A READ is stopped by the signal; a WRITE never is: once the scheduler has begun to write it finishes (it is bounded by its own timeout), and a write that
     // has not begun is refused when the hook has given up (review round 2, 2026-10-20: a killed write could delete blocks and never create them).
@@ -737,7 +739,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
         const again = readIntent(message, { now: dayNow, ...(replanContext ? { last: replanContext } : {}), ...(askContext ? { ask: askContext } : {}) });
         const read2 = "intent" in again && again.intent.day === intent.day ? again.intent : intent;
         const settled = target ? { ...read2, target, day: (day.now ? "today" : "tomorrow") } : read2;
-        const planned = planIntent(settled, day, { message, ...(askContext ? { askContext } : {}) });
+        const planned = planIntent(settled, day, { message, ...(askContext ? { askContext } : {}), ...(lengthDefaulted ? { lengthDefaulted } : {}) });
         // An "outside" follow-up ("dinner then gym") changes nothing and keeps the request it followed as the one remembered.
         const replan = intent.replan && !intent.outside?.length ? { ...intent.replan, day: intent.day, date: day.date } : undefined;
         const remember = replan ? { replan } : {};
@@ -749,7 +751,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
             const off = offTime([planned.argv]);
             if (off)
                 return takenBack(off);
-            const ran = await execute([[...planned.argv, ...dateArgs]], { exec, undoTop, when, undone, before: day, reread });
+            const ran = await execute([withDateArgs(planned.argv, dateArgs)], { exec, undoTop, when, undone, before: day, reread });
             if (ran.outcome === "done" && ran.uncertain)
                 return { ...ran, ...remember };
             // A whole-day plan (day-plan.ts): what he is told is read back from his calendar against what he asked, never "Done" for a mismatch.

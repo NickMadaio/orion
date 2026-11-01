@@ -71,6 +71,7 @@ export type LocalRoutingOptions = {
     testingUntil?: string;
     /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
     scheduleFlow?: (message: string, clock: string, opts?: {
+        lengthDefaulted?: boolean;
         undo?: string[];
         pending?: PendingRun;
         askContext?: AskContext;
@@ -195,6 +196,7 @@ export declare const liveReadDay: (tomorrow: boolean) => Promise<string>;
 export declare function undoJournalTop(home?: string, now?: number): string | null;
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
+    lengthDefaulted?: boolean;
     undo?: string[];
     pending?: PendingRun;
     askContext?: AskContext;

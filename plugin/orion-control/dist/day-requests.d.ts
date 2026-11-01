@@ -63,6 +63,7 @@ export type DayRequest = DayRequestMore | {
     kind: "catch-up";
     what: string;
     minutes: number;
+    minutesSaid?: true;
     day: "today" | "tomorrow";
     part?: "morning" | "afternoon" | "evening";
 };

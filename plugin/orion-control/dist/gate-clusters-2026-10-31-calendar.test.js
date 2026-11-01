@@ -187,7 +187,7 @@ describe("cluster 3: what happened is logged first, against the real day, then t
     it("rea-exhausted-c 'add a 30 min nap at 4 today and cut side project tonight im wrecked'", async () => {
         const r = route({ now: "13:00", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added nap 16:00–16:30" : "Changed Monday:\n  dropped side project") });
         const t = await r.turn("add a 30 min nap at 4 today and cut side project tonight im wrecked");
-        expect(r.writes()).toEqual([["orion-reschedule", "add", "Nap", "30", "--at", "16:00"], ["orion-reschedule", "drop", "side project"]]);
+        expect(r.writes()).toEqual([["orion-reschedule", "add", "Nap", "30", "--at", "16:00", "--length-explicit"], ["orion-reschedule", "drop", "side project"]]);
         // REV2 7: wrecked is tired, not ill (no "Feel better." and no rest block added).
         expect(t.exact).toBe("Done — nap 4:00 PM–4:30 PM and took side project (7:30 PM) off. Say \"undo\" to revert.");
     });
@@ -206,20 +206,20 @@ describe("cluster 3: what happened is logged first, against the real day, then t
     it("rea-friends-invite-c 'going to get food with annika from 5 to 7, move gym to after': the plan with her, then gym after it", async () => {
         const r = route({ now: "16:30", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added food with annika 17:00–19:00" : "Changed Monday:\n  moved Gym: 17:00 → 19:05") });
         const t = await r.turn("going to get food with annika from 5 to 7, move gym to after");
-        expect(r.writes()).toEqual([["orion-reschedule", "add", "Food with annika", "120", "--at", "17:00", "--fixed"], ["orion-reschedule", "move", "Gym", "--after", "food with annika"]]);
+        expect(r.writes()).toEqual([["orion-reschedule", "add", "Food with annika", "120", "--at", "17:00", "--fixed", "--length-explicit"], ["orion-reschedule", "move", "Gym", "--after", "food with annika"]]);
         expect(t.exact).toMatch(/^Done — food with annika 5:00 PM–7:00 PM and Gym moved to 7:05 PM/);
     });
     it("rea-didnt-go-class-c 'i skipped marketing, put 1 hour of catch up on it tomorrow evening': the skip noted, the catch-up booked", async () => {
         const r = route({ now: "15:45", out: (s) => (s === "orion-declare" ? '{"id":"fact-skip0001"}' : "Changed Tuesday:\n  added MKTG2201 catch-up 19:00–20:00") });
         const t = await r.turn("i skipped marketing, put 1 hour of catch up on it tomorrow evening");
         expect(r.calls[0]).toEqual(expect.arrayContaining(["orion-declare", "add", "--kind", "skip", "--title", MKTG.title]));
-        expect(r.writes()).toEqual([["orion-reschedule", "add", "MKTG2201 catch-up", "60", "--at", "19:00", "--date", "tomorrow"]]);
+        expect(r.writes()).toEqual([["orion-reschedule", "add", "MKTG2201 catch-up", "60", "--at", "19:00", "--date", "tomorrow", "--length-explicit"]]);
         expect(t.exact).toBe("Noted you skipped MKTG2201. Booked MKTG2201 catch-up tomorrow 7:00 PM–8:00 PM, 60 minutes (I took evening as 7:00 PM). Say \"undo\" to put it back.");
     });
     it("rea-work-on-it-tomorrow-c 'move finish resume to tomorrow at 10am, 45 min': booked tomorrow first, today's off after", async () => {
         const r = route({ now: "21:00", day: dayAt("21:00", [{ title: "finish resume", start: "21:30", end: "22:15", fixed: false, kind: "other" }]), out: (_s, a) => (a[0] === "add" ? "Changed Tuesday:\n  added finish resume 10:00–10:45" : "Changed Monday:\n  dropped finish resume") });
         const t = await r.turn("move finish resume to tomorrow at 10am, 45 min");
-        expect(r.writes()).toEqual([["orion-reschedule", "add", "finish resume", "45", "--at", "10:00", "--date", "tomorrow"], ["orion-reschedule", "drop", "finish resume"]]);
+        expect(r.writes()).toEqual([["orion-reschedule", "add", "finish resume", "45", "--at", "10:00", "--date", "tomorrow", "--length-explicit"], ["orion-reschedule", "drop", "finish resume"]]);
         expect(t.exact).toBe("Done: Finish resume is on tomorrow, 10:00 AM–10:45 AM, 45 minutes and off today (it was 9:30 PM). Say \"undo\" to put it back.");
     });
     it.each(["ill do the resume tomorrow", "im gonna finish my essay tmrw morning", "push reading to tomorrow"])("paraphrase: %s", (m) => expect(readDayRequest(m, at("21:00"))).toMatchObject({ kind: "to-tomorrow" }));

@@ -108,7 +108,7 @@ export function parseDirectAdd(message: string, day: Day, ask?: AskContext): Dir
   }
   // The same thing already logged or done earlier today is a new session, not a duplicate: `--again` says so to the scheduler.
   const earlier = day.blocks.find((b) => !b.fixed && toMin(b.start) <= now && norm(b.title) === norm(title!));
-  return { args: ["add", title, String(minutes), "--at", hhmm(start), ...(earlier ? ["--again"] : [])], title, minutes, at: hhmm(start),
+  return { args: ["add", title, String(minutes), "--at", hhmm(start), ...(earlier ? ["--again"] : []), ...(shape && untilText ? ["--length-explicit"] : [])], title, minutes, at: hhmm(start),
     ...(earlier ? { earlier: { title: earlier.title, start: earlier.start, end: earlier.end } } : {}) };
 }
 

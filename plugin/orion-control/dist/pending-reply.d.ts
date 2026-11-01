@@ -49,7 +49,9 @@ export type PendingTurn = {
 };
 export type PendingDeps = {
     now: Date;
-    schedule?: (command: string) => Promise<FlowResult>;
+    schedule?: (command: string, meta?: {
+        lengthDefaulted?: boolean;
+    }) => Promise<FlowResult>;
     session?: (words: string) => Promise<FlowResult>;
     checkin?: (args: string[]) => Promise<{
         stdout: string;

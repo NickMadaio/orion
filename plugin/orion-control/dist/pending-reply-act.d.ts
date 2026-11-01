@@ -15,7 +15,8 @@ export declare class Ctx {
     get now(): Date;
     get nowMin(): number;
     day(which: Which): Promise<Day | undefined>;
-    schedule(command: string): Promise<FlowResult | undefined>;
+    /** `lengthSaid`: the length in the command is Nick's own words (it beats his saved minimums); any other length is ORION's default. */
+    schedule(command: string, lengthSaid?: boolean): Promise<FlowResult | undefined>;
     checkin(args: string[]): Promise<{
         stdout: string;
         code: number;

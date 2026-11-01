@@ -374,7 +374,7 @@ export function undoJournalTop(home = homedir(), now = Date.now()) {
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
     message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
-    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}), ...(opts.lastTarget ? { lastTarget: opts.lastTarget } : {}),
+    ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}), ...(opts.lastTarget ? { lastTarget: opts.lastTarget } : {}), ...(opts.lengthDefaulted ? { lengthDefaulted: true } : {}),
     exec: (args, signal) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20, ...(signal ? { signal } : {}) }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
     ask: async (system, user, schema, budgetMs) => {
         try {
@@ -1335,7 +1335,7 @@ export function registerLocalRouting(api, options) {
                 pendingMemory.setMemo(run.sessionKey, null); // REV4: ORION's own question here comes first
             // W5: "gonna eat first" read against the block that just started steps aside for a focus or health phrase code already has.
             if (!run.flow && !run.cutOff && run.pending && !run.addAnswer && !run.late && !(run.pending.plan && (run.focusMove || run.health || run.reality || run.dayDefault))) {
-                const out = await runPendingTurn(run.pending, { now: (options.now ?? pluginNow)(), ...(options.scheduleFlow ? { schedule: (m) => options.scheduleFlow(m, clock(), { deadlineAt: flowDeadline(run.started) }) } : {}), ...(options.sessionFlow ? { session: options.sessionFlow } : {}), ...(options.checkinRun ? { checkin: options.checkinRun } : {}), ...(options.readDayJson ? { readDay: options.readDayJson } : {}),
+                const out = await runPendingTurn(run.pending, { now: (options.now ?? pluginNow)(), ...(options.scheduleFlow ? { schedule: (m, meta) => options.scheduleFlow(m, clock(), { deadlineAt: flowDeadline(run.started), ...meta }) } : {}), ...(options.sessionFlow ? { session: options.sessionFlow } : {}), ...(options.checkinRun ? { checkin: options.checkinRun } : {}), ...(options.readDayJson ? { readDay: options.readDayJson } : {}),
                     ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.wakeExec ? { wake: options.wakeExec } : {}) }).catch(() => undefined);
                 if (run.sessionKey) {
                     pendingMemory.setMemo(run.sessionKey, out?.memo ?? null);
@@ -2325,7 +2325,7 @@ export function registerLocalRouting(api, options) {
             // host tool must be owned in the reply, or the host appends its raw "Exec failed" payload (finalizeReply, tool-failure.ts).
             if (on && (owed ?? reply).trim()) {
                 const before = owed ?? reply;
-                const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), codeAuthored: owed !== undefined });
+                const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), askedChange: !isQuestion(run.message) && (CHANGE_REQUEST.test(run.message) || readStatedMove(run.message) !== null), codeAuthored: owed !== undefined });
                 if (clean !== before) {
                     owed = clean;
                     remember([runId, sessionKeyNow], owed);

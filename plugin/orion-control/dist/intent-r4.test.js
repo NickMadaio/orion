@@ -43,7 +43,7 @@ describe("1. run 4 #7 and #9: a plain add at a time he said is booked at that ti
         ["need to do laundry, 1 hr, today at 6pm", "add laundry 60 --at 18:00", "planned laundry: 18:00–19:00", "Done: laundry 6:00 PM–7:00 PM."],
     ])("%j writes `%s` and says %j", async (m, argv, out, reply) => {
         const { result, writes } = await flow(m, { out: `Changed Wednesday 2030-10-21:\n  ${out}\nWritten to his calendar.` });
-        expect(writes).toEqual([argv.split(" ")]);
+        expect(writes).toEqual([[...argv.split(" "), "--length-explicit"]]);
         expect(result.outcome).toBe("done");
         expect(spokenReply(result.outputs)).toBe(reply);
     });

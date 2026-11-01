@@ -67,7 +67,7 @@ describe("re-run #5: 'put cs lab from now until ten thirty' at 22:42", () => {
   });
   it("at 21:55 it is booked from now to 22:30, as a second CS Lab", async () => {
     const { writes, result } = await flow("put cs lab from now until ten thirty", { days: { today: today("21:55") }, now: new Date(2030, 9, 3, 21, 55), out: "Changed:\n  planned CS Lab: 21:55–22:30" });
-    expect(writes).toEqual([["add", "CS Lab", "35", "--at", "21:55", "--again"]]);
+    expect(writes).toEqual([["add", "CS Lab", "35", "--at", "21:55", "--again", "--length-explicit"]]);
     expect(result).toMatchObject({ outcome: "done", reply: expect.stringContaining("Your earlier CS Lab (9:00 AM–11:15 AM) is already over, so this is a second one.") });
   });
   it("a run the scheduler refused is never 'Done', even when it lists the plan it tried (NOTHING WAS CHANGED … planned CS Lab …)", async () => {
@@ -109,7 +109,7 @@ describe("re-run #9: 'dinner then gym' right after 'reschedule tomorrow after my
 describe("re-run #10 (the wrong write): 'can u put a 45 min walk tomorrow at 5'", () => {
   it("books the walk at 5 PM tomorrow, 45 minutes, and says so", async () => {
     const { result, writes } = await flow("can u put a 45 min walk tomorrow at 5");
-    expect(writes).toEqual([["add", "walk", "45", "--at", "17:00", "--date", "tomorrow"]]);
+    expect(writes).toEqual([["add", "walk", "45", "--at", "17:00", "--date", "tomorrow", "--length-explicit"]]);
     expect(result).toMatchObject({ outcome: "done", reply: "Done for tomorrow: walk 5:00 PM–5:45 PM." });
   });
   it("at 11 tomorrow morning it would sit on CS2100: said, not booked", async () => {

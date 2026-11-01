@@ -38,7 +38,7 @@ const SPARSE = [];
 for (const [name, events] of [["a busy weekday", BUSY], ["a sparse day", SPARSE]]) {
   test(`${name}: a stated 30 min nap stays 30 min over the saved 75 minimum`, (t) => {
     const w = world(t, events);
-    const r = w.run("add", "Nap", "30", "--at", "11:00");
+    const r = w.run("add", "Nap", "30", "--at", "11:00", "--length-explicit");
     assert.equal(r.code, 0, r.out);
     assert.ok(w.day().includes("Nap 11:00-11:30"), w.day().join("\n"));
     assert.doesNotMatch(r.out, /his minimum/);
@@ -46,8 +46,15 @@ for (const [name, events] of [["a busy weekday", BUSY], ["a sparse day", SPARSE]
   test(`${name}: held out lengths (20 and 45 min naps) are kept`, (t) => {
     for (const [mins, end] of [["20", "16:20"], ["45", "16:45"]]) {
       const w = world(t, events);
-      assert.equal(w.run("add", "nap", mins, "--at", "16:00").code, 0);
+      assert.equal(w.run("add", "nap", mins, "--at", "16:00", "--length-explicit").code, 0);
       assert.ok(w.day().some((l) => l.toLowerCase() === `nap 16:00-${end}`), w.day().join("\n"));
     }
+  });
+  test(`${name}: a defaulted add (no --length-explicit) keeps the saved 75 min nap minimum`, (t) => {
+    const w = world(t, events);
+    const r = w.run("add", "Nap", "30", "--at", "11:00");
+    assert.equal(r.code, 0, r.out);
+    assert.ok(w.day().includes("Nap 11:00-12:15"), w.day().join("\n"));
+    assert.match(r.out, /his minimum/);
   });
 }

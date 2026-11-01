@@ -24,6 +24,7 @@ export type IntentPlan = {
 export declare function planIntent(intent: CalendarIntent, day: Day, ctx: {
     message: string;
     askContext?: AskContext;
+    lengthDefaulted?: boolean;
 }): IntentPlan | undefined;
 /** The intents code runs before the front desk is asked (local-routing.ts): the ones whose words alone decide the change. */
 export declare const runsFirst: (intent: CalendarIntent) => boolean;

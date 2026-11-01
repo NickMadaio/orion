@@ -55,7 +55,7 @@ test("re-run #10: 'can u put a 45 min walk tomorrow at 5' books 5:00-5:45 PM tom
   const before = w.day();
   const r = await w.say("can u put a 45 min walk tomorrow at 5");
   assert.equal(r.outcome, "done", JSON.stringify(r));
-  assert.deepEqual(w.writes, [["add", "walk", "45", "--at", "17:00", "--date", "tomorrow"]]);
+  assert.deepEqual(w.writes, [["add", "walk", "45", "--at", "17:00", "--date", "tomorrow", "--length-explicit"]]);
   assert.match(r.reply, /^Done for tomorrow: walk 5:00 PM–5:45 PM/);
   assert.deepEqual(w.day().filter((l) => !before.includes(l)), ["walk 4 17:00-17:45"]);
 });
@@ -105,7 +105,7 @@ test("at 21:55 the same words try CS Lab from now until 22:30 as a second sessio
   const w = world(t, [21, 55]);
   const before = w.day();
   const r = await w.say("put cs lab from now until ten thirty");
-  assert.deepEqual(w.writes, [["add", "CS Lab", "35", "--at", "21:55", "--again"]]);
+  assert.deepEqual(w.writes, [["add", "CS Lab", "35", "--at", "21:55", "--again", "--length-explicit"]]);
   // The scheduler refuses (the Gym, 90 minutes, would not fit after it) and lists the plan it tried: that list is never said as done.
   assert.deepEqual(r.outcome, "say", JSON.stringify(r));
   assert.equal(r.text, "Not done: Gym didn't fit. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait.");
@@ -173,7 +173,7 @@ test("live run 3 #8: 'can u block 2 hrs for econ homework tonight at 7' books 7:
   const before = w.day();
   const r = await w.say("can u block 2 hrs for econ homework tonight at 7");
   assert.equal(r.outcome, "done", JSON.stringify(r));
-  assert.deepEqual(w.writes, [["add", "econ homework", "120", "--at", "19:00"]]);
+  assert.deepEqual(w.writes, [["add", "econ homework", "120", "--at", "19:00", "--length-explicit"]]);
   assert.deepEqual(w.day().filter((l) => !before.includes(l)), ["econ homework 3 19:00-21:00"]);
 });
 
@@ -194,7 +194,7 @@ test("live run 4 #7/#9: '45 min walk today at 5pm' and 'need to do laundry, 1 hr
   assert.equal(a.outcome, "done", JSON.stringify(a));
   const b = await w.say("need to do laundry, 1 hr, today at 6pm");
   assert.equal(b.outcome, "done", JSON.stringify(b));
-  assert.deepEqual(w.writes, [["add", "walk", "45", "--at", "17:00"], ["add", "laundry", "60", "--at", "18:00"]]);
+  assert.deepEqual(w.writes, [["add", "walk", "45", "--at", "17:00", "--length-explicit"], ["add", "laundry", "60", "--at", "18:00", "--length-explicit"]]);
   assert.deepEqual(w.day().filter((l) => !before.includes(l)).sort(), ["laundry 3 18:00-19:00", "walk 3 17:00-17:45"]);
 });
 

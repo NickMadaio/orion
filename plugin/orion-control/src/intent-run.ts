@@ -46,7 +46,7 @@ function issueText(issue: TimeIssue, item: IntentItem, intent: CalendarIntent, d
 const clashWith = (start: number, minutes: number, day: Day, self?: DayBlock): DayBlock | undefined =>
   day.blocks.filter((b) => isFixed(b) && b !== self).find((b) => toMin(b.start) < start + minutes && toMin(b.end) > start);
 
-function planAdd(intent: CalendarIntent, day: Day, message: string, askContext?: AskContext): IntentPlan | undefined {
+function planAdd(intent: CalendarIntent, day: Day, message: string, askContext?: AskContext, opts: { defaultMinutes?: number; lengthDefaulted?: boolean } = {}): IntentPlan | undefined {
   const item = intent.items[0]!;
   if (item.issue && (!["passed", "past-midnight"].includes(item.issue.kind) || !intent.until)) return { kind: "say", say: item.issue.kind === "ambiguous" ? "ask" : "cannot", text: issueText(item.issue, item, intent, day, "booked") };
   if (intent.until) {
@@ -62,13 +62,15 @@ function planAdd(intent: CalendarIntent, day: Day, message: string, askContext?:
   const ahead = same.find((b) => now === null || toMin(b.start) > now);
   if (ahead) return { kind: "say", say: "plain", text: `${cap(label(ahead))} is already on ${onWhat(intent)}, ${span(toMin(ahead.start), toMin(ahead.end))}, so I haven't added another. Say "move ${item.name} to ${ampm(start).replace(":00", "")}" to move it.` };
   const anchor = day.plan?.anchors.find((a) => blocksNamed(item.name, { ...day, blocks: [{ title: a.title, start: "00:00", end: "00:00", fixed: false }] }).length > 0);
-  const minutes = item.minutes ?? anchor?.minutes ?? DEFAULT_ADD_MINUTES;
+  const minutes = item.minutes ?? anchor?.minutes ?? opts.defaultMinutes ?? DEFAULT_ADD_MINUTES;
   const title = anchor?.title ?? same[0]?.title ?? item.name;
   if (start + minutes > 1440) return { kind: "say", say: "cannot", text: `${cap(title)} at ${ampm(start)} for ${minutes} minutes would run past midnight, so I haven't booked it.` };
   const clash = clashWith(start, minutes, day);
   if (clash) return { kind: "say", say: "cannot", text: `${cap(label(clash))} is ${span(toMin(clash.start), toMin(clash.end))}${intent.day === "tomorrow" ? " tomorrow" : ""}, so ${title} can't go at ${ampm(start)}. I haven't booked it. Tell me another time.` };
   const again = same.some((b) => now !== null && toMin(b.start) <= now);
-  return { kind: "run", argv: ["add", title, String(minutes), "--at", hhmm(start), ...(again ? ["--again"] : [])], title };
+  // `--length-explicit` (last, so no value is read after it): only a length in his own words beats his saved minimums.
+  const explicit = item.minutes !== undefined && !opts.lengthDefaulted;
+  return { kind: "run", argv: ["add", title, String(minutes), "--at", hhmm(start), ...(again ? ["--again"] : []), ...(explicit ? ["--length-explicit"] : [])], title };
 }
 
 /** The block a move, extend or remove is about, or the line that says why there is none. */
@@ -166,7 +168,7 @@ function outsideReply(intent: CalendarIntent, day: Day): IntentPlan {
 }
 
 /** The intent against the day: one scheduler argv, a line to say, or undefined (the normal path). */
-export function planIntent(intent: CalendarIntent, day: Day, ctx: { message: string; askContext?: AskContext }): IntentPlan | undefined {
+export function planIntent(intent: CalendarIntent, day: Day, ctx: { message: string; askContext?: AskContext; lengthDefaulted?: boolean }): IntentPlan | undefined {
   switch (intent.verb) {
     case "replan": case "reorder": {
       if (intent.outside?.length) return outsideReply(intent, day);
@@ -179,10 +181,10 @@ export function planIntent(intent: CalendarIntent, day: Day, ctx: { message: str
       if (!plan) return undefined;
       return "say" in plan ? { kind: "say", say: plan.say, text: plan.text } : { kind: "run", argv: plan.args, dayplan: plan, title: plan.items[0]!.title };
     }
-    case "add": return planAdd(intent, day, ctx.message, ctx.askContext);
+    case "add": return planAdd(intent, day, ctx.message, ctx.askContext, { ...(ctx.lengthDefaulted ? { lengthDefaulted: true } : {}) });
     case "move": {   // wave 8 B (owned-move-add.ts): an owned block not on the day, moved to a stated time, is added there
       const asAdd = ownedMoveAsAdd(intent, day);
-      const added = asAdd ? planAdd(asAdd.intent, day, ctx.message, ctx.askContext) : undefined;
+      const added = asAdd ? planAdd(asAdd.intent, day, ctx.message, ctx.askContext, { ...(asAdd.defaultMinutes ? { defaultMinutes: asAdd.defaultMinutes } : {}), ...(ctx.lengthDefaulted ? { lengthDefaulted: true } : {}) }) : undefined;
       return added ? (added.kind === "run" ? { ...added, note: asAdd!.note } : added) : planMove(intent, day);
     }
     case "extend": return planExtend(intent, day);

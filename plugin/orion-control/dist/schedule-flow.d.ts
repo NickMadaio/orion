@@ -270,16 +270,13 @@ export type FlowResult =
 };
 /** Part of a request went through and part did not: what changed (read back from his calendar), what did not, and "undo". No "Done". */
 export declare function partialReply(before: Day | undefined, after: Day | undefined, outputs: string[], when?: string): string;
-/** The whole fixed sequence for one request. exec runs the scheduler with argv (no shell).
- *  undo: stamps of changes an earlier, cut-off half of this request made — reverted first, newest first,
- *  each only while it is still the latest change in the journal (undoTop), so nothing else is undone.
- *  pending (H1, r8 review 3): his answer to an earlier add question — a yes runs the stored argv exactly;
- *  a title answer compiles the stored anchor again with that title. */
-export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget }: {
+export declare function runScheduleFlow({ message, clock, exec: execRaw, ask, now, undo, undoTop, pending, askContext, deadlineAt, signal, onWriteStart, replanContext, edit, lastTarget, lengthDefaulted }: {
     message: string;
     clock: string;
     now?: Date;
     askContext?: AskContext;
+    /** The length in `message` is one ORION chose (a default), not Nick's words: saved minimums still apply to it. */
+    lengthDefaulted?: boolean;
     exec: (args: string[], signal?: AbortSignal) => Promise<{
         stdout: string;
         code: number;

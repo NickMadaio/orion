@@ -154,13 +154,56 @@ export function sanitizeReply(reply, ctx = {}) {
  with no calendar write: the worker restated his own sentence as done. An affirmative "<thing> is/got moved|bumped|pushed|shifted to <time>"
  is a claim that a move happened; with no successful write (and nothing awaiting approval) this turn it is never sent as it stands.
 */
-const MOVE_CLAIM = /\b(?:is|are|got|gets|was|has been|have been|'s|now)\s+(?:now\s+)?(?:bumped|moved|pushed|shifted|rescheduled|switched)(?:\s+(?:back|up|later|over))?\s+(?:to|till|until|for)\s+\d/i;
-const MOVE_HEDGE = /\?\s*$|\b(?:if|should|would|could|can|want|unless|when|once|whether|will|won'?t|can'?t|couldn'?t|didn'?t|haven'?t|hasn'?t|isn'?t|wasn'?t|not|never|no|nothing|n't)\b/i;
+const MOVED = String.raw `(?:bumped|moved|pushed|shifted|rescheduled|switched)`;
+const MOVE_TIME = String.raw `(?:\d|noon\b|midnight\b)`;
+/** "gym is moved to 5", "gym moved to noon", "I moved gym to 5", "I've pushed the nap to 3". */
+const MOVE_CLAIM = new RegExp(String.raw `\b(?:[\w']+\s+${MOVED}|I(?:'ve| have)?\s+${MOVED}\s+(?:your\s+|the\s+|my\s+)?[\w ]{1,30}?)(?:\s+(?:back|up|later|over))?\s+(?:to|till|until|for)\s+${MOVE_TIME}`, "gi");
+// Read inside the claim's own clause (from the last clause break to the end of the claim): a "no problem" after it, or a "no" in another
+// sentence, hedges nothing. An "if / unless / whether" later in the same sentence, and a closing "?", do.
+const MOVE_HEDGE = /\b(?:if|should|would|could|can|want|unless|once|whether|when|will|won'?t|can'?t|couldn'?t|didn'?t|haven'?t|hasn'?t|isn'?t|wasn'?t|not|never|no|nothing)\b|n't/i;
+const CLAUSE_BREAK = /[.!?;:,\u2014\u2013]|\s-\s|\bbut\b/gi;
 export const NOTHING_MOVED = "I haven't changed your calendar. Nothing was moved yet. Tell me the block and the time and I'll do it.";
-function restatesMoveWithoutWrite(reply, tools) {
-    if (!MOVE_CLAIM.test(reply) || MOVE_HEDGE.test(reply))
+const STOP_SUBJECT = new Set(["is", "are", "was", "has", "have", "been", "got", "gets", "now", "i", "ive", "the", "your", "my", "and", "its", "it", "yes", "yep", "yeah", "okay", "done", "all", "set", "sure", "just", "also", "then", "there", "that", "this"]);
+/** The claim's subject words ("gym", "side project"): what a calendar write has to mention to back it. */
+function subjectWords(clause) {
+    const parts = clause.split(new RegExp(String.raw `\b${MOVED}\b`, "i"));
+    const clean = (t) => t.toLowerCase().replace(/[^a-z' ]/g, " ").split(/\s+/).filter((w) => w.length >= 3 && !STOP_SUBJECT.has(w));
+    const before = clean(parts[0] ?? "").slice(-3);
+    const after = clean((parts[1] ?? "").split(/\b(?:to|till|until|for)\b/i)[0] ?? "").slice(0, 3);
+    return [...before, ...after];
+}
+/** A calendar or schedule write that went through this turn (a task add, a note or a message is not one), mentioning the claim's block when it names one. */
+function calendarWrote(tools, subject) {
+    const wrote = tools.filter((t) => /\borion-reschedule\b/.test(t.canonical) && (outcomeOf(t) === "success" || outcomeOf(t) === "partial"));
+    if (!subject.length)
+        return wrote.length > 0;
+    return wrote.some((t) => { const text = `${t.canonical} ${t.stdout}`.toLowerCase(); return subject.some((w) => text.includes(w)); });
+}
+function unhedgedClaim(reply) {
+    for (const m of reply.matchAll(MOVE_CLAIM)) {
+        const before = reply.slice(0, m.index);
+        let start = 0;
+        for (const b of before.matchAll(CLAUSE_BREAK))
+            start = b.index + b[0].length;
+        const prefix = `${reply.slice(start, m.index)}${m[0]}`;
+        const rest = reply.slice(m.index + m[0].length);
+        const end = /[.!?]/.exec(rest);
+        const sentenceTail = end ? rest.slice(0, end.index) : rest;
+        if (MOVE_HEDGE.test(prefix) || end?.[0] === "?" || /\b(?:if|unless|whether)\b/i.test(sentenceTail))
+            continue;
+        return prefix;
+    }
+    return undefined;
+}
+function restatesMoveWithoutWrite(reply, tools, askedChange) {
+    if (!askedChange)
+        return false; // a read-only turn ("did you move gym?") is answered truthfully by the worker; only a requested change needs a write
+    const claim = unhedgedClaim(reply);
+    if (!claim)
         return false;
-    return !wroteSomething(tools) && !tools.some((t) => outcomeOf(t) === "pending");
+    if (tools.some((t) => outcomeOf(t) === "pending"))
+        return false;
+    return !calendarWrote(tools, subjectWords(claim));
 }
 /*
  The last line of defence (gate run-1031202318 cluster 4). Raw tool text is cut (sanitizeReply, strict on a turn with a failed tool);
@@ -170,7 +213,7 @@ function restatesMoveWithoutWrite(reply, tools) {
 */
 export function finalizeReply(reply, tools, ctx = {}) {
     const failed = ctx.codeAuthored ? [] : failedTools(tools);
-    if (!ctx.codeAuthored && restatesMoveWithoutWrite(reply, tools))
+    if (!ctx.codeAuthored && restatesMoveWithoutWrite(reply, tools, ctx.askedChange === true))
         return NOTHING_MOVED;
     const clean = sanitizeReply(reply, { ...(ctx.mailFailed ? { mailFailed: true } : {}), ...(failed.length ? { strict: true } : {}), ...(ctx.codeAuthored ? { codeAuthored: true } : {}) });
     if (ctx.codeAuthored || !failed.length || !(ctx.hostTools && ctx.hostTools > 0))

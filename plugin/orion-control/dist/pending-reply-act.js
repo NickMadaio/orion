@@ -29,10 +29,11 @@ export class Ctx {
             this.acc.tools.push({ canonical: `read day ${args.length ? "tomorrow" : "today"} (code)`, stdout: JSON.stringify(d).slice(0, 2000), exit: null });
         return d;
     }
-    async schedule(command) {
+    /** `lengthSaid`: the length in the command is Nick's own words (it beats his saved minimums); any other length is ORION's default. */
+    async schedule(command, lengthSaid = false) {
         if (!this.deps.schedule)
             return undefined;
-        const flow = await this.deps.schedule(command).catch((e) => ({ outcome: "fallback", reason: String(e) }));
+        const flow = await this.deps.schedule(command, lengthSaid ? {} : { lengthDefaulted: true }).catch((e) => ({ outcome: "fallback", reason: String(e) }));
         if ("calls" in flow && flow.calls)
             flow.calls.forEach((canonical, i) => this.acc.tools.push({ canonical, stdout: flow.outputs?.[i] ?? "", exit: null }));
         if (flowWrote(flow)) {
@@ -92,8 +93,11 @@ export class Ctx {
 const MORNING = 8 * 60;
 const GYMLIKE = /\b(?:gym|workout|work out|lift|lifting|run|running|swim|training|walk)\b/i;
 const RETURNING = { eating: "you ate", cooking: "food's done", "a shower": "you showered", "the call": "the call's done", "the bathroom": "you're back", laundry: "laundry's sorted" };
-async function slotFor(c, minutes, d = {}, title) {
+async function slotFor(c, minutes, d = {}, title, fallbackDay) {
     const order = d.day ? [d.day] : ["today", "tomorrow"];
+    // An "after X" anchor is looked for on every day in order first; only when it is on none of them does the first free time in the part
+    // of the day he named stand in for it (and the reply says so). `fallbackDay` is the day that stand-in is booked on.
+    const standIns = [];
     for (const which of order) {
         const day = await c.day(which);
         const sameDay = which === "today" || wakeDayIsToday(c.now);
@@ -107,19 +111,18 @@ async function slotFor(c, minutes, d = {}, title) {
         }
         if (d.after) {
             const anchor = blockNamed(day, d.after);
-            if (anchor)
+            if (anchor && (toMin(anchor.end) + 5 >= earliest || !sameDay))
                 return { which, start: toMin(anchor.end) + 5 };
-            // The block he said "after" isn't on that day: the first free time there, and the reply says so.
-            const open = freeSlot(day, minutes, from, DAY_END);
+            const open = freeSlot(day, minutes, from, range[1]);
             if (open !== undefined)
-                return { which, start: open, anchorMissing: d.after };
+                standIns.push({ which, start: open, anchorMissing: d.after });
             continue;
         }
         const start = freeSlot(day, minutes, from, range[1], own);
         if (start !== undefined)
             return { which, start };
     }
-    return undefined;
+    return standIns.find((x) => x.which === fallbackDay) ?? standIns[0];
 }
 // ---------------------------------------------------------------- per offer
 async function start(c, title, r) {
@@ -195,12 +198,12 @@ async function catchup(c, o, r) {
     const title = `${safeTitle(o.subject ?? "", "")} catch-up`.trim();
     const d = r.kind === "counter" ? r.details : {};
     const minutes = d.minutes ?? 60;
-    const slot = await slotFor(c, minutes, d.after && !d.day ? { ...d, day: "tomorrow" } : d);
+    const slot = await slotFor(c, minutes, d, undefined, "tomorrow"); // a missed thing is made up tomorrow unless he names another day
     if (!slot)
         return c.done(`I couldn't find a free ${minutes} min ${d.day ?? "today or tomorrow"}${d.after ? ` after ${d.after}` : ""}. Give me a time and I'll book ${title} there.`, null);
     if ("past" in slot)
         return c.done(PAST_LINE, null);
-    const flow = await c.schedule(addCommand(title, minutes, slot.which, slot.start, c.now));
+    const flow = await c.schedule(addCommand(title, minutes, slot.which, slot.start, c.now), d.minutes !== undefined);
     if (!flowWrote(flow))
         return c.done(flowText(flow) ?? `I couldn't book ${title} just now, so nothing changed.`, null);
     const seen = await c.readBack(slot.which, title, slot.start);
@@ -224,7 +227,7 @@ async function slipped(c, title, r) {
         if (slot && "past" in slot)
             return c.done(PAST_LINE, null);
         if (slot) {
-            const flow = await c.schedule(addCommand(name, minutes, "today", slot.start, c.now));
+            const flow = await c.schedule(addCommand(name, minutes, "today", slot.start, c.now), d?.minutes !== undefined);
             if (flowWrote(flow)) {
                 const seen = await c.readBack("today", name, slot.start);
                 if (seen === undefined)
@@ -244,8 +247,8 @@ async function slipped(c, title, r) {
         return c.done(PAST_LINE, null);
     const winFrom = wakeDayIsToday(c.now) ? Math.max(MORNING, c.nowMin + 15) : MORNING;
     const inWindow = said ?? freeSlot(day, length, winFrom, 12 * 60, own);
-    // The morning is full: the nearest free time that fits, just after the window first, then earlier in the day.
-    const start = inWindow ?? freeSlot(day, length, 12 * 60, DAY_END, own) ?? freeSlot(day, length, winFrom, 12 * 60, own);
+    // The morning is full: the nearest free time that fits after the window (the morning itself was just searched).
+    const start = inWindow ?? freeSlot(day, length, 12 * 60, DAY_END, own);
     if (start === undefined)
         return c.done(`Tomorrow has no free ${length} min all day, so I couldn't fit ${title}. Give me a time and I'll book it.`, null);
     const flow = await c.schedule(own ? moveCommand(name, "tomorrow", start, c.now) : addCommand(name, length, "tomorrow", start, c.now));
@@ -321,7 +324,7 @@ async function brief(c, items, r, fromMemo) {
             }
         }
         const title = safeTitle(p.item, p.item);
-        const flow = await c.schedule(addCommand(title, minutes, which, at, c.now));
+        const flow = await c.schedule(addCommand(title, minutes, which, at, c.now), stated?.minutes !== undefined);
         if (!flowWrote(flow)) {
             failed.push(`${p.item}${flowText(flow) ? ` (${flowText(flow)})` : ""}`);
             continue;

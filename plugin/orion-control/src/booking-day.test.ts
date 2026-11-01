@@ -4,6 +4,8 @@ import { takeLength } from "./intent-time.js";
 
 describe("otherDayNamed", () => {
   it.each([["finish resume on friday at 10", "friday"], ["put it on the 4th", "on the 4th"], ["do it next week", "next week"], ["gym sat 9am", "sat"], ["in 3 days", "in 3 days"]])("%s", (t, w) => expect(otherDayNamed(t)).toBe(w));
+  it.each([["do it on sun", "sun"], ["push it to next wed", "wed"], ["by sat please", "sat"], ["this fri", "fri"], ["sun", "sun"], ["thurs at 5", "thurs"], ["mon 7pm", "mon"]])("abbreviation in a day context: %s", (t, w) => expect(otherDayNamed(t)).toContain(w));
+  it.each(["gonna sit in the sun", "sat down and did it", "i sat there for an hour", "the sun is out so ill walk", "wed rather do it later", "ill wed it up", "its a mon dieu moment"])("an ordinary word is not a day: '%s'", (t) => expect(otherDayNamed(t)).toBeUndefined());
   it.each(["tomorrow at 10am", "tonight 8pm", "finish resume at 4", "monitor the thing"])("none in '%s'", (t) => expect(otherDayNamed(t)).toBeUndefined());
 });
 

@@ -43,7 +43,7 @@ export type DayRequest = DayRequestMore
   /** "moved to 8pm tonight" with no name: the block under way, else the next one of his. */
   | { kind: "unnamed-move"; at: string }
   /** "i skipped marketing, put 1 hour of catch up on it tomorrow evening" */
-  | { kind: "catch-up"; what: string; minutes: number; day: "today" | "tomorrow"; part?: "morning" | "afternoon" | "evening" };
+  | { kind: "catch-up"; what: string; minutes: number; minutesSaid?: true; day: "today" | "tomorrow"; part?: "morning" | "afternoon" | "evening" };
 // 2026-10-31 gate (clusters 3 and 9): a write on a block he names (calendar-resolve.ts), and a plan for the weekend or tomorrow (calendar-days.ts).
 export type DayRequestMore = NamedWrite | MultiDayPlan;
 
@@ -223,7 +223,7 @@ function readCatchUp(m: string): DayRequest | null {
   const minutes = c[3] ? (/^h/.test(c[3]) ? n * 60 : n) : 60;
   const day = /^(?:tomorrow|tmrw)$/.test(c[4]!) ? "tomorrow" : "today";
   const part = c[4] === "tonight" || c[5] === "night" ? "evening" : c[5] as "morning" | "afternoon" | "evening" | undefined;
-  return { kind: "catch-up", what: c[1]!, minutes: Math.min(240, Math.max(15, minutes)), day, ...(part ? { part } : {}) };
+  return { kind: "catch-up", what: c[1]!, minutes: Math.min(240, Math.max(15, minutes)), ...(c[3] ? { minutesSaid: true as const } : {}), day, ...(part ? { part } : {}) };
 }
 
 /** A calendar request code carries out itself, or null (the turn goes on as usual). */
@@ -368,6 +368,7 @@ async function runClauses(r: Extract<DayRequest, { kind: "clauses" }>, deps: Req
         args.push(String(minutes), "--after", a.title);
       } else args.push(String(minutes), ...(at !== undefined ? ["--at", hhmm(at)] : []));
       if (c.fixed) args.push("--fixed");
+      if (c.minutes !== undefined || c.until) args.push("--length-explicit");   // his own length or end time; the 30 default keeps his minimums
       const out = await x.exec(args);
       if (out.ok) { said.push(`${c.name} ${placedAt(out.stdout, c.name) ?? (at !== undefined ? `at ${ampm(at)}` : "added")}`); lastAdded = c.name; }
       else notes.push(`${c.name} didn't go in${whyNot(out.stdout) ? ` (${whyNot(out.stdout)})` : ""}`);
@@ -412,7 +413,7 @@ async function runTomorrow(r: Extract<DayRequest, { kind: "to-tomorrow" }>, deps
   at ??= assumed;
   const tmrw = deps.readDayOn ? await deps.readDayOn(["--date", "tomorrow"]).catch(() => undefined) : undefined;
   const already = tmrw ? findBlock(title, tmrw, -1) : undefined;
-  const add = already ? undefined : await x.exec(["add", title, String(minutes), ...(at !== undefined ? ["--at", hhmm(at)] : []), "--date", "tomorrow"]);
+  const add = already ? undefined : await x.exec(["add", title, String(minutes), ...(at !== undefined ? ["--at", hhmm(at)] : []), "--date", "tomorrow", ...(r.minutes !== undefined ? ["--length-explicit"] : [])]);
   if (add && !add.ok) return { flow: say(`I couldn't fit ${label({ title } as DayBlock)} in tomorrow${whyNot(add.stdout) ? ` (${whyNot(add.stdout)})` : ""}, so I left today as it was.`, x.calls, x.outputs), facts: [], writes: 0 };
   const where = already ? `${ampm(toMin(already.start))}–${ampm(toMin(already.end))}` : placedAt(add!.stdout, title) ?? (at !== undefined ? `at ${ampm(at)}` : undefined);
   let off = "";
@@ -562,7 +563,7 @@ async function runCatchUp(r: Extract<DayRequest, { kind: "catch-up" }>, deps: Re
   if (r.day === "today" && at !== undefined && at <= now) return { flow: say(`${ampm(at)} has already passed today, so I haven't booked the catch-up. Want it tomorrow?`), facts: id ? [id] : [], writes: 0 };
   const x = runner(deps);
   const title = `${short} catch-up`;
-  const out = await x.exec(["add", title, String(r.minutes), ...(at !== undefined ? ["--at", hhmm(at)] : []), ...(r.day === "tomorrow" ? ["--date", "tomorrow"] : [])]);
+  const out = await x.exec(["add", title, String(r.minutes), ...(at !== undefined ? ["--at", hhmm(at)] : []), ...(r.day === "tomorrow" ? ["--date", "tomorrow"] : []), ...(r.minutesSaid ? ["--length-explicit"] : [])]);
   const noted = id ? `Noted you skipped ${short}. ` : "";
   if (!out.ok) return { flow: say(`${noted}I couldn't fit the catch-up in ${r.day}${whyNot(out.stdout) ? ` (${whyNot(out.stdout)})` : ""}, so nothing else changed.`, x.calls, x.outputs), facts: id ? [id] : [], writes: 0 };
   const where = placedAt(out.stdout, title) ?? (at !== undefined ? `at ${ampm(at)}` : "");

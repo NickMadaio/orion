@@ -124,7 +124,7 @@ export type LocalRoutingOptions = {
   /** ISO time until which "on" runs without an acceptance record (deliberate testing; max 48 h ahead). */
   testingUntil?: string;
   /** The scheduling flow (tests pass a stub; default runs the real scheduler and the worker via Ollama). */
-  scheduleFlow?: (message: string, clock: string, opts?: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk; lastTarget?: { title: string; start?: string; dateArgs: string[] }; edit?: { target: Extract<EditTarget, { kind: "block" }>; req: NonNullable<ReturnType<typeof parseEdit>> } }) => Promise<FlowResult>;
+  scheduleFlow?: (message: string, clock: string, opts?: { lengthDefaulted?: boolean; undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk; lastTarget?: { title: string; start?: string; dateArgs: string[] }; edit?: { target: Extract<EditTarget, { kind: "block" }>; req: NonNullable<ReturnType<typeof parseEdit>> } }) => Promise<FlowResult>;
   /** Moves the rest of today back by N minutes (scripts/orion-reschedule late N); tests pass a stub (q029). */
   lateFlow?: (minutes: number) => Promise<FlowResult>;
   /** Reads his texts or Gmail by code (read-only scripts); tests pass a stub (q066, q069). */
@@ -535,9 +535,9 @@ export function undoJournalTop(home = homedir(), now = Date.now()): string | nul
 }
 
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
-export const liveScheduleFlow = (message: string, clock: string, opts: { undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk; lastTarget?: { title: string; start?: string; dateArgs: string[] }; edit?: { target: Extract<EditTarget, { kind: "block" }>; req: NonNullable<ReturnType<typeof parseEdit>> } } = {}): Promise<FlowResult> => runScheduleFlow({
+export const liveScheduleFlow = (message: string, clock: string, opts: { lengthDefaulted?: boolean; undo?: string[]; pending?: PendingRun; askContext?: AskContext; deadlineAt?: number; signal?: AbortSignal; onWriteStart?: () => void; replanContext?: ReplanAsk; lastTarget?: { title: string; start?: string; dateArgs: string[] }; edit?: { target: Extract<EditTarget, { kind: "block" }>; req: NonNullable<ReturnType<typeof parseEdit>> } } = {}): Promise<FlowResult> => runScheduleFlow({
   message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
-  ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}), ...(opts.lastTarget ? { lastTarget: opts.lastTarget } : {}),
+  ...(opts.deadlineAt !== undefined ? { deadlineAt: opts.deadlineAt } : {}), ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.onWriteStart ? { onWriteStart: opts.onWriteStart } : {}), ...(opts.replanContext ? { replanContext: opts.replanContext } : {}), ...(opts.edit ? { edit: opts.edit } : {}), ...(opts.lastTarget ? { lastTarget: opts.lastTarget } : {}), ...(opts.lengthDefaulted ? { lengthDefaulted: true } : {}),
   exec: (args, signal) => new Promise((resolve) => execFile(RESCHEDULE, args, { timeout: 60000, maxBuffer: 1 << 20, ...(signal ? { signal } : {}) }, (e, stdout, stderr) =>
     resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 }))),
   ask: async (system, user, schema, budgetMs) => {
@@ -1316,7 +1316,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (!run.flow && !run.cutOff && run.pending && (run.addAnswer || run.late) && run.sessionKey) pendingMemory.setMemo(run.sessionKey, null);   // REV4: ORION's own question here comes first
       // W5: "gonna eat first" read against the block that just started steps aside for a focus or health phrase code already has.
       if (!run.flow && !run.cutOff && run.pending && !run.addAnswer && !run.late && !(run.pending.plan && (run.focusMove || run.health || run.reality || run.dayDefault))) {
-        const out = await runPendingTurn(run.pending, { now: (options.now ?? pluginNow)(), ...(options.scheduleFlow ? { schedule: (m: string) => options.scheduleFlow!(m, clock(), { deadlineAt: flowDeadline(run.started) }) } : {}), ...(options.sessionFlow ? { session: options.sessionFlow } : {}), ...(options.checkinRun ? { checkin: options.checkinRun } : {}), ...(options.readDayJson ? { readDay: options.readDayJson } : {}),
+        const out = await runPendingTurn(run.pending, { now: (options.now ?? pluginNow)(), ...(options.scheduleFlow ? { schedule: (m: string, meta?: { lengthDefaulted?: boolean }) => options.scheduleFlow!(m, clock(), { deadlineAt: flowDeadline(run.started), ...meta }) } : {}), ...(options.sessionFlow ? { session: options.sessionFlow } : {}), ...(options.checkinRun ? { checkin: options.checkinRun } : {}), ...(options.readDayJson ? { readDay: options.readDayJson } : {}),
           ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.wakeExec ? { wake: options.wakeExec } : {}) }).catch(() => undefined);
         if (run.sessionKey) { pendingMemory.setMemo(run.sessionKey, out?.memo ?? null); if (out && run.pending.outreachText && run.pending.sentAt !== undefined) pendingMemory.markAnswered(run.pending.outreachText, run.pending.sentAt, (options.now ?? pluginNow)().getTime(), options.stateDir); }
         if (out) { run.flow = out.flow; run.tools.push(...out.tools); if (out.marks.length) recordChange(run.sessionKey, out.marks); }
@@ -2117,7 +2117,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // host tool must be owned in the reply, or the host appends its raw "Exec failed" payload (finalizeReply, tool-failure.ts).
       if (on && (owed ?? reply).trim()) {
         const before: string = owed ?? reply;
-        const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), codeAuthored: owed !== undefined });
+        const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), askedChange: !isQuestion(run.message) && (CHANGE_REQUEST.test(run.message) || readStatedMove(run.message) !== null), codeAuthored: owed !== undefined });
         if (clean !== before) { owed = clean; remember([runId, sessionKeyNow], owed); }
       }
       // Wave 4 review 2: a GENTLE turn ("i hate my life rn the wifi is down") ran as normal; its reply opens with one warm check-in line.

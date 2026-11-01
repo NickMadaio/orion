@@ -33,7 +33,7 @@ describe("1a. the intent layer reads block / set aside / pencil in, 'for N hrs' 
     const writes: string[][] = [];
     const r = await runScheduleFlow({ message: "can u block 2 hrs for econ homework tonight at 7", clock: "x", now: at(0, 18), ask: async () => { throw new Error("no form"); },
       exec: async (a) => { if (a[0] !== "show") writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify(DAY) : "Changed:\n  planned econ homework: 19:00–21:00", code: 0 }; } });
-    expect(writes).toEqual([["add", "econ homework", "120", "--at", "19:00"]]);
+    expect(writes).toEqual([["add", "econ homework", "120", "--at", "19:00", "--length-explicit"]]);
     expect(r.outcome).toBe("done");
     expect(spokenReply((r as { outputs: string[] }).outputs)).toBe("Done: econ homework 7:00 PM–9:00 PM.");
   });

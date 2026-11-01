@@ -25,7 +25,7 @@ describe("1. 'put cs lab from now until ten thirty' while the Gym is under way",
     };
     it("starts at now and runs to 22:30, as a second session", async () => {
         const { calls } = await run("Changed Thursday 2030-10-03:\n  planned CS Lab: 20:55–22:30\n  moved Gym: 20:15 → 22:35");
-        expect(calls.find((c) => c[0] === "add")).toEqual(["add", "CS Lab", "95", "--at", "20:55", "--again"]);
+        expect(calls.find((c) => c[0] === "add")).toEqual(["add", "CS Lab", "95", "--at", "20:55", "--again", "--length-explicit"]);
     });
     it("says the earlier CS Lab is already over", async () => {
         const { result } = await run("Changed Thursday 2030-10-03:\n  planned CS Lab: 20:55–22:30");

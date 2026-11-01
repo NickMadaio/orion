@@ -56,8 +56,11 @@ describe("a statement that an owned block is moved is a request to move it (per-
         ["gyms moved to 7pm tmrw cuz of a lab", { name: "gym", at: "19:00", day: "tomorrow" }],
         ["fyi my gym got pushed to 8 tonight, work thing came up", { name: "gym", at: "20:00", day: "today" }],
         ["side project is shifted to 9:15pm", { name: "side project", at: "21:15", day: "today" }],
+        ["tomorrow gym is moved to 5", { name: "gym", at: "17:00", day: "tomorrow" }],
+        ["gym is moved to 6pm cuz of lab, tmrw ill be fine", { name: "gym", at: "18:00", day: "today" }],
+        ["heads up my nap got pushed to 4 today", { name: "nap", at: "16:00", day: "today" }],
     ])("%s", (m, want) => { expect(readStatedMove(m)).toMatchObject({ kind: "stated", ...want }); });
-    it.each(["is gym bumped to 6?", "should gym be moved to 7pm", "gym was moved to 6pm yesterday", "my class is moved to 3pm", "if gym is bumped to 8 ill be late", "move gym to 7"])("not a statement: %s", (m) => {
+    it.each(["is gym bumped to 6?", "should gym be moved to 7pm", "gym was moved to 6pm yesterday", "my class is moved to 3pm", "if gym is bumped to 8 ill be late", "move gym to 7", "Mike's gym is moved to 5", "mikes gym is moved to 5 pm", "his gym got pushed to 8", "Mike gym is moved to 5", "my brother's gym is moved to 7pm", "study is moved for 2 hours", "nap got pushed for 45 minutes"])("not a statement: %s", (m) => {
         expect(readStatedMove(m)).toBeNull();
         expect(readGymSkip(m)?.kind).not.toBe("stated");
     });
@@ -104,7 +107,7 @@ describe("reply truth check: an affirmative 'X is moved/bumped to T' with no wri
         "Side project is shifted to 9 PM.",
         "Gym is moved to 7 PM.",
     ])("%s", (reply) => {
-        const out = finalizeReply(reply, none, { changeRequest: false });
+        const out = finalizeReply(reply, none, { askedChange: true });
         expect(out).not.toBe(reply);
         expect(out).toMatch(/haven't changed|nothing (?:on your calendar )?(?:was )?changed/i);
     });

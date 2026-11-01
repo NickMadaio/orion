@@ -21,6 +21,8 @@ export type FinalizeContext = {
     /** Tool calls the host itself ran this turn (the host's raw "Exec failed" payload exists only for these). */
     hostTools?: number;
     changeRequest?: boolean;
+    /** His message asked for a change to his day (not a question about one): the only turn where an unbacked "X is moved to T" is replaced. */
+    askedChange?: boolean;
     /** The text was written by code from tool results: cleaned of raw spans, never given an acknowledgement. */
     codeAuthored?: boolean;
 };

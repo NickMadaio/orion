@@ -15,11 +15,13 @@ export function ownedMoveAsAdd(intent, day) {
     if (!owned || blocksNamed(item.name, day).length > 0)
         return undefined;
     const anchor = day.plan?.anchors.find((a) => a.title.toLowerCase() === name);
-    const minutes = item.minutes ?? anchor?.minutes ?? owned.minutes;
+    // Only a length Nick said stays on the item (it earns --length-explicit); an anchor or default length is passed beside it, so his saved minimums still apply.
+    const defaultMinutes = anchor?.minutes ?? owned.minutes;
     const when = intent.day === "tomorrow" ? "tomorrow's" : "today's";
     const cap = item.name.replace(/^./, (c) => c.toUpperCase());
     return {
-        intent: { ...intent, verb: "add", items: [{ ...item, ...(minutes ? { minutes } : {}) }] },
+        intent: { ...intent, verb: "add", items: [item] },
+        ...(defaultMinutes ? { defaultMinutes } : {}),
         note: `${cap} wasn't on ${when} calendar, so I added it rather than moved it.`,
     };
 }

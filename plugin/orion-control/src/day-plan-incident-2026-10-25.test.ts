@@ -192,7 +192,7 @@ describe("3. 'until 12 am' / 'till midnight' is the end of today, never a bookin
     const writes: string[][] = [];
     await runScheduleFlow({ message: "put cs lab from now until 12am", clock: "x", now: new Date(2026, 9, 25, 23, 0), ask: async () => null,
       exec: async (a) => { if (a[0] !== "show") writes.push(a); return { stdout: a[0] === "show" ? JSON.stringify(day) : "Changed:", code: 0 }; } });
-    expect(writes).toEqual([["add", "cs lab", "60", "--at", "23:00"]]);
+    expect(writes).toEqual([["add", "cs lab", "60", "--at", "23:00", "--length-explicit"]]);
   });
   it("the start of the second thing is the end of the first + his trip home (life-config commuteMinutes 45)", () => {
     const plan = planDayPlan(parseDayPlan(SENTENCE)!, before("2026-10-25")) as DayPlanned;

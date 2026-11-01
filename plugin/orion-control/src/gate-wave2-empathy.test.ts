@@ -229,12 +229,13 @@ describe("cluster 6: focus phrases", () => {
   it.each(["block instagram and youtube for the next hour", "lock my apps", "stop me from opening tiktok"])("block: %s", (said) => {
     expect(readFocusMove(said)).toEqual({ kind: "block" });
   });
-  it("foc-doomscroll-v: 'im on tiktok instead of studying' nudges back to the block, starts nothing, logs nothing", async () => {
+  // Revised for run-1101020721: typed, with no session running, his words say he should be studying, so 25 minutes start (no "say yes").
+  it("foc-doomscroll-v: 'im on tiktok instead of studying' starts 25 minutes, said in one line, and logs nothing on the calendar", async () => {
     const r = route(() => ({ move: "answer", answer: "Sounds like a break." }), { now: MON(10, 0) });
     const t = await r.turn("im on tiktok instead of studying");
     expect(r.flows).toEqual([]);
-    expect(r.sessionCalls.some((c) => c[0] === "start")).toBe(false);
-    expect(t.exact).toMatch(/^Put tiktok down and get back to .*No focus session is running right now; want 25 minutes/);
+    expect(r.sessionCalls.find((c) => c[0] === "start")?.slice(2, 4)).toEqual(["--minutes", "25"]);
+    expect(t.exact).toMatch(/^Put tiktok down: I've started 25 minutes on .*\(say "stop the session" to end it\)\.$/);
   });
   it("foc-doomscroll-c / foc-shush-c: the length he gave the session wins", () => {
     expect(parseSessionRequest("ive been on tiktok for 20 mins. start a 25 min focus session on econ right now and be strict", { start: true, task: "econ", minutes: 25 })).toMatchObject({ minutes: 25, task: "econ" });

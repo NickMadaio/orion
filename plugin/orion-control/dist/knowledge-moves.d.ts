@@ -17,6 +17,8 @@ export type KnowledgeHeld = {
     name: string;
     shown: string;
     folder?: boolean;
+} | {
+    kind: "profile-more";
 };
 export type KnowledgeMove = {
     kind: "forget";
@@ -45,6 +47,7 @@ export type KnowledgeMove = {
     subject: string;
 } | {
     kind: "profile";
+    brief?: true;
 } | TrashMove;
 /** What this chat's last knowledge reply is waiting on. It lives exactly one turn: taking it clears it. */
 export declare class KnowledgePending {

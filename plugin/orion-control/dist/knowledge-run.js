@@ -152,6 +152,17 @@ function profileReply(p) {
     const learned = told.length ? `You've also told me: ${told.map((t) => toYou(t.replace(/[.\s]+$/, ""))).join("; ")}.` : "";
     return [...stable, extra, learned].filter(Boolean).join(" ");
 }
+/** "Do you know me": the key facts in two or three warm sentences; the rest waits for "be specific". */
+function briefProfile(p) {
+    if (!p.name && !p.school && !p.classes?.length && !p.home)
+        return profileReply(p);
+    const classes = p.classes ?? [];
+    const named = classes.length > 3 ? `${classes.length} classes, ${list([...classes.slice(0, 3), "the rest"])}` : classes.length ? list(classes) : "";
+    const who = `Yeah, you're ${p.name?.split(" ")[0] ?? "you"}${p.school ? `, at ${p.school}` : ""}${named ? ` taking ${named}` : ""}.`;
+    const life = [p.home ? `you live in ${p.home}` : "", p.gym ? "you hit the gym every day" : "", p.builds?.length ? `you're building ${list(p.builds)}` : p.sideProject ? "you put time into a side project daily" : ""].filter(Boolean);
+    const second = life.length ? `${life[0].charAt(0).toUpperCase()}${life[0].slice(1)}${life.length > 1 ? `, ${list(life.slice(1))}` : ""}.` : "";
+    return [who, second, "Say \"be specific\" and I'll give you the rest."].filter(Boolean).join(" ");
+}
 // ---- trash ---------------------------------------------------------------------------------------------------------------
 const parent = (shown) => shown.split("/").slice(0, -1).join("/") || shown;
 const movedLine = (f, folder) => `Moved ${folder ? "the folder " : ""}${f.name} (${parent(f.shown)}) to the Trash. Nothing else was touched, and you can put it back from the Trash.`;
@@ -214,7 +225,9 @@ export async function runKnowledgeMove(move, run) {
         }
         case "profile": {
             const out = await call(run, "orion-brain", ["profile"], log);
-            return { ...log, text: out ? profileReply(out) : "I couldn't read what I have on you just now. Ask me again in a moment." };
+            if (!out)
+                return { ...log, text: "I couldn't read what I have on you just now. Ask me again in a moment." };
+            return move.brief ? { ...log, text: briefProfile(out), held: { kind: "profile-more" } } : { ...log, text: profileReply(out) };
         }
         case "trash": return trash(move, run, log);
         case "trash-confirm":

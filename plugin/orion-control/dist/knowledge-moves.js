@@ -77,6 +77,8 @@ function pick(m, candidates) {
 }
 function readHeld(m, held) {
     const body = m.replace(LEAD, "").replace(/[.!?]+$/, "");
+    if (held.kind === "profile-more")
+        return MORE.test(body) ? { kind: "profile" } : undefined;
     if (held.kind === "forget-pick") {
         const picked = pick(body, held.candidates);
         return picked ? { kind: "forget-pick", held, picked } : undefined;
@@ -125,7 +127,19 @@ const PROFILE = [
     /\bwhat(?:'?s| is| does) my (?:usual |daily |normal |typical |weekly |whole )?routine\b/,
 ];
 const PROFILE_NOT = /\b(?:today|tonight|tomorrow|tmrw|this (?:morning|afternoon|evening|week)|next week|on (?:mon|tue|wed|thu|fri|sat|sun)\w*)\b/;
-const readProfile = (m) => (PROFILE.some((re) => re.test(m)) && !PROFILE_NOT.test(m) ? { kind: "profile" } : undefined);
+// run-1101020721 per-who-am-i-v: "do you know me" is a light ask; it gets two or three sentences, and "be specific" gets the rest.
+const BRIEF = [
+    /^(?:do |d'?)?(?:you|u|ya) (?:even |actually |really )?know (?:me|who i am)(?: (?:right|lol|tho|or what|at all|or nah))?[\s?.!]*$/,
+    /\bhow well do (?:you|u) know me[\s?.!]*$/, /^who am i[\s?.!]*$/,
+];
+const WANTS_ALL = /\b(?:be specific|specifically|everything|in detail|detailed|all of it|full|the lot)\b/;
+const readProfile = (m) => {
+    const body = m.replace(LEAD, "");
+    if (BRIEF.some((re) => re.test(body)) && !WANTS_ALL.test(body))
+        return { kind: "profile", brief: true };
+    return PROFILE.some((re) => re.test(m)) && !PROFILE_NOT.test(m) ? { kind: "profile" } : undefined;
+};
+const MORE = /^(?:be (?:more )?specific|more(?: detail| details| specific)?|go on|tell me more|like what|what else|such as|details?|elaborate|and\??)(?: (?:pls|please|tho|then|lol))?$/;
 /** What this message asks of his knowledge, if anything. Room speech only ever reads (links, profile), never forgets or trashes. */
 export function readKnowledgeMove(message, opts = {}) {
     const m = tidy(message);

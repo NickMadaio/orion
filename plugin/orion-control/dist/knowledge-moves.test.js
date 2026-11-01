@@ -52,8 +52,18 @@ describe("readKnowledgeMove: links", () => {
     });
 });
 describe("readKnowledgeMove: profile", () => {
-    it.each(["tell me everything u know about me", "whats my usual routine look like", "describe me based on what you know", "how well do you know me", "who am i"])("%s", (said) => {
+    it.each(["tell me everything u know about me", "whats my usual routine look like", "describe me based on what you know"])("%s", (said) => {
         expect(readKnowledgeMove(said)).toEqual({ kind: "profile" });
+    });
+    // run-1101020721 per-who-am-i-v: a vague "do you know me" got the full dump. Held out of the scenarios.
+    it.each(["u know who i am?", "do u even know me lol", "you know me right", "how well do you know me", "who am i"])("brief profile ask: %s", (said) => {
+        expect(readKnowledgeMove(said)).toEqual({ kind: "profile", brief: true });
+    });
+    it.each(["tell me everything u know about me", "what have you learned about me, in detail", "describe me based on what you know"])("full profile ask: %s", (said) => {
+        expect(readKnowledgeMove(said)).toEqual({ kind: "profile" });
+    });
+    it.each(["be specific", "more detail pls", "like what tho"])("after a brief answer, %s gets the full profile", (said) => {
+        expect(readKnowledgeMove(said, { held: { kind: "profile-more" } })).toEqual({ kind: "profile" });
     });
     it.each(["whats my routine tomorrow", "who am i meeting at 3", "what do you know about annika"])("not a profile ask: %s", (said) => {
         expect(readKnowledgeMove(said)?.kind).not.toBe("profile");
@@ -185,6 +195,21 @@ describe("runKnowledgeMove: links and profile", () => {
     });
     it.each(["whats linked to my econ quiz", "what's connected to the cs exam", "show me what ties into my mktg deadline"])("links route (held out): %s", (said) => {
         expect(readKnowledgeMove(said)?.kind).toBe("links");
+    });
+    it("profile, brief: two or three warm sentences with the key facts, and how to get the rest", async () => {
+        const { run } = fake(() => ({ name: "Nick Madaio", school: "Northeastern University London", classes: ["CS3000", "ECON1", "MKTG9", "CS3001"], gym: "90 min every day (a must, never dropped)", sideProject: "at least 1 hour a day",
+            priorities: "classes → gym → study", home: "London", commute: "15 min commute to Office", builds: ["Atlas"], working: ["Moving flat"], trivia: ["Falls asleep around 1:00 AM"], learned: ["Nick is allergic to peanuts"] }));
+        const out = await runKnowledgeMove({ kind: "profile", brief: true }, run);
+        const t = out.text;
+        const sentences = t.split(/(?<=[.!?])\s+(?=[A-Z"])/);
+        expect(sentences.length).toBeGreaterThanOrEqual(2);
+        expect(sentences.length).toBeLessThanOrEqual(3);
+        for (const bit of ["Nick", "Northeastern University London", "CS3000", "London", "gym", "Atlas"])
+            expect(t).toContain(bit);
+        for (const dump of ["Priorities", "peanuts", "1:00 AM", "Moving flat"])
+            expect(t).not.toContain(dump);
+        expect(t.length).toBeLessThan(330);
+        expect(out.held).toEqual({ kind: "profile-more" });
     });
     it("profile: classes, gym, side project, home and priorities lead; trivia after", async () => {
         const { run } = fake(() => ({ name: "Nick Madaio", school: "Northeastern University London", classes: ["CS3000", "ECON1"], gym: "90 min every day (a must, never dropped)", sideProject: "at least 1 hour a day",

@@ -108,6 +108,10 @@ async function slotFor(c, minutes, d = {}, title) {
             const anchor = blockNamed(day, d.after);
             if (anchor)
                 return { which, start: toMin(anchor.end) + 5 };
+            // The block he said "after" isn't on that day: the first free time there, and the reply says so.
+            const open = freeSlot(day, minutes, from, DAY_END);
+            if (open !== undefined)
+                return { which, start: open, anchorMissing: d.after };
             continue;
         }
         const start = freeSlot(day, minutes, from, range[1], own);
@@ -202,7 +206,8 @@ async function catchup(c, o, r) {
     if (seen === undefined)
         return c.done(unseen(title), null);
     const picked = r.kind === "counter" ? "" : ` — I picked the first free ${minutes === 60 ? "hour" : `${minutes} min`}; say a time if you want it elsewhere`;
-    return c.done(`Booked ${title}: ${h12(seen)}${dayWord(slot.which, c.now) || " today"}, ${minutes} min${picked}.`, { kind: "booked", title, when: `${h12(seen)}${dayWord(slot.which, c.now)}`, at: c.now.getTime() });
+    const noAnchor = "anchorMissing" in slot && slot.anchorMissing ? ` ${slot.anchorMissing.replace(/^./, (x) => x.toUpperCase())} isn't on ${slot.which} yet, so that's the first free time.` : "";
+    return c.done(`Booked ${title}: ${h12(seen)}${dayWord(slot.which, c.now) || " today"}, ${minutes} min${picked}.${noAnchor}`, { kind: "booked", title, when: `${h12(seen)}${dayWord(slot.which, c.now)}`, at: c.now.getTime() });
 }
 async function slipped(c, title, r) {
     // REV4 9: a decline never writes; a class or a plan with people is rebooked only when he names it.
@@ -236,9 +241,12 @@ async function slipped(c, title, r) {
     const said = d?.at !== undefined ? clockOn(d.at, d.meridiem, "tomorrow", c.now) : undefined;
     if (d?.at !== undefined && said === undefined)
         return c.done(PAST_LINE, null);
-    const start = said ?? freeSlot(day, length, wakeDayIsToday(c.now) ? Math.max(MORNING, c.nowMin + 15) : MORNING, 12 * 60, own);
+    const winFrom = wakeDayIsToday(c.now) ? Math.max(MORNING, c.nowMin + 15) : MORNING;
+    const inWindow = said ?? freeSlot(day, length, winFrom, 12 * 60, own);
+    // The morning is full: the nearest free time that fits, just after the window first, then earlier in the day.
+    const start = inWindow ?? freeSlot(day, length, 12 * 60, DAY_END, own) ?? freeSlot(day, length, winFrom, 12 * 60, own);
     if (start === undefined)
-        return c.done(`Tomorrow morning is full before noon, so I couldn't fit ${title} there. Give me a time and I'll book it.`, null);
+        return c.done(`Tomorrow has no free ${length} min all day, so I couldn't fit ${title}. Give me a time and I'll book it.`, null);
     const flow = await c.schedule(own ? moveCommand(name, "tomorrow", start, c.now) : addCommand(name, length, "tomorrow", start, c.now));
     if (!flowWrote(flow))
         return c.done(flowText(flow) ?? `I couldn't book ${title} tomorrow just now, so nothing changed.`, null);
@@ -246,6 +254,8 @@ async function slipped(c, title, r) {
     if (seen === undefined)
         return c.done(unseen(title), null);
     const lead = d ? "Booked" : `${cap(title)} isn't optional, so it's booked`;
+    if (inWindow === undefined)
+        return c.done(`Morning's full, so ${title}'s at ${h12(seen)} instead. Say if you'd rather another time. Today's slipped; I'll check in when it starts.`, { kind: "booked", title, when: `tomorrow at ${h12(seen)}`, at: c.now.getTime() });
     return c.done(`${lead}: ${title} tomorrow at ${h12(seen)}${own ? " (moved from its usual slot)" : ""}. Today's slipped; I'll check in when tomorrow's starts.`, { kind: "booked", title, when: `tomorrow at ${h12(seen)}`, at: c.now.getTime() });
 }
 const KEYWORD_SKIP = /^(?:finish|finishing|do|get|the|and|for|my|your|student|start|work|on)$/i;

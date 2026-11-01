@@ -182,21 +182,21 @@ describe("cluster 3: what happened is logged first, against the real day, then t
         const r = route({ now: "08:00", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added Rest 17:00–18:00" : "Changed Monday:\n  dropped") });
         const t = await r.turn("im sick, cancel gym and side project today, im still going to econ");
         expect(r.writes()).toEqual([["orion-reschedule", "drop", "Gym"], ["orion-reschedule", "drop", "side project"], ["orion-reschedule", "add", "Rest", "60"]]);
-        expect(t.exact).toBe("Feel better. Done: took Gym (5:00 PM) off; took side project (7:30 PM) off; put an hour of rest in (5:00 PM–6:00 PM). Econ stays on. Say \"undo\" to put it back.");
+        expect(t.exact).toBe("Feel better. Done — took Gym (5:00 PM) off, took side project (7:30 PM) off and put an hour of rest in (5:00 PM–6:00 PM). Econ stays on. Say \"undo\" to revert.");
     });
     it("rea-exhausted-c 'add a 30 min nap at 4 today and cut side project tonight im wrecked'", async () => {
         const r = route({ now: "13:00", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added nap 16:00–16:30" : "Changed Monday:\n  dropped side project") });
         const t = await r.turn("add a 30 min nap at 4 today and cut side project tonight im wrecked");
         expect(r.writes()).toEqual([["orion-reschedule", "add", "Nap", "30", "--at", "16:00"], ["orion-reschedule", "drop", "side project"]]);
         // REV2 7: wrecked is tired, not ill (no "Feel better." and no rest block added).
-        expect(t.exact).toBe("Done: nap 4:00 PM–4:30 PM; took side project (7:30 PM) off. Say \"undo\" to put it back.");
+        expect(t.exact).toBe("Done — nap 4:00 PM–4:30 PM and took side project (7:30 PM) off. Say \"undo\" to revert.");
     });
     it("hea-sleep-adjust-c 'only slept 4 and a half hours, add a nap after class and cut side project': the nap after class, the side project off", async () => {
         expect(readDayRequest("only slept 4 and a half hours, add a nap after class and cut side project", at("10:00"))).toMatchObject({ kind: "clauses", clauses: [{ verb: "add", name: "nap", after: "class" }, { verb: "remove", names: ["side project"] }] });
         const r = route({ now: "10:00", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added nap 15:35–16:05" : "Changed Monday:\n  dropped side project") });
         const t = await r.turn("only slept 4 and a half hours, add a nap after class and cut side project");
         expect(r.writes()).toEqual([["orion-reschedule", "add", "Nap", "30", "--after", MKTG.title], ["orion-reschedule", "drop", "side project"]]);
-        expect(t.exact).toMatch(/^Done: nap 3:35 PM–4:05 PM; took side project \(7:30 PM\) off\./);
+        expect(t.exact).toMatch(/^Done — nap 3:35 PM–4:05 PM and took side project \(7:30 PM\) off\./);
     });
     it("without a health reason, dropping gym in a combination is the gym guard's, never a silent drop", () => {
         expect(readDayRequest("cancel gym and side project today", at("10:00"))).toBeNull();
@@ -207,7 +207,7 @@ describe("cluster 3: what happened is logged first, against the real day, then t
         const r = route({ now: "16:30", out: (_s, a) => (a[0] === "add" ? "Changed Monday:\n  added food with annika 17:00–19:00" : "Changed Monday:\n  moved Gym: 17:00 → 19:05") });
         const t = await r.turn("going to get food with annika from 5 to 7, move gym to after");
         expect(r.writes()).toEqual([["orion-reschedule", "add", "Food with annika", "120", "--at", "17:00", "--fixed"], ["orion-reschedule", "move", "Gym", "--after", "food with annika"]]);
-        expect(t.exact).toMatch(/^Done: food with annika 5:00 PM–7:00 PM; Gym moved to 7:05 PM/);
+        expect(t.exact).toMatch(/^Done — food with annika 5:00 PM–7:00 PM and Gym moved to 7:05 PM/);
     });
     it("rea-didnt-go-class-c 'i skipped marketing, put 1 hour of catch up on it tomorrow evening': the skip noted, the catch-up booked", async () => {
         const r = route({ now: "15:45", out: (s) => (s === "orion-declare" ? '{"id":"fact-skip0001"}' : "Changed Tuesday:\n  added MKTG2201 catch-up 19:00–20:00") });

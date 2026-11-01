@@ -85,6 +85,6 @@ describe("finding 4: a deadline's study sessions count one undo per day booked",
     const out = await runDayRequest(req, { run: f.run as never, readDay: async () => day, now });
     const eventAdds = f.calls.filter((c) => c.script === "orion-reschedule").length;
     expect(out.writes).toBe(eventAdds + 2);
-    expect((out.flow as { reply: string }).reply).toMatch(/Gym 4:30 PM → 5:00 PM/);
+    expect((out.flow as { reply: string }).reply).toMatch(/Gym from 4:30 PM to 5:00 PM/);
   });
 });

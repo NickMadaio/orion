@@ -8,6 +8,31 @@ Each item says what it unblocks, so you can judge whether it is worth an evening
 
 ---
 
+## Now — 2026-10-30
+
+0. **Install the watchdog (about 1 min, one paste).** Ollama quit on 10-28 and ORION was silent for 38 h,
+   because nothing relaunched it. `scripts/orion-watchdog` is built and tested (23/23) and
+   `--dry-run` sees everything up. The Claude session wasn't allowed to install a launchd job itself.
+   Paste:
+   ```
+   ! REPO=~/Desktop/ORION LA=~/Library/LaunchAgents NODE=~/.openclaw/tools/node-v24.15.0/bin/node; for n in watchdog ollama-env; do sed -e "s#__NODE__#$NODE#" -e "s#__REPO__#$REPO#g" -e "s#__HOME__#$HOME#g" $REPO/native/launchd/com.nickmadaio.orion.$n.plist > $LA/com.nickmadaio.orion.$n.plist; launchctl bootstrap gui/$(id -u) $LA/com.nickmadaio.orion.$n.plist; done; launchctl list | grep -E 'watchdog|ollama-env'
+   ```
+   Rollback: `native/launchd/README-watchdog.md`.
+
+000. **A macOS password/keychain prompt is on screen** (SecurityAgent, since 13:29 on 10-31). It appeared when the new
+   Orion.app build 1052 launched. If it names Orion and a keychain item, click **Always Allow**. If it's anything else,
+   cancel it and tell the next session. Until it's answered, screen reading refuses to look (correctly: the prompt is on
+   the sensitive-content denylist).
+
+00. **Turn on screen control (clicking/typing) for computer use.** It's built, and it runs through Orion.app, which
+   already has Accessibility. Reading the screen is on, but control needs this flag, which the Claude session wasn't
+   allowed to flip. Your rule still applies: only an explicit "do X in Y" authorises clicks, and sends, deletes and
+   purchases you didn't name always ask first. Paste:
+   ```
+   ! ~/.openclaw/tools/node-v24.15.0/bin/openclaw config set plugins.entries.orion-control.config.enableComputerControlActions true && launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway
+   ```
+   Then check it: `node scripts/eval/computer-smoke.mjs` (opens TextEdit, types, reads it back, closes without saving).
+
 ## Now — 2026-10-14
 
 1. **Top up Anthropic credits / raise the usage limit** (console.anthropic.com).

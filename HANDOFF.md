@@ -80,6 +80,296 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-01 10:00 GMT: live tier, waves 8–9, and how far to trust the grader (Claude, orchestrator)
+
+**Found state.** The 05:30 entry below was accurate. The 08:00 live tier then ran, and that run is where this session starts.
+
+**Live tier, run-1101080052 (08:00 Sunday).** All 20 items ran with 0 restore failures, and the regex gate passed 20/20. The strict grade was 9/20, and about half of that is the test's own fault (see the new AGENTS.md trap). The real bugs are in the table:
+
+| Bug | Fix | Wave and commit |
+|---|---|---|
+| "move X to tomorrow at 10am" was booked today | `booking-day.ts` | W8-A ff5aad3 |
+| A 30 min nap was raised to a 75 min minimum | `--length-explicit` on `orion-reschedule add`; defaulted lengths keep their minimums | W8-A, then the review fix 943f53b |
+| A title came out as "of youtube editing" | `takeLength` | W8-A |
+| "gym is bumped to T" was echoed with no write (a false claim) | A `stated-move.ts` route, plus a finalizeReply check for unbacked move claims, scoped to change requests and calendar writes | W8-B 27c2c42 / 943f53b |
+| Moving an absent owned block to an explicit target was refused | `owned-move-add.ts` creates it. Only gym, side project, study and nap; never classes or plans | W8-B |
+| A full window replied "give me a time" | Book the nearest free slot and say so | W8-C 238383c |
+| The robotic "Done / Not done / Also" reply | `compound-reply.ts` | W8-C |
+| A stated time that moved for a class was never explained | `shift-note.ts` reads the scheduler's SHIFTED line ("10 AM's taken by ECON1115, so it's at 1:20 PM") | W9-A 70f0c30 |
+| The "Partly done. Not done:" reply | `partial-reply.ts`. "Push everything" now dry-runs first and writes nothing if the push would drop Gym before wind-down | W9-B 220b312 |
+| "am I free sat night" gave "I don't have your calendar" | A code-first `availability-read.ts` route | W9-B |
+
+A code-reviewer found 7 real defects in wave 8, including defaulted lengths losing their minimums and the truth check denying true claims. All 7 were fixed in 943f53b before the deploy.
+
+**Verification.**
+
+| Run | Grader | Overall | Vague | Clear | Notes |
+|---|---|---|---|---|---|
+| Sandbox run-1101085557 (wave 8) | Fresh grader | 80.6% | — | — | 15 of 17 flips had replies identical to the 93.4% run |
+| | Consistent re-score | 92.7% | — | — | |
+| Live run-1101091514 (wave 8) | My reading | 9 of 11 previous live failures now right | — | — | The other 2 need blocks the real calendar doesn't have |
+| Sandbox run-1101094307 (wave 9) | Fresh grader | 92.7% | 94.4 | 90.4 | 97.5% without the 6 screen-control items |
+| | Consistent re-score | 94.4% | 95.8 | 92.3 | |
+
+Run-1101094307 had 0 false claims, 0 leftover writes, a p90 latency of 7.5 s, and 0 restore failures. Suites: root 2103/2103, plugin 3787/3787, tsc 0.
+
+**Live and installed state.** sweep/integration is at 0abf799. It was deployed with `orion-deploy --allow-dirty`, and the `orion-remote-install` mirror is synced. Gate focus rows were removed after each run; the backups are `.builds/focus-history.pre-*.jsonl`. Six exited gate launchd jobs and 28 clean, merged agent worktrees were removed.
+
+**Rollback.** Tags `pre-wave9-20261101` (943f53b) and `pre-wave8-20261101` (bfb093b), or `orion-deploy --rollback`.
+
+**Next.**
+- Run the live tier on a weekday evening.
+- Open issues:
+  - saf-delete-folder-v refuses instead of listing candidates;
+  - com-screen-read-c doesn't say that screen access is off;
+  - sch-weekend-plan-c double-books the side project;
+  - the alarm tool uses the real clock instead of the sandbox clock;
+  - gym-skip replies cite an unseeded "second skip".
+- "tmrw 10am" without "at" doesn't reach the tomorrow move (found by W9-A).
+
+### 2026-11-01 05:30 GMT — Waves 6–7, the app deadlock, and the gate at 93% (Claude, orchestrator)
+
+**Gate results.** These are strict-graded on the 124 sandbox items, so they don't cover the live-calendar tier.
+
+| Run | Overall | Vague | Clear | Without the 5 screen-control items |
+|---|---|---|---|---|
+| run-1101003318 | 83.9% | — | — | — |
+| run-1101020721 (wave 6) | 90.3% | — | — | — |
+| **run-1101044137 (wave 7)** | **93.4%** | **94.4%** | **92.0%** | **97.4%** |
+
+- Wave 7 excludes 3 infra flukes. Counted as failures, it is 91.1% overall, 93.1% vague, 88.5% clear.
+- All 5 com-* write items fail only because `enableComputerControlActions` is off (NICK-TODO 00).
+- The 20-item live tier was scheduled for 08:00 via a background task. Its result is in the next entry.
+
+**Wave 6:**
+- Bedtime state (bed-state.ts): "one more thing" means a 15-minute limit plus a check-back. It is a stall only when nothing of substance follows.
+- compound-intent.ts writes multi-clause requests as one `day --plan`.
+- life-window.ts: free-slot search runs until bedtime minus wind-down.
+- slip-history.ts.
+- Truthful lighten and freed-class replies, read back from `show --json`.
+- Courses count as work for focus starts.
+- `orion-brain forget/links/profile`: forget archives to memory-archive.jsonl and can restore.
+- `scripts/orion-trash`: moves to the Trash only. It refuses the vault, the ORION repo (always ~/Desktop/ORION, even from the installed mirror) and .git folders, and asks before fuzzy matches.
+- Gate:
+  - Brain-vault seeds.
+  - Whole-vault snapshot and restore. Removed or overwritten notes go to `orion-controlled/gate-vault-quarantine/<run>/`.
+  - Seed-age parsing.
+- plugin/workspace/AGENTS.md now says scripts run through exec (copied live; backup in .builds).
+
+**Wave 7:**
+- Forget fixture shape.
+- Connections fall back to the nearest node.
+- Short "do you know me" answer.
+- Vague break: pauses a running block (never finishes it); alarm only when idle.
+- Doomscroll starts 25 minutes only on a present-tense, first-person message that is typed or addressed.
+- A held send shows every draft step.
+- HELD only reacts to a structured needs_approval.
+
+**Reviews:** REV6 had 2 MUST and REV7 had 1 MUST, all fixed. Examples: "one more thing, gym at 7" was swallowed; orion-trash could take a vault note; a vague break started a 50-minute DND block from idle.
+
+**Incident: Orion.app deadlock, 04:44.**
+- Gate focus items started and stopped sessions every few seconds. The app stopped logging and its session socket died, but the process stayed alive.
+- Root cause: the socket thread mutated AppState off the main thread (Enforcer.speak) while main sat inside ShortcutsCLI `waitUntilExit`'s nested run loop.
+- Fix, bfb093b (tag pre-appwedge-20261101), reviewed with no MUST:
+  - main-thread hops;
+  - Focus on its own serial queue, and any attempted enable is always undone;
+  - BoundedProcess (timeout plus pipe draining);
+  - the distraction quitter re-checks the session is live and quits nothing under a fresh eval marker (EvalMode.swift mirrors eval-mode.mjs).
+- swift test: 853 run, 0 failures.
+- **App build 1167 installed at 05:23** (backup `/Applications/.Orion-previous-1099-wedge.app`).
+- Stress test: 5 rapid start/abandon cycles under the marker. The socket answered, logging continued, nothing was quit.
+- Before the fix, a gate item had **quit CurseForge** at 04:44.
+
+**Live-state cleanups this night** (all backed up in `.builds/`):
+- gate focus-history rows;
+- 6 "buddy/no emojis" lines written into brain Nick.md by gate runs;
+- a stray "Missing Note";
+- 3 memory-archive rows from the gate's own seed note.
+
+**Still open (needs Nick):**
+- NICK-TODO 00: the screen-control flag.
+- Rebuilding native/OrionMacBridge: it is an unsigned copy and may prompt for Calendar access.
+- Confirm the crisis tiers design: FULL for clear signals, GENTLE one-line check-in for venting with a mundane cause.
+- Peanuts and car-insurance facts in Nick.md: real, or test residue?
+- Model exec allowlist: orion-trash is deliberately not on it.
+
+**Known flaky tests:** delivery-senders:111 (date-dependent, fails on Sundays after midnight) and agentic-remote-agent "concurrent authenticated messages" (under load).
+
+**Rollback tags:** pre-wave6-20261101, pre-wave7-20261101, pre-appwedge-20261101.
+
+### 2026-11-01 00:55 GMT — Waves 4–5: the gate finally tests the right premises; loop, health, names, safety (Claude, orchestrator)
+
+**Found state:** gate run-1031202318 (the first full run on wave 3) strict-graded at 92/144. That number meant little: **no item's setup had ever been applied** (results show `"applied": []` for all 144).
+- setup.now can't be set on the live clock.
+- The state keys weren't files.
+- The assumed calendars existed only in prose in notes.
+- Loop items passed ORION's nudge as text where the gate expects an outreach id, so no nudge context was ever sent.
+
+**Gate fidelity (wave 4):**
+- Per-item sandbox via the existing eval seam: the eval marker plus `eval-calendar.json` (bridge-path.mjs, sandbox-bridge.mjs).
+- `setup.calendar` is generated deterministically into the scenarios.
+- Plugin `pluginNow()` in plugin-clock.ts: the sandbox time is used ONLY when the marker is live AND eval-calendar.json is under 2 h old. bridge-path.mjs applies the same rule.
+- Health fixtures are mapped to real files.
+- Seeded outreach rows are restored by removing the seeded ids.
+- A 20-item `--tier live` runs at real time with relative tokens.
+- The gate refuses to start beside a leftover sandbox file; `--clean-sandbox` clears it.
+- Item 6, accepted risk: while an item runs, Nick's own turns also see the sandbox. **Full runs only while he is away or asleep.**
+
+**ORION changes:**
+- Wave 4:
+  - `pending-reply*` binds short replies to the latest unanswered nudge that is newer than ORION's last reply. Crisis, in-chat questions, declines and classes are guarded.
+  - The voice-cutoff continuation is handled.
+  - Focus replies now parse orion-session's multi-line JSON; they had read only the last line, so ORION said "nothing is running" while a session started.
+  - Break intent.
+  - Health log: meals, gym streak, bedtime (past-tense statements excluded).
+  - Leak and truth check at finalize.
+  - calendar-resolve and calendar-days.
+  - "cs lab" no longer equals "DS Lab 05".
+  - planLog no longer places blocks in elapsed time.
+  - day-defaults.
+- Wave 5:
+  - block-names resolver (marketing → MKTG2201), with aliases taken from data.
+  - All 6 write failures were REAL bugs: `overrun --shift`, honest no-op messages, a named one-day class move, the nap window clipped before classes, casual focus starts.
+  - Loop replies (bedtime, check-in dashes).
+  - Preference saving, which refuses distress, commands, people and preferences that negate gym or classes.
+  - **Crisis tiers** (Nick should confirm this design): clear signals, now including burden / no reason / no meaning / no future, get the FULL reply. "hate my life lol, wifi's down" gets a GENTLE one-line check-in and the turn proceeds. Idioms get nothing.
+  - Classes and plans with people move only with `--named`, which only the plugin's compile adds. Worker execs carrying it are refused.
+
+**Reviews:** REV4 (4 MUST + 7), REV4b (1 MUST), REV5 (4 MUST, including the preference saver writing "i hate being alive" into USER.md), REV5b (1 MUST). All fixed and re-checked.
+
+**Verification:** vitest 3385, root 2056/2057 (delivery-senders:111 is date-dependent and fails on the deployed base after midnight on a Sunday), gate 42, tsc 0.
+- Strict grade, sandbox tier: run-1031224700 85/124 (68.5%).
+- run-1101003318 was being graded when this entry was written.
+
+**Live state:**
+- sweep/integration at 947b482 (tags pre-wave4-20261031, pre-wave5-20261101). orion-deploy ok; the installed mirror is in sync. App build 1099 (no Swift app changes since).
+- NOT done: rebuilding native/OrionMacBridge (Bridge.swift now returns calendar, location and notes for undo). The installed bridge is an unsigned copy and might re-prompt for Calendar access, so this waits for Nick: `swift build -c release` in native/OrionMacBridge, then `scripts/orion-remote-install`. Undo degrades gracefully without it.
+- Rollback copies: dist backup `.builds/plugin-dist-pre-wave4-20261031`; the untracked scenarios were moved to `.builds/gate-scenarios-untracked-pre-wave4-20261031`; focus-history backups `.builds/focus-history.pre-gate*`.
+
+**Next:**
+- Grade run-1101003318.
+- Run `--tier live` in daytime (relative times cross midnight).
+- NICK-TODO 00 (screen-control flag) blocks all 5 com-* write items.
+
+### 2026-10-31 20:30 GMT — Waves 2–3 live, app build 1099, full gate re-run (Claude, orchestrator)
+
+**Found state:** after the 14:30 entry, three problems. Wave 1 scripts were not live: Orion.app runs the INSTALLED
+mirror `~/.openclaw/orion-remote/scripts/`, last synced 10-25 (trap added). Gate run 2 leaked 3 declared facts
+into live state; they were backed up to `.builds/declared-facts.gate-contamination-20261031.json` and removed. Room
+audio (a body-cam video) still reached the gateway, through a wake-word false positive plus a cold voice-ID model
+that missed its 1.5 s timeout and failed open.
+
+**Wave 2** (merge ab37e5f, tag `pre-wave2-20261031`):
+- Fit check now touches only the affected blocks. Brain is fixed: the Basic Memory CLI had renamed its commands.
+- Stale held digest fixed (`scripts/lib/notify/stale.mjs`).
+- Calendar-side fixes; empathy, focus, chatter and leak fixes.
+- Nightly knowledge-graph rebuild in `orion-daily`.
+- The gate snapshots an allow-list of state files and reports the others.
+- An opus review raised 10 MUST items, all fixed (035d88e). Decision: **crisis signals are never silenced by the
+  chatter filter.**
+
+**Wave 3** (merge 8c309fa + cef4e49, tag `pre-wave3-20261031`):
+- App AddressGate and barge-in fixes: Escape no longer sends, and the cancel is no longer queued (53e9197 app,
+  c1cf1ab plugin).
+- 5 fixes from the read-only gate run.
+- Voice-ID daemon hardened (272d77f; keep-warm every 45 s, installed). The app's verify timeout is now 3 s.
+- A sonnet review raised 6 MUST items, all fixed: the wake gate dropped "Thank you.", number-led lines and "lights
+  off."; connector creation was misrouted; and others. orion-deploy first refused on the CI secret scan (a synthetic
+  key fixture), which is now allowlisted.
+
+**Verification:** vitest 2567, node 1993, tsc 0, Swift 0 failures. Gate scores so far: baseline 27/144, run 2
+52/144 (plugin half only), and read-only run-1031180718 (chatter silent, screen read working). Full run
+run-1031202318 against everything is in progress; see the next entry for its grade.
+
+**Live state:**
+- Plugin c739766bdc7d deployed. Mirror synced (`scripts/orion-remote-install --status`).
+- Orion.app build 1099 installed 20:22. Backups are `/Applications/.Orion-previous-1052-wave3.app` and the tags
+  above.
+- Ollama restarted 20:21 (it had been stopped at Nick's request while gaming) with both models warm.
+- Not installed: the watchdog and the computer-control config flag (NICK-TODO 0 / 00).
+
+**Rollback:** `git checkout pre-wave3-20261031` (or wave2/wave1), then orion-deploy and orion-remote-install.
+For the app, ditto the backup bundle into `/Applications/Orion.app`.
+
+**Next:** grade run-1031202318 against run-1031133008, then iterate to ≥90% vague and ≥90% clear.
+
+### 2026-10-31 14:30 GMT — Orchestrated push to the purpose: exact-gate tests, wave 1 live, wave 2 running (Claude, orchestrator)
+
+**Found state:** real use 10-16→10-30 had 10/75 successful Mac turns (audit:
+`/private/tmp/claude-501/.../scratchpad/orch/R2-live-evidence.md`, summarised here). The proactive loop never closed:
+gym `gave-up` 4×, check-ins `given_up` at L0. Room chatter became commands ("Not done: 6:00 AM–6:00 AM…" ×30) and
+memories ("Saved: Frozen."). The 10-25 all-nighter got no bedtime line. Briefs were stale ("resume + oyster" 11/12).
+Ollama, Orion.app and the phone link were unsupervised.
+
+**The exact gate (new, `scripts/eval/gate/`):** a Node port of the Mac app's message construction (agentRequest app
+context, spoken suffix, recentOutreach, SchedulingMemory, ThinkingPolicy), parity-tested against goldens from the real
+Swift (47 fixtures). `run.mjs` runs under launchd (Calendar TCC) with per-item snapshot, effect diff, undo and verify.
+Scenario bank: `scripts/eval/gate/scenarios/` has 144 items, 72 vague/clear pairs over 10 areas. Graded by a separate
+agent against rubrics (`GRADE.md` in each run dir under `~/.openclaw/orion-controlled/evals/gate/`).
+- Baseline run-1030140327: **27/144 (19%)**, vague 18%, clear 19%, 9 false claims, 0 leftover writes.
+- After wave 1, run-1031133008: **52/144 (36%)**, vague 39%, clear 33%, 7 false claims, 0 leftover writes, p50 8.5 s.
+  32 fixed, 7 regressions (listed in its GRADE.md).
+
+**Wave 1, live since 2026-10-31 13:30 (merge f10cd45; rollback tag `pre-wave1-20261031`):**
+- `now.json`: one decision record (should-be / is / mismatch / next / declared / strictness / sensors), written by
+  orion-proactive. `ORION_NOW` and `ORION_CONTROLLED_DIR` make every time-driven script testable on a state copy with
+  no sends (docs/design/2026-10-30-now-record.md).
+- Escalation ladder (docs/design/2026-10-30-escalation-ladder.md): L0 → L1 (smaller version) → L2 (time-sensitive
+  push, plus voice when home) → L3 firm → END replan or question. Never a silent give-up. Legit reasons get a 20–30 min
+  grace then a comeback. One displace per title per day. Gym is never removed. Caps 4/block/h and 25/day.
+  Reviewed (opus): the first version stormed (23 pushes, gym deleted) and was fixed before going live.
+- Health/sleep: awake-late flag plus a tomorrow proposal, recovery-aware fill (gym stays 90 min as an easier
+  session), stale-sensor notices (Mac locked = off), brief head from real deadlines with a "keeps slipping" choice.
+- Plugin: state card in the 9B prompt (~386 tokens). Reality statements (orion-declare, `orion-reschedule
+  classes-off`, undoable). Chatter / quiet window / no repeated failure text. Ollama outage gives an honest line and
+  queues the message for replay. Skip-gym gets pushback, never a delete.
+- Orion.app build 1052 (backup `/Applications/.Orion-previous-pre1052-wave1.app`): AddressGate root cause fixed (the
+  LLM address gate was removed 10-08 and barge-ins chained turns), QuietWindow, Knowledge tab (graph from
+  `scripts/orion-knowledge`, editable overrides), UI polish (OrionDesign tokens, motion), and the computer relay
+  (HMAC-signed queue in `orion-controlled/computer-relay/`; the app, which holds Accessibility, spawns the bridge).
+- Bridge rebuilt and installed to `~/.openclaw/orion-remote/bin/` (old one in `.builds/orion-mac-bridge.pre-wave1`).
+- Watchdog `scripts/orion-watchdog` (23 tests) is built but NOT installed: the classifier refused launchd persistence.
+
+**Blocked on Nick (NICK-TODO 0 / 00 / 000):** install the watchdog; flip `enableComputerControlActions` (refused
+as a security weakening); answer the SecurityAgent prompt that appeared when build 1052 launched.
+
+**Wave 2 (running):** fit-check false rejections and brain lookups (scripts); clarifier defaults, reality block
+lookup, read-vs-write routing and parsing (plugin schedule-flow); focus mapping, day-lightening, chatter fragments and
+exec-leak (plugin modes); stale held digest at app launch (native).
+
+**Rollback:** `scripts/orion-deploy --rollback` (plugin). `git reset` to `pre-wave1-20261031` for scripts. Restore
+the app from the hidden backup.
+
+**Next:** merge wave 2 in a worktree → review → deploy → gate run 3 → iterate to ≥90% vague and clear.
+
+### 2026-10-30 13:40 GMT — ORION was dark for 38 h: Ollama had quit (Claude, relay check)
+
+- **Found state:** the 10-25 entry is accurate and complete. HEAD is `f62bb26`, and the installed plugin
+  `dist/index.js` is byte-identical to the repo. No Codex work on ORION happened after it: the 10-26 Codex
+  sessions were a ChatGPT project (presentations), with 0 credits. The only dirty tracked file is
+  `docs/planning/v2/CURRENT_AUTHORITY.json` (+3 NEVER rows such as `orion-awareness`), regenerated
+  after the deploy and not committed.
+- **Not in any record:** Ollama.app quit at **2026-10-28 23:03**. The server log ends on a normal
+  `/api/tags`, there is no crash report, and the Mac has been up since 10-25 22:34. Nothing relaunches it
+  (see the new trap in `AGENTS.md`). Nick's two turns today both died on the 9B with
+  `Connection error.` and an empty reply. At 10:32 he answered the morning brief by voice: "Just note
+  that I don't have classes. I still have my lab to do". At 13:32 he typed "i dont have classes today".
+  **Neither was acted on.** The morning brief listed MKTG2201 at 1:30, ECON1115 at 3:30 and
+  "leave by 12:45". I did not check whether those blocks are still on his calendar.
+- **Changed:** `open -g -a Ollama`, then loaded both models at their live contexts with `keep_alive 24h`.
+  No code, config or gateway restart.
+- **Verification:** `/api/ps` shows `qwen3.5:9b` at ctx 32768 and `qwen3.5:4b-q4_K_M` at ctx 16384.
+  A live probe (`--session-key relay-probe-20261030`, no calendar) got "Hey Nick, yes I'm here and
+  working." in 11.8 s wall time, including CLI startup.
+- **Also seen:** the startup banner says "Acceptance report: not passing — acceptance is 20 days old
+  (max 14)". That is informational under `localRouting: "on"`, which is local always.
+- **Rollback:** none needed. Quitting Ollama returns to the broken state.
+- **Next step:** (1) Supervise Ollama. Either add it to login items, or run `ollama serve` under a
+  LaunchAgent with KeepAlive next to `com.nickmadaio.orion.*`. Also make `keepWarm` alert the phone
+  when 11434 refuses, the way the account-health alert does for Anthropic. That touches
+  `plugin/orion-control` (keepWarm) and launchd, so confirm the window with Nick. (2) Nick should repeat
+  "no classes today", or someone should clear today's class blocks for him.
+
 ### 2026-10-25 — Whole-day plans, end-time backstop, honest partial replies, day view refresh (Claude, Opus worker)
 
 - **Incident (13:05):** "only doing two things today. Study … from now until 6pm … marketing … until 12 am". The 9B worker resized Study to 14:00–19:00, cascaded the rest, failed a `--to 24:00`, and replied "Done … Not done". Audit: `docs/audits/2026-10-25-day-plan-false-positive.md`.

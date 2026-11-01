@@ -425,6 +425,38 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 
 ## Traps that have already bitten, do not reintroduce
 
+- **One strict-grader run swings about 12 points on identical replies.** On 2026-11-01, run-1101085557 graded 80.6%.
+  15 of its 17 PASS→FAIL flips had replies word-for-word identical to run-1101044137, which had graded 93.4%. Don't
+  read a drop as a regression until you've compared replies. The orchestrator scratchpad `reconcile.py BASE NEW` keeps
+  the baseline verdict for any item whose replies are identical, and lists only the flips where the reply changed.
+- **The live gate tier's `{{now+Nm}}` times break the wording outside the evening.** At 08:00 a Sunday, items asked for
+  "tonight at 8:30am", and the real calendar had none of the gym/study blocks the rubrics assume. That run's 9/20 was
+  about half artifacts. Run the live tier on a weekday evening, and read the failures before you trust the number.
+
+- **Gate focus items can wedge Orion.app and quit Nick's real apps.** On 2026-11-01 at 04:44, the gate started and stopped
+  sessions every few seconds. Each start's distraction review quit CurseForge, and then the app stopped logging and
+  answering ~/.openclaw/orion-session.sock ("Orion is not running") while the process stayed alive. An AppleScript
+  quit hung. After every write run, check `node scripts/orion-session status` answers. If it doesn't, `kill` the app
+  and `open -g /Applications/Orion.app`. Investigation notes: the orchestrator scratchpad WEDGE.md, and HANDOFF.
+- **A full gate run leaves its focus sessions in `focus-history.jsonl`.** That file is in `REPORTED_LOGS`
+  (evidence, never rewound), and the app writes it, not the gate. Run 1031202318 added 8 "abandoned" sessions
+  lasting 2–9 s, which would count against Nick's focus stats. After a write run, back the file up to `.builds/`
+  and remove the entries that ended inside the run window. `slips.jsonl` and `task-ledger.jsonl` likewise keep
+  the gate's lines.
+- **`orion-deploy` ships the plugin, not the scripts Orion.app runs.** The app's 5-minute LifeWatch tick
+  (orion-watch, orion-awareness, orion-proactive → orion-checkin, orion-notify) runs the INSTALLED mirror at
+  `~/.openclaw/orion-remote/scripts/`, not the repo. On 2026-10-31 wave 1 was deployed and its whole proactive loop
+  (now.json, the ladder, the health and sleep work) was inert for an hour: the mirror dated from 10-25. After any
+  scripts change, run `scripts/orion-remote-install` and check that `--status` says in sync. Then verify on the live
+  side (e.g. `now.json` mtime), not from the diff.
+
+- **Nothing restarts Ollama.** It runs as `Ollama.app`. It is not a login item and has no LaunchAgent,
+  and `keepWarm` reloads models but never relaunches the server. On 2026-10-28 23:03 the app quit with no
+  reboot and no crash report. Every turn after that failed with `stopReason: "error"`,
+  `errorMessage: "Connection error."` and an empty reply, so Nick got silence and no alert. He noticed only
+  on 10-30, after two messages. Before trusting a handoff's "live" claims, run
+  `curl -s localhost:11434/api/ps`. Restart with `open -g -a Ollama`.
+
 - **A spoken request can arrive as two turns.** The Mac app sends what it heard when Nick pauses, then the
   rest prefixed "(Continuing — my last message was cut off…)". Any per-message logic must read the
   stitched request (`local-routing.ts` CONTINUING/lastTurn) and must not act on a half that trails off.

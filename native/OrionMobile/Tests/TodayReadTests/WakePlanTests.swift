@@ -55,8 +55,9 @@ final class WakePlanTests: XCTestCase {
 
     func testTonightsDefaultWakeNeedsANickPlanOrARequestAndHorizonIsCapped() {
         let tonight = at(2026, 11, 3, 8, 0)
-        XCTAssertTrue(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: nil, now: now, calendar: cal).isEmpty)
-        XCTAssertTrue(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: plan(source: "default"), now: now, calendar: cal).isEmpty)
+        // His Wake alarm setting (the caller's gate) keeps tonight's wake even without a plan; a default plan adds nothing else.
+        XCTAssertEqual(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: nil, now: now, calendar: cal).map(\.fireAt), [tonight])
+        XCTAssertEqual(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: plan(source: "default"), now: now, calendar: cal).map(\.fireAt), [tonight])
         XCTAssertEqual(AlarmPlanner.wanted(tonight: tonight, wakeRequest: tonight, plan: nil, now: now, calendar: cal).map(\.fireAt), [tonight])
         XCTAssertEqual(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: WakePlan(source: "nick"), now: now, calendar: cal).map(\.fireAt), [tonight])
         let far = WakePlan(source: "nick", alarms: [.init(date: "2026-12-25", at: "07:00", byNick: true)])

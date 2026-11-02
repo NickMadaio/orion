@@ -109,12 +109,12 @@ public enum AlarmPlanner {
 
     /// Tonight's computed wake (which already carries a wake request and a late-night shift), the request itself, and
     /// every upcoming entry of a plan Nick set: one alarm per wake day. The request wins for its own day, tonight's
-    /// computed wake for its own day (only with a plan Nick set), then the plan. Never a plan from defaults.
+    /// computed wake for its own day, then the plan. Never a plan from defaults. The caller only passes `tonight` when his
+    /// own Wake alarm setting is on, so tonight's wake is his choice, as it was before the sleep plan existed.
     public static func wanted(tonight: Date?, wakeRequest: Date?, plan: WakePlan?, now: Date,
                               calendar: Calendar = .current) -> [WakePlan.Wanted] {
         var byDay = plan?.alarms(after: now, calendar: calendar) ?? [:]
-        // Tonight's computed wake comes from defaults: it rings only with a plan Nick set (or his request, below).
-        if let tonight, tonight > now, plan?.isNicks == true {
+        if let tonight, tonight > now {
             let day = WakePlan.dayKey(tonight, calendar: calendar)
             byDay[day] = WakePlan.Wanted(fireAt: tonight, reason: byDay[day]?.reason)
         }

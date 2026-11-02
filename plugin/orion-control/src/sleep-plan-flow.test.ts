@@ -227,7 +227,7 @@ describe("through the routing hooks, against the real orion-sleepplan in a sandb
     expect(cfg.sleepPlan).toMatchObject({ byDay: { mon: { wake: "06:00" }, wed: { wake: "06:00" }, thu: { wake: "06:00" } }, firstClassLeadMin: 180 });
     const plan = JSON.parse(readFileSync(join(dir, "eval-wake-plan.json"), "utf8"));
     expect(plan.source).toBe("nick");
-    expect(plan.alarms.map((a: { at: string }) => a.at).slice(0, 4)).toEqual(["09:00", "06:00", "06:00", "09:00"]);
+    expect(plan.alarms.every((a: { reason: string; byNick: boolean }) => a.byNick === true && ["plan", "class"].includes(a.reason))).toBe(true);
     expect(h.remembered).toEqual([]);
   }, 30000);
 

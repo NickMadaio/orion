@@ -298,10 +298,17 @@ describe("a short reply while an outreach is pending never gets a canned templat
         await s.turn(`${label(START)}${APP}move it to 8pm`);
         expect(s.checkins).toEqual([]);
     });
+    it("a bare yes to an offer that starts or changes something binds only within 30 minutes; a notice keeps 120", () => {
+        const push = (text, from) => ({ text, at: at("2026-11-02", from).toISOString() });
+        expect(readPendingTurn({ message: "ok", now: at("2026-11-02", "16:20"), lastPush: push(MISSED, "15:40") })).toBeUndefined(); // 40 min: context only
+        expect(readPendingTurn({ message: "ok", now: at("2026-11-02", "16:05"), lastPush: push(MISSED, "15:40") })?.offer?.kind).toBe("catchup");
+        expect(readPendingTurn({ message: "sure whenever", now: at("2026-11-02", "18:50"), lastPush: push(START, "18:00") })).toBeUndefined();
+        expect(readPendingTurn({ message: "ok", now: at("2026-11-02", "18:20"), lastPush: push(START, "18:00") })?.offer?.kind).toBe("start");
+    });
     it("a card push older than its window is not answered", () => {
         expect(readPendingTurn({ message: "sure whenever", now: at("2026-11-02", "18:00"), lastPush: { text: MISSED, at: at("2026-11-02", "15:40").toISOString() } })).toBeUndefined();
-        expect(readPendingTurn({ message: "sure whenever", now: at("2026-11-02", "16:30"), lastPush: { text: MISSED, at: at("2026-11-02", "15:40").toISOString() } })?.offer?.kind).toBe("catchup");
-        expect(readPendingTurn({ message: "sure whenever", now: at("2026-11-02", "16:30"), lastPush: { text: MISSED, at: at("2026-11-02", "15:40").toISOString() }, answered: () => true })).toBeUndefined();
+        expect(readPendingTurn({ message: "sure whenever", now: at("2026-11-02", "16:05"), lastPush: { text: MISSED, at: at("2026-11-02", "15:40").toISOString() } })?.offer?.kind).toBe("catchup");
+        expect(readPendingTurn({ message: "sure whenever", now: at("2026-11-02", "16:05"), lastPush: { text: MISSED, at: at("2026-11-02", "15:40").toISOString() }, answered: () => true })).toBeUndefined();
     });
 });
 describe("voice cut-off: the continuation is the whole request, never silenced", () => {

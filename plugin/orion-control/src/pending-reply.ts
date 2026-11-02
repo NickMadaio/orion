@@ -65,6 +65,8 @@ const MEMO_MS = 60 * 60_000;
 /** How long after ORION's own message a short reply is read as answering it, when the app sent no label (the state card's last push). */
 const PUSH_MS = 120 * 60_000;
 const QUESTION_MS = 90 * 60_000;
+/** An offer that STARTS or CHANGES something binds a bare yes/ok only this long; later it is context for the model, who can ask. */
+export const ACT_BIND_MS = 30 * 60_000;
 
 /** Which replies each offer carries out (anything else goes on to the normal turn, which still has the context). */
 const OFFER_TAKES: Record<Offer["kind"], ReadonlyArray<Reply["kind"]>> = {
@@ -186,6 +188,7 @@ export function readPendingTurn(input: PendingInput): PendingTurn | undefined {
   if (!offer || !OFFER_TAKES[offer.kind].includes(reply.kind)) return planned;
   if (offer.kind === "start" && reply.kind === "counter" && CHANGE_VERB.test(message)) return undefined;   // "move gym to 8" is the calendar's
   if (ownRequest(message, reply, offerNames(offer))) return undefined;
+  if (offer.kind !== "notice" && now.getTime() - source.at > ACT_BIND_MS) return undefined;
   if (push) {
     const age = now.getTime() - push.at;
     if (age < 0 || age > (QUESTION_KINDS.includes(offer.kind) ? QUESTION_MS : PUSH_MS)) return undefined;

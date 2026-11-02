@@ -26,6 +26,8 @@ enum WakeAlarmPlan {
         // Only a plan Nick set rings; a plan derived from defaults ("default", or no source) never does.
         guard (root["source"] as? String) == "nick" else { return [] }
         return alarms.compactMap { row in
+            // Defence in depth: only an alarm the writer marked as asked-for by Nick rings.
+            guard (row["byNick"] as? Bool) == true else { return nil }
             guard let date = row["date"] as? String, isDay(date) else { return nil }
             let reason = (row["reason"] as? String) ?? "wake plan"
             if let iso = row["iso"] as? String, let at = parseISO(iso) {

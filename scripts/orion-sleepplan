@@ -21,7 +21,6 @@
 import { CONFIG_FILE, loadConfig, setSleepPlan, sleepPlanOf, WEEKDAYS } from "./lib/life/config.mjs";
 import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
 import { controlledDir } from "./lib/clock.mjs";
-import { readWakeRequest } from "./lib/life/night.mjs";
 import { eveningOf, parseDays, weekPlan, wakePlanDoc, withException, withWake, writeWakePlan } from "./lib/life/sleep-plan.mjs";
 
 const args = process.argv.slice(2);
@@ -119,7 +118,7 @@ async function main() {
   catch (error) { fail(error instanceof RangeError ? 3 : 2, error.message); }
   const nextConfig = { ...config, sleepPlan: storable(plan, saved) };
   const { calendar, blocksOf } = await blocksSource();
-  const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: await readWakeRequest() });
+  const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: null });
   let file = null;
   if (WRITES.has(command) || REFRESH) {
     if (!REFRESH) { try { setSleepPlan(storable(plan, saved), CONFIG_FILE); } catch (error) { fail(2, error.message); } }

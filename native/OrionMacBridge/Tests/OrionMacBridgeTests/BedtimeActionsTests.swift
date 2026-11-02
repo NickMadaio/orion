@@ -14,7 +14,18 @@ final class BedtimeActionsTests: XCTestCase {
         XCTAssertNotNil(BedtimeActions.refusal(bundleId: ""))
     }
 
+    func testRefusesEverythingThatIsNotADistraction() {
+        for id in ["com.nickmadaio.atlas", "com.apple.dt.Xcode", "com.microsoft.VSCode", "com.anthropic.claudefordesktop", "us.zoom.xos",
+                   "com.microsoft.teams2", "com.apple.FaceTime", "com.apple.QuickTimePlayerX", "com.apple.VoiceMemos"] {
+            XCTAssertNotNil(BedtimeActions.refusal(bundleId: id), id)
+        }
+        XCTAssertThrowsError(try BedtimeActions.quitApp(bundleId: "com.nickmadaio.atlas"))
+    }
+
     func testAllowsOrdinaryApps() {
+        for id in ["com.mojang.minecraftlauncher", "com.valvesoftware.steam", "com.google.Chrome", "com.curseforge.CurseForge", "com.apple.TV"] {
+            XCTAssertNil(BedtimeActions.refusal(bundleId: id), id)
+        }
         XCTAssertNil(BedtimeActions.refusal(bundleId: "com.hnc.Discord"))
         XCTAssertNil(BedtimeActions.refusal(bundleId: "com.apple.Safari"))
     }
@@ -24,7 +35,7 @@ final class BedtimeActionsTests: XCTestCase {
     }
 
     func testQuitOfAppThatIsNotRunningSaysSo() throws {
-        let result = try BedtimeActions.quitApp(bundleId: "com.example.definitely-not-running")
+        let result = try BedtimeActions.quitApp(bundleId: "com.roblox.definitely-not-running")
         XCTAssertEqual(result["status"], "not_running")
     }
 

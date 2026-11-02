@@ -13,6 +13,16 @@ enum BedtimeActions {
         "com.apple.terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "dev.warp.warp-stable",
     ]
 
+    /// The only apps quit by this route: distractions. Everything else (Atlas mid-lecture, editors, calls, recorders)
+    /// is refused. Keep in step with scripts/orion-bedtime-act DISTRACTIONS.
+    static let distractionPatterns: [String] = [
+        #"^com\.mojang\."#, #"^net\.minecraft\."#, #"^net\.java\.openjdk\.cmd$"#, #"^com\.curseforge\."#,
+        #"^com\.overwolf\.curseforge"#, #"^com\.valvesoftware\.steam"#, #"^com\.epicgames\.launcher$"#,
+        #"^net\.battle\.app$"#, #"^com\.blizzard\."#, #"^com\.roblox\."#, #"^com\.riotgames\."#,
+        #"^com\.apple\.safari$"#, #"^com\.google\.chrome$"#, #"^company\.thebrowser\.browser$"#,
+        #"^org\.mozilla\.firefox$"#, #"^com\.brave\.browser$"#, #"^com\.hnc\.discord$"#, #"^com\.apple\.tv$"#,
+    ]
+
     /// nil when quitting `bundleId` is allowed, otherwise the plain reason it is not.
     static func refusal(bundleId: String) -> String? {
         let id = bundleId.lowercased()
@@ -21,6 +31,9 @@ enum BedtimeActions {
         }
         if neverQuit.contains(id) || id.contains("orion") || id.contains("openclaw") {
             return "I will not quit that one."
+        }
+        guard distractionPatterns.contains(where: { id.range(of: $0, options: .regularExpression) != nil }) else {
+            return "That is not one of the distraction apps I quit at bedtime."
         }
         return nil
     }

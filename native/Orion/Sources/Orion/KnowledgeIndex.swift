@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The left column: search, the ten types as a legend that filters, and every node as a plain list.
+/// The left column: search, the ten types as pill bubbles that filter (wave 14), and every node as a plain list.
 /// No boxes: grouping is spacing, type scale and a fading rule.
 struct KnowledgeIndex: View {
     @ObservedObject var store: KnowledgeStore
@@ -55,27 +55,12 @@ struct KnowledgeIndex: View {
     private var legend: some View {
         // He counts among the people: "People 0" next to his own name read as if ORION knew no one.
         let counts = Dictionary(grouping: store.graph.nodes.filter { $0.hidden != true }, by: \.kind).mapValues(\.count)
-        return VStack(alignment: .leading, spacing: 7) {
+        return KnowledgeFlow(spacing: 6, lineSpacing: 7) {
             ForEach(KnowledgeNodeType.allCases) { type in
-                let on = store.query.types.contains(type)
-                Button { toggle(type) } label: {
-                    HStack(spacing: 9) {
-                        ZStack {
-                            Circle().strokeBorder(palette.color(type).opacity(on ? 0.9 : 0.4), lineWidth: 1)
-                            Circle().fill(palette.color(type)).padding(2.5).opacity(on ? 1 : 0)
-                        }
-                        .frame(width: 9, height: 9)
-                        Text(type.title).font(.system(size: 12, weight: on ? .medium : .regular)).foregroundStyle(on ? palette.textSoft : palette.textDim)
-                        Spacer(minLength: 8)
-                        Text("\(counts[type] ?? 0)").font(OrionTheme.mono(10)).foregroundStyle(palette.textDim)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .opacity((counts[type] ?? 0) == 0 ? 0.45 : 1)
+                KnowledgeKindChip(type: type, count: counts[type] ?? 0, on: store.query.types.contains(type)) { toggle(type) }
             }
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: store.query.types)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.8), value: store.query.types)
     }
 
     /// One click shows only that kind; a second click on a lone kind brings everything back.

@@ -1,19 +1,21 @@
 import CoreGraphics
 import Foundation
 
-/// His hand on the graph: hit-testing, hover, dragging a node, and the camera (zoom at the cursor, pan).
+/// His hand on the graph: hit-testing, hover, dragging a node, and the camera (zoom at the cursor, pan). Zoom comes
+/// only from the trackpad and wheel (pinch, ⌘-scroll); wave 14 removed the on-screen zoom glyphs.
 /// Each mutates the non-observed model and calls `wake()`; the next frame draws the result.
 extension KnowledgeSky {
-    /// Star size: degree on a square root, scaled sub-linearly with zoom so zooming in does not balloon the dots.
+    /// Orb size: degree on a square root, scaled sub-linearly with zoom so zooming in does not balloon the dots.
+    /// He is always the largest.
     func radius(_ i: Int) -> CGFloat {
-        nodes[i].isSelf ? 13 : min(11, 3.5 + sqrt(CGFloat(degree[i])) * 1.6)
+        nodes[i].isSelf ? 15 : min(11, 3.4 + sqrt(CGFloat(degree[i])) * 1.7)
     }
 
     var starScale: CGFloat { pow(camera.zoom, 0.62) }
 
     func screenPoint(_ i: Int, size: CGSize) -> CGPoint? {
         guard let p = physics, p.ids.indices.contains(i) else { return nil }
-        return camera.screen(p.point(i), in: size)
+        return camera.screen(displayPoint(i), in: size)
     }
 
     func screenPoint(of id: String, size: CGSize) -> CGPoint? { index[id].flatMap { screenPoint($0, size: size) } }
@@ -24,7 +26,7 @@ extension KnowledgeSky {
         var best: Int?
         var bestDistance = CGFloat.greatestFiniteMagnitude
         for i in p.ids.indices where visible.indices.contains(i) && visible[i] {
-            let q = camera.screen(p.point(i), in: size)
+            let q = camera.screen(displayPoint(i), in: size)
             let d = hypot(q.x - s.x, q.y - s.y)
             if d < max(14, radius(i) * starScale + 8), d < bestDistance { best = i; bestDistance = d }
         }
@@ -42,6 +44,8 @@ extension KnowledgeSky {
 
     func drag(_ i: Int, to s: CGPoint, size: CGSize) {
         guard let p = physics, p.ids.indices.contains(i) else { return }
+        // A grab mid-arrival lands everything first: the hand always holds the layout, never a ghost on a path.
+        if entrance != nil { finishEntrance() }
         dragging = i
         physics = p.dragging(i, to: camera.world(s, in: size), reheat: animated)
         wake()
@@ -61,7 +65,6 @@ extension KnowledgeSky {
     func zoom(by factor: CGFloat, at cursor: CGPoint, size: CGSize) {
         cameraTarget = nil
         camera = camera.zoomed(by: factor, at: cursor, in: size)
-        readout.show(camera.zoom)
         wake()
     }
 
@@ -77,17 +80,11 @@ extension KnowledgeSky {
         wake()
     }
 
-    /// The outline zoom buttons: a short glide about the centre.
-    func glideZoom(by factor: CGFloat, size: CGSize) {
-        let target = (cameraTarget ?? camera).zoomed(by: factor, at: CGPoint(x: size.width / 2, y: size.height / 2), in: size)
-        glide(to: target)
-    }
-
+    /// Back to the whole sky, gliding (a double-click on empty space).
     func glideHome() { glide(to: SkyCamera()) }
 
     private func glide(to target: SkyCamera) {
         if animated { cameraTarget = target } else { camera = target; cameraTarget = nil }
-        readout.show(target.zoom)
         wake()
     }
 }

@@ -132,7 +132,8 @@ final class KnowledgeSkyTests: XCTestCase {
         let bBefore = sky.physics!.point(b)
         let grab = sky.camera.screen(sky.physics!.point(a), in: size)
         XCTAssertEqual(sky.hitTest(grab, size: size), a)
-        let target = CGPoint(x: grab.x + 140, y: grab.y + 90)
+        // Toward the middle, so the drop is well inside the canvas fence wherever the layout put the node.
+        let target = CGPoint(x: grab.x + (grab.x > size.width / 2 ? -140 : 140), y: grab.y + (grab.y > size.height / 2 ? -90 : 90))
         sky.drag(a, to: target, size: size)
         XCTAssertTrue(sky.needsFrames, "a drag warms the sky")
         Self.run(sky, frames: 30, size: size, from: 20)

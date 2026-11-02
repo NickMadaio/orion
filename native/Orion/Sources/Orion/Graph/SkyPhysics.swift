@@ -18,6 +18,8 @@ enum SkyTuning {
     /// Dragging a node warms the sky to this, so its neighbours follow it and then come to rest.
     static let dragAlpha = 0.35
     static let maxSteps = 900
+    /// A node slower than this (points per step) stops: no sub-pixel crawl left to read as a shiver.
+    static let restSpeed = 0.02
     /// Physics steps per second, whatever the display rate.
     static let stepsPerSecond = 120.0
 }
@@ -133,6 +135,23 @@ struct SkyPhysics: Equatable {
         return next
     }
 
+    /// The same layout with a different set of nodes held where they stand (a held node's home is its point); nodes
+    /// let go return to their own homes. A reload that adds nodes holds the kept ones, so only the new ones move.
+    func anchoring(_ mask: [Bool]) -> SkyPhysics {
+        guard mask.count == ids.count else { return self }
+        var next = self
+        for i in ids.indices where mask[i] != anchored[i] {
+            if mask[i] {
+                next.homeX[i] = x[i]; next.homeY[i] = y[i]
+            } else {
+                let home = Self.home(of: ids[i], kind: kinds[i], size: size)
+                next.homeX[i] = Double(home.x); next.homeY[i] = Double(home.y)
+            }
+        }
+        next.anchored = mask
+        return next
+    }
+
     /// Positions scaled into a new size (the window resized) without re-running the physics.
     func resized(to next: CGSize) -> SkyPhysics {
         guard size.width > 0, size.height > 0, next != size else { return self }
@@ -214,6 +233,7 @@ struct SkyPhysics: Equatable {
             var uy = vy[i] * SkyTuning.damping + fy[i] * gain
             let speed = (ux * ux + uy * uy).squareRoot()
             if speed > cap { ux *= cap / speed; uy *= cap / speed }
+            if speed < SkyTuning.restSpeed { ux = 0; uy = 0 }
             vx[i] = ux; vy[i] = uy
             x[i] += ux; y[i] += uy
         }
@@ -226,6 +246,16 @@ struct SkyPhysics: Equatable {
         if entering && alpha < 0.3 { entering = false }
         let calm = (alpha < SkyTuning.settledAlpha && moved < SkyTuning.settleSpeed) || alpha < SkyTuning.restAlpha
         isSettled = pinned == nil && (calm || steps >= SkyTuning.maxSteps)
+        if isSettled {
+            // At rest means at rest: no velocity carried into the next drag or reload.
+            vx = Array(repeating: 0, count: n)
+            vy = Array(repeating: 0, count: n)
+        }
+    }
+
+    /// The fastest node's speed, in points per step (0 at rest).
+    var topSpeed: Double {
+        zip(vx, vy).reduce(0) { max($0, ($1.0 * $1.0 + $1.1 * $1.1).squareRoot()) }
     }
 
     /// Short-ranged (cut off past 2.5k), measured squashed sideways because labels are wide.

@@ -60,15 +60,18 @@ struct KnowledgeDetail: View {
         return String(at.prefix(10))
     }
 
-    /// The biggest kinds, as a short typographic ladder — colour carries the kind, size stays quiet.
+    /// The biggest kinds, as a short ladder of ring meters (wave 14): each ring is that kind's share of everything,
+    /// drawn in from the top; colour carries the kind, size stays quiet.
     private var largest: some View {
         let groups = Dictionary(grouping: known, by: \.kind).map { ($0.key, $0.value.count) }
             .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.rawValue < $1.0.rawValue }
-        return VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(groups.prefix(5)), id: \.0) { type, count in
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("\(count)").font(OrionTheme.mono(13, .medium)).foregroundStyle(palette.color(type)).frame(width: 28, alignment: .trailing)
-                    Text(type.title.lowercased()).font(.system(size: 12.5)).foregroundStyle(palette.textSoft)
+        let total = Double(max(known.count, 1))
+        return VStack(alignment: .leading, spacing: 9) {
+            ForEach(Array(groups.prefix(5)), id: \.0) { group in
+                HStack(spacing: 11) {
+                    KnowledgeShareRing(share: Double(group.1) / total, hue: palette.color(group.0), drawsIn: !snapshot)
+                    Text("\(group.1)").font(OrionTheme.mono(13, .medium)).foregroundStyle(palette.text).frame(minWidth: 18, alignment: .leading)
+                    Text(group.0.title.lowercased()).font(.system(size: 12.5)).foregroundStyle(palette.textSoft)
                 }
             }
         }

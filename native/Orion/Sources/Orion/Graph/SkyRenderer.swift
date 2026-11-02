@@ -8,21 +8,26 @@ struct SkyStyle {
     var searchActive = false
 }
 
-/// Draws the whole graph into one Canvas, in painter's order: the breath around Nick, resting threads (batched into
-/// two paths), ignited threads, photon pulses, stars, then labels and the hover card (`SkyLabels`).
+/// Draws the whole graph into one Canvas, in painter's order: the breath around Nick, threads, photon pulses, orbs
+/// (`SkyOrbs`), then labels and the hover card (`SkyLabels`).
 ///
 /// No blur anywhere: every glow is a radial gradient. Everything is line-art and light, no plates, so the window's
 /// real alpha shows through between the marks.
+///
+/// Wave 14: threads are curved hairlines that run from orb rim to orb rim with a gradient between the two kinds'
+/// hues, brightening on hover. During the entrance each one draws from its inner end outward, a small spark at its
+/// tip, and only after both its nodes have landed — so a thread never redraws while its ends move.
 @MainActor
 enum SkyRenderer {
     static func draw(_ context: GraphicsContext, sky: KnowledgeSky, size: CGSize, style: SkyStyle) {
         guard let physics = sky.physics, !sky.nodes.isEmpty, physics.ids.count == sky.nodes.count else { return }
-        let points = physics.ids.indices.map { sky.camera.screen(physics.point($0), in: size) }
-        let frame = SkyFrame(sky: sky, points: points, scale: sky.starScale, style: style, size: size)
+        let points = physics.ids.indices.map { sky.camera.screen(sky.displayPoint($0), in: size) }
+        let rest = physics.ids.indices.map { sky.camera.screen(sky.restPoint($0), in: size) }
+        let frame = SkyFrame(sky: sky, points: points, restPoints: rest, scale: sky.starScale, style: style, size: size)
         drawBreath(context, frame)
         drawThreads(context, frame)
         drawPulses(context, frame)
-        drawStars(context, frame)
+        SkyOrbs.draw(context, frame)
         SkyLabels.draw(context, frame)
     }
 
@@ -33,43 +38,50 @@ enum SkyRenderer {
         guard let me = f.sky.index["person:self"], f.sky.visible[me] else { return }
         let w = f.sky.ambient ? 0.5 - 0.5 * cos(2 * .pi * f.sky.time / 11) : 0.35
         let p = f.points[me]
-        let reach = (58 + 34 * w) * f.scale
+        let reach = (64 + 36 * w) * f.scale
         let tint = f.style.palette.color(.person)
-        let peak = (f.style.palette.isDark ? 0.05 + 0.07 * w : 0.04 + 0.05 * w) * f.sky.starReveal
-        let disc = Path(ellipseIn: CGRect(x: p.x - reach, y: p.y - reach, width: reach * 2, height: reach * 2))
-        context.fill(disc, with: .radialGradient(Gradient(colors: [tint.opacity(peak), tint.opacity(peak * 0.4), tint.opacity(0)]),
-                                                 center: p, startRadius: 0, endRadius: reach))
+        let peak = (f.style.palette.isDark ? 0.05 + 0.07 * w : 0.04 + 0.05 * w) * f.sky.appear(me)
+        context.fill(SkyOrbs.circle(p, reach), with: .radialGradient(Gradient(colors: [tint.opacity(peak), tint.opacity(peak * 0.4), tint.opacity(0)]),
+                                                                     center: p, startRadius: 0, endRadius: reach))
     }
 
     // MARK: Threads
 
     private static func drawThreads(_ context: GraphicsContext, _ f: SkyFrame) {
-        let reveal = f.sky.threadReveal
-        guard reveal > 0.001 else { return }
-        var solid = Path(), dashed = Path()
-        var lit: [Int] = []
+        let palette = f.style.palette
+        let restPeak = (palette.isDark ? 0.20 : 0.26) * (1 - 0.62 * f.sky.dim)
         for (e, link) in f.sky.links.enumerated() where f.sky.visible[link.a] && f.sky.visible[link.b] {
-            if f.sky.ignite[e] > 0.02 { lit.append(e) }
-            if f.sky.ignite[e] > 0.98 { continue }
+            let reveal = f.sky.edgeReveal(e)
+            guard reveal > 0.002 else { continue }
+            let ignite = f.sky.ignite[e]
             let (a, c, b) = f.curve(link)
-            if link.dashed { dashed.move(to: a); dashed.addQuadCurve(to: b, control: c) } else { solid.move(to: a); solid.addQuadCurve(to: b, control: c) }
-        }
-        let rest = f.style.palette.edge.opacity(reveal * (1 - 0.62 * f.sky.dim))
-        context.stroke(solid, with: .color(rest), style: StrokeStyle(lineWidth: 0.6, lineCap: .round))
-        context.stroke(dashed, with: .color(rest), style: StrokeStyle(lineWidth: 0.6, lineCap: .round, dash: [2, 3]))
-        // Ignite: kind-to-kind gradients, a wide faint underlay and a fine core.
-        for e in lit {
-            let link = f.sky.links[e]
-            let (a, c, b) = f.curve(link)
+            let reversed = f.sky.entrance?.edgeReversed[e] ?? false
             var path = Path()
-            path.move(to: a); path.addQuadCurve(to: b, control: c)
-            let level = f.sky.ignite[e] * reveal
-            let ca = f.style.palette.color(f.sky.nodes[link.a].kind), cb = f.style.palette.color(f.sky.nodes[link.b].kind)
-            context.stroke(path, with: .linearGradient(Gradient(colors: [ca.opacity(0.28 * level), cb.opacity(0.28 * level)]), startPoint: a, endPoint: b),
-                           style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
-            context.stroke(path, with: .linearGradient(Gradient(colors: [ca.opacity(0.9 * level), cb.opacity(0.9 * level)]), startPoint: a, endPoint: b),
-                           style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+            if reversed { path.move(to: b); path.addQuadCurve(to: a, control: c) } else { path.move(to: a); path.addQuadCurve(to: b, control: c) }
+            if reveal < 1 { path = path.trimmedPath(from: 0, to: reveal) }
+            let ca = palette.color(f.sky.nodes[link.a].kind), cb = palette.color(f.sky.nodes[link.b].kind)
+            let level = restPeak + (0.9 - restPeak) * ignite
+            let shade = Gradient(colors: [ca.opacity(level), cb.opacity(level)])
+            if ignite > 0.02 {
+                context.stroke(path, with: .linearGradient(Gradient(colors: [ca.opacity(0.24 * ignite), cb.opacity(0.24 * ignite)]), startPoint: a, endPoint: b),
+                               style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
+            }
+            let width = 0.65 + 0.55 * ignite
+            let stroke = link.dashed && ignite < 0.5
+                ? StrokeStyle(lineWidth: width, lineCap: .round, dash: [2, 3])
+                : StrokeStyle(lineWidth: width, lineCap: .round)
+            context.stroke(path, with: .linearGradient(shade, startPoint: a, endPoint: b), style: stroke)
+            if reveal < 1 { drawTip(context, f, a: reversed ? b : a, c: c, b: reversed ? a : b, t: reveal, color: reversed ? ca : cb) }
         }
+    }
+
+    /// The spark at a thread's drawing end, fading as the thread completes.
+    private static func drawTip(_ context: GraphicsContext, _ f: SkyFrame, a: CGPoint, c: CGPoint, b: CGPoint, t: Double, color: Color) {
+        let head = SkyFrame.bezier(a, c, b, t)
+        let fade = sin(.pi * min(1, t)) * 0.7
+        let r: CGFloat = 3.5
+        context.fill(SkyOrbs.circle(head, r), with: .radialGradient(Gradient(colors: [color.opacity(fade), color.opacity(0)]),
+                                                                    center: head, startRadius: 0, endRadius: r))
     }
 
     // MARK: Pulses
@@ -95,80 +107,42 @@ enum SkyRenderer {
             context.stroke(trail, with: .linearGradient(Gradient(colors: [ink.opacity(0), ink.opacity(0.55 * envelope)]), startPoint: from, endPoint: head),
                            style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
             let r: CGFloat = 5
-            context.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: r * 2, height: r * 2)),
+            context.fill(SkyOrbs.circle(head, r),
                          with: .radialGradient(Gradient(colors: [ink.opacity(0.75 * envelope), ink.opacity(0)]), center: head, startRadius: 0, endRadius: r))
         }
     }
-
-    // MARK: Stars
-
-    private static func drawStars(_ context: GraphicsContext, _ f: SkyFrame) {
-        let selected = f.sky.selectedID.flatMap { f.sky.index[$0] }
-        let accent = f.style.palette.color(.person)
-        for i in f.points.indices where f.sky.visible[i] {
-            let node = f.sky.nodes[i]
-            let p = f.points[i]
-            let hovered = f.sky.hovered == i
-            let r = f.sky.radius(i) * f.scale * (hovered ? 1.08 : 1)
-            let tint = f.style.palette.color(node.kind)
-            let lit = f.sky.light[i] * f.sky.starReveal
-            let twinkle = f.sky.ambient ? 0.86 + 0.14 * sin(f.sky.time * f.sky.twinkleSpeed[i] + f.sky.twinklePhase[i]) : 1
-            let haloPeak = (f.style.palette.isDark ? 0.16 : 0.10) * lit * twinkle
-            glow(context, at: p, radius: r * 3.6, color: tint, peak: haloPeak, inner: r * 0.6)
-            let body = circle(p, r)
-            context.fill(body, with: .color(tint.opacity(0.07 * lit)))
-            context.stroke(body, with: .color(tint.opacity((node.hidden == true ? 0.35 : 0.9) * lit)), lineWidth: node.isSelf ? 1.6 : 1.1)
-            context.fill(circle(p, max(1.2, r * 0.275)), with: .color(tint.opacity(lit * twinkle)))
-            if node.isSelf {
-                context.stroke(circle(p, r * 1.7), with: .color(tint.opacity(0.28 * lit)), lineWidth: 0.8)
-            }
-            if f.sky.recent[i] {
-                // Learned in the last 36 h: a slow dawn-cyan breath.
-                let b = f.sky.ambient ? 0.5 + 0.5 * sin(f.sky.time * 1.5 + f.sky.twinklePhase[i]) : 0.6
-                context.stroke(circle(p, r + 4 + 2.5 * b), with: .color(accent.opacity((0.18 + 0.3 * b) * lit)), lineWidth: 0.8)
-                glow(context, at: p, radius: r * 2.8, color: accent, peak: 0.10 * b * lit, inner: r)
-            }
-            if i == selected && f.style.showSelectionRing {
-                glow(context, at: p, radius: r * 2.6, color: tint, peak: 0.26, inner: r)
-                context.stroke(circle(p, r + 6), with: .color(tint), lineWidth: 1.2)
-            } else if let glowing = f.sky.returnGlow, glowing.index == i {
-                context.stroke(circle(p, r + 6), with: .color(tint.opacity(0.8 * glowing.level)), lineWidth: 1.2)
-                glow(context, at: p, radius: r * 2.6, color: tint, peak: 0.22 * glowing.level, inner: r)
-            }
-        }
-    }
-
-    static func circle(_ p: CGPoint, _ r: CGFloat) -> Path {
-        Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
-    }
-
-    private static func glow(_ context: GraphicsContext, at p: CGPoint, radius: CGFloat, color: Color, peak: Double, inner: CGFloat) {
-        guard peak > 0.003 else { return }
-        context.fill(circle(p, radius), with: .radialGradient(Gradient(colors: [color.opacity(peak), color.opacity(0)]),
-                                                              center: p, startRadius: inner, endRadius: radius))
-    }
 }
 
-/// One frame's derived values, shared by the renderer and the labels.
+/// One frame's derived values, shared by the renderer, the orbs and the labels.
 @MainActor
 struct SkyFrame {
     let sky: KnowledgeSky
+    /// Where each node is drawn (with drift).
     let points: [CGPoint]
+    /// Where each node stands without drift: label and card placement read these, so they never flicker.
+    let restPoints: [CGPoint]
     let scale: CGFloat
     let style: SkyStyle
     let size: CGSize
 
-    /// A link as a bowed quadratic: start, control, end.
+    /// A link as a bowed quadratic from orb rim to orb rim: start, control, end.
     func curve(_ link: KnowledgeSky.Link) -> (CGPoint, CGPoint, CGPoint) {
-        let a = points[link.a], b = points[link.b]
-        let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-        let nx = -(b.y - a.y), ny = b.x - a.x
+        let a0 = points[link.a], b0 = points[link.b]
+        let mid = CGPoint(x: (a0.x + b0.x) / 2, y: (a0.y + b0.y) / 2)
+        let nx = -(b0.y - a0.y), ny = b0.x - a0.x
         let len = max(hypot(nx, ny), 1)
-        return (a, CGPoint(x: mid.x + nx / len * link.bow, y: mid.y + ny / len * link.bow), b)
+        let c = CGPoint(x: mid.x + nx / len * link.bow, y: mid.y + ny / len * link.bow)
+        return (Self.rim(a0, toward: c, by: sky.radius(link.a) * scale + 1.5), c, Self.rim(b0, toward: c, by: sky.radius(link.b) * scale + 1.5))
+    }
+
+    private static func rim(_ p: CGPoint, toward c: CGPoint, by r: CGFloat) -> CGPoint {
+        let dx = c.x - p.x, dy = c.y - p.y
+        let d = hypot(dx, dy)
+        guard d > r * 2 else { return p }
+        return CGPoint(x: p.x + dx / d * r, y: p.y + dy / d * r)
     }
 
     static func bezier(_ a: CGPoint, _ c: CGPoint, _ b: CGPoint, _ t: Double) -> CGPoint {
-        let u = 1 - t
-        return CGPoint(x: u * u * a.x + 2 * u * t * c.x + t * t * b.x, y: u * u * a.y + 2 * u * t * c.y + t * t * b.y)
+        SkyEntrance.bezier(a, c, b, t)
     }
 }

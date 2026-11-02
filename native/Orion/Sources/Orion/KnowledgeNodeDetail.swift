@@ -121,7 +121,7 @@ struct KnowledgeNodeDetail: View {
     // MARK: Edits
 
     private var actions: some View {
-        HStack(spacing: 16) {
+        KnowledgeFlow(spacing: 6, lineSpacing: 6) {
             action("Rename") { begin(.rename, with: node.label) }
             action("Note") { begin(.note, with: node.note ?? "") }
             mergeMenu
@@ -133,22 +133,18 @@ struct KnowledgeNodeDetail: View {
     }
 
     private func action(_ title: String, tint: Color? = nil, run: @escaping () -> Void) -> some View {
-        Button(action: run) {
-            Text(title.uppercased()).font(OrionTheme.mono(9, .semibold)).tracking(1.5)
-                .foregroundStyle((tint ?? palette.textSoft).opacity(tint == nil ? 1 : 0.85))
-        }
-        .buttonStyle(.plain)
+        KnowledgeActionPill(title: title, tint: tint, action: run)
     }
 
     @ViewBuilder private var mergeMenu: some View {
         let targets = store.mergeTargets(for: node.id)
         if snapshot || targets.isEmpty {
-            Text("MERGE").font(OrionTheme.mono(9, .semibold)).tracking(1.5).foregroundStyle(palette.textSoft.opacity(targets.isEmpty ? 0.4 : 1))
+            KnowledgePillLabel(title: "Merge", dimmed: targets.isEmpty)
         } else {
             Menu {
                 ForEach(targets) { target in Button(target.label) { store.merge(node.id, into: target.id) } }
             } label: {
-                Text("MERGE").font(OrionTheme.mono(9, .semibold)).tracking(1.5).foregroundStyle(palette.textSoft)
+                KnowledgePillLabel(title: "Merge")
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
@@ -165,7 +161,7 @@ struct KnowledgeNodeDetail: View {
                 .textFieldStyle(.plain).font(.system(size: 13)).foregroundStyle(palette.text)
                 .onSubmit(save)
             KnowledgeHairline(peak: 0.4)
-            HStack(spacing: 16) {
+            HStack(spacing: 8) {
                 action("Save", tint: palette.color(node.kind), run: save)
                 action("Cancel") { editing = nil }
             }

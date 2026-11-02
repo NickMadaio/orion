@@ -4,6 +4,7 @@ export type Outreach = {
     minutes: number;
     kind: OutreachKind;
     title?: string;
+    askId?: string;
 };
 export type ShortReply = {
     kind: "yes";

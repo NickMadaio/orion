@@ -33,6 +33,8 @@ export function transcriptFile(p, key) {
   } catch { return null; }
 }
 
+import { computerSteps } from "./computer-evidence.mjs";
+
 export function toolCalls(file, sinceMs) {
   if (!file || !existsSync(file)) return [];
   const calls = [];
@@ -76,7 +78,7 @@ export async function runTurn({ p, key, message, thinking, model = null, env }) 
     reply, latencyMs, status: payload?.status ?? (r.timedOut ? "timeout" : r.error ?? `exit ${r.status}`),
     error: reply ? undefined : (r.stdout + r.stderr).slice(-800),
     model: meta.agentMeta?.model ?? null, usage: meta.agentMeta?.usage ?? null,
-    tools: toolCalls(file, started), routing: routingFor(p, offset, payload?.runId, message),
+    tools: [...toolCalls(file, started), ...computerSteps(p, started, key)], routing: routingFor(p, offset, payload?.runId, message),
     startedAt: started, sessionFile: file, raw: payload ?? stdout,
   };
 }

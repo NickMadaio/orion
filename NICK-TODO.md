@@ -11,7 +11,13 @@ Each item says what it unblocks, so you can judge whether it is worth an evening
 ## Now — 2026-11-02 (morning)
 
 1. **Unlock your iPhone (plugged in, on the home screen; tap Trust if asked), then tell Claude "install the phone
-   app".** Built for your phone at 08:00 but NOT installed: the phone was locked for every attempt. It includes:
+   app".** The 08:00 build is out of date: the phone app and the Mac app both need rebuilding from main (e62f069 or
+   later) so ORION can ask your phone for a fresh location. Your phone's location had been stuck since 10-30, because
+   the installed phone app is older than 10-16. After installing:
+   - ORION ▸ Control ▸ Signals on;
+   - iOS Settings ▸ ORION ▸ Location **Always**, Background App Refresh on;
+   - don't swipe ORION away.
+   It also includes:
    group-specific blocking (no more "blocks everything"), every phone notification also posted in the chat, and a
    per-weekday AlarmKit alarm from your sleep plan.
 2. **On the phone, open ORION, go to Focus lists, and pick apps for each group: Social, Video, Games, Messaging and the

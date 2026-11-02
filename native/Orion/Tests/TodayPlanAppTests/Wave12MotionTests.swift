@@ -10,12 +10,13 @@ final class Wave12MotionTests: XCTestCase {
 
     // MARK: Ambient clock
 
-    func testAmbientPausesWhenHiddenMinimisedAppHiddenOrLowPower() {
-        XCTAssertFalse(AmbientPolicy.shouldPause(windowVisible: true, miniaturized: false, appHidden: false, lowPower: false))
-        XCTAssertTrue(AmbientPolicy.shouldPause(windowVisible: false, miniaturized: false, appHidden: false, lowPower: false))
-        XCTAssertTrue(AmbientPolicy.shouldPause(windowVisible: true, miniaturized: true, appHidden: false, lowPower: false))
-        XCTAssertTrue(AmbientPolicy.shouldPause(windowVisible: true, miniaturized: false, appHidden: true, lowPower: false))
-        XCTAssertTrue(AmbientPolicy.shouldPause(windowVisible: true, miniaturized: false, appHidden: false, lowPower: true))
+    func testAmbientPausesWhenHiddenMinimisedOrAppHidden() {
+        XCTAssertEqual(AmbientPolicy.decide(AmbientSignals()), .run)
+        XCTAssertEqual(AmbientPolicy.decide(AmbientSignals(orderedIn: false)), .pause)
+        XCTAssertEqual(AmbientPolicy.decide(AmbientSignals(miniaturized: true)), .pause)
+        XCTAssertEqual(AmbientPolicy.decide(AmbientSignals(appHidden: true)), .pause)
+        // Wave 14: Low Power slows idle animation instead of freezing it.
+        XCTAssertEqual(AmbientPolicy.decide(AmbientSignals(lowPower: true)), .throttle)
     }
 
     func testAmbientPhaseResumesWhereItStoppedAndIgnoresLongGaps() {

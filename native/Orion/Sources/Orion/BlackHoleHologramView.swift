@@ -39,14 +39,17 @@ struct BlackHoleHologramView: View {
         }
     }
 
-    // On the shared ambient clock (wave 13), so it stands still when the window is hidden or covered, in Low Power
-    // Mode and under Reduce Motion, like every other idle animation.
+    /// Low Power Mode: keep moving, slower (wave 14; it used to stand still).
+    @Environment(\.ambientThrottled) private var throttled
+
+    // On the shared ambient clock (wave 13), so it stands still when the window is hidden and under Reduce Motion,
+    // like every other idle animation.
     var body: some View {
         Group {
             if let frozenTime {
                 scene(time: frozenTime)
             } else {
-                AmbientTimeline(fps: 60) { time in scene(time: time) }
+                AmbientTimeline(fps: AmbientPolicy.frameRate(60, throttled: throttled)) { time in scene(time: time) }
             }
         }
         .accessibilityHidden(true)

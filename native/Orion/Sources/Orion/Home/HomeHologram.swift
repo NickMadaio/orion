@@ -10,8 +10,9 @@ import ThinkingOrbsKit
      and frame rate. Wave 12 slowed Home to 0.3 at 20 fps; Nick: "can we make the hologram move like it used to?";
    · Original Orion: the full filament shell at 60 fps, as the panel draws it;
    · Black Hole: BlackHoleHologramView.
- All on the shared AmbientTimeline, so it stands still (holding its phase) when the window is hidden, minimised or
- covered, in Low Power Mode and under Reduce Motion, and costs nothing in the background. One Canvas, no blur, no
+ All on the shared AmbientTimeline, so it stands still (holding its phase) when the window is hidden or minimised and
+ under Reduce Motion, and costs nothing in the background. Low Power Mode slows it rather than freezing it (wave 14:
+ Nick saw it "not moving" for a whole day on battery at 5% with Low Power on). One Canvas, no blur, no
  compositing pass. The model is a plain class SwiftUI does not observe, so a frame re-runs the Canvas closure and
  nothing else. It draws AppState's own model, so it follows ORION's state: it listens, thinks and speaks with him.
  Dimming and placement are HomeScene's job; this view only draws.
@@ -25,6 +26,7 @@ struct HomeHologram: View {
     var styleOverride: HologramStyle?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ambientThrottled) private var throttled
     @AppStorage(HologramStyle.storageKey) private var storedStyle = HologramStyle.thinkingOrion.rawValue
 
     static let fps: Double = BalancedOrionHologram.fps
@@ -54,7 +56,7 @@ struct HomeHologram: View {
         if let frozenTime {
             content(frozenTime, false)
         } else {
-            AmbientTimeline(fps: fps) { time in content(time, true) }
+            AmbientTimeline(fps: AmbientPolicy.frameRate(fps, throttled: throttled)) { time in content(time, true) }
         }
     }
 
@@ -65,7 +67,8 @@ struct HomeHologram: View {
             model.batchGeometry = true
             model.palette = palette
             model.motionScale = reduceMotion ? 0 : Self.motionScale
-            model.targetFrameInterval = 1 / Self.fps
+            // The throttled rate, or the model's auto-quality would read Low Power as a slow GPU and drop detail for good.
+            model.targetFrameInterval = 1 / AmbientPolicy.frameRate(Self.fps, throttled: throttled)
             // Real time, not the ambient clock: the panel ticks this model too, and both must agree on dt. The model
             // clamps a long gap (a pause) to one short step, so resuming does not jump.
             if ticking { model.tick(Date()) }
@@ -80,7 +83,7 @@ struct HomeHologram: View {
             model.batchGeometry = false
             model.palette = .gold
             model.motionScale = reduceMotion ? 0 : 1
-            model.targetFrameInterval = 1 / Self.originalFps
+            model.targetFrameInterval = 1 / AmbientPolicy.frameRate(Self.originalFps, throttled: throttled)
             if ticking { model.tick(Date()) }
             model.draw(&context, size: size)
         }

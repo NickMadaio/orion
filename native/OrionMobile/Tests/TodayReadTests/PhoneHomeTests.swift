@@ -187,4 +187,39 @@ final class PhoneHomeTests: XCTestCase {
         XCTAssertNil(home.ask)
         XCTAssertTrue(home.approvals.isEmpty)
     }
+
+    // MARK: One "next" for every card
+
+    /// What's next and Done early read the same next block, so they can never disagree.
+    func testWhatsNextAndDoneEarlyAgreeOnTheNextBlock() {
+        let busy = OrionGlance(generatedAt: now, source: "iphone", blocks: [
+            block("b1", "Essay outline", at(18, 30), at(19, 30), kind: "orion", fixed: false),
+            block("b2", "CS2100 Lab", at(19, 40), at(21), kind: "class", location: "Room 4.02"),
+        ])
+        let between = OrionGlance(generatedAt: now, source: "iphone", blocks: [
+            block("b0", "Seminar", at(17), at(18, 30), kind: "class"),
+            block("b2", "CS Lab", at(20, 10), at(21, 30), kind: "class", location: "Lab 2"),
+        ])
+        let empty = OrionGlance(generatedAt: now, source: "iphone")
+        let cases: [(String, OrionGlance?, String?)] = [
+            ("busy", busy, "Next up: CS2100 Lab at 7:40 PM, Room 4.02."),
+            ("between", between, "Next up: CS Lab at 8:10 PM, Lab 2."),
+            ("empty", empty, nil),
+            ("unknown", nil, nil),
+        ]
+        for (name, glance, expected) in cases {
+            let home = build(glance: glance, snapshot: snapshot(early: .init(kind: "none")))
+            XCTAssertEqual(home.doneEarly.nextLine, expected, name)
+            let block = PhoneHomeBuilder.nextBlock(in: glance, at: now)
+            if let block {
+                XCTAssertTrue(home.next?.title.contains(block.title) == true, "\(name): What's next names \(block.title)")
+                XCTAssertTrue(home.doneEarly.nextLine?.contains(block.title) == true, "\(name): Done early names \(block.title)")
+                XCTAssertNotEqual(home.next?.title, "Nothing else on today.", name)
+            } else {
+                XCTAssertNil(home.doneEarly.nextLine, name)
+                if glance != nil { XCTAssertEqual(home.next?.title, "Nothing else on today.", name) }
+            }
+        }
+        XCTAssertEqual(build(glance: between).next?.kicker, ["IN 1H", "CS LAB", "LAB 2"])
+    }
 }

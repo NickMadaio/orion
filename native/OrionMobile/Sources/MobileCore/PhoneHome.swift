@@ -53,6 +53,8 @@ public struct PhoneHome: Equatable, Sendable {
         public let kicker: [String]
         public let title: String
         public let hint: String
+        /// "Next up: CS Lab at 6:10 PM, Lab 2." from the same block What's next shows; nil when there is none.
+        public let nextLine: String?
     }
 
     public struct GlanceItem: Equatable, Sendable, Identifiable {

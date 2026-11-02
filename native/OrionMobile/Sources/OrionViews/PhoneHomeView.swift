@@ -224,7 +224,7 @@ public struct PhoneHomeView: View {
 
     private func earlyCard(tilt: Double) -> some View {
         PhoneHomeCard(hue: PhoneHomeHue.done, kicker: home.doneEarly.kicker, title: home.doneEarly.title,
-                      lines: status.earlyFeedback.map { [$0] } ?? [], tilt: tilt) {
+                      lines: [home.doneEarly.nextLine, status.earlyFeedback].compactMap { $0 }, tilt: tilt) {
             PhoneHomePill(title: DoneEarly.label, hue: PhoneHomeHue.done, symbol: DoneEarly.symbol, working: status.earlyWorking,
                           large: true) { confirmingEarly = true }
                 .disabled(status.earlyWorking)

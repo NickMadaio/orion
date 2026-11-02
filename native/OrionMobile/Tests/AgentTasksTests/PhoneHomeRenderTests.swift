@@ -56,10 +56,15 @@ final class PhoneHomeRenderTests: XCTestCase {
     }
 
     func testApprovalHome() throws {
-        let quiet = OrionGlance(generatedAt: now, source: "iphone")
-        let model = home(glance: quiet, snapshot: snapshot(approvals: [approval]))
-        try write("phone-home-approval", model,
-                  status: .init(earlyFeedback: "Nothing is on right now. Next up: CS Lab at 6:10 PM — want to start it early?"))
+        // Between blocks: the seminar is over, the lab is later. Both cards must name the lab.
+        let between = OrionGlance(generatedAt: now, source: "iphone", blocks: [
+            .init(id: "b0", title: "Seminar", start: at(17), end: at(18, 30), kind: "class", fixed: true),
+            .init(id: "b2", title: "CS Lab", start: at(20, 10), end: at(21, 30), kind: "class", fixed: true, location: "Lab 2"),
+        ])
+        let model = home(glance: between, snapshot: snapshot(approvals: [approval]))
+        XCTAssertEqual(model.next?.title, "CS Lab starts in 60 minutes.")
+        XCTAssertEqual(model.doneEarly.nextLine, "Next up: CS Lab at 8:10 PM, Lab 2.")
+        try write("phone-home-approval", model, status: .init())
     }
 
     func testBusyHomeLight() throws {

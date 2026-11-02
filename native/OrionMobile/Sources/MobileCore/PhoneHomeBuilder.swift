@@ -35,7 +35,8 @@ public enum PhoneHomeBuilder {
         return PhoneHome(greeting: greeting(at: input.now, calendar: input.calendar, name: input.name),
                          subline: subline(needs: needs, now: input.now, format: format),
                          next: next(input, format: format), ask: ask, approvals: approvals,
-                         doneEarly: doneEarly(input.snapshot?.earlyFinish), glance: glance(input, format: format))
+                         doneEarly: doneEarly(input.snapshot?.earlyFinish, next: nextBlock(in: input.glance, at: input.now), format: format),
+                         glance: glance(input, format: format))
     }
 
     public static func greeting(at date: Date, calendar: Calendar = .current, name: String?) -> String {
@@ -58,6 +59,11 @@ public enum PhoneHomeBuilder {
 
     // MARK: What's next
 
+    /// The one "next" every card reads: the next block to start that is not free time. Nil when there is none.
+    public static func nextBlock(in glance: OrionGlance?, at now: Date) -> OrionGlance.Block? {
+        glance?.upcoming(after: now, limit: 1).first
+    }
+
     static func next(_ input: Input, format: Format) -> PhoneHome.Next? {
         guard let glance = input.glance else { return nil }
         let now = input.now
@@ -67,7 +73,7 @@ public enum PhoneHomeBuilder {
         }
         let current = glance.current(at: now)
         let upcoming = glance.upcoming(after: now, limit: 2)
-        if let next = upcoming.first {
+        if let next = nextBlock(in: glance, at: now) {
             let minutes = format.minutes(from: now, to: next.start)
             var kicker = [minutes <= countdownMinutes ? "IN \(format.duration(minutes))" : "AT \(format.time(next.start))",
                           format.shortName(next.title)]
@@ -118,17 +124,19 @@ public enum PhoneHomeBuilder {
 
     // MARK: Done early
 
-    static func doneEarly(_ context: EarlyFinishContext?) -> PhoneHome.DoneEarlyCard {
+    static func doneEarly(_ context: EarlyFinishContext?, next: OrionGlance.Block? = nil, format: Format) -> PhoneHome.DoneEarlyCard {
         let hint = DoneEarly.accessibilityHint(for: context)
+        let place = next?.location?.trimmingCharacters(in: .whitespaces)
+        let nextLine = next.map { "Next up: \($0.title) at \(format.time($0.start))" + (place?.isEmpty == false ? ", \(place!)." : ".") }
         switch context?.kind {
         case "block":
             let title = context?.title ?? "this block"
-            return .init(kicker: ["DONE EARLY", title.uppercased()], title: "Done with \(title) early?", hint: hint)
+            return .init(kicker: ["DONE EARLY", title.uppercased()], title: "Done with \(title) early?", hint: hint, nextLine: nextLine)
         case "after-class":
             let title = context?.classTitle ?? "class"
-            return .init(kicker: ["DONE EARLY", title.uppercased()], title: "Out of \(title) early?", hint: hint)
+            return .init(kicker: ["DONE EARLY", title.uppercased()], title: "Out of \(title) early?", hint: hint, nextLine: nextLine)
         default:
-            return .init(kicker: ["DONE EARLY"], title: "Finished something early?", hint: hint)
+            return .init(kicker: ["DONE EARLY"], title: "Finished something early?", hint: hint, nextLine: nextLine)
         }
     }
 

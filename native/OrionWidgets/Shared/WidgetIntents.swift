@@ -81,6 +81,13 @@ struct OrionWidgetIntent: OrionIntentBase {
 enum WidgetSender {
     static func send(_ action: WidgetAction) async throws {
         #if os(iOS)
+        // Water goes through the same queue as AddWaterIntent: an id per tap, so a retry is one bottle.
+        if action == .water {
+            guard let directory = GlanceStore.directory else { return }
+            try WaterTap.record(in: directory)
+            await WaterCourier.flush(directory: directory)
+            return
+        }
         let text = try action.entry.encoded()
         let zone = CKRecordZone.ID(zoneName: LinkSchema.zoneName, ownerName: CKCurrentUserDefaultName)
         let record = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: UUID().uuidString, zoneID: zone))
@@ -115,7 +122,12 @@ enum WidgetSender {
         let url = directory.appendingPathComponent(GlanceFile.fileName)
         guard var glance = GlanceFile.read(url) else { return }
         switch action {
-        case .water: glance.tracking?.water += 1
+        case .water:
+            #if os(iOS)
+            return   // WaterTap already moved the ring
+            #else
+            glance.tracking?.water += 1
+            #endif
         case .started: glance.checkin?.phase = "active"; glance.checkin?.level = 0
         case .snooze: glance.checkin?.phase = "deferred"
         case .done: glance.checkin = nil

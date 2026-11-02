@@ -197,3 +197,46 @@ final class MemoryNoteTests: XCTestCase {
     }
 
 }
+
+/// Water from the phone's widgets, lock screen, Control Center and Siri arrives
+/// with an event id; a repeat of the same id must not add a second bottle.
+final class TrackingLogEventIDTests: XCTestCase {
+    private var dir: URL!
+    private var file: URL { dir.appendingPathComponent("health-log.json") }
+    private var now: Date { Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 14))! }
+
+    override func setUpWithError() throws {
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }
+
+    private func bottles() throws -> Int {
+        let log = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        let day = (log["days"] as? [String: Any])?["2026-11-02"] as? [String: Any]
+        return (day?["waterBottles"] as? NSNumber)?.intValue ?? 0
+    }
+
+    func testTheSameWaterEventTwiceIsOneBottle() throws {
+        let log = TrackingLog(file: file)
+        XCTAssertEqual(try log.apply(.water(delta: 1), eventID: "w-1", now: now), "Water: 1 of 9 bottles.")
+        XCTAssertEqual(try log.apply(.water(delta: 1), eventID: "w-1", now: now), "Already logged.")
+        XCTAssertEqual(try bottles(), 1)
+        try log.apply(.water(delta: 1), eventID: "w-2", now: now)
+        XCTAssertEqual(try bottles(), 2)
+    }
+
+    func testEntriesWithoutAnIdStillAddUp() throws {
+        let log = TrackingLog(file: file)
+        try log.apply(.water(delta: 1), now: now)
+        try log.apply(.water(delta: 1), now: now)
+        XCTAssertEqual(try bottles(), 2)
+    }
+
+    func testTheRememberedIdsAreBounded() throws {
+        let log = TrackingLog(file: file)
+        for index in 0..<(TrackingLog.eventIDLimit + 3) { try log.apply(.water(delta: 1), eventID: "e\(index)", now: now) }
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertEqual((object["phoneEventIDs"] as? [String])?.count, TrackingLog.eventIDLimit)
+    }
+}

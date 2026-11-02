@@ -363,6 +363,7 @@ final class LinkEngine: ObservableObject {
     private func pollCommands() async {
         var pending: [CKRecord] = []
         var mirrors: [CKRecord] = []
+        var photos: [CKRecord] = []
         var token = changeToken
         do {
             var more = true
@@ -371,7 +372,10 @@ final class LinkEngine: ObservableObject {
                 for (_, result) in changes.modificationResultsByID {
                     guard case .success(let modification) = result else { continue }
                     let record = modification.record
-                    if record.recordType == LinkSchema.commandType,
+                    if record.recordType == FoodPhotoSchema.recordType,
+                       (record[FoodPhotoSchema.status] as? String) == LinkCommandStatus.pending.rawValue {
+                        photos.append(record)
+                    } else if record.recordType == LinkSchema.commandType,
                        (record[LinkSchema.commandStatus] as? String) == LinkCommandStatus.pending.rawValue {
                         pending.append(record)
                     } else if record.recordType == LinkSchema.commandType, (record[LinkSchema.commandDevice] as? String) == "orion",
@@ -398,6 +402,7 @@ final class LinkEngine: ObservableObject {
         let ordered = pending.sorted { ($0[LinkSchema.commandSentAt] as? Date ?? .distantPast) < ($1[LinkSchema.commandSentAt] as? Date ?? .distantPast) }
         for record in ordered { await handle(record) }
         for record in mirrors { logPhoneMirror(record) }
+        for record in photos { await fileFoodPhoto(record) }
         // Advanced only after every fetched command was handled: quitting
         // mid-command means it is fetched again, never silently skipped.
         // (orion-remote's replay guard refuses a second run of the same id.)
@@ -454,7 +459,7 @@ final class LinkEngine: ObservableObject {
                 if applied.contains(id) {
                     result = .init(ok: true, reply: "Already logged.")
                 } else {
-                    result = Self.logTracking(text, at: sentAt)
+                    result = Self.logTracking(text, at: sentAt, id: id)
                     if result.ok { applied.append(id); defaults.set(Array(applied.suffix(300)), forKey: "link.appliedLogs") }
                     if result.ok, case .sleep(let event, let at)? = try? LinkLog.decode(text), event != "bed" {
                         Self.morningSignal(event, at: at)
@@ -485,11 +490,51 @@ final class LinkEngine: ObservableObject {
         await publishState(force: true)
     }
 
+    /// A "Log food" photo from the phone (2026-11-02): into the food inbox the
+    /// Mac's estimator watches, then the record is marked and its asset dropped,
+    /// so the photo does not stay in iCloud. A failed write is marked failed with
+    /// the reason; only a pending record is ever filed, so it is filed once.
+    private func fileFoodPhoto(_ record: CKRecord) async {
+        let id = record.recordID.recordName
+        let at = record[FoodPhotoSchema.at] as? Date ?? record.creationDate ?? Date()
+        let note = record[FoodPhotoSchema.note] as? String
+        var ok = false
+        var reply = "The photo did not arrive."
+        if let asset = record[FoodPhotoSchema.photo] as? CKAsset, let url = asset.fileURL,
+           let data = try? Data(contentsOf: url), data.count <= FoodPhotoSchema.maxBytes {
+            do {
+                try FoodInbox().write(image: data, id: id, at: at, note: note)
+                ok = true
+                reply = "On your Mac; ORION is estimating it."
+            } catch LinkError.invalidCommand(let why) {
+                reply = "Not filed: \(why)."
+            } catch {
+                reply = "Not filed: the food inbox could not be written."
+            }
+        }
+        lastCommand = "food photo \(id)"
+        record[FoodPhotoSchema.status] = (ok ? LinkCommandStatus.done : .failed).rawValue as CKRecordValue
+        record[FoodPhotoSchema.reply] = reply as CKRecordValue
+        if ok { record[FoodPhotoSchema.photo] = nil }
+        do {
+            try await save([record], policy: .changedKeys)
+            if ok { commandsHandled += 1 }
+        } catch {
+            problem = "Could not mark a food photo: \(error.localizedDescription)"
+        }
+    }
+
     /// Water, meals and supplements go straight into the health log: data the
     /// phone records, not an action ORION takes, so orion-remote is not involved.
-    nonisolated static func logTracking(_ text: String, at sentAt: Date) -> CommandRunner.Result {
+    /// Water carries its record id into the log as an event id (2026-11-02): the
+    /// phone's widgets and Control Center send each tap under a fixed id, and the
+    /// health log refuses a second write of one even if this Mac's defaults are lost.
+    nonisolated static func logTracking(_ text: String, at sentAt: Date, id: String? = nil) -> CommandRunner.Result {
         do {
-            return .init(ok: true, reply: try TrackingLog().apply(try LinkLog.decode(text), now: min(sentAt, Date())))
+            let entry = try LinkLog.decode(text)
+            let eventID: String?
+            if case .water = entry { eventID = id } else { eventID = nil }
+            return .init(ok: true, reply: try TrackingLog().apply(entry, eventID: eventID, now: min(sentAt, Date())))
         } catch let error as LinkError {
             if case .invalidCommand(let why) = error { return .init(ok: false, reply: "Not logged: \(why).") }
             return .init(ok: false, reply: "Not logged.")

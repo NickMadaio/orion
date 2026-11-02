@@ -19,6 +19,8 @@ struct ConversationView: View {
     /// The chat shown: nil is the whole history, otherwise one conversation id.
     @Binding var conversationID: String?
     let onMenu: () -> Void
+    /// Opens "Log food" (the composer's camera button).
+    var onLogFood: () -> Void = {}
     @StateObject private var voice = PhoneVoice()
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
@@ -51,7 +53,7 @@ struct ConversationView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ChatComposer(draft: $draft, voice: voice, typing: $typing, replyingTo: tappedAsk, sendCount: sendCount,
-                         onClearReply: { tappedAsk = nil }, onSend: send, onTalk: talk)
+                         onClearReply: { tappedAsk = nil }, onSend: send, onTalk: talk, onAttach: onLogFood)
         }
         .background(Phone.ink.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)

@@ -13,6 +13,8 @@ struct ChatComposer: View {
     let onClearReply: () -> Void
     let onSend: () -> Void
     let onTalk: () -> Void
+    /// "Log food": a photo for the Mac's estimator. Nil hides the button.
+    var onAttach: (() -> Void)? = nil
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -26,10 +28,11 @@ struct ChatComposer: View {
             VoiceBar(voice: voice)
             if let replyingTo { replyLine(replyingTo) }
             HStack(alignment: .bottom, spacing: 8) {
+                if let onAttach { attach(onAttach).padding(.leading, 5).padding(.bottom, 5) }
                 TextField("Message ORION", text: $draft, axis: .vertical)
                     .lineLimit(1...5).font(.system(size: 16)).focused(typing)
                     .submitLabel(.send).onSubmit(onSend)
-                    .padding(.leading, 16).padding(.vertical, 10)
+                    .padding(.leading, onAttach == nil ? 16 : 2).padding(.vertical, 10)
                 trailing.padding(.trailing, 5).padding(.bottom, 5)
             }
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Phone.wash(typing.wrappedValue ? 0.22 : 0.13), lineWidth: 1))
@@ -50,6 +53,15 @@ struct ChatComposer: View {
                 KeyframeTrack(\.scale) { CubicKeyframe(2.0, duration: 0.55) }
             }
             .allowsHitTesting(false).accessibilityHidden(true)
+    }
+
+    private func attach(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "camera").font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Phone.soft).frame(width: 32, height: 32)
+                .overlay(Circle().stroke(Phone.wash(0.16), lineWidth: 1))
+        }
+        .buttonStyle(PhonePressStyle()).accessibilityLabel("Log food with a photo").accessibilityIdentifier("logFood")
     }
 
     @ViewBuilder private var trailing: some View {

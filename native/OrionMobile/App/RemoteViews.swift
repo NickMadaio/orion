@@ -198,6 +198,18 @@ final class RemoteStore: ObservableObject {
         return true
     }
 
+    /// A "Log food" photo the Mac now has (FoodCapture): shown in the chat as
+    /// sent, with ORION's line under it. Kept on the phone like offline chat.
+    func noteFoodPhoto(id: String, note: String, conversation: String?) {
+        let now = Date()
+        let text = note.isEmpty ? "Food photo" : "Food photo: \(note)"
+        let message = CloudLink.Message(id: "food-" + id, text: text, sentAt: now, kind: .chat, status: .done,
+                                        reply: FoodPhotoSchema.sentLine, repliedAt: now, conversationID: conversation)
+        localConversation.append(message)
+        LocalChat.save(localConversation)
+        rebuildConversation()
+    }
+
     /// Once the Mac answers again, the conversation it missed goes into its memory
     /// journal, one exchange per note (the phone's structured events, reconciled
     /// into ORION's Markdown on the Mac).

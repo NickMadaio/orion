@@ -1,0 +1,159 @@
+// w14 g-food: food turns carried out through orion-food-estimate (a fake runner here), the pending offer read from the state dir,
+// and the routing: an estimate offered, a yes logs it, a correction re-estimates, an unrelated turn in between unbinds the yes.
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { FoodMemory, PHOTO_LINE, readFoodPending, runFoodTurn, type FoodRun } from "./food-chat.js";
+import { registerLocalRouting } from "./local-routing.js";
+import type { Decision } from "./front-desk.js";
+
+const NOW = new Date(2026, 10, 2, 13, 0);
+const OFFER = "~670 kcal · 27P 99C 18F (chicken burrito and coke, ~640 g). Log it?";
+const ESTIMATE = { ok: true, summary: "~670 kcal · 27P 99C 18F (chicken burrito and coke, ~640 g)", estimate: { items: [], totals: { kcal: 667 } }, offer: { id: "fp-1", text: OFFER } };
+const LOGGED = { ok: true, logged: { id: "FOOD-0E0C7C2A-6B8B-4E0B-9C1A-3F7E3C0D8A11", day: "2026-11-02", filled: false, dayCalories: 1450 }, entry: { id: "FOOD-0E0C7C2A-6B8B-4E0B-9C1A-3F7E3C0D8A11", title: "Chicken burrito and coke", meal: "Lunch", calories: 667, protein: 27, carbohydrates: 99, fat: 18 } };
+
+function fakeRun(answers: Record<string, unknown>, calls: string[][] = []): FoodRun {
+  return async (args) => {
+    calls.push(args);
+    const key = Object.keys(answers).find((k) => args.join(" ").includes(k));
+    const out = key ? answers[key] : { ok: false, error: "unexpected" };
+    return { stdout: JSON.stringify(out), code: (out as { ok: boolean }).ok ? 0 : 1 };
+  };
+}
+const dir = () => mkdtempSync(join(tmpdir(), "food-chat-"));
+
+describe("runFoodTurn", () => {
+  it("an ask runs an offered estimate and replies with the offer", async () => {
+    const calls: string[][] = [];
+    const out = await runFoodTurn({ kind: "ask", text: "chicken burrito and a coke" }, { run: fakeRun({ "--text": ESTIMATE }, calls), stateDir: dir(), now: NOW });
+    expect(calls[0]).toEqual(["--text", "chicken burrito and a coke", "--offer", "--json"]);
+    expect(out.text).toBe(OFFER);
+  });
+  it("a yes logs the offer and says how to undo it", async () => {
+    const out = await runFoodTurn({ kind: "yes" }, { run: fakeRun({ "log-pending": LOGGED }), stateDir: dir(), now: NOW });
+    expect(out.text).toBe('Logged chicken burrito and coke as lunch: 667 kcal, 27P 99C 18F. 1450 kcal today. Say "undo" to take it off.');
+    expect(out.logged?.id).toBe(LOGGED.logged.id);
+  });
+  it("a no drops it; a correction re-estimates", async () => {
+    expect((await runFoodTurn({ kind: "no" }, { run: fakeRun({ discard: { ok: true, discarded: true } }), stateDir: dir(), now: NOW })).text).toBe("Okay, not logged.");
+    const calls: string[][] = [];
+    const out = await runFoodTurn({ kind: "revise", correction: "it was a small one" }, { run: fakeRun({ "--revise": { ...ESTIMATE, offer: { id: "fp-2", text: "~400 kcal · smaller. Log it?" } } }, calls), stateDir: dir(), now: NOW });
+    expect(calls[0]).toEqual(["--revise", "it was a small one", "--json"]);
+    expect(out.text).toBe("~400 kcal · smaller. Log it?");
+  });
+  it("a failure is one honest sentence", async () => {
+    const out = await runFoodTurn({ kind: "ask", text: "toast" }, { run: fakeRun({ "--text": { ok: false, error: "the local model took longer than 45 s" } }), stateDir: dir(), now: NOW });
+    expect(out.text).toBe("I couldn't estimate that just now (the local model took longer than 45 s), so nothing was logged. Tell me again in a bit.");
+  });
+  it("a photo in chat points to the phone's food inbox unless an inbox estimate is fresh", async () => {
+    const d = dir();
+    expect((await runFoodTurn({ kind: "photo" }, { run: fakeRun({}), stateDir: d, now: NOW })).text).toBe(PHOTO_LINE);
+    writeFileSync(join(d, "food-pending.json"), JSON.stringify({ id: "fp-9", at: new Date(NOW.getTime() - 5 * 60_000).toISOString(), expiresAt: new Date(NOW.getTime() + 3600_000).toISOString(), via: "inbox", offerText: `Food photo: ${OFFER}`, estimate: {} }));
+    expect((await runFoodTurn({ kind: "photo" }, { run: fakeRun({}), stateDir: d, now: NOW })).text).toBe(`Food photo: ${OFFER}`);
+  });
+  it("a meal he ate is logged at once, then sized, and the offer fills that entry", async () => {
+    const d = dir();
+    writeFileSync(join(d, "health-log.json"), JSON.stringify({ schema: "orion.health.v3", supplements: [], supplementLog: {}, workouts: [] }));
+    const calls: string[][] = [];
+    const run = fakeRun({ "--entry": { ...ESTIMATE, offer: { id: "fp-3", text: `${ESTIMATE.summary}. Add those numbers to your lunch?` } } }, calls);
+    const out = await runFoodTurn({ kind: "meal", read: { kind: "meal", meal: "Lunch", title: "Chicken burrito and a coke", notes: "", at: NOW } }, { run, stateDir: d, now: NOW });
+    const rows = (JSON.parse(readFileSync(join(d, "health-log.json"), "utf8")) as { nutritionLog: Record<string, Array<{ id: string }>> }).nutritionLog["2026-11-02"]!;
+    expect(rows).toHaveLength(1);
+    expect(calls[0]).toEqual(["--entry", rows[0]!.id, "--offer", "--json"]);
+    expect(out.text).toBe(`Logged lunch at 1:00 PM: Chicken burrito and a coke. That's 1 meal logged for today. My estimate: ${ESTIMATE.summary}. Add those numbers to your lunch?`);
+  });
+  it("a meal whose estimate fails keeps the plain log reply", async () => {
+    const d = dir();
+    writeFileSync(join(d, "health-log.json"), JSON.stringify({ schema: "orion.health.v3", supplements: [], supplementLog: {}, workouts: [] }));
+    const out = await runFoodTurn({ kind: "meal", read: { kind: "meal", meal: "Lunch", title: "Pasta", notes: "", at: NOW } }, { run: fakeRun({}), stateDir: d, now: NOW });
+    expect(out.text).toBe("Logged lunch at 1:00 PM: Pasta. That's 1 meal logged for today; I couldn't estimate the calories just now.");
+  });
+});
+
+describe("readFoodPending and FoodMemory", () => {
+  it("reads a live offer and ignores an expired one", () => {
+    const d = dir();
+    expect(readFoodPending(d, NOW)).toBeUndefined();
+    writeFileSync(join(d, "food-pending.json"), JSON.stringify({ at: NOW.toISOString(), expiresAt: new Date(NOW.getTime() + 60_000).toISOString(), via: "chat", offerText: OFFER, estimate: {} }));
+    expect(readFoodPending(d, NOW)?.offerText).toBe(OFFER);
+    expect(readFoodPending(d, new Date(NOW.getTime() + 120_000))).toBeUndefined();
+  });
+  it("a turn about something else after the offer unbinds it", () => {
+    const m = new FoodMemory();
+    const pending = { at: NOW.getTime(), via: "chat" as const, offerText: OFFER };
+    expect(m.bound("s", pending)).toBe(true);
+    m.otherTurn("s", NOW.getTime() + 1000);
+    expect(m.bound("s", pending)).toBe(false);
+    expect(m.bound("s", pending, "Gym, now")).toBe(false);
+    expect(new FoodMemory().bound("s", pending, "Some other push")).toBe(false);
+    expect(new FoodMemory().bound("s", pending, OFFER)).toBe(true);
+  });
+});
+
+// ---- through the real routing ----
+type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
+function route(foodRun: FoodRun) {
+  const handlers = new Map<string, Handler[]>();
+  const api = { on: (n: string, fn: Handler) => handlers.set(n, [...(handlers.get(n) ?? []), fn]) };
+  const fire = async (n: string, e: Record<string, unknown>, c: Record<string, unknown>) => { const o: unknown[] = []; for (const fn of handlers.get(n) ?? []) o.push(await fn(e, c)); return o; };
+  const d = dir();
+  writeFileSync(join(d, "health-log.json"), JSON.stringify({ schema: "orion.health.v3", supplements: [], supplementLog: {}, workouts: [] }));
+  const flows: string[] = [];
+  let clock = NOW.getTime();
+  registerLocalRouting(api, { warm: false, mode: "on", logPath: join(d, "r.jsonl"), progressDir: join(d, "tp"), stateDir: d, clock: () => "Mon 13:00", now: () => new Date(clock),
+    decideImpl: async () => ({ move: "answer", answer: "Sounds tasty!" }) as Decision, brainSearch: async () => "",
+    scheduleFlow: async (m: string) => { flows.push(m); return { outcome: "fallback", reason: "test" }; },
+    readDayJson: async () => undefined, readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [], foodRun,
+  } as never);
+  let n = 0;
+  const turn = async (prompt: string, extra: Record<string, unknown> = {}) => {
+    clock += 30_000;
+    const ctx = { runId: `f-${n += 1}`, sessionKey: "agent:main:orion-chat-food" };
+    await fire("before_model_resolve", { prompt, ...extra }, ctx);
+    const [direct] = (await fire("before_agent_reply", { cleanedBody: prompt }, ctx)) as Array<{ reply?: { text: string } } | undefined>;
+    await fire("before_prompt_build", { prompt, messages: [] }, ctx);
+    return direct?.reply?.text;
+  };
+  return { turn, dir: d, flows, offer: (text: string) => writeFileSync(join(d, "food-pending.json"), JSON.stringify({ id: "fp-x", at: new Date(clock).toISOString(), expiresAt: new Date(clock + 1800_000).toISOString(), via: "chat", offerText: text, estimate: {} })) };
+}
+
+describe("food through the routing", () => {
+  it("ask → offer, then yes → logged; the desk never answers either", async () => {
+    const calls: string[][] = [];
+    let r: ReturnType<typeof route>;
+    const run: FoodRun = async (args) => { calls.push(args); if (args[0] === "--text") { r.offer(OFFER); return { stdout: JSON.stringify(ESTIMATE), code: 0 }; } return { stdout: JSON.stringify(LOGGED), code: 0 }; };
+    r = route(run);
+    expect(await r.turn("how many calories in a chicken burrito and a coke")).toBe(OFFER);
+    expect(await r.turn("yeah log it")).toMatch(/^Logged chicken burrito and coke as lunch: 667 kcal/);
+    expect(calls.map((c) => c[0])).toEqual(["--text", "log-pending"]);
+  });
+  it("a yes after an unrelated turn is not the food's", async () => {
+    const calls: string[][] = [];
+    let r: ReturnType<typeof route>;
+    const run: FoodRun = async (args) => { calls.push(args); if (args[0] === "--text") r.offer(OFFER); return { stdout: JSON.stringify(ESTIMATE), code: 0 }; };
+    r = route(run);
+    await r.turn("how many calories in a bagel");
+    await r.turn("what's the weather like");
+    await r.turn("yes");
+    expect(calls.map((c) => c[0])).toEqual(["--text"]);
+  });
+  it("an image attachment in chat gets the food-inbox pointer, not a desk draft", async () => {
+    const r = route(async () => ({ stdout: "{}", code: 1 }));
+    expect(await r.turn("log this", { attachments: [{ kind: "image", mimeType: "image/jpeg" }] })).toBe(PHOTO_LINE);
+  });
+  it("without a food runner nothing changes: the meal is logged the old way", async () => {
+    const r = route(undefined as unknown as FoodRun);
+    expect(await r.turn("how many calories in a bagel")).not.toBe(OFFER);
+  });
+});
+
+import { instructionsFor } from "./local-routing.js";
+import { FOOD_TOOL, GENERAL_INSTRUCTIONS } from "./job-instructions.js";
+describe("the worker's toolbelt", () => {
+  it("carries orion-food-estimate on a food turn, and stays inside the general budget otherwise", () => {
+    expect(instructionsFor(undefined, "how much protein was in that burrito")).toContain("orion-food-estimate --text");
+    expect(instructionsFor(undefined, "turn the lights on")).toBe(GENERAL_INSTRUCTIONS);
+    expect(FOOD_TOOL).toMatch(/never guess the numbers/);
+  });
+});

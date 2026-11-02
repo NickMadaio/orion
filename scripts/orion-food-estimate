@@ -1,0 +1,140 @@
+#!/usr/bin/env node
+/*
+ orion-food-estimate — calories and macros for a meal from his words and/or photos, by the local vision model (2026-11-02).
+
+   orion-food-estimate --text "<what he ate>" [--image <path>]... [--meal breakfast|lunch|dinner|snack] [--log] [--offer] [--json]
+   orion-food-estimate --entry <FOOD-or-meal id|latest> [--offer] [--json]   estimate a meal already in the log (0 kcal) by its title
+   orion-food-estimate --revise "<his correction>" [--json]                 re-estimate the offered meal ("it was a small one")
+   orion-food-estimate log-pending [--json]                                 log the offered estimate (yes to "Log it?")
+   orion-food-estimate pending [--json]                                     the offer waiting on a yes, if any
+   orion-food-estimate discard [--json]                                     drop the offer (no to "Log it?")
+   orion-food-estimate undo <FOOD-id> [--json]                              remove an entry this tool wrote
+   orion-food-estimate inbox [--json]                                       estimate new food-inbox photos and offer each (lib/food/inbox.mjs)
+
+ Nick (2026-11-02): "when tracking calories i can give a description or pictures of my food and Local AIs can try to come up
+ with a somewhat accurate assessment of the macros." The resident qwen3.5:9b (vision) names and sizes each item in grams with
+ its assumptions; the answer is schema-checked, kcal is held to 4p+4c+9f within 15%, and items that match the built-in table
+ (lib/food/nutrition-table.json) take the table's per-gram numbers. Prints one line, e.g.
+   ~650 kcal · 45P 70C 18F (chicken rice bowl, ~400 g; guessed the oil)
+ --log appends it to health-log.json's nutritionLog (source "estimate", confidence, photo, a FOOD- id for undo); --offer
+ leaves it in food-pending.json for a "yes". Nothing is written during an evaluation. ORION_CONTROLLED_DIR and
+ ORION_HEALTH_LOG redirect the state; ORION_OLLAMA_URL the model. Exit 0 ok, 1 failed (one plain sentence), 2 usage.
+*/
+import { spawnSync } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { clockNow } from "./lib/clock.mjs";
+import { estimateMeal } from "./lib/food/estimate.mjs";
+import { readImages } from "./lib/food/ollama.mjs";
+import { latestUncounted, logEstimate, undoEntry, healthLogPath } from "./lib/food/log.mjs";
+import { clearPending, offerLine, readPending, writePending } from "./lib/food/pending.mjs";
+import { runInbox } from "./lib/food/inbox.mjs";
+import { readFileSync } from "node:fs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const argv = process.argv.slice(2);
+const json = argv.includes("--json");
+const USAGE = 'usage: orion-food-estimate --text "<meal>" [--image <path>]... [--meal lunch] [--log] [--offer] [--json] | --entry <id|latest> | --revise "<correction>" | log-pending | pending | discard | undo <FOOD-id> | inbox';
+const all = (name) => argv.flatMap((a, i) => (a === name && argv[i + 1] !== undefined ? [argv[i + 1]] : []));
+const one = (name) => all(name).at(-1);
+const now = clockNow();
+const MEALS = ["breakfast", "brunch", "lunch", "dinner", "supper", "snack"];
+
+function finish(result, line) {
+  console.log(json ? JSON.stringify(result) : line);
+  process.exit(result.ok ? 0 : 1);
+}
+const usage = () => { console.error(USAGE); process.exit(2); };
+const failLine = (error) => `Couldn't estimate that: ${error}.`;
+
+async function estimateCommand() {
+  const text = one("--text") ?? "";
+  const paths = all("--image").map((p) => resolve(p));
+  const meal = one("--meal");
+  if (meal && !MEALS.includes(meal.toLowerCase())) usage();
+  if (!text.trim() && !paths.length) usage();
+  if (text.length > 600) usage();
+  let images;
+  try { images = readImages(paths); } catch (error) { finish({ ok: false, error: error.message }, failLine(error.message)); }
+  const out = await estimateMeal({ text, images, imagePaths: paths });
+  if (!out.ok) finish(out, failLine(out.error));
+  const result = { ok: true, summary: out.summary, estimate: out.estimate, ms: out.ms };
+  if (argv.includes("--log")) {
+    const logged = logEstimate(out.estimate, { meal, at: now, now });
+    result.logged = logged.ok ? { id: logged.entry.id, day: logged.day, dayCalories: logged.dayCalories, undo: `orion-food-estimate undo ${logged.entry.id}` } : { error: logged.error };
+    return finish(result, logged.ok ? `${out.summary}. Logged (${logged.dayCalories} kcal today; undo: orion-food-estimate undo ${logged.entry.id}).` : `${out.summary}. ${logged.error}`);
+  }
+  if (argv.includes("--offer")) {
+    const offer = writePending({ via: "chat", offerText: offerLine(out.summary), summary: out.summary, estimate: out.estimate, ...(meal ? { meal } : {}), ...(text ? { text } : {}), ...(paths.length ? { photos: paths } : {}) }, { now });
+    result.offer = { id: offer.id, text: offer.offerText };
+  }
+  return finish(result, out.summary);
+}
+
+async function entryCommand(which) {
+  let entry;
+  if (which === "latest") entry = latestUncounted({ now });
+  else {
+    try { entry = Object.values(JSON.parse(readFileSync(healthLogPath(), "utf8")).nutritionLog ?? {}).flat().find((e) => e?.id === which) ?? null; } catch { entry = null; }
+  }
+  if (!entry) finish({ ok: false, error: "no meal without calories logged in the last few hours" }, "There's no recent meal without calories to estimate.");
+  if (!entry.title || /^(?:breakfast|lunch|dinner|snack|meal)$/i.test(entry.title)) finish({ ok: false, error: "the logged meal has no description", entry: { id: entry.id, meal: entry.meal } }, `Your ${String(entry.meal ?? "meal").toLowerCase()} has no description, so I can't size it. What did you have?`);
+  const text = [entry.title, entry.notes].filter(Boolean).join(", ");
+  const out = await estimateMeal({ text });
+  if (!out.ok) finish(out, failLine(out.error));
+  const result = { ok: true, summary: out.summary, estimate: out.estimate, ms: out.ms, entry: { id: entry.id, title: entry.title, meal: entry.meal } };
+  if (argv.includes("--offer")) {
+    const offer = writePending({ via: "chat", offerText: `${out.summary}. Add those numbers to your ${String(entry.meal ?? "meal").toLowerCase()}?`, summary: out.summary, estimate: out.estimate, text, target: { entryId: entry.id }, ...(entry.meal ? { meal: entry.meal } : {}) }, { now });
+    result.offer = { id: offer.id, text: offer.offerText };
+  }
+  return finish(result, out.summary);
+}
+
+async function reviseCommand(correction) {
+  const pending = readPending({ now });
+  if (!pending) finish({ ok: false, error: "no estimate is waiting to be corrected" }, "There's no estimate waiting, so there's nothing to correct. Tell me what you ate.");
+  if (!correction.trim() || correction.length > 300) usage();
+  let images = [];
+  try { images = readImages(pending.photos ?? []); } catch { images = []; }
+  const out = await estimateMeal({ text: pending.text ?? "", images, imagePaths: pending.photos ?? [], correction, previous: pending.summary });
+  if (!out.ok) finish(out, failLine(out.error));
+  const question = pending.target ? `Add those numbers to your ${pending.meal ? pending.meal.toLowerCase() : "meal"}?` : "Log it?";
+  const offer = writePending({ ...pending, offerText: `${out.summary}. ${question}`, summary: out.summary, estimate: out.estimate,
+    text: [pending.text, `(${correction})`].filter(Boolean).join(" ") }, { now });
+  return finish({ ok: true, summary: out.summary, estimate: out.estimate, ms: out.ms, offer: { id: offer.id, text: offer.offerText } }, out.summary);
+}
+
+function logPendingCommand() {
+  const pending = readPending({ now });
+  if (!pending) finish({ ok: false, error: "no estimate is waiting to be logged" }, "There's no estimate waiting to log.");
+  const at = pending.eatenAt ? new Date(pending.eatenAt) : now;
+  const logged = logEstimate(pending.estimate, { meal: pending.meal, at, now, ...(pending.target ? { target: pending.target } : {}) });
+  if (!logged.ok) finish(logged, logged.error);
+  clearPending();
+  const e = logged.entry;
+  return finish({ ok: true, logged: { id: e.id, day: logged.day, filled: logged.filled, dayCalories: logged.dayCalories, undo: `orion-food-estimate undo ${e.id}` }, entry: e, summary: pending.summary },
+    `${logged.filled ? "Updated" : "Logged"} ${e.title.toLowerCase()} as ${e.meal.toLowerCase()}: ${e.calories} kcal, ${e.protein}P ${e.carbohydrates}C ${e.fat}F. ${logged.dayCalories} kcal today.`);
+}
+
+function notifier() {
+  const bin = process.env.ORION_REACH_BIN || join(here, "orion-reach");
+  return (text, why) => {
+    const r = spawnSync(process.execPath, [bin, text, "--kind", "question", "--why", why], { encoding: "utf8", timeout: 30_000, env: process.env });
+    return { ok: r.status === 0 };
+  };
+}
+
+const [command] = argv;
+if (command === "log-pending") logPendingCommand();
+else if (command === "discard") { const p = readPending({ now }); clearPending(); finish({ ok: true, discarded: !!p }, p ? "Okay, not logged." : "No estimate was waiting."); }
+else if (command === "pending") { const p = readPending({ now }); finish({ ok: true, pending: p }, p ? p.offerText : "No estimate is waiting."); }
+else if (command === "undo") {
+  const r = undoEntry(argv[1], { now });
+  finish(r, r.ok ? `Removed ${r.removed.title} (${r.removed.calories} kcal). ${r.dayCalories} kcal on ${r.day}.` : r.error);
+} else if (command === "inbox") {
+  const r = await runInbox({ now, notify: notifier() });
+  finish({ ok: true, ...r }, r.ran ? `${r.items.length} food photo(s) estimated.` : `Inbox not run: ${r.why}.`);
+} else if (one("--revise") !== undefined) await reviseCommand(one("--revise"));
+else if (one("--entry") !== undefined) await entryCommand(one("--entry"));
+else if (command && !command.startsWith("--")) usage();
+else await estimateCommand();

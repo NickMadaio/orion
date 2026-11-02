@@ -127,6 +127,8 @@ export type PendingInput = {
     answered?: (text: string, sentAt: number) => boolean;
     /** When ORION last replied in this chat (plugin clock, ms): an outreach sent before that is not what a short reply answers. */
     lastReplyAt?: number;
+    /** w16: false when this session is not a chat with him (a CLI check, a probe): the last push, with no label, binds nothing there. */
+    chatSurface?: boolean;
 };
 /** The pending reply this message is, or undefined (the turn goes on unchanged). Pure. */
 export declare function readPendingTurn(input: PendingInput): PendingTurn | undefined;

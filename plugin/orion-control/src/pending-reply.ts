@@ -146,6 +146,8 @@ export type PendingInput = {
   answered?: (text: string, sentAt: number) => boolean;
   /** When ORION last replied in this chat (plugin clock, ms): an outreach sent before that is not what a short reply answers. */
   lastReplyAt?: number;
+  /** w16: false when this session is not a chat with him (a CLI check, a probe): the last push, with no label, binds nothing there. */
+  chatSurface?: boolean;
 };
 
 const QUESTION_KINDS: ReadonlyArray<Offer["kind"]> = ["catchup", "plan-check", "brief", "slipped", "phone-block"];
@@ -182,7 +184,7 @@ export function readPendingTurn(input: PendingInput): PendingTurn | undefined {
   if (reply.kind !== "counter" && REQUEST.test(asked)) return undefined;
   if (memo && MEMO_TAKES[memo.kind].includes(reply.kind) && !ownRequest(message, reply, memoNames(memo))) return { said, reply, memo };
   const fromLabel = outreach ? { text: outreach.text, at: now.getTime() - outreach.minutes * 60_000 } : undefined;
-  const push = !fromLabel && lastPush ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
+  const push = !fromLabel && lastPush && input.chatSurface !== false ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
   const source = fromLabel ?? push;
   const planned = planDefer(said, reply);
   if (!source || Number.isNaN(source.at) || input.answered?.(source.text, source.at)) return planned;
@@ -207,7 +209,7 @@ export function readPendingTurn(input: PendingInput): PendingTurn | undefined {
 const PLAN_PRONOUN_VERB = /\b(?:move|push|reschedule|postpone|drop|cancel)\s+(?:it|that|this|them)\b/g;
 /** The off-plan question's own reading of a reply the short reader passed over; only when that question is what he is answering. */
 function storyReply(message: string, input: PendingInput): Reply | undefined {
-  const text = input.outreach?.text ?? input.lastPush?.text;
+  const text = input.outreach?.text ?? (input.chatSurface !== false ? input.lastPush?.text : undefined);
   return text && offerOf(text)?.kind === "plan-check" ? readPlanCheckStory(message) : undefined;
 }
 

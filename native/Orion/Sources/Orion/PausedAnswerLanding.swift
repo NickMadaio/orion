@@ -14,3 +14,19 @@ enum PausedAnswerLanding: Equatable {
         !seedWasRoom && listening ? .hold : .bubble
     }
 }
+
+/// Turns whose pause was room speech (the address gate dropped it): each answer goes to the chat when it lands, even after
+/// another turn started (2026-11-02 23:11, a second spoken question cleared the first's pause and its answer was thrown away).
+struct OrphanedAnswers: Equatable {
+    private(set) var generations: Set<Int> = []
+
+    func adding(_ generation: Int) -> OrphanedAnswers {
+        OrphanedAnswers(generations: generations.union([generation]))
+    }
+
+    /// Whether this turn was orphaned, and the ledger without it.
+    func claiming(_ generation: Int) -> (Bool, OrphanedAnswers) {
+        guard generations.contains(generation) else { return (false, self) }
+        return (true, OrphanedAnswers(generations: generations.subtracting([generation])))
+    }
+}

@@ -83,6 +83,8 @@ import { pluginNow } from "./plugin-clock.js";
 import { LATE_TONE_LINE, pastNudgeTime, stripLateInstruction } from "./night-hush.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn, type PendingTurn } from "./pending-reply.js";
 import { learnPersonAfter } from "./person-learn.js";
+/** w16: sessions that are a chat with him (the app's chats, the phone thread, a DM); a CLI check or a probe is not. */
+const CHAT_SURFACE = /:(?:orion-chat-|discord|telegram|imessage|whatsapp|main$)/;
 import { bedtimeFromState, focusRunning } from "./bed-state.js";
 import { readPreference, savePreference, type Preference } from "./preference-remember.js";
 import { learnCorrection, pendingOffer, standingRulesLine } from "./correction-learn.js";
@@ -1273,7 +1275,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
     const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
       ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
-        ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir) })
+        ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
+        chatSurface: CHAT_SURFACE.test(sessionKey) })
         // Wave 6 (bed-state.ts): past his bedtime with no nudge in reach, a stall or "going to bed" is still the bedtime reply.
         ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
     if (sessionKey && !cutOff && !pending) pendingMemory.setMemo(sessionKey, null);

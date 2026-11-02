@@ -205,6 +205,13 @@ export const HUSH = /\b(?:shush|shut up|leave me alone|go away|stop nagging|stop
 export const REQUEST = /\b(?:move|add|put|book|schedule|reschedule|cancel|drop|remind|text|email|play|clear|delete|remove|log|push)\b|\b(?:can|could|would|will) you\b|\bset (?:an?|my|the) \b|\bstart (?:a|an|my|the) (?:focus|session|timer)\b/;
 /** A preface to a request of his own ("one more thing", "quick question"), never an answer. */
 const PREFACE = /^(?:ok(?:ay)? |wait |oh |also |hey )?(?:one more thing|quick question|actually|also|btw|by the way|hold up i have)\b/;
+const LEAD_FILLER = String.raw `^(?:(?:so|ok|okay|hey|wait|orion|yo|and|also|oh)\s+)*`;
+/** A question of his own, put without a "?": a wh-word, or a helping verb then its subject ("will it be cold at 9"). */
+const ASKS = new RegExp(`${LEAD_FILLER}(?:(?:what'?s|whats|what|how'?s|hows|how|when'?s|whens|when|where'?s|wheres|where|why|who|which)\\b|(?:is|are|was|were|does|will|would|should|could|can|has|have)\\s+(?:i|you|u|it|we|my|the|there|this|that|he|she|they)\\b)`);
+/** ...except a counter put as a question: "how about 9pm", "what about tmrw at 7", "can we do 10pm instead". */
+const COUNTER_ASK = new RegExp(`${LEAD_FILLER}(?:how about|what about|can we|could we|can i|could i|should we|can it|could it|can you do|could you do)\\b`);
+/** Words about something else entirely: never an answer to a nudge about his plan. */
+const OTHER_TOPIC = /\b(?:weather|forecast|rain(?:ing|y)?|snow(?:ing|y)?|temperature|degrees|umbrella)\b/;
 /** At most this many words for a reply code reads against the offer; a longer message is a request of its own. */
 export const REPLY_MAX_WORDS = 16;
 /** What his reply is, read against nothing yet (the offer decides what each kind means); undefined when it is not a reply. */
@@ -221,6 +228,9 @@ export function readReply(message) {
     if (question)
         return undefined;
     const plain = m.replace(/[.]/g, " ").replace(/\s+/g, " ").trim();
+    // w16 (2026-11-02 23:21): "whats the weather gonna be like tmrw" has no "?" and was read as a counter ("tmrw") to a move offer.
+    if ((ASKS.test(plain) && !COUNTER_ASK.test(plain)) || OTHER_TOPIC.test(plain))
+        return undefined;
     if (INDIFFERENT.test(plain))
         return { kind: "indifferent" };
     if (NO.test(plain))

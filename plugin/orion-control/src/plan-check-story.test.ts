@@ -63,6 +63,7 @@ describe("his free-text answer to 'is X still happening, or did plans change?'",
     "postpone that",
     "yeah im at sams flat atm, push it",
     "ugh got dragged out to dinner w my flatmates, cant do it rn",
+    "nah its off", "not happening", "nah thats off tonight",
   ])("plans changed: %s", (said) => {
     expect(readPlanCheckStory(said)?.kind).toBe("changed");
   });
@@ -71,6 +72,7 @@ describe("his free-text answer to 'is X still happening, or did plans change?'",
     "yeah im out grabbing food but ill still do it when im back",
     "still on, omw home",
     "yep still doing it, be back in 20",
+    "yea its still on", "ya still on", "yep happening", "still going", "ye its happening",
   ])("still happening: %s", (said) => {
     expect(readPlanCheckStory(said)?.kind).toBe("accept");
   });
@@ -112,11 +114,31 @@ describe("routed: the place-check reply never logs nonsense", () => {
     expect(reply).toBe(`Good — leaving ${TITLE} where it is.`);
     expect(r.flows).toEqual([]);
   });
+  it.each(["yea its still on", "yep happening"])("short still-on, routed: %s", async (said) => {
+    const r = route();
+    expect(await r.turn(`${LABEL}${APP}${said}`)).toBe(`Good — leaving ${TITLE} where it is.`);
+  });
+  it.each(["nah its off", "postpone that"])("short plans-changed, routed, never a place or attended line: %s", async (said) => {
+    const r = route();
+    const reply = await r.turn(`${LABEL}${APP}${said}`);
+    expect(reply).toMatch(/Go over Orion learning plan|Give me a time/);
+    expect(reply).not.toMatch(/you were at|attended|you're at/i);
+  });
   it("unsure: one short question, no write", async () => {
     const r = route();
     const reply = await r.turn(`${LABEL}${APP}at a friends rn idk`);
     expect(reply).toBe(`Got it. Is ${TITLE} still on for later, or should I move it?`);
     expect(r.flows).toEqual([]); expect(r.reality.filter((c) => c[1] === "add")).toEqual([]);
+  });
+});
+
+describe("routed: other questions while the move offer is pending get their own answer", () => {
+  it.each(["whats the weather gonna be like tmrw", "how was my sleep", "ok whats next"])("%s", async (said) => {
+    const r = route();
+    expect(await r.turn(`${LABEL}${APP}${LIVE}`)).toMatch(/^Got it, you're out/);
+    const reply = await r.turn(`${LABEL}${APP}${said}`);
+    expect(reply ?? "").not.toMatch(/Give me a time|moved to|still on for later/);
+    expect(r.flows).toEqual([]);
   });
 });
 

@@ -28,6 +28,7 @@ import { gather, seamFacts } from "./lib/reach/facts.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { actualWake } from "./lib/life/night.mjs";
+import { fixStatus, fixNeed, requestFix, phoneFixMeta, FILE as FIX_REQUEST } from "./lib/awareness/fix-request.mjs";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
@@ -94,10 +95,19 @@ async function refresh({ session } = {}) {
       nights: readJson(join(DIR, "sleep-actual.json"))?.nights ?? [], mac: macFacts, signal }),
     meta: { placeEventAt: newestEvent },
   };
+  aw.meta.phoneFix = askForFix(aw, log);
   writeAwareness(DIR, aw);
   // a new region event since the last refresh: let the proactive loop react at once
   if (newestEvent && newestEvent !== prev.meta?.placeEventAt && prev.at !== null) kickTick("place");
   return { ...aw, derived: derive(aw) };
+}
+
+/** The newest fix's age, and (when location has lapsed and a class or fixed plan is close) an ask for a fresh one. */
+function askForFix(aw, log) {
+  const status = fixStatus(log.phoneSignals, now);
+  const need = status.stale ? fixNeed({ calendar: aw.calendar, location: aw.location, now }) : null;
+  const request = need ? requestFix(DIR, { now, reason: need, lastFixAt: status.lastFixAt }).request : readJson(join(DIR, FIX_REQUEST));
+  return phoneFixMeta(status, request);
 }
 
 /** Detached and debounced to one per 60 s, so a burst of events costs one tick (C12). */
@@ -120,7 +130,9 @@ async function main() {
     console.log(args.includes("--json") ? JSON.stringify(aw) : `awareness refreshed (${aw.derived.activity}, session ${aw.session.state}, mac ${aw.mac.state}, location ${aw.location.state})`);
   } else if (cmd === "show") {
     const aw = readAwareness({ dir: DIR, now });
-    console.log(args.includes("--json") ? JSON.stringify(aw) : `${aw.derived.activity}: session ${aw.session.state}, mac ${aw.mac.state}, location ${aw.location.state}, phone ${aw.phone.state}, sleep ${aw.sleep.state}, headphones ${aw.audio.mac.headphones ?? "unknown"}`);
+    const fix = aw.meta?.phoneFix;
+    const fixLine = fix?.stale ? `; phone fix ${fix.lastAt ? `${fix.ageMin} min old` : "never seen"}${fix.askedAt ? `, asked ${fix.askedAt} (${fix.askReason})` : ""}` : "";
+    console.log(args.includes("--json") ? JSON.stringify(aw) : `${aw.derived.activity}: session ${aw.session.state}, mac ${aw.mac.state}, location ${aw.location.state}, phone ${aw.phone.state}, sleep ${aw.sleep.state}, headphones ${aw.audio.mac.headphones ?? "unknown"}${fixLine}`);
   } else if (cmd === "phase") {
     const to = flag("--to"), from = flag("--from"), raw = flag("--session");
     if (!to || !from || !raw) fail("usage: orion-awareness phase --from <state> --to <state> --session '<json>'");

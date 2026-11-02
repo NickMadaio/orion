@@ -58,6 +58,8 @@ import { withKind } from "./lib/curiosity/ask.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
 import { clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
 import { logOutreach } from "./lib/reach/log-outreach.mjs";
+import { fixStatus, requestFix } from "./lib/awareness/fix-request.mjs";
+import { readJson as readJsonFile } from "./lib/awareness/io.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
@@ -223,6 +225,13 @@ const entry = { id, at: now.toISOString(), text: text.trim(), kind, why: flag("-
   ...(ask ? { ask, askId: ask.askId ?? id, category: ask.type ?? null } : {}), ...(validUntil ? { validUntil } : {}) };
 
 if (dry) { console.log(args.includes("--json") ? JSON.stringify(entry) : `DRY RUN — would ${describe(entry)}`); process.exit(0); }
+
+// Kept silent only because home is unknown (no headphones): ask the phone for a fresh fix, so the next one can be spoken
+// if he is home (2026-11-02). The rule above is unchanged; this only stops "unknown" lasting for days. Rate-limited inside.
+if (decision.channel === "mac-bubble" && heard.atHome === null && !headphones && !forced) {
+  const status = fixStatus(readJsonFile(join(DIR, "health-log.json"))?.phoneSignals, now);
+  if (status.stale) requestFix(DIR, { now, reason: "reminder held silent", lastFixAt: status.lastFixAt });
+}
 
 // Releasing the held queue while it is still quiet (or a session still runs): leave it, and leave no log row.
 // Review M3: inside the sleep window the queue is released only when he is at the Mac, whatever a phone sample says.

@@ -44,6 +44,7 @@ import { loadAgentPlan } from './lib/agentic/plan.mjs';
 import { lintPlan, lintSummary } from './lib/agentic/plan-lint.mjs';
 import { loadAgenticConfig, ModelRuntime, CONFIG_PATH } from './lib/agentic/models.mjs';
 import { readProject, PROJECT_HOME } from './lib/agentic/projects.mjs';
+import { discoverModels, applyProjectModels } from './lib/agentic/project-models.mjs';
 import { acquireLease, releaseLease, inspectLease } from './lib/agentic/lease.mjs';
 import { auditJournal } from './lib/agentic/journal.mjs';
 import { writeAstraBrief } from './lib/agentic/escalation.mjs';
@@ -193,7 +194,16 @@ async function loadRun() {
 }
 
 async function commandRun(durationMs) {
-  const config = await loadAgenticConfig();
+  const globalConfig = await loadAgenticConfig();
+  // A project may override the worker and reviewer models. Ollama is asked NOW,
+  // so a model removed since the choice was saved falls back to the global one
+  // and the run log says so, instead of the run failing at 02:00.
+  let installed = null;
+  if (project?.models && Object.keys(project.models).length) {
+    installed = await discoverModels(globalConfig.endpoint, { withCapabilities: false }).catch(() => null);
+  }
+  const { config, notes } = applyProjectModels(globalConfig, project?.models, installed);
+  for (const note of notes) say(`models: ${note}`);
   if (config.enabled !== true) {
     throw new Error(
       `unattended execution is disabled. Set {"enabled": true} in ${CONFIG_PATH} to allow it` +

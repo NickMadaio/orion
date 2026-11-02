@@ -431,12 +431,15 @@ struct ProjectAgentPanel: View {
                     }
                 }
                 if run.hasOpenEscalations {
-                    Picker("Escalation", selection: $selectedEscalationID) {
-                        Text("Choose an escalation").tag("")
-                        ForEach(run.openEscalations) { item in
-                            Text("\(item.taskId ?? "Whole run") · \(item.kind) · \(item.id)").tag(item.id)
-                        }
-                    }
+                    let pending = run.openEscalations.first { $0.id == selectedEscalationID }
+                    ProjectPickerPill(
+                        label: pending.map { "\($0.taskId ?? "Whole run") · \($0.kind)" } ?? "Choose an escalation",
+                        defaultRow: nil,
+                        items: run.openEscalations.map { item in
+                            ProjectPickItem(id: item.id, title: "\(item.taskId ?? "Whole run") · \(item.kind)", detail: item.id)
+                        },
+                        selection: pending?.id, emptyText: "No open escalations",
+                        onSelect: { selectedEscalationID = $0 ?? "" })
                     // The controller requires a note, so the button must too.
                     // Offering an action the CLI will refuse teaches people the
                     // panel is lying to them, and this is the one moment they
@@ -563,17 +566,13 @@ struct ProjectAgentPanel: View {
                             .foregroundStyle(OrionTheme.textDim)
                             .frame(width: 74, alignment: .leading)
                         if let installed = settings.installed, !installed.isEmpty {
-                            Picker("", selection: Binding(
-                                get: { settings.roles?[role]?.model ?? "" },
-                                set: { newModel in setModel(role: role, model: newModel) }
-                            )) {
-                                ForEach(installed, id: \.self) { name in
-                                    Text(name).font(OrionTheme.mono(10)).tag(name)
-                                }
-                            }
-                            .labelsHidden()
-                            .frame(maxWidth: 320, alignment: .leading)
-                            .disabled(changingModel != nil || controlling)
+                            let current = settings.roles?[role]?.model
+                            ProjectPickerPill(
+                                label: current ?? "unset", missing: current.map { !installed.contains($0) } ?? false,
+                                items: installed.map { ProjectPickItem(id: $0, title: $0) },
+                                selection: current,
+                                onSelect: { if let name = $0 { setModel(role: role, model: name) } })
+                                .disabled(changingModel != nil || controlling)
                         } else {
                             Text(settings.roles?[role]?.model ?? "unset")
                                 .font(OrionTheme.mono(10))

@@ -75,7 +75,8 @@ struct HomeTab: View {
         let cards = cards
         return HomeScene(greeting: HomeGreeting.line(clock: clock, name: signals.selfName),
                          subline: HomeGreeting.subline(knowledgeCount: signals.knowledgeCount, cardCount: cards.count, clock: clock),
-                         cards: cards, availableHeight: availableHeight, onAction: perform) {
+                         cards: cards, glance: HomeGlance.items(brief: brief, signals: liveSignals), hologram: state.hologram,
+                         availableHeight: availableHeight, onAction: perform) {
             HomeComposerBar(text: $state.composer, focus: $composerFocused, listening: state.phase == .listening,
                             line: composerLine, onVoice: toggleVoice, onChat: openChat, onSend: submit)
         }
@@ -91,6 +92,11 @@ struct HomeTab: View {
             openChat()
         case .openPlan: onOpenTab(.tasks)
         case .openHealth: onOpenTab(.health)
+        case .openProject(let id):
+            // The Projects tab keeps its selection here; setting it first opens the tab on this run.
+            if let id { UserDefaults.standard.set(id, forKey: "orion.projects.selected") }
+            onOpenTab(.project)
+        case .openFinance: onOpenTab(.finance)
         case .openBrief:
             OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) { presentation = .full }
         case .startFocus(let task):

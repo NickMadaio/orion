@@ -1382,6 +1382,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         if (cu) {
           run.computer = true; run.flow = { outcome: "say", kind: "plain", text: cu.reply };
           stepsAsToolResults(cu.steps).forEach((t) => run.tools.push(t)); // the loop's steps are this turn's tool evidence
+          if (cu.steps.length) try { appendFileSync(`${logPath}.steps`, `${JSON.stringify({ at: new Date().toISOString(), sessionKey: run.sessionKey ?? null, steps: stepsAsToolResults(cu.steps) })}\n`, { mode: 0o600 }); } catch { /* the gate reads this; a missing line is never a failure */ }
         }
       }
       // Overwhelmed but not a crisis: warmth and one small step. Left to the worker it searched his brain,

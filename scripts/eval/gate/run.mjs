@@ -21,6 +21,7 @@ import { effectSince, restoreState, snapshotState, trackedFiles, verifyRestore }
 import { checkReplies, summarize, validateScenarios } from "./lib/scenarios.mjs";
 import { applyPlan, planSetup, renderTokens } from "./lib/setup.mjs";
 import { seedOutreach } from "./lib/seed-outreach.mjs";
+import { cleanupNotes, notesBefore, notesEffect } from "./lib/computer-evidence.mjs";
 import { dryRun } from "./lib/dry-run.mjs";
 import { cleanSandbox, leftoverMessage, leftoverSandboxFiles, recentInbound } from "./lib/sandbox-guard.mjs";
 
@@ -54,9 +55,12 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   // The effect is measured from AFTER the setup (what the item did, not what the fixture did); the undo goes back to
   // BEFORE it. While a sandbox is live the to-do read is the sandbox's, so its baseline must be taken inside it too.
   let base = snap;
+  const probeNotes = item.area === "computer" && opts.notes !== false;
+  let notesSeen = null;
   try {
     applyPlan(p, plan);
     base = await snapshotState(p);
+    if (probeNotes) notesSeen = await notesBefore(opts.notes);
     for (const t of item.turns) {
       const text = renderTokens(t.text, clock());
       const r = await askTurn({ text, spoken: t.spoken === true, replyTo: replyTo(t.replyToOutreach), conversation, inbound: opts.inbound, allowedApps: opts.allowedApps }, itemCtx, p);
@@ -68,6 +72,11 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   }
   // The diff is taken BEFORE the undo: it is the record of what the item did to Nick's world (or to the sandbox).
   const effect = await effectSince(p, base, { seeded: plan.sandbox });
+  if (probeNotes) {
+    const found = await notesEffect(notesSeen, opts.notes);
+    effect.notes = await cleanupNotes(found, opts.notes);
+    if (found.created.length) effect.changedAnything = true;
+  }
   const actions = await restoreState(p, snap, effect, { seededOutreachIds, runId: `${stamp}-${item.id}` });
   const verified = await verifyRestore(p, snap, { seededOutreachIds });
   rmSync(join(opts.outDir, "inflight-snapshot.json"), { force: true });

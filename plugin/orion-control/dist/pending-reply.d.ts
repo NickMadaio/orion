@@ -72,6 +72,8 @@ export type PendingOutcome = {
     marks: string[];
     memo: Memo | null;
 };
+/** An offer that STARTS or CHANGES something binds a bare yes/ok only this long; later it is context for the model, who can ask. */
+export declare const ACT_BIND_MS: number;
 export declare const CRISIS_HOLD_MS: number;
 /** What came before this turn in the chat: when ORION last replied here, and whether the crisis reply is still recent. */
 export type PriorTurn = {

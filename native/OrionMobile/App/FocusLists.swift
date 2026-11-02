@@ -41,15 +41,23 @@ enum AppList: String, CaseIterable, Identifiable {
         guard defaults?.bool(forKey: "orion.focuslock.enabled") == true,
               (defaults?.double(forKey: "orion.screen.graceUntil") ?? 0) <= now.timeIntervalSince1970 else { unblockAll(); return }
         let stamp = now.timeIntervalSince1970
+        // The Mac's holds live under `remoteUntil.<group>`, apart from the phone's own night/threshold locks (`until.<group>`):
+        // a group the Mac stops listing loses only the Mac's hold.
         if let plan {
-            let current = Set(plan.compactMap { AppList(rawValue: $0.name)?.rawValue })
-            for gone in Set(defaults?.stringArray(forKey: prefix + "remote") ?? []).subtracting(current) { defaults?.removeObject(forKey: prefix + "until." + gone) }
-            for entry in plan {
-                if let list = AppList(rawValue: entry.name), let until = entry.until, until > stamp { defaults?.set(until, forKey: prefix + "until." + list.rawValue) }
+            let previous = Dictionary(uniqueKeysWithValues: AppList.allCases.compactMap { list -> (String, Double)? in
+                let value = defaults?.double(forKey: prefix + "remoteUntil." + list.rawValue) ?? 0
+                return value > 0 ? (list.rawValue, value) : nil
+            })
+            let next = RemoteFocusUntils.reconcile(previous: previous, plan: plan.filter { AppList(rawValue: $0.name) != nil }, now: stamp)
+            for list in AppList.allCases {
+                if let until = next[list.rawValue] { defaults?.set(until, forKey: prefix + "remoteUntil." + list.rawValue) }
+                else { defaults?.removeObject(forKey: prefix + "remoteUntil." + list.rawValue) }
             }
-            defaults?.set(plan.filter { ($0.until ?? 0) > stamp }.compactMap { AppList(rawValue: $0.name)?.rawValue }.sorted(), forKey: prefix + "remote")
         }
-        let local = AppList.allCases.filter { (defaults?.double(forKey: prefix + "until." + $0.rawValue) ?? 0) > stamp }
+        let local = AppList.allCases.filter {
+            RemoteFocusUntils.isHeld(local: defaults?.double(forKey: prefix + "until." + $0.rawValue) ?? 0,
+                                     remote: defaults?.double(forKey: prefix + "remoteUntil." + $0.rawValue) ?? 0, now: stamp)
+        }
         let wanted = Set(local).union(names.compactMap(AppList.init(rawValue:))).union((plan ?? []).compactMap { AppList(rawValue: $0.name) })
         block(wanted)
         askForPicks(wanted, now: now)
@@ -69,7 +77,10 @@ enum AppList: String, CaseIterable, Identifiable {
         }
     }
     func unblockAll() {
-        for list in AppList.allCases { defaults?.removeObject(forKey: prefix + "until." + list.rawValue) }
+        for list in AppList.allCases {
+            defaults?.removeObject(forKey: prefix + "until." + list.rawValue)
+            defaults?.removeObject(forKey: prefix + "remoteUntil." + list.rawValue)
+        }
         block([])
     }
     func isEmpty(_ list: AppList) -> Bool {

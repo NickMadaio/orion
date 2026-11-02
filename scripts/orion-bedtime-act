@@ -1,21 +1,56 @@
 #!/usr/bin/env node
 /*
  orion-bedtime-act: the Mac half of the bedtime nudge, through OrionMacBridge.
-   orion-bedtime-act quit-app <bundleId>   ask an app to quit (graceful; never Finder, Terminal, ORION or system apps)
+   orion-bedtime-act quit-app <bundleId>   ask a DISTRACTION app to quit (allowlist only: games, browsers, Discord, TV)
    orion-bedtime-act lock-screen
    orion-bedtime-act dim | undim           lower the built-in display's brightness / put it back
- Prints one JSON line built from the bridge's answer. Self-imposed nudges: no approval step, so the
- bridge itself refuses the apps that must never be quit.
- ORION_MAC_BRIDGE overrides the binary (tests use a mock).
+ quit-app and lock-screen only run inside tonight's window: from the nudge in wake-plan.json (a plan Nick set) until
+ the next alarm, or 09:00 if none. dim/undim run any time. Prints one JSON line built from the bridge's answer.
+ ORION_MAC_BRIDGE overrides the binary and ORION_CONTROLLED_DIR the plan's folder; `--now <iso>` or ORION_NOW the clock
+ (tests).
 */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const BRIDGE = process.env.ORION_MAC_BRIDGE
   || join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge");
-const [command, arg] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const nowFlag = argv.indexOf("--now");
+const nowText = nowFlag >= 0 ? argv.splice(nowFlag, 2)[1] : process.env.ORION_NOW;
+const now = nowText ? new Date(nowText) : new Date();
+const [command, arg] = argv;
+const CONTROLLED = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
+
+// Distraction apps only. Anything else (Atlas mid-lecture, editors, calls, recorders) is never quit from here.
+// Keep in step with native/OrionMacBridge BedtimeActions.distractionApps.
+const DISTRACTIONS = [
+  /^com\.mojang\./, /^net\.minecraft\./, /^net\.java\.openjdk\.cmd$/, /^com\.curseforge\./, /^com\.overwolf\.curseforge/,
+  /^com\.valvesoftware\.steam/, /^com\.epicgames\.launcher$/, /^net\.battle\.app$/, /^com\.blizzard\./,
+  /^com\.roblox\./, /^com\.riotgames\./,
+  /^com\.apple\.safari$/, /^com\.google\.chrome$/, /^company\.thebrowser\.browser$/, /^org\.mozilla\.firefox$/, /^com\.brave\.browser$/,
+  /^com\.hnc\.discord$/, /^com\.apple\.tv$/,
+];
+const isDistraction = (id) => DISTRACTIONS.some((re) => re.test(id.toLowerCase()));
+
+/** { start, end } of tonight's window from the plan, or { reason } when there is none. */
+function tonightWindow() {
+  let plan;
+  try { plan = JSON.parse(readFileSync(join(CONTROLLED, "wake-plan.json"), "utf8")); } catch { return { reason: "There is no sleep plan to go by." }; }
+  if (plan?.source !== "nick") return { reason: "There is no sleep plan of his to go by." };
+  const nudges = (plan.bedtimes ?? []).map((b) => new Date(b?.nudgeAtIso)).filter((d) => !Number.isNaN(d.getTime()) && d <= now);
+  if (!nudges.length) return { reason: "It is not bedtime yet." };
+  const start = new Date(Math.max(...nudges.map((d) => d.getTime())));
+  const alarm = (plan.alarms ?? []).filter((a) => a?.byNick === true).map((a) => new Date(a.iso)).filter((d) => d > start).sort((a, b) => a - b)[0];
+  const nine = new Date(start); nine.setHours(9, 0, 0, 0); if (nine <= start) nine.setDate(nine.getDate() + 1);
+  return { start, end: alarm ?? nine };
+}
+function requireWindow(what) {
+  const w = tonightWindow();
+  if (w.reason) fail(`${what} only runs in tonight's bedtime window. ${w.reason}`, 1);
+  if (now >= w.end) fail(`${what} only runs in tonight's bedtime window, and that has ended.`, 1);
+}
 
 function fail(message, code = 2) {
   console.error(`orion-bedtime-act: ${message}`);
@@ -26,9 +61,11 @@ const USAGE = "usage: orion-bedtime-act quit-app <bundleId> | lock-screen | dim 
 const plans = {
   "quit-app": () => {
     if (!arg || !/^[A-Za-z0-9][A-Za-z0-9._-]{1,200}$/.test(arg)) fail("quit-app needs a bundle id");
+    if (!isDistraction(arg)) fail("that is not one of the distraction apps I quit at bedtime (games, browsers, Discord, TV).", 1);
+    requireWindow("Quitting an app");
     return ["quit_app", { bundle_id: arg }];
   },
-  "lock-screen": () => ["lock_screen", {}],
+  "lock-screen": () => { requireWindow("Locking the screen"); return ["lock_screen", {}]; },
   dim: () => ["dim", {}],
   undim: () => ["undim", {}],
 };

@@ -37,7 +37,7 @@ final class PlaceMonitor {
             serviceSession = CLServiceSession(authorization: .always)
         }
         events = Task { [weak self] in
-            let monitor = await CLMonitor("orion.places")
+            let monitor = await Self.sharedMonitor()
             await MainActor.run { self?.monitor = monitor }
             // Re-adding the saved conditions is what lets iOS deliver the event that relaunched us.
             await self?.sync(places: self?.savedPlaces() ?? [Self.home])
@@ -47,6 +47,21 @@ final class PlaceMonitor {
                 }
             } catch {}
         }
+    }
+
+    /// One CLMonitor per process, ever. Creating a second CLMonitor with a name already open aborts the app inside
+    /// CoreLocation (NSInternalInconsistencyException): stop() then start() re-created it while the cancelled task still
+    /// held the first, and the phone app crashed on every launch (2026-11-02, five crash logs, all in CLMonitor.init).
+    private static var monitorTask: Task<CLMonitor, Never>?
+
+    private static func sharedMonitor() async -> CLMonitor {
+        let task = await MainActor.run { () -> Task<CLMonitor, Never> in
+            if let existing = monitorTask { return existing }
+            let created = Task { await CLMonitor("orion.places") }
+            monitorTask = created
+            return created
+        }
+        return await task.value
     }
 
     func stop() {

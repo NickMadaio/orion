@@ -425,6 +425,11 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 
 ## Traps that have already bitten, do not reintroduce
 
+- **"connected (no DDI)" on the iPhone means it's locked, not that the cable or build is bad.** devicectl install fails
+  with CoreDeviceError 12040 ("developer disk image could not be mounted"); the real cause is nested underneath as 10003
+  "device is still locked". Retrying while the phone stays locked never succeeds (25 tries on 2026-11-02). Have Nick
+  unlock it and stay on the home screen, then install once.
+
 - **One strict-grader run swings about 12 points on identical replies.** On 2026-11-01, run-1101085557 graded 80.6%.
   15 of its 17 PASS→FAIL flips had replies word-for-word identical to run-1101044137, which had graded 93.4%. Don't
   read a drop as a regression until you've compared replies. The orchestrator scratchpad `reconcile.py BASE NEW` keeps

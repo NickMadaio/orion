@@ -80,6 +80,42 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-02 08:00 GMT: Mac app 1218 installed; phone app built but NOT installed (Claude, orchestrator)
+
+**Found state.** Main is at bb9cd6b, which contains the integ/wave4 worktree's head (e0ab44e). The 12 dirty paths are
+`docs/planning/v2/CURRENT_AUTHORITY.json` and untracked 10-16 audit notes, none of them from this session. The
+2026-11-02 02:00 entry below is still accurate.
+
+**What changed.** Nothing in the repo. Build and install only, from main at bb9cd6b:
+- **Mac:** `native/Orion/make_app_bundle.sh` built **build 1218** (1.2.0) with ORION Link embedded and signed with the
+  stable identity. `scripts/orion-identity-check` printed "identity matches" for both the build and
+  `/Applications/Orion.app`. I quit the old app, copied the new one in and relaunched it. Orion (pid 67904) and the
+  embedded `ORION Link.app` are both running. This makes the Mac wake alarm (WakeAlarmController) and the
+  phone-notification → `orion-reach --already-sent phone` ingest live.
+- **Phone:** `xcodebuild … -scheme OrionPhone -destination 'generic/platform=iOS' -allowProvisioningUpdates
+  -derivedDataPath .builds/morning-1102/phone-dd build` printed BUILD SUCCEEDED with 0 errors. The app is at
+  `.builds/morning-1102/phone-dd/Build/Products/Debug-iphoneos/OrionPhone.app`, and logs are in `.builds/morning-1102/`.
+  **The install failed:** 25 attempts over about 2 minutes gave CoreDeviceError 12040, "developer disk image could not be
+  mounted", with the underlying error 10003 "device is still locked". devicectl lists the phone as `connected (no DDI)`.
+
+**Verification.** Both builds exited 0, the identity check passed, and the processes are running (`pgrep`). Nothing
+has rung yet: there is no `wake-plan.json` because Nick hasn't set a sleep plan, so the Mac alarm has nothing to ring.
+`wake-request.json` holds a stale 2026-10-19 request, which is outside the 20-minute window and harmless.
+
+**Rollback.** The previous app is at `/Applications/.Orion-previous-1218-pre-wave10`. To roll back, quit Orion, then
+`rm -rf /Applications/Orion.app && cp -R /Applications/.Orion-previous-1218-pre-wave10 /Applications/Orion.app`. The
+phone has nothing to roll back.
+
+**Exact next step.** With Nick's phone unlocked on the home screen (tap Trust if asked), run
+`xcrun devicectl device install app --device 00008140-00013C1C213A801C
+.builds/morning-1102/phone-dd/Build/Products/Debug-iphoneos/OrionPhone.app` and look for "App installed". Then Nick:
+1. picks apps for each Focus group, including Browsers;
+2. tells ORION his sleep plan;
+3. keeps his normal alarm for the first morning.
+
+Open work is unchanged from the 02:00 entry below: camera exercise-dismiss, a Safari fixture for the gate, the sandbox
+alarm clock gap, saf-delete-folder-v, the gym-pushback template, and Notes wedging during com-* items.
+
 ### 2026-11-02 02:00 GMT: wave 10 — sleep plan, alarms, bedtime nudges, phone groups, proactive in both chats (Claude, orchestrator)
 
 **Asked by Nick (23:59).** He wanted five things:

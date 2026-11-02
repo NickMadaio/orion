@@ -10,16 +10,15 @@ Each item says what it unblocks, so you can judge whether it is worth an evening
 
 ## Now — 2026-11-02 (morning)
 
-1. **Plug in or unlock your iPhone near the Mac, then tell Claude to "install the phone app".** Tonight's phone work
-   is built and simulator-tested but NOT installed, because devicectl showed the iPhone as unavailable. It includes:
+1. **Unlock your iPhone (plugged in, on the home screen; tap Trust if asked), then tell Claude "install the phone
+   app".** Built for your phone at 08:00 but NOT installed: the phone was locked for every attempt. It includes:
    group-specific blocking (no more "blocks everything"), every phone notification also posted in the chat, and a
    per-weekday AlarmKit alarm from your sleep plan.
 2. **On the phone, open ORION, go to Focus lists, and pick apps for each group: Social, Video, Games, Messaging and the
    new Browsers.** iOS only lets you pick these yourself. A group with no apps picked blocks nothing, and ORION tells
    you to pick some.
-3. **Rebuild Orion.app and OrionLink while you're at the Mac. Say "rebuild the apps" (about 5 min).** That adds the Mac
-   wake alarm and logs phone notifications into reply context. I didn't do it overnight because a rebuild can raise a
-   keychain prompt.
+3. ~~Rebuild Orion.app and OrionLink.~~ **Done 2026-11-02 08:00:** build 1218 is installed and running, with the
+   Mac wake alarm. The previous copy is at `/Applications/.Orion-previous-1218-pre-wave10`.
 4. **Set your sleep plan by just telling ORION.** Something like "im gonna start waking up earlier and going to bed
    earlier"; it asks the rest. Nothing rings until you do: alarms only fire for a plan you set.
 5. **Keep your normal alarm for the first morning.** ORION's Mac and phone alarms haven't rung for real yet.

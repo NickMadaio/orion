@@ -21,6 +21,8 @@ final class RemoteStore: ObservableObject {
     @Published var notice: String?
     /// The Mac's one-line answer to the "Done early" button.
     @Published var earlyFeedback: String?
+    /// True from a "Done early" press until the Mac answers or the wait runs out.
+    @Published private(set) var earlyWorking = false
     @Published private(set) var now = Date()
     @Published private(set) var iCloudReady = false
 
@@ -632,14 +634,20 @@ struct ProgressStrip: View {
 extension RemoteStore {
     /// "Done early": the Mac decides what is current and answers; its first line is shown under the button.
     func finishEarly() {
-        guard let text = try? LinkLog.checkin(action: DoneEarly.linkAction).encoded() else { return }
+        guard !earlyWorking, let text = try? LinkLog.checkin(action: DoneEarly.linkAction).encoded() else { return }
         earlyFeedback = nil
+        earlyWorking = true
+        #if targetEnvironment(simulator)
+        if Self.fixture { earlyFeedback = "Ended it. The rest of today moved up 25 minutes."; earlyWorking = false; return }
+        #endif
         Task {
+            defer { earlyWorking = false }
             guard let id = await link.send(text, kind: .log) else { earlyFeedback = link.problem ?? "Could not reach your Mac."; return }
             for _ in 0..<40 {
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 if let reply = link.messages.first(where: { $0.id == id })?.reply { earlyFeedback = DoneEarly.summary(from: reply); return }
             }
+            earlyFeedback = "Sent. Your Mac hasn't answered yet."
         }
     }
 }

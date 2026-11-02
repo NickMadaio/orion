@@ -2,7 +2,8 @@ import SwiftUI
 import MobileCore
 
 /*
- The chat is the home screen (redesigned 2026-10-16, after "looks terrible").
+ The chat (redesigned 2026-10-16, after "looks terrible"). Since wave 16 the Home screen (PhoneHomeScreen) comes
+ first and the chat is one tap away from it.
 
  Each message is a `LinkCommand` of kind "chat" in Nick's private iCloud; the
  Mac hands it to ORION's brain through orion-remote — the same conversation the
@@ -21,6 +22,8 @@ struct ConversationView: View {
     let onMenu: () -> Void
     /// Opens "Log food" (the composer's camera button).
     var onLogFood: () -> Void = {}
+    /// Back to the Home screen.
+    var onHome: (() -> Void)? = nil
     @StateObject private var voice = PhoneVoice()
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
@@ -48,7 +51,7 @@ struct ConversationView: View {
     var body: some View {
         VStack(spacing: 0) {
             ChatTopBar(title: "ORION", subtitle: presenceLine, online: remote.presence == .online, models: remote.snapshot?.chatModels ?? [],
-                       selectedModel: $selectedModel, onMenu: onMenu, onNew: { conversationID = UUID().uuidString })
+                       selectedModel: $selectedModel, onMenu: onMenu, onNew: { conversationID = UUID().uuidString }, onHome: onHome)
             thread
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {

@@ -64,6 +64,7 @@ struct PhoneDrawer: View {
 
     private var sectionRows: some View {
         VStack(alignment: .leading, spacing: 0) {
+            row("house", "Home", id: "drawerHome") { onOpenSection("home") }
             row("sun.max", "Today", id: "drawerToday") { onOpenSection("today") }
             row("calendar", "Plan", id: "drawerPlan") { onOpenSection("plan") }
             row("heart", "Health & tracking", id: "drawerHealth") { onOpenSection("health") }

@@ -82,23 +82,26 @@ test("mergeLearnedHeaders: one header where the first was, every entry kept in o
   assert.equal(mergeLearnedHeaders(out), out);   // idempotent
 });
 
-test("expired: [temp] lapses after 14 days, 'until <date>' after the date, a plain fact never", () => {
+test("expired: [temp] lapses after 14 days, '(until <date>)' after the date, prose 'until' and a plain fact never", () => {
   assert.equal(expired("- [temp] Nick is in Rome until Sunday (2026-10-10)", NOW), true);
   assert.equal(expired("- [temp] Nick is in Rome until Sunday (2026-10-30)", NOW), false);
-  assert.equal(expired("- [fact] Library card renewal until 2026-10-30 (2026-10-01)", NOW), true);
+  assert.equal(expired("- [fact] Library card renewal until 2026-10-30 (2026-10-01)", NOW), false);   // prose, not the marker (fixer)
   assert.equal(expired("- 2026-10-01 — Temporary: Nick is off caffeine (until 2026-10-20).", NOW), true);
   assert.equal(expired("- 2026-10-31 — Temporary: Nick is off caffeine.", NOW), false);
   assert.equal(expired("- [fact] DS lab partner is Priya (2026-10-16)", NOW), false);
 });
 
-test("consolidateNote: merges headers, drops duplicates and near-duplicates, junk and expired facts; says why for each", () => {
+test("consolidateNote: merges headers, drops exact duplicates and explicitly temporary facts; says why for each", () => {
   const { text, actions } = consolidateNote(NICK, { now: NOW });
   assert.equal(text.match(/^## Learned$/gm).length, 1);
-  assert.equal(text.match(/creatine/g).length, 1);
-  assert.doesNotMatch(text, /Rome|Library card|\[fact\] ok/);
+  // "at 8" and "at 8am" differ in a qualifier, so both stay (fixer: only the same words are a duplicate)
+  assert.equal(text.match(/creatine/g).length, 2);
+  assert.doesNotMatch(text, /Rome/);
+  assert.match(text, /Library card renewal until 2026-10-30/);   // prose "until" is not an expiry
+  assert.match(text, /\[fact\] ok/);                            // a tagged fact is never junk
   assert.match(text, /Priya/);
   const kinds = actions.map((a) => a.action).sort();
-  assert.deepEqual(kinds, ["drop-duplicate", "drop-duplicate", "drop-expired", "drop-expired", "drop-junk", "merge-headers"]);
+  assert.deepEqual(kinds, ["drop-duplicate", "drop-expired", "merge-headers"]);
   assert.ok(actions.every((a) => a.reason));
   assert.deepEqual(consolidateNote(text, { now: NOW }).actions, []);   // a second run finds nothing
 });

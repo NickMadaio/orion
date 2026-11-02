@@ -480,41 +480,14 @@ struct ProjectWorkspace: View {
     /// Run length and keep-awake: set once, rarely changed, so folded away
     /// behind a line that says what they are set to.
     private var runSettings: some View {
-        DisclosureGroup(isExpanded: $settingsOpen) {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Run until", selection: $stopRule) {
-                    ForEach(ProjectRunStopRule.allCases) { rule in Text(rule.label).tag(rule) }
-                }
-                .pickerStyle(.segmented).frame(maxWidth: 320)
-                if stopRule == .atTime {
-                    HStack(spacing: 10) {
-                        Text("Stop at").font(.system(size: 12)).foregroundStyle(.secondary)
-                        DatePicker("Stop at", selection: $stopAt, in: Date().addingTimeInterval(60)...,
-                                   displayedComponents: [.hourAndMinute])
-                            .labelsHidden().datePickerStyle(.field)
-                        if let suggestion = classDepartureSuggestion {
-                            Button("Before \(suggestion.title) · \(suggestion.time.formatted(date: .omitted, time: .shortened))") {
-                                stopAt = suggestion.time
-                            }
-                            .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(OrionTheme.accent)
-                            .help("Stop 30 minutes before \(suggestion.title)")
-                        }
-                    }
-                }
-                ProjectKeepAwakeOptions(options: $launchOptions, nudgeInterval: $nudgeInterval, preflight: preflight,
-                                        problem: preflightProblem, checking: checkingPower)
-                if !enabled { Text("Enable & start allows local execution for your saved projects.").font(.system(size: 11)).foregroundStyle(.secondary) }
-            }
-            .padding(.top, 10)
-            .disabled(busy)
-        } label: {
-            HStack(spacing: 8) {
-                Text("Run settings").font(.system(size: 12, weight: .medium)).foregroundStyle(OrionTheme.textSoft)
-                Text(settingsSummary).font(.system(size: 11)).foregroundStyle(OrionTheme.textDim).lineLimit(1)
-                if preflight?.warnings.isEmpty == false {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 10)).foregroundStyle(OrionTheme.orange)
-                        .help(preflight?.warnings.joined(separator: "\n\n") ?? "")
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            ProjectRunSettingsHeader(open: $settingsOpen, summary: settingsSummary, warnings: preflight?.warnings ?? [])
+            if settingsOpen {
+                ProjectRunSettingsForm(stopRule: $stopRule, stopAt: $stopAt, options: $launchOptions, nudgeInterval: $nudgeInterval,
+                                       suggestion: classDepartureSuggestion, preflight: preflight, problem: preflightProblem,
+                                       checking: checkingPower, enabled: enabled)
+                    .disabled(busy)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
@@ -524,28 +497,14 @@ struct ProjectWorkspace: View {
         let awake = !launchOptions.preventSleep ? "Mac may sleep"
             : launchOptions.keepDisplayOn ? "keeps Mac and display awake" : "keeps Mac awake"
         let nudge = launchOptions.nudgeMinutes > 0 ? " · nudge \(launchOptions.nudgeMinutes) min" : ""
-        return "· \(until) · \(awake)\(nudge)"
+        return "\(until) · \(awake)\(nudge)"
     }
 
     private var planContent: some View {
         VStack(alignment: .leading, spacing: 17) {
             briefsLine
-            ForEach(blocks) { block in
-                if block.kind.hasPrefix("code:") {
-                    DisclosureGroup(block.kind == "code:orion-task" ? "Task scope & acceptance criteria" : block.kind == "code:orion-plan" ? "Run configuration" : "Code / command reference") {
-                        Text(block.text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                            .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
-                    }.font(.system(size: 12)).foregroundStyle(.secondary)
-                } else if block.kind.hasPrefix("h") {
-                    Text(block.text).font(.system(size: block.kind == "h1" ? 23 : block.kind == "h2" ? 19 : 15, weight: .semibold))
-                        .padding(.top, block.kind == "h2" ? 12 : 2)
-                } else {
-                    Text((try? AttributedString(markdown: block.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(block.text))
-                        .font(.system(size: 13)).lineSpacing(5).foregroundStyle(.white.opacity(0.72)).textSelection(.enabled)
-                }
-            }
             if blocks.isEmpty { empty("Plan unavailable", detail: "Open the project folder to inspect its saved plan.") }
+            else { ProjectPlanFlowView(blocks: blocks, tasks: run?.tasks ?? []) }
         }
     }
     /*
@@ -569,63 +528,14 @@ struct ProjectWorkspace: View {
                 .font(.system(size: 12)).foregroundStyle(.orange.opacity(0.85))
         }
     }
-    private var activityContent: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if let activity {
-                HStack {
-                    Label(activity.note ?? activity.headline, systemImage: live ? "sparkles" : "clock.arrow.circlepath")
-                        .font(.system(size: 14, weight: .medium))
-                    Spacer()
-                    Text(live ? "LIVE MODEL STREAM" : "LAST MODEL STREAM")
-                        .font(OrionTheme.mono(8, .semibold)).tracking(0.8)
-                        .foregroundStyle(live ? OrionTheme.green : OrionTheme.textDim)
-                }
-                if !activity.trace.isEmpty {
-                    ScrollView { Text(activity.trace).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                        .frame(height: 150).padding(.leading, 16)
-                        .overlay(alignment: .leading) { FadingVerticalHairline(peak: 0.3) }
-                }
+    @ViewBuilder private var activityContent: some View {
+        if run != nil {
+            ProjectActivityView(activity: activity, run: run, runLog: runLog, live: live) {
+                NSWorkspace.shared.open(project.root.appendingPathComponent("run.log"))
             }
-            if let run {
-                HStack {
-                    Text("RUN LOG").font(OrionTheme.mono(9, .semibold)).tracking(1.2)
-                    if live { Circle().fill(OrionTheme.green).frame(width: 6, height: 6) }
-                    Spacer()
-                    Button { NSWorkspace.shared.open(project.root.appendingPathComponent("run.log")) } label: {
-                        Label("Open full log", systemImage: "arrow.up.right")
-                    }
-                    .buttonStyle(.plain).font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                ScrollView {
-                    Text(runLog.isEmpty ? "Waiting for the first log entry…" : runLog)
-                        .font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.72))
-                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                // A well marked by a hairline at its edge, not a dark slab: the glass still shows through.
-                .frame(height: 190).padding(.leading, 16)
-                .overlay(alignment: .leading) { FadingVerticalHairline(peak: live ? 0.5 : 0.3) }
-
-                Text("TASKS").font(OrionTheme.mono(9, .semibold)).tracking(1.2).foregroundStyle(.secondary)
-                ForEach(run.tasks) { task in
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: task.status == .accepted ? "checkmark.circle.fill" : task.status == .blocked ? "exclamationmark.circle" : "circle")
-                            .foregroundStyle(task.status == .accepted ? Color.green : task.status == .blocked ? .orange : .gray)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(task.title).font(.system(size: 14, weight: .medium))
-                            Text(task.subtask?.caption ?? task.status.rawValue.replacingOccurrences(of: "_", with: " ")).font(.system(size: 12)).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }.padding(.vertical, 8)
-                }
-                Text("RECENT CHECKPOINTS").font(OrionTheme.mono(9, .semibold)).tracking(1.2).foregroundStyle(.secondary)
-                ForEach(run.events.suffix(20).reversed(), id: \.at) { event in
-                    HStack(alignment: .firstTextBaseline, spacing: 9) {
-                        Circle().fill(.white.opacity(0.22)).frame(width: 4, height: 4)
-                        Text(event.message).font(.system(size: 12)).foregroundStyle(.secondary)
-                    }
-                }
-            } else { empty("Work begins here", detail: "Start this project to see its current task, progress and local-model activity.") }
-        }
+        } else if let activity {
+            ProjectActivityView(activity: activity, run: nil, runLog: "", live: live, openFullLog: {})
+        } else { empty("Work begins here", detail: "Start this project to see its current task, progress and local-model activity.") }
     }
     private func instructionBar(_ run: ProjectAgentStatus) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -820,77 +730,6 @@ enum ProjectRunLog {
             .suffix(maxLines).joined(separator: "\n")
     }
 }
-/*
- Keep-awake choices for the next start, and a read of this Mac as it is now.
-
- Checkboxes in one column rather than switches in panels: three small, related
- settings that read as a sentence. The preflight line and its warnings are
- worded by awake.mjs; this view only lays them out and colours them, so the
- app and the launch receipt never describe the same Mac in two ways.
-*/
-struct ProjectKeepAwakeOptions: View {
-    @Binding var options: ProjectLaunchOptions
-    @Binding var nudgeInterval: Int
-    let preflight: ProjectPreflight?
-    let problem: String?
-    let checking: Bool
-
-    private var nudging: Binding<Bool> {
-        Binding(get: { options.nudgeMinutes > 0 }, set: { options.nudgeMinutes = $0 ? nudgeInterval : 0 })
-    }
-    private var interval: Binding<Int> {
-        Binding(get: { nudgeInterval }, set: { nudgeInterval = $0; if options.nudgeMinutes > 0 { options.nudgeMinutes = $0 } })
-    }
-    /// Keep-awake off on a short idle sleep is worth saying before the start, not after.
-    private var sleepsAfter: Int? {
-        guard !options.preventSleep, let minutes = preflight?.idleSleepMinutes, minutes > 0 else { return nil }
-        return minutes
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Keep this Mac awake while it runs", isOn: $options.preventSleep)
-            VStack(alignment: .leading, spacing: 8) {
-                Toggle("Keep the display on", isOn: $options.keepDisplayOn)
-                HStack(spacing: 6) {
-                    Toggle("Nudge activity every", isOn: nudging)
-                    Stepper(value: interval, in: 1...60) { Text("\(nudgeInterval) min").monospacedDigit() }
-                        .disabled(options.nudgeMinutes == 0)
-                }
-                if options.nudgeMinutes > 0 {
-                    Text("Declares activity the way moving the mouse does, so it also wakes the display each time.")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-            }
-            .padding(.leading, 20)
-            .disabled(!options.preventSleep)
-            .opacity(options.preventSleep ? 1 : 0.45)
-            preflightLines.padding(.top, 4)
-        }
-        .toggleStyle(.checkbox)
-        .font(.system(size: 12))
-    }
-
-    @ViewBuilder private var preflightLines: some View {
-        if let preflight {
-            Label(preflight.summary, systemImage: preflight.warnings.isEmpty ? "checkmark.circle" : "exclamationmark.triangle")
-                .font(.system(size: 12)).foregroundStyle(preflight.warnings.isEmpty ? Color.secondary : Color.orange)
-            ForEach(preflight.warnings, id: \.self) { warning in
-                Text(warning).font(.system(size: 11)).foregroundStyle(.orange.opacity(0.9))
-                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-            }
-        } else if let problem {
-            Label(problem, systemImage: "questionmark.circle").font(.system(size: 11)).foregroundStyle(.secondary)
-        } else if checking {
-            Label("Checking power and lid…", systemImage: "hourglass").font(.system(size: 11)).foregroundStyle(.secondary)
-        }
-        if let sleepsAfter {
-            Text("With keep-awake off, this Mac sleeps after \(sleepsAfter) min idle and the run stalls until it wakes.")
-                .font(.system(size: 11)).foregroundStyle(.orange.opacity(0.9))
-        }
-    }
-}
-
 /// What `serve` actually put in place for the run in progress, read from its
 /// launch receipt — the choices above describe the NEXT start, not this one.
 struct ProjectKeepAwakeInEffect: View {

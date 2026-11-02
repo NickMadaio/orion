@@ -18,7 +18,7 @@ struct ProjectAgentReviewNotes: View {
     private var notes: [ProjectAgentStatus.Review] { Array(run.reviewNotes.prefix(limit)) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             // The reviewer-authored count rides on the section rule itself:
             // independence is what a review is worth, so where the reviewer
             // crossed into writing code belongs beside what it approved.
@@ -33,64 +33,69 @@ struct ProjectAgentReviewNotes: View {
             } else {
                 ForEach(notes) { note in
                     row(note)
-                    if note.id != notes.last?.id {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.05))
-                            .frame(height: 0.5)
-                    }
                 }
             }
         }
     }
 
     private func row(_ note: ProjectAgentStatus.Review) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Circle()
-                    .fill(tint(note))
-                    .frame(width: 5, height: 5)
-                Text(note.subject)
-                    .font(OrionTheme.mono(9, .semibold))
-                    .foregroundStyle(note.isRunLevel ? OrionTheme.blue : OrionTheme.text)
-                Text(verdictLabel(note))
-                    .font(OrionTheme.mono(8, .semibold))
-                    .tracking(1.1)
-                    .foregroundStyle(tint(note))
-                Spacer()
-                Text(note.reviewer)
-                    .font(OrionTheme.mono(7))
-                    .foregroundStyle(OrionTheme.textDim)
-            }
-
-            if !note.summary.isEmpty {
-                Text(note.summary)
-                    .font(.system(size: 12))
-                    .foregroundStyle(OrionTheme.textSoft)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .lineLimit(3)
-            }
-
-            // Findings carry their severity, because "minor" and "blocking" are
-            // not the same news and a flat list reads as though they were.
-            ForEach(Array((note.failed ?? []).prefix(3).enumerated()), id: \.offset) { _, finding in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(finding.severity.uppercased())
-                        .font(OrionTheme.mono(7, .semibold))
-                        .foregroundStyle(severityTint(finding.severity))
-                    Text(finding.criterion)
-                        .font(.system(size: 11))
+        OutlineCard(hue: tint(note), padding: 14, hoverLift: false) {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(note.subject)
+                        .font(OrionTheme.serif(15))
+                        .foregroundStyle(note.isRunLevel ? OrionTheme.blue : OrionTheme.text)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(note.reviewer.uppercased())
+                        .font(OrionTheme.mono(8.5))
+                        .tracking(1.2)
                         .foregroundStyle(OrionTheme.textDim)
-                        .lineLimit(2)
+                    verdictPill(note)
+                }
+
+                if !note.summary.isEmpty {
+                    Text(note.summary)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(OrionTheme.textSoft)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(3)
+                }
+
+                // Findings carry their severity, because "minor" and "blocking" are
+                // not the same news and a flat list reads as though they were.
+                ForEach(Array((note.failed ?? []).prefix(3).enumerated()), id: \.offset) { _, finding in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(finding.severity.uppercased())
+                            .font(OrionTheme.mono(8, .semibold))
+                            .tracking(1)
+                            .foregroundStyle(severityTint(finding.severity))
+                        Text(finding.criterion)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(OrionTheme.textDim)
+                            .lineLimit(2)
+                    }
+                }
+
+                if note.returnedWork > 0 {
+                    Text("→ \(note.returnedWork) correction\(note.returnedWork == 1 ? "" : "s") returned to the worker")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(OrionTheme.accent.opacity(0.85))
                 }
             }
-
-            if note.returnedWork > 0 {
-                Text("→ \(note.returnedWork) correction\(note.returnedWork == 1 ? "" : "s") returned to the worker")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(OrionTheme.accent.opacity(0.85))
-            }
         }
+    }
+
+    /// The verdict as a small outline pill in its hue.
+    private func verdictPill(_ note: ProjectAgentStatus.Review) -> some View {
+        Text(verdictLabel(note))
+            .font(OrionTheme.mono(8.5, .semibold))
+            .tracking(1.2)
+            .foregroundStyle(tint(note))
+            .padding(.horizontal, 9).padding(.vertical, 3.5)
+            .background(Capsule().fill(tint(note).opacity(0.1)))
+            .overlay(Capsule().strokeBorder(tint(note).opacity(0.6), lineWidth: 0.8))
     }
 
     private func verdictLabel(_ note: ProjectAgentStatus.Review) -> String {

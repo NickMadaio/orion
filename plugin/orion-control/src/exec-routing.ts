@@ -40,7 +40,7 @@ const WRAPPERS = [
   "orion-notify", "orion-remote", "orion-gmail-latest", "orion-gmail-search",
   "orion-discord-alert", "orion-doctor", "orion-permissions", "orion-messages",
   "orion-trace", "orion-selfdoc", "orion-project", "orion-session",
-  "orion-daily", "orion-note", "orion-skill",
+  "orion-daily", "orion-note", "orion-skill", "orion-sleepplan",
 ] as const;
 
 /** Catalog action names. These belong inside `orion_task_run`, not the shell. */

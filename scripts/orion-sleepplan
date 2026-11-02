@@ -1,0 +1,139 @@
+#!/usr/bin/env node
+// orion-sleepplan — Nick's sleep plan: when he gets up on each day, how long before class, and the nights he is let off
+// the bedtime lockdown (W10-B, 2026-11-02: "im going to start waking up earlier and going to bed earlier").
+//   orion-sleepplan show                                         the plan and the coming week, in words
+//   orion-sleepplan set --days mon,wed,thu --wake 06:00 [--only] [--rest 09:00] [--lead 180|off]
+//                                                                 wake at 06:00 on those days (--only: other days lose theirs;
+//                                                                 --rest: every other day wakes then); one write for all of it
+//   orion-sleepplan unset --days tue,fri                           those days go back to the class rule / usual wake
+//   orion-sleepplan lead 180 | lead off                            up at least 180 min before his first class (off: get-ready rule)
+//   orion-sleepplan except --date tonight|YYYY-MM-DD --reason friends|party|bar|schoolwork [--until HH:MM]
+//                                                                 a night he is out or working: no lockdown that evening
+//   orion-sleepplan clear-except [--date tonight|YYYY-MM-DD]       take it back (no --date: every exception)
+//   orion-sleepplan plan --json [--days … --wake … --only --rest …] [--lead N|off]   the coming week as data; the flags preview a change
+//                                                                 without saving it
+// Days: mon..sun, "weekdays", "weekends", "all", "gym" (his gym anchor's days). Every write also rewrites wake-plan.json (shape documented in
+// scripts/lib/life/sleep-plan.mjs) for the Mac alarm and bedtime-nudge engine. During a sandboxed evaluation it reads and
+// writes the eval copies (eval-life-config.json, eval-wake-plan.json), like scripts/lib/life/config.mjs, and the sandbox clock.
+// Add --json to any write for a machine-readable answer. Exit 2: bad arguments, nothing saved; exit 3: refused (a reason
+// that does not lift the lockdown), nothing saved.
+import { CONFIG_FILE, loadConfig, setSleepPlan, sleepPlanOf, WEEKDAYS } from "./lib/life/config.mjs";
+import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
+import { controlledDir } from "./lib/clock.mjs";
+import { readWakeRequest } from "./lib/life/night.mjs";
+import { eveningOf, parseDays, weekPlan, wakePlanDoc, withException, withWake, writeWakePlan } from "./lib/life/sleep-plan.mjs";
+
+const args = process.argv.slice(2);
+const [command = "show"] = args;
+const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const has = (name) => args.includes(name);
+const json = has("--json");
+const HHMM = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+const fail = (code, text) => { if (json) console.log(JSON.stringify({ ok: false, error: text })); else console.error(`NOTHING WAS SAVED: ${text}`); process.exit(code); };
+const normTime = (raw) => { const m = HHMM.exec(String(raw ?? "")); return m ? `${m[1].padStart(2, "0")}:${m[2]}` : null; };
+
+const now = clockNow();
+const wakePlanName = `${sandbox() ? "eval-" : ""}wake-plan.json`;
+
+async function blocksSource() {
+  try {
+    const { calendarEvents, toBlocks } = await import("./lib/life/live-day.mjs");
+    const events = await calendarEvents();
+    return { calendar: "ok", blocksOf: (d) => toBlocks(events, d) };
+  } catch (error) {
+    return { calendar: `unreadable: ${String(error?.message ?? error).slice(0, 100)}`, blocksOf: () => [] };
+  }
+}
+
+const dateArg = (raw) => (!raw || raw === "tonight" || raw === "today" ? eveningOf(now) : /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null);
+
+const leadOf = (raw) => {
+  if (raw === "off") return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 15 || n > 360) throw new TypeError("lead must be 15..360 minutes, or off");
+  return n;
+};
+/** Mon=1..Sun=7 gym anchor days as mon..sun ("just gym days"). */
+const gymDays = (config) => (config.anchors ?? []).filter((a) => a.kind === "gym").flatMap((a) => a.days).map((d) => WEEKDAYS[d % 7]);
+
+/** The plan this command would leave, from the stored one. Throws TypeError on bad arguments, RangeError on a refusal. */
+function nextPlan(plan, config) {
+  if (command === "set" || command === "plan") {
+    let next = plan;
+    if (flag("--days") !== undefined) {
+      const wake = normTime(flag("--wake"));
+      if (!wake) throw new TypeError("--wake must be HH:MM");
+      const days = parseDays(flag("--days"), gymDays(config));
+      next = withWake(next, days, wake, { only: has("--only") });
+      if (flag("--rest") !== undefined) {
+        const rest = normTime(flag("--rest"));
+        if (!rest) throw new TypeError("--rest must be HH:MM");
+        next = withWake(next, WEEKDAYS.filter((d) => !days.includes(d)), rest);
+      }
+    } else if (command === "set" && flag("--lead") === undefined) throw new TypeError("set needs --days and --wake, or --lead");
+    if (flag("--lead") !== undefined) next = { ...next, firstClassLeadMin: leadOf(flag("--lead")) };
+    return next;
+  }
+  if (command === "unset") {
+    const days = parseDays(flag("--days"), gymDays(config));
+    return { ...plan, byDay: Object.fromEntries(Object.entries(plan.byDay).filter(([d]) => !days.includes(d))) };
+  }
+  if (command === "lead") return { ...plan, firstClassLeadMin: leadOf(args[1]) };
+  if (command === "except") {
+    const date = dateArg(flag("--date"));
+    const reason = String(flag("--reason") ?? "").toLowerCase().trim();
+    const until = flag("--until") === undefined ? null : normTime(flag("--until"));
+    if (!date) throw new TypeError("--date must be tonight or YYYY-MM-DD");
+    if (flag("--until") !== undefined && !until) throw new TypeError("--until must be HH:MM");
+    if (!reason) throw new TypeError("--reason is required");
+    if (!plan.legitReasons.includes(reason)) { const e = new RangeError(`"${reason}" does not lift the bedtime lockdown (only ${plan.legitReasons.join(", ")})`); throw e; }
+    return withException(plan, { date, reason, until }, now);
+  }
+  if (command === "clear-except") {
+    const raw = flag("--date");
+    const date = raw === undefined ? null : dateArg(raw);
+    if (raw !== undefined && !date) throw new TypeError("--date must be tonight or YYYY-MM-DD");
+    return { ...plan, exceptions: date ? plan.exceptions.filter((e) => e.date !== date) : [] };
+  }
+  return plan;
+}
+
+/** What is stored, without the defaults filled in (so a later default change still applies). */
+function storable(plan, saved) {
+  const out = { byDay: plan.byDay, firstClassLeadMin: plan.firstClassLeadMin, nudgeBeforeMin: plan.nudgeBeforeMin,
+    lockdownBelowHours: plan.lockdownBelowHours, legitReasons: plan.legitReasons, exceptions: plan.exceptions };
+  return saved?.sleepHours !== undefined ? { ...out, sleepHours: saved.sleepHours } : out;
+}
+
+const say = (d) => `${d.weekday[0].toUpperCase()}${d.weekday.slice(1)} ${d.date.slice(5)}: up ${d.wake}${d.firstClass ? ` (class ${d.firstClass.at})` : ""}, asleep by ${d.sleepBy} the night before`;
+
+async function main() {
+  const WRITES = new Set(["set", "unset", "lead", "except", "clear-except"]);
+  if (!WRITES.has(command) && !["show", "plan"].includes(command)) fail(2, `unknown command ${command}. Commands: show, set, unset, lead, except, clear-except, plan`);
+  const config = loadConfig();
+  const saved = config.sleepPlan;
+  let plan;
+  try { plan = nextPlan(sleepPlanOf(config), config); }
+  catch (error) { fail(error instanceof RangeError ? 3 : 2, error.message); }
+  const nextConfig = { ...config, sleepPlan: storable(plan, saved) };
+  const { calendar, blocksOf } = await blocksSource();
+  const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: await readWakeRequest() });
+  let file = null;
+  if (WRITES.has(command)) {
+    try { setSleepPlan(storable(plan, saved), CONFIG_FILE); } catch (error) { fail(2, error.message); }
+    file = writeWakePlan(controlledDir(), wakePlanName, wakePlanDoc({ now, days, config: nextConfig }));
+  }
+  const plain = sleepPlanOf(nextConfig);
+  if (json || command === "plan") {
+    console.log(JSON.stringify({ ok: true, saved: WRITES.has(command), preview: command === "plan", calendar, now: now.toISOString(), plan: plain, days, ...(file ? { wakePlan: wakePlanName } : {}) }, null, 2));
+    return;
+  }
+  const head = WRITES.has(command) ? "Saved. " : "";
+  const byDay = Object.entries(plain.byDay).map(([d, x]) => `${d} ${x.wake}`).join(", ") || "none";
+  console.log(`${head}Sleep plan: wake ${byDay}; ${plain.firstClassLeadMin ? `up ${plain.firstClassLeadMin} min before the first class` : "get-ready rule before the first commitment"}; ${plain.sleepHours} h sleep; nudge ${plain.nudgeBeforeMin} min before bed; lockdown under ${plain.lockdownBelowHours} h.`);
+  if (plain.exceptions.length) console.log(`Exceptions: ${plain.exceptions.map((e) => `${e.date} ${e.reason}${e.until ? ` till ${e.until}` : ""}`).join("; ")}.`);
+  if (calendar !== "ok") console.log(`Calendar ${calendar}: class times are not counted.`);
+  days.forEach((d) => console.log(say(d)));
+}
+
+main().catch((error) => { console.error(`orion-sleepplan failed: ${String(error?.message ?? error).slice(0, 200)}`); process.exit(1); });

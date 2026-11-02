@@ -1,0 +1,249 @@
+// W10-B (2026-11-02): the sleep-plan interview and the night exceptions. Reader, flow over a fake CLI, the real orion-sleepplan in a
+// sandbox, and the routing hooks. Phrasings are Nick-style and held out (none appear in scripts/eval/gate/scenarios/). No real paths.
+import { execFile } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
+import { readException, readHabit, readSleepTurn, slotsOf, type SleepPending, type SleepTurn } from "./sleep-plan-read.js";
+import { draftArgs, runSleepTurn, SleepPlanPending, weekLine, type SleepRun } from "./sleep-plan-flow.js";
+import { registerLocalRouting } from "./local-routing.js";
+import type { Decision } from "./front-desk.js";
+
+const EVENING = new Date(2026, 10, 2, 21, 0);
+const NOON = new Date(2026, 10, 2, 12, 0);
+
+describe("habit statements start the interview (vague and clear)", () => {
+  it.each([
+    "im going to start waking up earlier and going to bed earlier",
+    "trying to be up earlier from now on",
+    "i wanna start getting up early for the gym",
+    "gonna start going to bed earlier this semester",
+    "i need to fix my sleep schedule",
+    "can you help me sort out my sleep routine",
+    "i want to become a morning person",
+    "ok so from now on i wanna be sleeping earlier",
+    "need to start crashing earlier man",
+    "wanna shift to earlier wake ups",
+    "i should start waking up early on weekdays",
+    "wake me at 6 every weekday",
+    "i wanna get up at 6:30 on gym days",
+  ])("'%s'", (said) => { expect(readHabit(said)).toBeDefined(); });
+
+  it.each([
+    "wake me up at 7",
+    "im going to bed earlier tonight",
+    "i woke up late",
+    "ill go to bed later",
+    "i dont want to wake up earlier",
+    "what time should i wake up?",
+    "i like waking up early",
+    "going to bed now",
+    "add study at 6am tomorrow",
+  ])("not '%s'", (said) => { expect(readHabit(said)).toBeUndefined(); });
+
+  it("a one-shot carries every slot, and class times or 'the normal 9' are not wake days", () => {
+    expect(slotsOf("6am mon wed thu, otherwise 9, 3h before class")).toEqual({ wake: "06:00", days: ["mon", "wed", "thu"], rest: "09:00", lead: 180 });
+    expect(slotsOf("up at 6 only mon/wed/thu. at least 3 hours before a class. tue and fri my class is 1:30pm so normal 9am"))
+      .toEqual({ wake: "06:00", days: ["mon", "wed", "thu"], rest: "09:00", lead: 180 });
+    expect(slotsOf("6:30ish every day, like 2 and a half hrs before my first lecture")).toEqual({ wake: "06:30", days: ["all"], lead: 150 });
+    expect(slotsOf("just gym days")).toEqual({ days: ["gym"] });
+    expect(slotsOf("weekdays")).toEqual({ days: ["weekdays"] });
+  });
+});
+
+describe("answers inside the interview", () => {
+  const held = (step: SleepPending["step"], draft = {}): { held: SleepPending; now: Date } => ({ held: { step, draft }, now: EVENING });
+  it("a rough time, which days, how long before class", () => {
+    expect(readSleepTurn("prob 6", held("wake"))).toEqual({ kind: "interview", draft: { wake: "06:00" } });
+    expect(readSleepTurn("like 7:30am", held("wake"))).toEqual({ kind: "interview", draft: { wake: "07:30" } });
+    expect(readSleepTurn("only mon wed thu", held("days", { wake: "06:00" }))).toEqual({ kind: "interview", draft: { wake: "06:00", days: ["mon", "wed", "thu"] } });
+    expect(readSleepTurn("every day tbh", held("days", { wake: "06:00" }))).toMatchObject({ draft: { days: ["all"] } });
+    expect(readSleepTurn("3 hours", held("lead", { wake: "06:00", days: ["all"] }))).toMatchObject({ draft: { lead: 180 } });
+    expect(readSleepTurn("like 2", held("lead", { wake: "06:00", days: ["all"] }))).toMatchObject({ draft: { lead: 120 } });
+    expect(readSleepTurn("nah doesnt matter", held("lead", { wake: "06:00", days: ["all"] }))).toMatchObject({ draft: { lead: null } });
+  });
+  it("yes saves, no declines, a change re-previews, an unrelated turn drops it", () => {
+    const d = { wake: "06:00", days: ["mon"], lead: 180 };
+    expect(readSleepTurn("yep sounds right", held("confirm", d))).toEqual({ kind: "confirm", draft: d });
+    expect(readSleepTurn("nah", held("confirm", d))).toEqual({ kind: "decline" });
+    expect(readSleepTurn("make it 6:30am", held("confirm", d))).toEqual({ kind: "interview", draft: { ...d, wake: "06:30" } });
+    expect(readSleepTurn("whats the weather like", held("confirm", d))).toBeUndefined();
+    expect(readSleepTurn("hmm", held("wake"))).toEqual({ kind: "interview", draft: {}, reask: "wake" });
+    expect(readSleepTurn("hmm", { held: { step: "wake", draft: {}, reasked: true }, now: EVENING })).toBeUndefined();
+    expect(readSleepTurn("nvm", held("days", { wake: "06:00" }))).toEqual({ kind: "decline" });
+  });
+});
+
+describe("exceptions by talk", () => {
+  it.each([
+    ["im out with friends tonight", "friends", undefined],
+    ["doing coursework till 1", "schoolwork", "01:00"],
+    ["gonna be at the pub late w the boys", "bar", undefined],
+    ["heads up im at a party rn prob till 2am", "party", "02:00"],
+    ["got an essay due tmrw morning so im up till 3 grinding it", "schoolwork", "03:00"],
+  ])("'%s' → %s", (said, reason, until) => {
+    expect(readException(said, EVENING)).toEqual({ kind: "except", reason, ...(until ? { until } : {}) });
+  });
+  it.each(["playing games till 2", "im gonna be on valorant late tonight", "staying up scrolling tiktok rn"])("'%s' is not a reason", (said) => {
+    expect(readException(said, EVENING)?.kind).toBe("noexcept");
+  });
+  it("not in the daytime without 'tonight', not for tomorrow, not a request", () => {
+    expect(readException("doing coursework till 1", NOON)).toBeUndefined();
+    expect(readException("im out with friends tomorrow night", EVENING)).toBeUndefined();
+    expect(readException("add coursework till 1", EVENING)).toBeUndefined();
+  });
+});
+
+// A fake orion-sleepplan answering like the real one (days for Mon 11-02 evening).
+const DAYS = [
+  { date: "2026-11-03", weekday: "tue", wake: "09:00", reason: "usual", firstClass: { title: "MKTG2201", at: "13:30" }, evening: "2026-11-02", sleepBy: "00:00", lockdownAt: "03:00", exception: null },
+  { date: "2026-11-04", weekday: "wed", wake: "06:00", reason: "plan", firstClass: { title: "CS1800", at: "09:00" }, evening: "2026-11-03", sleepBy: "22:00", lockdownAt: "00:00", exception: null },
+  { date: "2026-11-05", weekday: "thu", wake: "06:00", reason: "plan", firstClass: { title: "CS2100", at: "10:00" }, evening: "2026-11-04", sleepBy: "22:00", lockdownAt: "00:00", exception: null },
+  { date: "2026-11-06", weekday: "fri", wake: "09:00", reason: "usual", firstClass: { title: "MKTG2201", at: "13:30" }, evening: "2026-11-05", sleepBy: "00:00", lockdownAt: "03:00", exception: null },
+  { date: "2026-11-07", weekday: "sat", wake: "09:00", reason: "usual", firstClass: null, evening: "2026-11-06", sleepBy: "00:00", lockdownAt: "03:00", exception: null },
+  { date: "2026-11-08", weekday: "sun", wake: "09:00", reason: "usual", firstClass: null, evening: "2026-11-07", sleepBy: "00:00", lockdownAt: "03:00", exception: null },
+  { date: "2026-11-09", weekday: "mon", wake: "06:00", reason: "plan", firstClass: { title: "CS1800", at: "09:00" }, evening: "2026-11-08", sleepBy: "22:00", lockdownAt: "00:00", exception: null },
+];
+function fakeCli(o: { code?: number; plan?: Record<string, unknown> } = {}) {
+  const calls: string[][] = [];
+  const run: SleepRun = async (args) => {
+    calls.push(args);
+    if (o.code) return { stdout: "NOTHING WAS SAVED: no", code: o.code };
+    return { stdout: JSON.stringify({ ok: true, calendar: "ok", plan: { nudgeBeforeMin: 30, byDay: { mon: { wake: "06:00" } }, firstClassLeadMin: 180, ...o.plan }, days: DAYS }), code: 0 };
+  };
+  return { run, calls };
+}
+
+describe("the flow, multi-turn and one-shot", () => {
+  it("asks wake, days, lead one short question at a time, then previews from the CLI and saves on yes", async () => {
+    const cli = fakeCli();
+    const step = async (turn: SleepTurn) => runSleepTurn(turn, { run: cli.run });
+    const a = await step({ kind: "interview", draft: {} });
+    expect(a.flow).toMatchObject({ outcome: "say", kind: "ask", text: "Love that. Roughly what time do you want to get up?" });
+    const b = await step(readSleepTurn("6am for the gym", { held: a.pending!, now: EVENING })!);
+    expect(b.flow).toMatchObject({ text: "Got it, 6:00. Every day, or just some days?" });
+    const c = await step(readSleepTurn("only mon wed thu", { held: b.pending!, now: EVENING })!);
+    expect(c.flow).toMatchObject({ text: "And how long before a class do you want to be up?" });
+    expect(cli.calls).toEqual([]);
+    const d = await step(readSleepTurn("at least 3 hours", { held: c.pending!, now: EVENING })!);
+    expect(cli.calls[0]).toEqual(["plan", "--json", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--lead", "180"]);
+    expect(d.flow).toMatchObject({ kind: "ask", text: "Mon 6:00 (class 9:00), Tue 9:00 (class 1:30), Wed 6:00 (class 9:00), Thu 6:00 (class 10:00), Fri 9:00 (class 1:30), weekend 9:00 — bed by 10pm the night before 6:00 days. Sound right?" });
+    const e = await step(readSleepTurn("yeah perfect", { held: d.pending!, now: EVENING })!);
+    expect(cli.calls[1]).toEqual(["set", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--lead", "180", "--json"]);
+    expect(e.flow).toMatchObject({ outcome: "done", reply: "Done, that's your plan now. Next up: bed by midnight, alarm 9:00 Tue. I'll nudge you 30 min before bed." });
+    expect(e.pending).toBeUndefined();
+  });
+  it("one message with everything skips straight to the preview", async () => {
+    const cli = fakeCli();
+    const turn = readSleepTurn("gonna start getting up earlier: 6am mon wed thu, otherwise 9, 3h before class", { now: EVENING })!;
+    const out = await runSleepTurn(turn, { run: cli.run });
+    expect(cli.calls[0]).toEqual(["plan", "--json", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--rest", "09:00", "--lead", "180"]);
+    expect(out.pending?.step).toBe("confirm");
+  });
+  it("a save that fails says nothing changed; no is no", async () => {
+    const out = await runSleepTurn({ kind: "confirm", draft: { wake: "06:00", days: ["mon"], lead: 180 } }, { run: fakeCli({ code: 2 }).run });
+    expect(out.flow).toMatchObject({ outcome: "say", text: "I couldn't save that just now, so your sleep plan hasn't changed." });
+    expect((await runSleepTurn({ kind: "decline" }, { run: fakeCli().run })).flow).toMatchObject({ text: "Okay, I left your sleep plan as it was." });
+  });
+  it("exceptions: kept from the CLI's answer; gaming is told the lockdown time, lightly", async () => {
+    const cli = fakeCli();
+    const yes = await runSleepTurn({ kind: "except", reason: "schoolwork", until: "01:00" }, { run: cli.run });
+    expect(cli.calls[0]).toEqual(["except", "--date", "tonight", "--reason", "schoolwork", "--until", "01:00", "--json"]);
+    expect(yes.flow).toMatchObject({ outcome: "done", reply: "Got it, no lockdown tonight till 1am. Good luck with it. Your alarm's still 9:00, so pace yourself." });
+    const no = await runSleepTurn({ kind: "noexcept", activity: "Gaming" }, { run: cli.run });
+    expect(cli.calls[1]).toEqual(["plan", "--json"]);
+    expect(no.flow).toMatchObject({ text: "Gaming doesn't get you a pass, so the lockdown still kicks in at 3am. Friends or schoolwork, I'd let it slide." });
+    const blank = await runSleepTurn({ kind: "except", reason: "friends" }, { run: fakeCli({ plan: { byDay: {}, firstClassLeadMin: null } }).run });
+    expect(blank.flow).toMatchObject({ reply: "Got it, no lockdown tonight. Have fun." });
+  });
+  it("draft arguments and the week line", () => {
+    expect(draftArgs({ wake: "06:00", days: ["gym"], lead: null })).toEqual(["--days", "gym", "--wake", "06:00", "--only", "--lead", "off"]);
+    expect(weekLine(DAYS.slice(0, 2))).toBe("Tue 9:00 (class 1:30), Wed 6:00 (class 9:00) — bed by 10pm the night before 6:00 days.");
+  });
+  it("the pending interview expires and is taken once", () => {
+    const p = new SleepPlanPending();
+    p.set("k", { step: "wake", draft: {} }, 0);
+    expect(p.take("k", SleepPlanPending.TTL_MS + 1)).toBeUndefined();
+    p.set("k", { step: "wake", draft: {} }, 0);
+    expect(p.take("k", 1000)).toEqual({ step: "wake", draft: {} });
+    expect(p.take("k", 1000)).toBeUndefined();
+  });
+});
+
+// The real scripts/orion-sleepplan in a sandbox (eval-mode + eval-calendar.json in a tmp ORION_CONTROLLED_DIR).
+const SCRIPT = fileURLToPath(new URL("../../../scripts/orion-sleepplan", import.meta.url));
+const dirs: string[] = [];
+afterEach(() => { dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })); });
+function sandboxRun(): { run: SleepRun; dir: string } {
+  const dir = mkdtempSync(join(tmpdir(), "sleepflow-"));
+  dirs.push(dir);
+  writeFileSync(join(dir, "eval-mode"), "");
+  const ev = (d: number, h: number, m: number, dur: number, title: string) => { const s = new Date(2026, 10, d, h, m); return { identifier: `${title}-${d}`, title, allDay: "false", start: s.toISOString(), end: new Date(s.getTime() + dur * 60000).toISOString() }; };
+  writeFileSync(join(dir, "eval-calendar.json"), JSON.stringify({ now: EVENING.toISOString(), events: [ev(3, 13, 30, 95, "MKTG2201 Lecture"), ev(4, 9, 0, 100, "CS1800 Lecture"), ev(5, 10, 0, 60, "CS2100 Lab"), ev(6, 13, 30, 95, "MKTG2201 Lecture")] }));
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: dir, ORION_CONTROLLED_DIR: dir };
+  for (const k of ["ORION_LIFE_CONFIG", "ORION_BRIDGE_BIN", "ORION_RESCHEDULE_NOW", "ORION_NOW", "ORION_EVAL_MARKER", "ORION_SANDBOX_CALENDAR"]) delete env[k];
+  const run: SleepRun = (args) => new Promise((resolve) => execFile(process.execPath, [SCRIPT, ...args], { env }, (e, stdout, stderr) => resolve({ stdout: `${stdout}${e ? stderr : ""}`, code: e ? 1 : 0 })));
+  return { run, dir };
+}
+
+// The routing hooks, as pending-reply-w5.test.ts drives them.
+type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
+function harness(run: SleepRun, now = EVENING) {
+  const handlers = new Map<string, Handler[]>();
+  const remembered: string[][] = [];
+  registerLocalRouting({ on: (name: string, fn: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) } as never, {
+    warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "sleepr-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Mon 21:00", now: () => now,
+    decideImpl: async (): Promise<Decision> => ({ move: "escalate", tier: "standard" }),
+    rememberRun: async (args: string[]) => { remembered.push(args); return { stdout: "remembered", code: 0 }; },
+    sleepPlanRun: run,
+  });
+  const fire = async (name: string, event: Record<string, unknown>, ctx: Record<string, unknown>) => { const out: unknown[] = []; for (const fn of handlers.get(name) ?? []) out.push(await fn(event, ctx)); return out; };
+  let n = 0;
+  const turn = async (prompt: string): Promise<string> => {
+    const ctx = { runId: `s${n += 1}`, sessionKey: "agent:main:orion-chat-sleep" };
+    await fire("before_model_resolve", { prompt }, ctx);
+    const [direct] = (await fire("before_agent_reply", { prompt }, ctx)) as Array<{ reply?: { text?: string } } | undefined>;
+    if (direct?.reply?.text) return `DRAFT: ${direct.reply.text}`;
+    const [built] = (await fire("before_prompt_build", { prompt, messages: [] }, ctx)) as Array<{ appendContext?: string; systemPrompt?: string } | undefined>;
+    return built?.appendContext?.match(/Your whole reply must be exactly: ([\s\S]*)\]$/)?.[1] ?? `WORKER: ${built?.systemPrompt?.slice(0, 80) ?? ""}`;
+  };
+  return { turn, remembered };
+}
+
+describe("through the routing hooks, against the real orion-sleepplan in a sandbox", () => {
+  it("Nick's interview end to end: the eval config and eval-wake-plan.json are written only on his yes", async () => {
+    const { run, dir } = sandboxRun();
+    const h = harness(run);
+    expect(await h.turn("im going to start waking up earlier and going to bed earlier")).toBe("Love that. Roughly what time do you want to get up?");
+    expect(await h.turn("6am, for the gym")).toBe("Got it, 6:00. Every day, or just some days?");
+    expect(await h.turn("only mon wed thu")).toBe("And how long before a class do you want to be up?");
+    const preview = await h.turn("i want to be up at least 3 hours before a class");
+    expect(preview).toBe("Mon 6:00, Tue 9:00 (class 1:30), Wed 6:00 (class 9:00), Thu 6:00 (class 10:00), Fri 9:00 (class 1:30), weekend 9:00 — bed by 10pm the night before 6:00 days. Sound right?");
+    expect(() => readFileSync(join(dir, "eval-life-config.json"))).toThrow();
+    expect(await h.turn("yep")).toMatch(/^Done, that's your plan now\. Next up: bed by midnight, alarm 9:00 Tue\./);
+    const cfg = JSON.parse(readFileSync(join(dir, "eval-life-config.json"), "utf8"));
+    expect(cfg.sleepPlan).toMatchObject({ byDay: { mon: { wake: "06:00" }, wed: { wake: "06:00" }, thu: { wake: "06:00" } }, firstClassLeadMin: 180 });
+    const plan = JSON.parse(readFileSync(join(dir, "eval-wake-plan.json"), "utf8"));
+    expect(plan.source).toBe("nick");
+    expect(plan.alarms.map((a: { at: string }) => a.at).slice(0, 4)).toEqual(["09:00", "06:00", "06:00", "09:00"]);
+    expect(h.remembered).toEqual([]);
+  }, 30000);
+
+  it("an unrelated turn clears the pending question; the next bare time is not an answer", async () => {
+    const { run } = sandboxRun();
+    const h = harness(run);
+    expect(await h.turn("need to fix my sleep schedule fr")).toBe("Love that. Roughly what time do you want to get up?");
+    expect(await h.turn("whats on my calendar tmrw")).toMatch(/^WORKER|^DRAFT/);
+    expect(await h.turn("6am")).not.toMatch(/Every day, or just some days/);
+  }, 30000);
+
+  it("talking his way out of tonight's lockdown: friends yes, gaming no", async () => {
+    const { run, dir } = sandboxRun();
+    const h = harness(run);
+    expect(await h.turn("heads up im out w friends tonight")).toBe("Got it, no lockdown tonight. Have fun.");
+    expect(JSON.parse(readFileSync(join(dir, "eval-life-config.json"), "utf8")).sleepPlan.exceptions).toEqual([{ date: "2026-11-02", reason: "friends", until: null }]);
+    expect(await h.turn("gonna be gaming till 2")).toBe("Gaming doesn't get you a pass, so the lockdown still kicks in at 3am. Friends or schoolwork, I'd let it slide.");
+  }, 30000);
+});

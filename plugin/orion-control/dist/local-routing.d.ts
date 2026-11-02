@@ -11,6 +11,7 @@ import { type PendingRun } from "./schedule-pending.js";
 import { type Probe, type QueuedMessage } from "./model-outage.js";
 import { type ConnectorRow, type HealthLog } from "./code-answers.js";
 import { type ScriptRun } from "./reality.js";
+import { type SleepRun } from "./sleep-plan-flow.js";
 import { type KnowledgeRun } from "./knowledge-run.js";
 import { type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -109,6 +110,8 @@ export type LocalRoutingOptions = {
         stdout: string;
         code: number;
     }>;
+    /** W10-B: scripts/orion-sleepplan with fixed arguments (sleep-plan-flow.ts). Wired in by index.ts only. */
+    sleepPlanRun?: SleepRun;
     /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
     todoDoneFlow?: (message: string) => Promise<FlowResult>;
     /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */

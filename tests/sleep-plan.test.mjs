@@ -238,3 +238,22 @@ test("CLI: gym days — his plan's --gym days first; a daily Gym block names no 
   assert.deepEqual(JSON.parse(later.out).plan.byDay, { tue: { wake: "05:45" }, thu: { wake: "05:45" }, sat: { wake: "05:45" } });
   assert.ok(validSleepPlan({ gymDays: ["mon"] }) && !validSleepPlan({ gymDays: ["monday"] }));
 });
+
+// W10-B review 3 (gate hea-bedtime-set-v): "i wanna sleep earlier this week" is a bedtime change, written to the eval config in a sandbox.
+test("CLI: bedtime earlier / HH:MM sets the bedtime cap, rewrites the bedtimes, and leaves his sleep plan alone", (t) => {
+  const { dir, run } = sandbox(t);
+  const r = run("bedtime", "earlier", "--json");
+  assert.equal(r.code, 0, r.err);
+  const out = JSON.parse(r.out);
+  assert.equal(out.bedtime, "23:30");
+  assert.equal(out.was, "00:00");
+  assert.equal(out.days[0].sleepBy, "23:30", "before Tue 9:00: the new cap");
+  assert.equal(out.days[0].nudgeAt, "23:00");
+  const cfg = JSON.parse(readFileSync(join(dir, "eval-life-config.json"), "utf8"));
+  assert.equal(cfg.bedtime, "23:30");
+  assert.equal(cfg.sleepPlan, undefined);
+  assert.equal(JSON.parse(readFileSync(join(dir, "eval-wake-plan.json"), "utf8")).bedtimes[0].sleepBy, "23:30");
+  assert.equal(JSON.parse(run("bedtime", "earlier", "--json").out).bedtime, "23:00");
+  assert.equal(JSON.parse(run("bedtime", "21:00", "--json").out).bedtime, "21:00", "a time he names is kept");
+  assert.equal(run("bedtime", "late").code, 2);
+});

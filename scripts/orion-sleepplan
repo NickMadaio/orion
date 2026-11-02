@@ -10,6 +10,7 @@
 //   orion-sleepplan except --date tonight|YYYY-MM-DD --reason friends|party|bar|schoolwork [--until HH:MM]
 //                                                                 a night he is out or working: no lockdown that evening
 //   orion-sleepplan clear-except [--date tonight|YYYY-MM-DD]       take it back (no --date: every exception)
+//   orion-sleepplan bedtime HH:MM|earlier [--json]                his bedtime (asleep-by cap); earlier = 30 min earlier, not before 22:00
 //   orion-sleepplan refresh [--json]                               rewrite wake-plan.json from the stored plan + calendar (the nudge tick does this daily)
 //   orion-sleepplan plan --json [--days … --wake … --only --rest …] [--lead N|off]   the coming week as data; the flags preview a change
 //                                                                 without saving it
@@ -19,7 +20,7 @@
 // writes the eval copies (eval-life-config.json, eval-wake-plan.json), like scripts/lib/life/config.mjs, and the sandbox clock.
 // Add --json to any write for a machine-readable answer. Exit 2: bad arguments, nothing saved; exit 3: refused (a reason
 // that does not lift the lockdown), nothing saved.
-import { CONFIG_FILE, loadConfig, setSleepPlan, sleepPlanOf, WEEKDAYS } from "./lib/life/config.mjs";
+import { CONFIG_FILE, loadConfig, setConfig, setSleepPlan, sleepPlanOf, toMinute, WEEKDAYS } from "./lib/life/config.mjs";
 import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
 import { controlledDir } from "./lib/clock.mjs";
 import { readFileSync } from "node:fs";
@@ -150,26 +151,45 @@ function storable(plan, saved) {
 
 const say = (d) => `${d.weekday[0].toUpperCase()}${d.weekday.slice(1)} ${d.date.slice(5)}: up ${d.wake}${d.firstClass ? ` (class ${d.firstClass.at})` : ""}, asleep by ${d.sleepBy} the night before`;
 
+/** "bedtime earlier": 30 minutes before the current one, never before 22:00 (an earlier one is his to name). */
+function earlierThan(current) {
+  const base = toMinute(current) < 12 * 60 ? toMinute(current) + 1440 : toMinute(current);
+  const m = Math.max(22 * 60, base - 30) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** The bedtime this command leaves (config.bedtime, the cap night.mjs puts on asleep-by), or undefined for other commands. */
+function nextBedtime(config) {
+  if (command !== "bedtime") return undefined;
+  const raw = args[1];
+  const t = raw === "earlier" ? earlierThan(config.bedtime) : normTime(raw);
+  if (!t) throw new TypeError("bedtime takes HH:MM or earlier");
+  return t;
+}
+
 async function main() {
-  const WRITES = new Set(["set", "unset", "lead", "except", "clear-except"]);
+  const WRITES = new Set(["set", "unset", "lead", "except", "clear-except", "bedtime"]);
   const REFRESH = command === "refresh";   // rewrite wake-plan.json from the stored plan and the calendar; the stored plan is untouched
   if (!WRITES.has(command) && !REFRESH && !["show", "plan"].includes(command)) fail(2, `unknown command ${command}. Commands: show, set, unset, lead, except, clear-except, plan, refresh`);
   const config = loadConfig();
   const saved = config.sleepPlan;
   const { calendar, blocksOf } = await blocksSource();
-  let plan;
-  try { plan = nextPlan(sleepPlanOf(config), blocksOf); }
+  let plan; let bedtime;
+  try { plan = nextPlan(sleepPlanOf(config), blocksOf); bedtime = nextBedtime(config); }
   catch (error) { fail(error instanceof RangeError ? 3 : 2, error.message); }
-  const nextConfig = { ...config, sleepPlan: storable(plan, saved) };
+  const nextConfig = { ...config, sleepPlan: storable(plan, saved), ...(bedtime ? { bedtime } : {}) };
   const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: null });
   let file = null;
   if (WRITES.has(command) || REFRESH) {
-    if (!REFRESH) { try { setSleepPlan(storable(plan, saved), CONFIG_FILE); } catch (error) { fail(2, error.message); } }
+    try {
+      if (bedtime) setConfig("bedtime", bedtime, CONFIG_FILE);   // his sleep plan itself is untouched
+      else if (!REFRESH) setSleepPlan(storable(plan, saved), CONFIG_FILE);
+    } catch (error) { fail(2, error.message); }
     file = writeWakePlan(controlledDir(), wakePlanName, wakePlanDoc({ now, days, config: nextConfig }));
   }
   const plain = sleepPlanOf(nextConfig);
   if (json || command === "plan") {
-    console.log(JSON.stringify({ ok: true, saved: WRITES.has(command), preview: command === "plan", calendar, now: now.toISOString(), plan: plain, days, ...(file ? { wakePlan: wakePlanName } : {}) }, null, 2));
+    console.log(JSON.stringify({ ok: true, saved: WRITES.has(command), preview: command === "plan", calendar, now: now.toISOString(), plan: plain, bedtime: nextConfig.bedtime, ...(bedtime ? { was: config.bedtime } : {}), days, ...(file ? { wakePlan: wakePlanName } : {}) }, null, 2));
     return;
   }
   const head = WRITES.has(command) ? "Saved. " : "";

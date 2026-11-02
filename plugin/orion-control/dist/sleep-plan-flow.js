@@ -186,6 +186,21 @@ async function noExcept(turn, run, now, checkin) {
     }
     return { flow: say(`${notFor(turn.activity)}, ${stakes}. Finish this one${back}${back ? "" : ", then bed"}.`), pending: { step: "grace", draft: {} }, tools };
 }
+async function bedtime(time, run) {
+    const tools = [];
+    const r = await call(run, ["bedtime", time ?? "earlier", "--json"], tools);
+    const out = r.out;
+    const d = out?.days?.[0];
+    if (r.code !== 0 || !out?.ok || !out.bedtime || !d)
+        return { flow: say("I couldn't change your bedtime just now, so it's as it was."), tools };
+    if (out.was === out.bedtime)
+        return { flow: say(`Your bedtime's already ${meridiem(out.bedtime)}. Tell me a time if you want it earlier.`), tools };
+    const assumed = time ? "" : " I went 30 minutes earlier since you didn't name a time; say one if you want another.";
+    const hours = (toMin(d.wake) + 1440 - toMin(d.sleepBy)) % 1440 / 60;
+    const sleep = Number.isInteger(hours) ? `${hours}h` : hours % 1 === 0.5 ? `${Math.floor(hours)}½h` : `about ${Math.round(hours)}h`;
+    const reply = `Bedtime's now ${meridiem(out.bedtime)}${out.was ? ` (was ${meridiem(out.was)})` : ""} and stays that way till you change it; I'll nudge you at ${meridiem(d.nudgeAt ?? d.sleepBy)}. Your ${clock(d.wake)} wake-up ${cap(d.weekday)} doesn't move, so that's ${sleep} of sleep.${assumed}`;
+    return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply }, tools };
+}
 /** One turn of the sleep plan, end to end. `now` is the plugin clock (pluginNow); checkin books the grace's check-back. */
 export async function runSleepTurn(turn, { run, now = pluginNow(), checkin }) {
     if (turn.kind === "decline")
@@ -196,6 +211,8 @@ export async function runSleepTurn(turn, { run, now = pluginNow(), checkin }) {
         return save(turn.draft, run);
     if (turn.kind === "except")
         return except(turn.reason, turn.until, run);
+    if (turn.kind === "bedtime")
+        return bedtime(turn.time, run);
     return noExcept(turn, run, now, checkin);
 }
 /** The real script (no shell, fixed arguments), beside orion-wake (ORION_SCRIPTS_DIR for a replay). Wired in by index.ts only. */

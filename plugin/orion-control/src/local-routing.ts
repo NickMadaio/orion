@@ -84,7 +84,7 @@ import { LATE_TONE_LINE, pastNudgeTime, stripLateInstruction } from "./night-hus
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn, type PendingTurn } from "./pending-reply.js";
 import { bedtimeFromState, focusRunning } from "./bed-state.js";
 import { readPreference, savePreference, type Preference } from "./preference-remember.js";
-import { readHabit, readSleepTurn, type SleepTurn } from "./sleep-plan-read.js";   // W10-B: a standing wake statement wins over a health read ("gym days")
+import { ownsSleepStatement, readSleepTurn, type SleepTurn } from "./sleep-plan-read.js";   // W10-B: a standing wake statement wins over a health read ("gym days")
 import { readPhoneBlock, type PhoneBlockRead } from "./phone-block-read.js";
 import { runPhoneBlock, type PhoneTimeRun } from "./phone-block-flow.js";
 import { runSleepTurn, SleepPlanPending, type SleepRun } from "./sleep-plan-flow.js";
@@ -1199,7 +1199,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
     const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
     const sheld = sessionKey ? sleepPending.take(sessionKey, Date.now()) : undefined;   // W10-B: before preference-remember can keep it as a "preference"
-    const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || !!readHabit(message)) ? readSleepTurn(message, { held: sheld, now: (options.now ?? pluginNow)() }) : undefined;
+    const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message)) ? readSleepTurn(message, { held: sheld, now: (options.now ?? pluginNow)() }) : undefined;
     const preference = !sleepTurn && !phoneBlock && free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
     const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
     const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;

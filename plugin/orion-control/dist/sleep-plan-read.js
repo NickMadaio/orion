@@ -49,8 +49,9 @@ export function readHabit(message) {
     const shift = m.match(SHIFT) ?? m.match(SHIFT_NOUN);
     const oneOff = ONE_OFF.test(m.replace(/\bfrom now on\b/g, ""));
     const habitual = HABIT.test(m) || !oneOff;
+    // Sleep only ("sleep earlier", "earlier bedtime"), nothing about waking: a bedtime change (readBedShift), not the wake interview.
     if (shift && (shift[1] === "later" ? HABIT.test(m) : habitual))
-        return slots;
+        return WAKE_WORD.test(m) ? slots : undefined;
     if (ROUTINE.test(m) || RISER.test(m))
         return slots;
     // "wake me at 6 every weekday", "from now on up at 6 mon wed thu": a standing wake time (the one-off alarm cannot repeat).
@@ -60,6 +61,35 @@ export function readHabit(message) {
     }
     return undefined;
 }
+/** Waking, not sleeping: what makes a shift statement the wake interview's. */
+const WAKE_WORD = /\b(?:wak(?:e|ing)|woke|get(?:ting)? up|be(?:ing)? up|up (?:at|by|early|earlier)|alarms?|mornings?|morning person|early riser|early bird|rise|rising)\b/;
+const BED_NOUN = /\bearlier\s+bed\s?times?\b|\bbed\s?time\b.{0,20}\bearlier\b|\b(?:sleep|bed)\s+(?:a (?:bit|little) |way |much )?earlier\b/;
+const BED_TIME = /\b(?:by|at|around|for|like|bout|about|~)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b(?!\s*(?:h|hrs?|hours?|m|mins?|minutes?)\b)/;
+/** "i wanna sleep earlier this week", "earlier bedtime from now on pls", "need to start crashing earlier, like 11": a new bedtime. Pure. */
+export function readBedShift(message) {
+    const m = clean(message);
+    if (!m || m.length > 200 || NEGATED.test(m) || /\?\s*$/.test(m) || WAKE_WORD.test(m))
+        return undefined;
+    const oneOff = ONE_OFF.test(m.replace(/\bfrom now on\b/g, ""));
+    if (oneOff && !HABIT.test(m))
+        return undefined;
+    const shift = m.match(SHIFT) ?? m.match(SHIFT_NOUN);
+    const earlier = (shift && shift[1] !== "later") || (BED_NOUN.test(m) && /\b(?:want|wanna|need|gonna|going to|start|try|should|let'?s|make|from now on|this week|pls|please)\b/.test(m));
+    const later = shift?.[1] === "later" && HABIT.test(m);
+    if (!earlier && !later)
+        return undefined;
+    const t = m.match(BED_TIME);
+    if (!t)
+        return {};
+    const h = Number(t[1]);
+    const min = Number(t[2] ?? 0);
+    if (h > 23 || min > 59)
+        return {};
+    const hour = t[3] ? (h % 12) + (t[3] === "pm" ? 12 : 0) : h >= 8 && h <= 11 ? h + 12 : h === 12 ? 0 : h;
+    return { time: `${pad(hour)}:${pad(min)}` };
+}
+/** Whether the sleep plan owns this statement before the health reader can (a wake statement, or a sleep-only bedtime shift). */
+export const ownsSleepStatement = (message) => !!readHabit(message) || !!readBedShift(message);
 // ── exceptions by talk ─────────────────────────────────────────────────────────────────────────────────────────────────
 const PARTY = /\b(?:party|partying|pregame|pregaming|club|clubbing|rave|frat|function)\b/;
 const BAR = /\b(?:bar|bars|pub|pubs|drinks|drinking|bar crawl|pub crawl)\b/;
@@ -173,6 +203,9 @@ export function readSleepTurn(message, { held, now }) {
     const fresh = readHabit(message);
     if (fresh)
         return { kind: "interview", draft: held && held.step !== "confirm" ? merge(held.draft, fresh) : fresh };
+    const bed = readBedShift(message);
+    if (bed)
+        return { kind: "bedtime", ...bed };
     const except = readPlea(message, now) ?? readException(message, now);
     if (except)
         return except.kind === "noexcept" && except.grace && held?.step === "grace" ? { ...except, again: true } : except;

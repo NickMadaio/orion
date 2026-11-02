@@ -24,7 +24,7 @@ export type SleepTool = { canonical: string; stdout: string; exit: number };
 export type SleepOutcome = { flow: FlowResult; pending?: SleepPending; tools: SleepTool[] };
 
 type PlanDay = { date: string; weekday: string; wake: string; reason: string; firstClass: { title: string; at: string } | null;
-  evening: string; sleepBy: string; lockdownAt: string; wakeIso?: string; nudgeAtIso?: string; exception: { reason: string; until: string | null } | null };
+  evening: string; sleepBy: string; nudgeAt?: string; lockdownAt: string; wakeIso?: string; nudgeAtIso?: string; exception: { reason: string; until: string | null } | null };
 type PlanOut = { ok: boolean; error?: string; calendar?: string; plan?: { nudgeBeforeMin?: number; byDay?: Record<string, unknown>; firstClassLeadMin?: number | null }; days?: PlanDay[] };
 
 /** One interview per chat, for a few minutes; taken (and so cleared) by the next turn whatever it is. */
@@ -192,12 +192,33 @@ async function noExcept(turn: Extract<SleepTurn, { kind: "noexcept" }>, run: Sle
   return { flow: say(`${notFor(turn.activity)}, ${stakes}. Finish this one${back}${back ? "" : ", then bed"}.`), pending: { step: "grace", draft: {} }, tools };
 }
 
+/*
+ W10-B review 3 (gate hea-bedtime-set-v): "i wanna sleep earlier this week" started the wake interview. Sleep only is a bedtime change:
+ saved in one reply through orion-sleepplan bedtime (the eval config in a sandbox), with the assumption said when he named no time,
+ the nudge it moves, and what it means against tomorrow's alarm. All of it from the CLI's answer.
+*/
+type BedOut = PlanOut & { bedtime?: string; was?: string };
+async function bedtime(time: string | undefined, run: SleepRun): Promise<SleepOutcome> {
+  const tools: SleepTool[] = [];
+  const r = await call(run, ["bedtime", time ?? "earlier", "--json"], tools);
+  const out = r.out as BedOut | undefined;
+  const d = out?.days?.[0];
+  if (r.code !== 0 || !out?.ok || !out.bedtime || !d) return { flow: say("I couldn't change your bedtime just now, so it's as it was."), tools };
+  if (out.was === out.bedtime) return { flow: say(`Your bedtime's already ${meridiem(out.bedtime)}. Tell me a time if you want it earlier.`), tools };
+  const assumed = time ? "" : " I went 30 minutes earlier since you didn't name a time; say one if you want another.";
+  const hours = (toMin(d.wake) + 1440 - toMin(d.sleepBy)) % 1440 / 60;
+  const sleep = Number.isInteger(hours) ? `${hours}h` : hours % 1 === 0.5 ? `${Math.floor(hours)}½h` : `about ${Math.round(hours)}h`;
+  const reply = `Bedtime's now ${meridiem(out.bedtime)}${out.was ? ` (was ${meridiem(out.was)})` : ""} and stays that way till you change it; I'll nudge you at ${meridiem(d.nudgeAt ?? d.sleepBy)}. Your ${clock(d.wake)} wake-up ${cap(d.weekday)} doesn't move, so that's ${sleep} of sleep.${assumed}`;
+  return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply }, tools };
+}
+
 /** One turn of the sleep plan, end to end. `now` is the plugin clock (pluginNow); checkin books the grace's check-back. */
 export async function runSleepTurn(turn: SleepTurn, { run, now = pluginNow(), checkin }: { run: SleepRun; now?: Date; checkin?: SleepCheckin }): Promise<SleepOutcome> {
   if (turn.kind === "decline") return { flow: say("Okay, I left your sleep plan as it was."), tools: [] };
   if (turn.kind === "interview") return interview(turn.draft, turn.reask, run);
   if (turn.kind === "confirm") return save(turn.draft, run);
   if (turn.kind === "except") return except(turn.reason, turn.until, run);
+  if (turn.kind === "bedtime") return bedtime(turn.time, run);
   return noExcept(turn, run, now, checkin);
 }
 

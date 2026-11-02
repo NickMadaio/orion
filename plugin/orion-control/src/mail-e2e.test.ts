@@ -52,7 +52,7 @@ describe("alert → his reply → a rule the next poll obeys", () => {
     const { mailTick } = (await import(TICK_URL)) as { mailTick: Tick };
     let inbox = [] as ReturnType<typeof mail>[];
     const at = (min: number) => new Date(NOW.getTime() - 60 * 60_000 + min * 60_000);
-    const deps = { dir: w.dir, ctx: { people: [], courses: ["CS2100"] }, fetchInbox: async () => inbox, reach: w.reach };
+    const deps = { dir: w.dir, ctx: { people: [{ name: "Jane Smith", role: "teacher" }], courses: ["CS2100"] }, fetchInbox: async () => inbox, reach: w.reach };
     await mailTick({ ...deps, now: at(0) });
     inbox = [mail(1)];
     const first = await mailTick({ ...deps, now: at(11) });

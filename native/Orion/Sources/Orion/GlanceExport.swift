@@ -75,11 +75,27 @@ final class GlanceExport {
         let orion = lists.filter { $0.title == "Orion" }
         let predicate = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: orion.isEmpty ? nil : orion)
         store.fetchReminders(matching: predicate) { reminders in
-            let mapped = (reminders ?? []).prefix(40).map { reminder in
+            let mapped = (reminders ?? []).map { reminder in
                 OrionGlance.Todo(id: reminder.calendarItemIdentifier, title: reminder.title ?? "Untitled",
                                  due: reminder.dueDateComponents?.date, priority: Self.rank(reminder.priority), done: false)
             }
-            Task { @MainActor in done(Array(mapped)) }
+            // The widget shows the top few, so sort BEFORE cutting: overdue, then priority, then due.
+            let ordered = Array(Self.ordered(mapped, now: Date()).prefix(40))
+            Task { @MainActor in done(ordered) }
+        }
+    }
+
+    /// The shared to-do order (MobileCore.TodoOrdering) over the widget's todos.
+    nonisolated static func ordered(_ todos: [OrionGlance.Todo], now: Date) -> [OrionGlance.Todo] {
+        TodoOrdering.sorted(todos, now: now) { todo in
+            let priority: TodoPriority
+            switch todo.priority {
+            case 1: priority = .high
+            case 2: priority = .medium
+            case 3: priority = .low
+            default: priority = .none
+            }
+            return TodoOrdering.Key(done: todo.done, priority: priority, due: todo.due, title: todo.title, id: todo.id)
         }
     }
 

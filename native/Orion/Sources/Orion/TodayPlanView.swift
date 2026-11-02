@@ -116,7 +116,7 @@ struct TodayPlanView: View {
                 Stepper("Minimum sleep: \(model.preferences.minimumSleepMinutes / 60) h", value: $model.preferences.minimumSleepMinutes, in: 360...720, step: 60)
                 if let inputs = model.inputs, !inputs.tasks.filter({ !$0.completedInSource }).isEmpty {
                     Text("TASK LENGTHS").font(OrionTheme.mono(8, .semibold)).tracking(1.6).foregroundStyle(OrionTheme.textDim).padding(.top, 4)
-                    ForEach(inputs.tasks.filter { !$0.completedInSource }) { task in
+                    ForEach(inputs.openTasksInDisplayOrder(now: Date())) { task in
                         Stepper("\(task.title): \(model.estimate(for: task.id)) min",
                                 value: Binding(get: { model.estimate(for: task.id) }, set: { model.setEstimate(task.id, minutes: $0) }),
                                 in: 5...240, step: 5)

@@ -1,3 +1,4 @@
+import MobileCore
 import Foundation
 
 /*
@@ -167,7 +168,8 @@ enum HomeCardBuilder {
     // MARK: Tasks
 
     private static func tasks(_ brief: BriefFacts, format: HomeFormat) -> HomeCard? {
-        let overdue = brief.overdue, due = brief.dueToday
+        // Overdue in the shared to-do order (priority, then how long late), so the card names the right ones.
+        let overdue = TodoOrdering.sorted(brief.overdue, now: format.now) { $0.orderKey }, due = brief.dueToday
         if let first = overdue.first {
             if overdue.count == 1 {
                 let late = format.lateness(first.dueDate)

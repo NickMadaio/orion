@@ -156,7 +156,7 @@ public struct TodoListScreen: View {
         case .todo:
             let open = TodoBoard.open(items, tags: tagFilter)
             if open.isEmpty { empty(tagFilter.isEmpty ? "Nothing to do. Add one above, or just tell ORION." : "Nothing tagged \(tagFilter.sorted().map { "#\($0)" }.joined(separator: " ")).") }
-            list(open, reorderable: true)
+            list(open)
         case .upcoming:
             let groups = TodoBoard.upcoming(items, tags: tagFilter)
             if groups.isEmpty { empty("Nothing coming up.") }
@@ -170,7 +170,7 @@ public struct TodoListScreen: View {
         case .done:
             let done = TodoBoard.done(items, tags: tagFilter)
             if done.isEmpty { empty("Nothing ticked off yet.") }
-            list(done, reorderable: false)
+            list(done)
         }
     }
 
@@ -182,29 +182,17 @@ public struct TodoListScreen: View {
                 Rectangle().fill(ViewTokens.hairline).frame(height: 1)
             }
             .padding(.top, 6)
-            list(group.items, reorderable: false)
+            list(group.items)
         }
     }
 
-    private func list(_ shown: [TodoItem], reorderable: Bool) -> some View {
+    /// Rows arrive already in TodoOrdering order (overdue, priority, due), so there is no
+    /// drag-to-reorder: a hand-placed row would fight the sort the moment anything refreshed.
+    private func list(_ shown: [TodoItem]) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             ForEach(shown) { item in
-                let row = TodoRow(item: item, knownTags: knownTags, density: density, actions: actions, expanded: $expanded,
-                                  filterBy: { tag in tagFilter = [tag]; if view == .byTag { viewRaw = TodoListMode.todo.rawValue } })
-                if reorderable {
-                    // Drag a to-do onto another to put it just above; the order is saved in the
-                    // reminder's notes, so both devices show the same order (2026-10-11).
-                    row.draggable(item.id) { TodoPill(text: item.title, tone: .due, density: density) }
-                        .dropDestination(for: String.self) { ids, _ in
-                            guard let id = ids.first else { return false }
-                            let all = TodoBoard.open(items)
-                            let changes = TaskNotes.reorder(all.map(\.id), orders: all.map { $0.parsed.order }, moving: id, before: item.id)
-                            actions.reorder(changes)
-                            return !changes.isEmpty
-                        }
-                } else {
-                    row
-                }
+                TodoRow(item: item, knownTags: knownTags, density: density, actions: actions, expanded: $expanded,
+                        filterBy: { tag in tagFilter = [tag]; if view == .byTag { viewRaw = TodoListMode.todo.rawValue } })
             }
         }
     }

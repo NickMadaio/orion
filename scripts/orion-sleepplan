@@ -2,7 +2,7 @@
 // orion-sleepplan — Nick's sleep plan: when he gets up on each day, how long before class, and the nights he is let off
 // the bedtime lockdown (W10-B, 2026-11-02: "im going to start waking up earlier and going to bed earlier").
 //   orion-sleepplan show                                         the plan and the coming week, in words
-//   orion-sleepplan set --days mon,wed,thu --wake 06:00 [--only] [--rest 09:00] [--lead 180|off]
+//   orion-sleepplan set --days mon,wed,thu --wake 06:00 [--only] [--also tue,fri=09:00 …] [--rest 09:00] [--lead 180|off] [--sleep 8]
 //                                                                 wake at 06:00 on those days (--only: other days lose theirs;
 //                                                                 --rest: every other day wakes then); one write for all of it
 //   orion-sleepplan unset --days tue,fri                           those days go back to the class rule / usual wake
@@ -21,11 +21,13 @@
 import { CONFIG_FILE, loadConfig, setSleepPlan, sleepPlanOf, WEEKDAYS } from "./lib/life/config.mjs";
 import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
 import { controlledDir } from "./lib/clock.mjs";
-import { eveningOf, parseDays, weekPlan, wakePlanDoc, withException, withWake, writeWakePlan } from "./lib/life/sleep-plan.mjs";
+import { readFileSync } from "node:fs";
+import { addDays, eveningOf, parseDays, weekPlan, wakePlanDoc, withException, withWake, writeWakePlan } from "./lib/life/sleep-plan.mjs";
 
 const args = process.argv.slice(2);
 const [command = "show"] = args;
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const flags = (name) => args.flatMap((a, i) => (a === name && args[i + 1] !== undefined ? [args[i + 1]] : []));
 const has = (name) => args.includes(name);
 const json = has("--json");
 const HHMM = /^([01]?\d|2[0-3]):([0-5]\d)$/;
@@ -53,29 +55,63 @@ const leadOf = (raw) => {
   if (!Number.isInteger(n) || n < 15 || n > 360) throw new TypeError("lead must be 15..360 minutes, or off");
   return n;
 };
-/** Mon=1..Sun=7 gym anchor days as mon..sun ("just gym days"). */
-const gymDays = (config) => (config.anchors ?? []).filter((a) => a.kind === "gym").flatMap((a) => a.days).map((d) => WEEKDAYS[d % 7]);
+/**
+ "Gym days" (W10-B review): the weekdays with a Gym block on his calendar this coming week; else the gym days he set himself
+ (anchors/gymDays saved in his config, not the every-day default). Unknown: an error that names it, so ORION asks which days.
+*/
+function gymDays(blocksOf) {
+  const seen = new Set();
+  for (let i = 0; i < 7; i += 1) {
+    const date = addDays(now.toLocaleDateString("en-CA"), i);
+    if (blocksOf(date).some((b) => b.kind === "gym")) seen.add(WEEKDAYS[new Date(`${date}T12:00:00`).getDay()]);
+  }
+  if (seen.size) return WEEKDAYS.filter((d) => seen.has(d));
+  let saved = {};
+  try { saved = JSON.parse(readFileSync(CONFIG_FILE, "utf8")); } catch { /* none saved */ }
+  const own = Array.isArray(saved.anchors) || Array.isArray(saved.gymDays) ? loadConfig().anchors.filter((a) => a.kind === "gym").flatMap((a) => a.days) : [];
+  const days = [...new Set(own)].map((d) => WEEKDAYS[d % 7]);
+  return days.length && days.length < 7 ? WEEKDAYS.filter((d) => days.includes(d)) : [];
+}
+const daysOf = (raw, blocksOf) => {
+  const words = String(raw ?? "").toLowerCase().split(/[\s,]+/);
+  const gym = words.includes("gym") ? gymDays(blocksOf) : [];
+  if (words.includes("gym") && !gym.length) throw new TypeError("gym days unknown: no Gym block this week and no gym days set");
+  return parseDays(raw, gym);
+};
+const sleepOf = (raw) => { const n = Number(raw); if (!(n >= 5 && n <= 11)) throw new TypeError("--sleep must be 5..11 hours"); return n; };
 
 /** The plan this command would leave, from the stored one. Throws TypeError on bad arguments, RangeError on a refusal. */
-function nextPlan(plan, config) {
+function nextPlan(plan, blocksOf) {
   if (command === "set" || command === "plan") {
     let next = plan;
+    const named = [];
     if (flag("--days") !== undefined) {
       const wake = normTime(flag("--wake"));
       if (!wake) throw new TypeError("--wake must be HH:MM");
-      const days = parseDays(flag("--days"), gymDays(config));
+      const days = daysOf(flag("--days"), blocksOf);
       next = withWake(next, days, wake, { only: has("--only") });
-      if (flag("--rest") !== undefined) {
-        const rest = normTime(flag("--rest"));
-        if (!rest) throw new TypeError("--rest must be HH:MM");
-        next = withWake(next, WEEKDAYS.filter((d) => !days.includes(d)), rest);
-      }
-    } else if (command === "set" && flag("--lead") === undefined) throw new TypeError("set needs --days and --wake, or --lead");
+      named.push(...days);
+    }
+    for (const also of flags("--also")) {   // "tue,fri=09:00": more days with their own time, in the same write
+      const [rawDays, rawWake] = also.split("=");
+      const wake = normTime(rawWake);
+      if (!wake) throw new TypeError("--also must be DAYS=HH:MM");
+      const days = daysOf(rawDays, blocksOf);
+      next = withWake(next, days, wake);
+      named.push(...days);
+    }
+    if (flag("--rest") !== undefined) {
+      const rest = normTime(flag("--rest"));
+      if (!rest) throw new TypeError("--rest must be HH:MM");
+      next = withWake(next, WEEKDAYS.filter((d) => !named.includes(d)), rest);
+    }
     if (flag("--lead") !== undefined) next = { ...next, firstClassLeadMin: leadOf(flag("--lead")) };
+    if (flag("--sleep") !== undefined) next = { ...next, sleepHours: sleepOf(flag("--sleep")) };
+    if (command === "set" && next === plan) throw new TypeError("set needs --days and --wake, --also, --rest, --lead or --sleep");
     return next;
   }
   if (command === "unset") {
-    const days = parseDays(flag("--days"), gymDays(config));
+    const days = daysOf(flag("--days"), blocksOf);
     return { ...plan, byDay: Object.fromEntries(Object.entries(plan.byDay).filter(([d]) => !days.includes(d))) };
   }
   if (command === "lead") return { ...plan, firstClassLeadMin: leadOf(args[1]) };
@@ -102,7 +138,8 @@ function nextPlan(plan, config) {
 function storable(plan, saved) {
   const out = { byDay: plan.byDay, firstClassLeadMin: plan.firstClassLeadMin, nudgeBeforeMin: plan.nudgeBeforeMin,
     lockdownBelowHours: plan.lockdownBelowHours, legitReasons: plan.legitReasons, exceptions: plan.exceptions };
-  return saved?.sleepHours !== undefined ? { ...out, sleepHours: saved.sleepHours } : out;
+  const sleepHours = flag("--sleep") !== undefined ? plan.sleepHours : saved?.sleepHours;
+  return sleepHours !== undefined ? { ...out, sleepHours } : out;
 }
 
 const say = (d) => `${d.weekday[0].toUpperCase()}${d.weekday.slice(1)} ${d.date.slice(5)}: up ${d.wake}${d.firstClass ? ` (class ${d.firstClass.at})` : ""}, asleep by ${d.sleepBy} the night before`;
@@ -113,11 +150,11 @@ async function main() {
   if (!WRITES.has(command) && !REFRESH && !["show", "plan"].includes(command)) fail(2, `unknown command ${command}. Commands: show, set, unset, lead, except, clear-except, plan, refresh`);
   const config = loadConfig();
   const saved = config.sleepPlan;
+  const { calendar, blocksOf } = await blocksSource();
   let plan;
-  try { plan = nextPlan(sleepPlanOf(config), config); }
+  try { plan = nextPlan(sleepPlanOf(config), blocksOf); }
   catch (error) { fail(error instanceof RangeError ? 3 : 2, error.message); }
   const nextConfig = { ...config, sleepPlan: storable(plan, saved) };
-  const { calendar, blocksOf } = await blocksSource();
   const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: null });
   let file = null;
   if (WRITES.has(command) || REFRESH) {

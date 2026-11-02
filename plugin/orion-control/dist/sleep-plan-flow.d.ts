@@ -38,7 +38,7 @@ export declare class SleepPlanPending {
     take(key: string, nowMs: number): SleepPending | undefined;
     set(key: string, pending: SleepPending | undefined, nowMs: number): void;
 }
-/** orion-sleepplan arguments for a draft (days, wake, rest, lead). */
+/** orion-sleepplan arguments for a draft. An alarm asked for outright keeps his other days (no --only); the interview replaces them. */
 export declare function draftArgs(d: Draft): string[];
 /** "Mon 6:00, Tue 9:00 (class 1:30), … — bed by 10pm the night before 6:00 days." Built from the CLI's days only. */
 export declare function weekLine(days: PlanDay[]): string;

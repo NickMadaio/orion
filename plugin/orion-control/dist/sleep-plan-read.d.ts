@@ -1,10 +1,6 @@
-/** Wake days as orion-sleepplan reads them: mon..sun, "weekdays", "weekends", "all", "gym". */
-export type Draft = {
-    wake?: string;
-    days?: string[];
-    rest?: string;
-    lead?: number | null;
-};
+import { type Draft } from "./sleep-plan-slots.js";
+export type { Draft, DayWake } from "./sleep-plan-slots.js";
+export { slotsOf } from "./sleep-plan-slots.js";
 export type SleepStep = "wake" | "days" | "lead" | "confirm";
 export type SleepPending = {
     step: SleepStep;
@@ -29,8 +25,8 @@ export type SleepTurn = {
     kind: "noexcept";
     activity: string;
 };
-/** Everything a message says about the plan. Pure. */
-export declare function slotsOf(message: string): Draft;
+/** The default lead when he waves the question off with a yes ("yeah", "sure", "sounds good"): 3 hours, what he asked for. */
+export declare const DEFAULT_LEAD = 180;
 /** A habit statement about when he wakes or sleeps; the slots it already carries. Undefined when it is not one. */
 export declare function readHabit(message: string): Draft | undefined;
 /** A night he is out or working (an exception), or idling (no exception). Evening only, unless he says "tonight". Pure. */

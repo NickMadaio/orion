@@ -15,9 +15,10 @@
  a habit statement.
 */
 import { isNo, isYes } from "./schedule-pending.js";
+import { AMOUNT, clean, LEAD, leadMinutes, slotsOf, wakeTime, type Draft } from "./sleep-plan-slots.js";
 
-/** Wake days as orion-sleepplan reads them: mon..sun, "weekdays", "weekends", "all", "gym". */
-export type Draft = { wake?: string; days?: string[]; rest?: string; lead?: number | null };
+export type { Draft, DayWake } from "./sleep-plan-slots.js";
+export { slotsOf } from "./sleep-plan-slots.js";
 export type SleepStep = "wake" | "days" | "lead" | "confirm";
 export type SleepPending = { step: SleepStep; draft: Draft; reasked?: boolean };
 export type LegitReason = "friends" | "party" | "bar" | "schoolwork";
@@ -29,87 +30,12 @@ export type SleepTurn =
   | { kind: "noexcept"; activity: string };
 
 const pad = (n: number): string => String(n).padStart(2, "0");
-const clean = (m: string): string => m.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim();
-const NUM: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
-const num = (raw: string): number => NUM[raw] ?? Number(raw);
-
-// ── how long before class ──────────────────────────────────────────────────────────────────────────────────────────────
-const AMOUNT = String.raw`(\d+(?:\.\d+)?|an?|one|two|three|four|five|six)\s*(and a half\s*)?(h|hrs?|hours?|m|mins?|minutes?)?\s*(and a half\s*)?`;
-const LEAD = new RegExp(String.raw`\b(?:at ?least |like |about |around |~)?${AMOUNT}(?:early\s+)?(?:before|ahead of|prior to|b4)\s+(?:my |a |the |any |each |every )?(?:first |1st )?(?:class|classes|lecture|lectures|lab|labs|school|uni)\b`);
 const LEAD_ANSWER = new RegExp(String.raw`^(?:(?:like|about|around|at ?least|maybe|prob(?:ably)?|i'?d say|say|um+|uh+|hmm+|ok(?:ay)?|yeah|yea|ya|~)[,\s]+)*${AMOUNT}(?:\b|$)`);
 const NO_LEAD = /^(?:no|nah|nope|none|doesn'?t matter|does not matter|dont care|don'?t care|idc|whatever|not really|no rule|it doesn'?t matter|just normal|normal|same as now|leave it)\b/;
-
-function leadMinutes(m: RegExpMatchArray, bareIsHours: boolean): number | undefined {
-  const n = num(m[1]!) + (m[2] || m[4] ? 0.5 : 0);
-  const unit = m[3];
-  const minutes = unit ? (/^h/.test(unit) ? n * 60 : n) : bareIsHours && n <= 6 ? n * 60 : n >= 15 ? n : undefined;
-  return minutes !== undefined && minutes >= 15 && minutes <= 360 ? Math.round(minutes) : undefined;
-}
-
-// ── times ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-const CLASS_TIME = /\b(?:class(?:es)?|lectures?|labs?)\b[^,.;]{0,12}?\b(?:is|are|at|starts?|begins?)\s*(?:at\s*)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:class|lecture|lab)\b/g;
-const REST = /\b(?:otherwise|other days?|the other days|rest of (?:the )?(?:week|days?|time)|the rest|else|normal(?:ly)?|usual(?:ly)?|regular)\b\D{0,20}?(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.?|p\.m\.?)?)/;
-const MERIDIEM = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.?|p\.m\.?)(?![a-z])/;
-const H24 = /\b([01]?\d|2[0-3]):([0-5]\d)(?!\d)/;
-const AT_N = /\b(?:at|around|by|for|bout|about|like|~)\s*(\d{1,2})(?::(\d{2}))?(?:ish)?\b(?!\s*(?:h|hrs?|hours?|m|mins?|minutes?|days?|%)\b)/;
-const ISH = /\b(\d{1,2})ish\b/;
+/** The default lead when he waves the question off with a yes ("yeah", "sure", "sounds good"): 3 hours, what he asked for. */
+export const DEFAULT_LEAD = 180;
 const ANSWER_TIME = /^(?:(?:um+|uh+|like|around|about|maybe|prob(?:ably)?|at|by|for|ideally|say|i guess|i think|hmm+|so|ok(?:ay)?|yeah|yea|ya|prolly|probably|i'?d say)[,\s]+)*(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.?|p\.m\.?)?(?:ish)?(?:\b|$)(?!\s*(?:h|hrs?|hours?|m|mins?|minutes?)\b)/;
-
-/** A wake-up time as HH:MM: 4 AM to noon, no meridiem means the morning. */
-function wakeTime(h: number, m: number, mer?: string): string | undefined {
-  if (h > 23 || m > 59) return undefined;
-  const hour = mer ? (h > 12 || h < 1 ? -1 : (h % 12) + (/^p/.test(mer) ? 12 : 0)) : h;
-  return hour >= 4 && hour <= 12 ? `${pad(hour)}:${pad(m)}` : undefined;
-}
-const fromMatch = (m: RegExpMatchArray | null, meridiemAt = 3): string | undefined =>
-  m?.[1] ? wakeTime(Number(m[1]), Number(m[2] ?? 0), m[meridiemAt]) : undefined;
-/** The wake time named in a sentence (never a bare number). */
-function namedWake(text: string): string | undefined {
-  return fromMatch(text.match(MERIDIEM)) ?? (() => { const c = text.match(H24); return c ? wakeTime(Number(c[1]), Number(c[2])) : undefined; })()
-    ?? fromMatch(text.match(AT_N), 99) ?? fromMatch(text.match(ISH), 99);
-}
-
-// ── days ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
-const DAY_WORD = /^(mon(?:day)?|tues?(?:day)?|weds?|wednesday|thu|thur|thurs|thursday|fri(?:day)?|sat(?:urday)?|sun(?:day)?)s?$/;
-const ALL_DAYS = /\b(?:every ?day|daily|all week|each day|7 days|seven days|all (?:of )?(?:them|the days)|all days|every morning)\b/;
-const WEEKDAYS = /\bweek ?days?\b|\bmon(?:day)?\s*(?:-|to|thru|through)\s*fri(?:day)?\b|\bschool days\b/;
-const WEEKENDS = /\bweekends?\b/;
-const GYM_DAYS = /\bgym days?\b|\bdays? i (?:go to the |hit the )?gym\b|\bwhen i (?:go to the |hit the )?gym\b/;
-const NOT_WAKE_CLAUSE = /\b(?:class(?:es)?|lectures?|labs?|normal|usual|otherwise|other days?|the rest|rest of)\b/;
-
-/** The days his wake time is for, from the clauses that are not about classes or "the other days". */
-function daysIn(text: string): string[] | undefined {
-  const clauses = text.split(/[.;!?]|,|\b(?:but|so|because|cuz|since)\b/).filter((c) => !NOT_WAKE_CLAUSE.test(c));
-  const out = new Set<string>();
-  for (const c of clauses) {
-    if (ALL_DAYS.test(c)) out.add("all");
-    if (WEEKDAYS.test(c)) out.add("weekdays");
-    if (WEEKENDS.test(c)) out.add("weekends");
-    if (GYM_DAYS.test(c)) out.add("gym");
-    for (const w of c.split(/[^a-z]+/)) { const d = w.match(DAY_WORD); if (d) out.add(d[1]!.slice(0, 3)); }
-  }
-  return out.size ? [...out] : undefined;
-}
-
-/** Everything a message says about the plan. Pure. */
-export function slotsOf(message: string): Draft {
-  let text = clean(message).replace(CLASS_TIME, " ");
-  const draft: Draft = {};
-  const lead = text.match(LEAD);
-  if (lead) { const n = leadMinutes(lead, false); if (n !== undefined) draft.lead = n; text = text.replace(lead[0], " "); }
-  const rest = text.match(REST);
-  if (rest) {
-    const r = rest[1]!.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.?|p\.m\.?)?/);
-    const t = r ? wakeTime(Number(r[1]), Number(r[2] ?? 0), r[3]) : undefined;
-    if (t) draft.rest = t;
-    text = text.replace(rest[0], " ");
-  }
-  const wake = namedWake(text);
-  if (wake) draft.wake = wake;
-  const days = daysIn(clean(message));   // the clauses as he said them: one naming a class or "the other days" is skipped
-  if (days) draft.days = days;
-  return draft;
-}
+const answerTime = (m: string): string | undefined => { const a = m.match(ANSWER_TIME); return a ? wakeTime(Number(a[1]), Number(a[2] ?? 0), a[3]) : undefined; };
 
 // ── the habit statement ────────────────────────────────────────────────────────────────────────────────────────────────
 const ACT = String.raw`(?:wak(?:e|ing)(?: ?up)?|get(?:ting)? up|be(?:ing)? up|up|go(?:ing)? to (?:bed|sleep)|sleep(?:ing)?|(?:get(?:ting)?|be(?:ing)?) (?:to|in) bed|bed ?time|in bed|hit(?:ting)? the (?:sack|hay)|rise|rising|crash(?:ing)?)`;
@@ -121,7 +47,10 @@ const RISER = new RegExp(String.raw`\b${INTENT}\b.{0,20}?\b(?:become|be|turn int
 const HABIT = /\b(?:start(?:ing)?|from now on|every|each|in general|usually|this (?:semester|term|month)|going forward|routine|habit|always|regularly|consistently|for (?:the )?gym|on (?:week ?days|weekends|gym days))\b/;
 const ONE_OFF = /\b(?:tonight|today|this (?:morning|evening|afternoon)|right now|rn|now)\b/;
 const NEGATED = /\b(?:don'?t|dont|do not|never|not gonna|not going to|no way|can'?t|cant|stop)\b/;
-const STANDING_ALARM = /\b(?:wake me(?: up)?|wake(?: up)? at|get up at|be up at|up by|alarms?)\b/;
+/** A standing wake time: a wake word with a time and days or "from now on" ("from now on up at 6 mon wed thu", "set my wake time to 6am on …"). */
+const STANDING_ALARM = /\b(?:wak(?:e|ing)(?:[- ]?up)?|get(?:ting)? up|up at|up by|be up|alarms?|wake time)\b/;
+/** Asked outright as an alarm: saved without the interview ("set a 6am wake-up alarm every mon wed thu", "wake me up at 6 on gym days"). */
+const OUTRIGHT = /\b(?:alarms?|wake me(?: up)?)\b/;
 const ASKS_HELP = /\b(?:help me|can you|could you|pls|please)\b/;
 
 /** A habit statement about when he wakes or sleeps; the slots it already carries. Undefined when it is not one. */
@@ -130,11 +59,15 @@ export function readHabit(message: string): Draft | undefined {
   if (!m || m.length > 280 || NEGATED.test(m) || (/\?\s*$/.test(m) && !ASKS_HELP.test(m))) return undefined;
   const slots = slotsOf(m);
   const shift = m.match(SHIFT) ?? m.match(SHIFT_NOUN);
-  const habitual = HABIT.test(m) || !ONE_OFF.test(m);
+  const oneOff = ONE_OFF.test(m.replace(/\bfrom now on\b/g, ""));
+  const habitual = HABIT.test(m) || !oneOff;
   if (shift && (shift[1] === "later" ? HABIT.test(m) : habitual)) return slots;
   if (ROUTINE.test(m) || RISER.test(m)) return slots;
-  // "wake me at 6 every weekday", "i wanna get up at 6 on gym days": a standing alarm (the one-off alarm cannot repeat).
-  if (STANDING_ALARM.test(m) && slots.wake && slots.days && !ONE_OFF.test(m)) return slots;
+  // "wake me at 6 every weekday", "from now on up at 6 mon wed thu": a standing wake time (the one-off alarm cannot repeat).
+  // Named outright as an alarm with its days, and nothing else to settle, it is saved without the interview.
+  if (STANDING_ALARM.test(m) && slots.wake && (slots.days || HABIT.test(m)) && !oneOff) {
+    return OUTRIGHT.test(m) && slots.days && !slots.rest && !slots.also && slots.lead === undefined ? { ...slots, direct: true } : slots;
+  }
   return undefined;
 }
 
@@ -177,6 +110,7 @@ export function readException(message: string, now: Date): SleepTurn | undefined
 }
 
 // ── answers inside the interview ───────────────────────────────────────────────────────────────────────────────────────
+const BARE_YES = /^(?:ya|yah|yeh|yuh|yup|yep|mhm|k|kk|ok(?:ay)?|yes|yeah|yea|sure|yh)(?: (?:pls|please|thx|thanks))?$/;
 const CONFIRM = /^(?:(?:yes|yeah|yea|yep|yup|ya|ok(?:ay)?|sure)[,!\s]*)?(?:sounds? (?:right|good|great|perfect)|perfect|correct|exactly|bet|lgtm|looks (?:good|right)|that'?s (?:right|it|perfect)|do it|lock it in|save it|go for it|love it)\b/;
 const DECLINE = /^(?:nvm|never ?mind|forget it|cancel|stop|leave it|no thanks|nah forget it)\b/;
 const SHORT = (m: string): boolean => m.split(/\s+/).length <= 4;
@@ -194,15 +128,17 @@ export function readAnswer(message: string, held: SleepPending): SleepTurn | und
     const a = m.match(LEAD) ?? m.match(LEAD_ANSWER);
     const n = a ? leadMinutes(a, true) : undefined;
     if (n !== undefined) return { kind: "interview", draft: merge(held.draft, { ...slots, lead: n }) };
+    // "yeah", "sure", "idk": the 3 hours he asked for, and on to the summary (it re-asked forever before).
+    if (SHORT(m) && !REQUEST.test(m) && !hasSlots(slots)) return { kind: "interview", draft: merge(held.draft, { lead: DEFAULT_LEAD }) };
   }
   if (held.step === "confirm") {
-    if (isYes(m) || CONFIRM.test(m)) return { kind: "confirm", draft: held.draft };
+    if (isYes(m) || CONFIRM.test(m) || BARE_YES.test(m)) return { kind: "confirm", draft: held.draft };
     if (isNo(m)) return { kind: "decline" };
     return hasSlots(slots) ? { kind: "interview", draft: merge(held.draft, slots) } : undefined;
   }
   if (isNo(m) && held.step !== "days") return { kind: "decline" };
   if (held.step === "wake") {
-    const t = slots.wake ?? fromMatch(m.match(ANSWER_TIME));
+    const t = slots.wake ?? answerTime(m);
     if (t) return { kind: "interview", draft: merge(held.draft, { ...slots, wake: t }) };
   }
   if (held.step === "days" && slots.days) return { kind: "interview", draft: merge(held.draft, slots) };

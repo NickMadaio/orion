@@ -109,13 +109,13 @@ test("week plan → wake-plan.json shape: alarms, bedtimes and lockdowns line up
 });
 
 // The CLI against a sandboxed evaluation: eval-mode marker + eval-calendar.json in a tmp ORION_CONTROLLED_DIR.
-function sandbox(t) {
+function sandbox(t, extra = []) {
   const dir = mkdtempSync(join(tmpdir(), "sleepplan-cli-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, "eval-mode"), "");
   const ev = (d, h, m, dur, title) => { const s = new Date(2026, 10, d, h, m); return { identifier: `${title}-${d}`, title, allDay: "false", start: s.toISOString(), end: new Date(s.getTime() + dur * 60000).toISOString() }; };
   writeFileSync(join(dir, "eval-calendar.json"), JSON.stringify({ now: new Date(2026, 10, 2, 20, 0).toISOString(),
-    events: [ev(3, 13, 30, 95, "MKTG2201 Lecture"), ev(4, 9, 0, 100, "CS1800 Lecture"), ev(5, 10, 0, 60, "CS2100 Lab"), ev(6, 13, 30, 95, "MKTG2201 Lecture")] }));
+    events: [ev(3, 13, 30, 95, "MKTG2201 Lecture"), ev(4, 9, 0, 100, "CS1800 Lecture"), ev(5, 10, 0, 60, "CS2100 Lab"), ev(6, 13, 30, 95, "MKTG2201 Lecture"), ...extra.map((e) => ev(...e))] }));
   const env = { ...process.env, HOME: dir, ORION_CONTROLLED_DIR: dir };
   for (const k of ["ORION_LIFE_CONFIG", "ORION_BRIDGE_BIN", "ORION_RESCHEDULE_NOW", "ORION_NOW", "ORION_EVAL_MARKER", "ORION_SANDBOX_CALENDAR"]) delete env[k];
   const run = (...args) => { const r = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8", env }); return { code: r.status, out: r.stdout, err: r.stderr }; };
@@ -192,4 +192,32 @@ test("wake-plan.json alarms: only what he asked for (plan, class), each marked b
 test("orion-sleepplan never copies a wake request into the plan", () => {
   const src = readFileSync(SCRIPT, "utf8");
   assert.ok(!/wakeRequest:\s*await readWakeRequest/.test(src));
+});
+
+// W10-B review (live gate): several day groups in one write, gym days from the calendar, and a per-day wake the lead never pushes later.
+test("a per-day wake he chose is never moved later by the lead; only earlier", () => {
+  const plan = { ...base, sleepPlan: { byDay: { tue: { wake: "06:00" } }, firstClassLeadMin: 180 } };
+  assert.deepEqual(wakeWhy("2026-11-03", { blocksOf, config: plan }), { minute: 360, reason: "plan" }, "Tue 1:30 class: still 6:00");
+  assert.deepEqual(wakeWhy("2026-11-03", { blocksOf: () => [cls("Early lab", 510, 600)], config: plan }), { minute: 330, reason: "class" }, "8:30 class pulls it to 5:30");
+});
+
+test("CLI: --also and --sleep land in the same write; the rest covers only days nobody named", (t) => {
+  const { dir, run } = sandbox(t);
+  const r = run("set", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--also", "tue,fri=09:00", "--rest", "10:00", "--sleep", "8.5", "--json");
+  assert.equal(r.code, 0, r.err);
+  const out = JSON.parse(r.out);
+  assert.deepEqual(out.plan.byDay, { mon: { wake: "06:00" }, wed: { wake: "06:00" }, thu: { wake: "06:00" }, tue: { wake: "09:00" }, fri: { wake: "09:00" }, sun: { wake: "10:00" }, sat: { wake: "10:00" } });
+  assert.equal(JSON.parse(readFileSync(join(dir, "eval-life-config.json"), "utf8")).sleepPlan.sleepHours, 8.5);
+  assert.equal(out.days.find((d) => d.weekday === "wed").sleepBy, "21:30", "8.5 h before 6:00");
+  assert.equal(run("set", "--also", "tue=9am").code, 2);
+});
+
+test("CLI: gym days are the days with a Gym block this week; unknown is an error that says so", (t) => {
+  const { run } = sandbox(t, [[2, 17, 0, 90, "Gym"], [4, 17, 0, 90, "Gym"], [5, 7, 0, 60, "Gym"]]);
+  const r = run("plan", "--json", "--days", "gym", "--wake", "06:30");
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(Object.keys(JSON.parse(r.out).plan.byDay), ["mon", "wed", "thu"]);
+  const none = sandbox(t).run("plan", "--json", "--days", "gym", "--wake", "06:30");
+  assert.equal(none.code, 2);
+  assert.match(JSON.parse(none.out).error, /gym days unknown/);
 });

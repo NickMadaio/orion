@@ -81,7 +81,7 @@ import { pluginNow } from "./plugin-clock.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn } from "./pending-reply.js";
 import { bedtimeFromState, focusRunning } from "./bed-state.js";
 import { readPreference, savePreference } from "./preference-remember.js";
-import { readSleepTurn } from "./sleep-plan-read.js"; // W10-B
+import { readHabit, readSleepTurn } from "./sleep-plan-read.js"; // W10-B: a standing wake statement wins over a health read ("gym days")
 import { readPhoneBlock } from "./phone-block-read.js";
 import { runPhoneBlock } from "./phone-block-flow.js";
 import { runSleepTurn, SleepPlanPending } from "./sleep-plan-flow.js";
@@ -1166,7 +1166,7 @@ export function registerLocalRouting(api, options) {
         const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
         const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
         const sheld = sessionKey ? sleepPending.take(sessionKey, Date.now()) : undefined; // W10-B: before preference-remember can keep it as a "preference"
-        const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health)) ? readSleepTurn(message, { held: sheld, now: (options.now ?? pluginNow)() }) : undefined;
+        const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || !!readHabit(message)) ? readSleepTurn(message, { held: sheld, now: (options.now ?? pluginNow)() }) : undefined;
         const preference = !sleepTurn && !phoneBlock && free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
         const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
         const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;

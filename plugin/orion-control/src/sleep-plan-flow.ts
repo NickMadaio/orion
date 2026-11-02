@@ -24,7 +24,7 @@ export type SleepOutcome = { flow: FlowResult; pending?: SleepPending; tools: Sl
 
 type PlanDay = { date: string; weekday: string; wake: string; reason: string; firstClass: { title: string; at: string } | null;
   evening: string; sleepBy: string; lockdownAt: string; exception: { reason: string; until: string | null } | null };
-type PlanOut = { ok: boolean; calendar?: string; plan?: { nudgeBeforeMin?: number; byDay?: Record<string, unknown>; firstClassLeadMin?: number | null }; days?: PlanDay[] };
+type PlanOut = { ok: boolean; error?: string; calendar?: string; plan?: { nudgeBeforeMin?: number; byDay?: Record<string, unknown>; firstClassLeadMin?: number | null }; days?: PlanDay[] };
 
 /** One interview per chat, for a few minutes; taken (and so cleared) by the next turn whatever it is. */
 export class SleepPlanPending {
@@ -61,14 +61,19 @@ const meridiem = (hhmm: string): string => {
   return `${(h! % 12) || 12}${m ? `:${String(m).padStart(2, "0")}` : ""}${h! < 12 ? "am" : "pm"}`;
 };
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
+const toMin = (hhmm: string): number => { const [h, m] = hhmm.split(":").map(Number); return h! * 60 + m!; };
+const weekdayOf = (date: string): string => ORDER[(new Date(`${date}T12:00:00`).getDay() + 6) % 7]!;
+/** ["mon", "wed", "thu"] → "Mon, Wed and Thu". */
+const listDays = (days: string[]): string => { const c = days.map(cap); return c.length > 1 ? `${c.slice(0, -1).join(", ")} and ${c.at(-1)}` : c[0] ?? ""; };
 
-/** orion-sleepplan arguments for a draft (days, wake, rest, lead). */
+/** orion-sleepplan arguments for a draft. An alarm asked for outright keeps his other days (no --only); the interview replaces them. */
 export function draftArgs(d: Draft): string[] {
-  return [...(d.days && d.wake ? ["--days", d.days.join(","), "--wake", d.wake, "--only"] : []), ...(d.rest ? ["--rest", d.rest] : []),
-    ...(d.lead !== undefined ? ["--lead", d.lead === null ? "off" : String(d.lead)] : [])];
+  return [...(d.days && d.wake ? ["--days", d.days.join(","), "--wake", d.wake, ...(d.direct ? [] : ["--only"])] : []),
+    ...(d.also ?? []).flatMap((a) => ["--also", `${a.days.join(",")}=${a.wake}`]), ...(d.rest ? ["--rest", d.rest] : []),
+    ...(d.lead !== undefined ? ["--lead", d.lead === null ? "off" : String(d.lead)] : []), ...(d.sleep !== undefined ? ["--sleep", String(d.sleep)] : [])];
 }
 
-const nextStep = (d: Draft): Exclude<SleepStep, "confirm"> | undefined => (!d.wake ? "wake" : !d.days ? "days" : d.lead === undefined ? "lead" : undefined);
+const nextStep = (d: Draft): "wake" | "days" | undefined => (!d.wake ? "wake" : !d.days ? "days" : undefined);
 
 const parse = (stdout: string): PlanOut | undefined => { try { const o = JSON.parse(stdout) as PlanOut; return o && typeof o === "object" ? o : undefined; } catch { return undefined; } };
 
@@ -93,31 +98,50 @@ const say = (text: string, kind: "ask" | "plain" = "plain"): FlowResult => ({ ou
 async function call(run: SleepRun, args: string[], tools: SleepTool[]): Promise<{ out?: PlanOut; code: number; stdout: string }> {
   const r = await run(args).catch(() => ({ stdout: "", code: 1 }));
   tools.push({ canonical: `exec orion-sleepplan ${args.join(" ")}`, stdout: r.stdout, exit: r.code });
-  return { code: r.code, stdout: r.stdout, ...(r.code === 0 ? { out: parse(r.stdout) } : {}) };
+  return { code: r.code, stdout: r.stdout, out: parse(r.stdout) };
+}
+
+/** The CLI could not tell which days are gym days (no Gym block this week, no gym days set): ask. */
+const gymUnknown = (out: PlanOut | undefined): boolean => out?.ok === false && /gym days/i.test(out.error ?? "");
+const GYM_ASK = "Which days are gym days?";
+
+/** A day he gave no time for whose first class the 3-hour rule would pull earlier: only then is the lead worth asking. */
+const leadMatters = (days: PlanDay[]): boolean => days.some((d) => d.reason !== "plan" && d.firstClass && toMin(d.firstClass.at) - 180 < toMin(d.wake));
+
+/** The next alarm that will really ring (his per-day wake or the class rule), with the bedtime the night before it. */
+function nextAlarm(days: PlanDay[]): string {
+  const a = days.find((d) => d.reason === "plan" || d.reason === "class");
+  return a ? `Next alarm ${clock(a.wake)} ${cap(a.weekday)}, so bed by ${meridiem(a.sleepBy)} ${cap(weekdayOf(a.evening))}.` : "";
 }
 
 async function interview(draft: Draft, reask: SleepStep | undefined, run: SleepRun): Promise<SleepOutcome> {
   const tools: SleepTool[] = [];
-  const step = nextStep(draft);
+  const step = draft.lead === undefined && reask === "lead" ? "lead" : nextStep(draft);
   if (step) {
     const text = reask === step ? REASKS[step] : step === "days" && draft.wake ? `Got it, ${clock(draft.wake)}. ${QUESTIONS.days}` : QUESTIONS[step];
     return { flow: say(text, "ask"), pending: { step, draft, ...(reask === step ? { reasked: true } : {}) }, tools };
   }
+  if (draft.direct) return save(draft, run, true);
   const preview = await call(run, ["plan", "--json", ...draftArgs(draft)], tools);
-  if (!preview.out?.days?.length) return { flow: say("I couldn't work out your week just now, so nothing's changed. Try me again in a bit?"), tools };
+  if (gymUnknown(preview.out)) { const { days: _d, ...rest } = draft; return { flow: say(GYM_ASK, "ask"), pending: { step: "days", draft: rest }, tools }; }
+  if (!preview.out?.ok || !preview.out.days?.length) return { flow: say("I couldn't work out your week just now, so nothing's changed. Try me again in a bit?"), tools };
+  if (draft.lead === undefined && !draft.rest && !draft.days?.includes("all") && leadMatters(preview.out.days)) return { flow: say(QUESTIONS.lead, "ask"), pending: { step: "lead", draft }, tools };
   const blind = preview.out.calendar && preview.out.calendar !== "ok" ? " I couldn't see your calendar, so classes aren't counted yet." : "";
   return { flow: say(`${weekLine(preview.out.days)}${blind} Sound right?`, "ask"), pending: { step: "confirm", draft }, tools };
 }
 
-async function save(draft: Draft, run: SleepRun): Promise<SleepOutcome> {
+async function save(draft: Draft, run: SleepRun, direct = false): Promise<SleepOutcome> {
   const tools: SleepTool[] = [];
   const r = await call(run, ["set", ...draftArgs(draft), "--json"], tools);
-  const first = r.out?.days?.[0];
-  if (!r.out?.ok || !first) return { flow: say("I couldn't save that just now, so your sleep plan hasn't changed."), tools };
+  if (gymUnknown(r.out)) { const { days: _d, ...rest } = draft; return { flow: say(GYM_ASK, "ask"), pending: { step: "days", draft: rest }, tools }; }
+  if (r.code !== 0 || !r.out?.ok || !r.out.days?.length) return { flow: say("I couldn't save that just now, so your sleep plan hasn't changed."), tools };
   const nudge = r.out.plan?.nudgeBeforeMin ?? 30;
-  const reply = `Done, that's your plan now. Next up: bed by ${meridiem(first.sleepBy)}, alarm ${clock(first.wake)} ${cap(first.weekday)}. I'll nudge you ${nudge} min before bed.`;
+  const set = Object.entries((r.out.plan?.byDay ?? {}) as Record<string, { wake?: string }>).filter(([, v]) => v.wake === draft.wake).map(([d]) => d);
+  const head = direct && draft.wake ? `Done, ${clock(draft.wake)} alarm on ${listDays(ORDER.filter((d) => set.includes(d)))} from now on.` : "Done, that's your plan now.";
+  const reply = [head, nextAlarm(r.out.days), `I'll nudge you ${nudge} min before bed.`].filter(Boolean).join(" ");
   return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply }, tools };
 }
+
 
 async function except(reason: string, until: string | undefined, run: SleepRun): Promise<SleepOutcome> {
   const tools: SleepTool[] = [];

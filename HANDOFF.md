@@ -80,6 +80,58 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-02 11:20 GMT: wave 12: learning loop, questions queue, Sentient-style Home (Claude, orchestrator)
+
+**Found state.** Nick asked whether ORION learns (the audit is in the orchestrator scratchpad `orch/learning-audit.md`). Only the
+planned-vs-actual stats were live:
+- USER.md had 0 learned lines, and `orion_v2_workspace_sync.sh --apply` would wipe any it gained;
+- Nick.md had test residue and 7 duplicate `## Learned` headers, because `orion-brain learn` checked `bm read` output, which never matched;
+- corrections died with the session;
+- there was no questions store, and ORION couldn't edit or delete its own notes.
+
+Sentient OS is github.com/Sentient-OS-Labs/sentient-os (AGPL-3.0): take ideas only, never code.
+
+**What changed.**
+- **Learning (L1, L2, a fixer and an opus review).**
+  - `scripts/orion-questions` writes `questions.jsonl`; ORION asks at most one question a day at an interruptible moment.
+  - Nick's answers are stored as `#answer` facts, which ORION cannot edit.
+  - `orion-brain learn --own/mine/unlearn/edit` works only on `#orion` lines. The tool guard rewrites `forget --apply` to `unlearn`.
+  - The nightly `orion-memory-consolidate` runs from orion-daily with at most 10 removals a run, a promotion ledger, and tmp+rename.
+  - The workspace sync now keeps learned lines.
+  - Corrections become dated `Rule:` lines in USER.md (capped at 30, Nick sessions only), shown on every local turn's state card.
+- **UI (U1–U5).**
+  - The knowledge graph uses a single TimelineView+Canvas renderer: living, with hover, camera control, and state kept across tabs.
+  - New motion primitives: SoftReveal, AmbientTimeline, PageTransition.
+  - The new Home has a header with every section inline and no "More" menu; a greeting with the "I'VE LEARNED N THINGS" subline; tilted outline cards from real data (classes, overdue items, recovery/sleep, focus, projects, finance, questions); the hologram back as a dimmed centrepiece (the app-shortcut orbs are removed); a glance row; and a glowing composer.
+  - The phone drawer follows the finger, with new chat motion.
+- **Clock-leak fix (f601260):** `pendingMemory.memo` aged against `Date.now()`, so a pending-reply test only passed before about 08:00.
+
+**Verification.**
+- root 2245/2245 (plus the known 900 ms emergency-halt load flake);
+- plugin vitest 4197/4197, tsc 0;
+- Mac `swift test`: largest suite 447 tests, 0 failures;
+- phone simulator build OK, MobileCore 69/69.
+
+The opus review blocked on 3 HIGH and 5 MEDIUM findings; all were fixed, re-review approved, and a forged-`#answer` follow-up was fixed (082b824). The live Home window was captured and checked (build 1245).
+
+**Live/installed state.**
+- Orion.app build 1245 is installed. Previous copies: `/Applications/.Orion-previous-1218-pre-w12` and `-1218-pre-wave10`.
+- `orion-questions` and `orion-sleepplan` were added to the exec allowlist (Nick approved).
+- Nick approved deleting 5 residue facts from live Nick.md; backup in `.builds/Nick.md.pre-residue-*`.
+- The scripts mirror is synced. The plugin deploy follows this entry.
+- The phone app is NOT installed: it needs a USB-C data cable.
+
+**Rollback.** `scripts/orion-deploy --rollback` for the plugin; swap the `.Orion-previous-*` copy back for the app.
+
+**Next step.**
+1. Learning is NOT closed until a multi-day live check shows:
+   - a real question asked and answered, with the answer present in a later session;
+   - a correction carried into the next session;
+   - a nightly consolidate run on live data without losing anything;
+   - the 7 duplicate headers merged.
+2. Open MEDIUMs: rule-cap drops are silent to Nick; enforceRuleCap has a small race window.
+3. Not done: Hermes-style skills from successful runs, wiring HealthCorrelations, and the phone install.
+
 ### 2026-11-02 09:15 GMT: why the phone location stopped, and ORION now asks for a fresh fix (Claude, subagent)
 
 **Found state.** The newest phone fix was 10-30 16:27:59Z. At 08:02 location was "unknown", so a "Leave in 13 min" reminder

@@ -150,6 +150,20 @@ describe("through the routing hooks: a correction in session A is in session B's
         expect(h.remembered).toEqual([]);
         expect(readFileSync(userMd, "utf8")).toBe(USER);
     });
+    it("fixer: refusing what ORION just pushed is one-off (even worded like a rule); 'from now on' after it is a rule", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "cl-route-"));
+        const userMd = join(dir, "USER.md");
+        writeFileSync(userMd, USER);
+        writeFileSync(join(dir, "outreach.jsonl"), `${JSON.stringify({ id: "r1", text: "Want me to schedule your reading before 10am and move your study block to 4 PM?", at: new Date(2026, 10, 2, 11, 55).toISOString(), channel: "phone" })}\n`);
+        const h = routed({ stateDir: dir, userMdPath: userMd });
+        await h.turn("no dont move my study block", "A");
+        await h.turn("no dont schedule anything before 10am", "A"); // a rule with no offer on record; here it answers the push
+        await settle();
+        expect(h.remembered).toEqual([]);
+        await h.turn("from now on dont move my study blocks", "A");
+        await settle();
+        expect(h.remembered).toEqual([["--user", "Rule: Nick wants ORION not to move his study blocks."]]);
+    });
     it("inside an evaluation, nothing is written", async () => {
         const dir = mkdtempSync(join(tmpdir(), "cl-route-"));
         const userMd = join(dir, "USER.md");

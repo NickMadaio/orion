@@ -6,7 +6,7 @@
             answers it) and up to two more.
    drop     "forget that question" / "dont ask me that again": drops the question on the table (or the one his words name).
    answer   his reply to a question ORION asked (a push in the last 3 h that is still the last thing sent, or one listed in chat in
-            the last 30 min): orion-questions answer, which keeps it in his Nick note as a dated #orion line.
+            the last 30 min): orion-questions answer, which keeps it in his Nick note as a dated #answer line (his words: ORION may not edit it).
    skip     "idk" / "ask me later" to that question: open again, asked another day.
 
  Every write goes through scripts/orion-questions (fixed argument lists, no shell); every reply is built from what it said.

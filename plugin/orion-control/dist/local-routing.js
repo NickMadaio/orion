@@ -83,7 +83,7 @@ import { LATE_TONE_LINE, pastNudgeTime, stripLateInstruction } from "./night-hus
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn } from "./pending-reply.js";
 import { bedtimeFromState, focusRunning } from "./bed-state.js";
 import { readPreference, savePreference } from "./preference-remember.js";
-import { learnCorrection, standingRulesLine } from "./correction-learn.js";
+import { learnCorrection, pendingOffer, standingRulesLine } from "./correction-learn.js";
 import { ownsSleepStatement, readSleepTurn } from "./sleep-plan-read.js"; // W10-B: a standing wake statement wins over a health read ("gym days")
 import { readPhoneBlock } from "./phone-block-read.js";
 import { runPhoneBlock } from "./phone-block-flow.js";
@@ -1176,8 +1176,11 @@ export function registerLocalRouting(api, options) {
         const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message)) ? readSleepTurn(message, { held: sheld, now: (options.now ?? pluginNow)() }) : undefined;
         const preference = !sleepTurn && !phoneBlock && free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
         // Wave 12 (correction-learn.ts): a correction meant to last becomes a standing rule in USER.md (never in an evaluation); the turn goes on as usual.
-        if (free && !preference && !sleepTurn && !pendingYes && options.rememberRun && (!spokenTurn || tellsFactAloud(message)))
-            void learnCorrection(message, { run: options.rememberRun, ...(options.stateDir ? { stateDir: options.stateDir } : {}), sessionKey });
+        // Fixer: what ORION just proposed (its label, last push, held offer or memo), so "no dont move my study block" stays one-off.
+        if (free && !preference && !sleepTurn && !pendingYes && options.rememberRun && (!spokenTurn || tellsFactAloud(message))) {
+            const offered = pendingOffer({ label: parseOutreach(raw)?.text, stateDir: options.stateDir, now: (options.now ?? pluginNow)(), held: !!held, memo: sessionKey ? pendingMemory.memo(sessionKey, Date.now()) : undefined });
+            void learnCorrection(message, { run: options.rememberRun, ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.userMdPath ? { userMdPath: options.userMdPath } : {}), ...(offered ? { offered } : {}), sessionKey });
+        }
         const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
         const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
         const knowledge = on && !quietTurn && !kmove && isKnowledgeAsk(message);

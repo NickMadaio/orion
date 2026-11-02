@@ -64,7 +64,7 @@ describe("question → answer → memory a later turn reads", () => {
     expect(w.desk).toEqual([]);
     const rows = readFileSync(join(w.dir, "questions.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as { id: string; status: string });
     expect(rows.find((r) => r.id === id)?.status).toBe("answered");
-    expect(readFileSync(w.note, "utf8")).toMatch(/- \[answer\] Who is Sam\? → hes my gym buddy from uni we lift tuesdays #orion \(2026-11-02\)/);
+    expect(readFileSync(w.note, "utf8")).toMatch(/- \[answer\] Who is Sam\? → hes my gym buddy from uni we lift tuesdays #answer \(2026-11-02\)/);
 
     // A later ordinary turn: the worker's state card carries the answer.
     const later = await w.prompt("should i hit the gym with someone today");
@@ -72,7 +72,7 @@ describe("question → answer → memory a later turn reads", () => {
 
     // A later recall turn: "What he told you" from his Nick note includes it.
     const recall = await w.prompt("do you remember who sam is");
-    expect(recall).toMatch(/What he told you[\s\S]*\[answer\] Who is Sam\? → hes my gym buddy from uni we lift tuesdays #orion/);
+    expect(recall).toMatch(/What he told you[\s\S]*\[answer\] Who is Sam\? → hes my gym buddy from uni we lift tuesdays #answer/);
   });
 
   it("any questions for me → the top one, and his next message answers it; forget that question drops it", async () => {

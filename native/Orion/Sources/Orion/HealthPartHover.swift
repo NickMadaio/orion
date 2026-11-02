@@ -87,7 +87,7 @@ final class HealthHoverController: ObservableObject {
 /// the right column and cannot run past the window edge. Its width is the column it lives in, capped for readability.
 enum HealthStageLayout {
     static let maxWidth: CGFloat = 560
-    static let height: CGFloat = 132
+    static let height: CGFloat = 104
 
     static func width(column: CGFloat) -> CGFloat {
         max(0, min(maxWidth, column.isFinite ? column : 0))

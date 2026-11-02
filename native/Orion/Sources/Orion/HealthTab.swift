@@ -364,7 +364,7 @@ struct HealthTab: View {
         return VStack(alignment: .leading, spacing: 44) {
             VStack(alignment: .leading, spacing: 10) {
                 railDailyProgress(sectionsModel(at: Date()))
-                HealthHoverStage(controller: railHover, model: sectionsModel(at: Date()), column: 300, height: 150)
+                HealthHoverStage(controller: railHover, model: sectionsModel(at: Date()), column: 300, height: 110)
             }
             HairlineSection(title: "From your records", trailing: recordsOpen ? facts.dayKey : nil, hue: Color.white.opacity(0.28),
                             spacing: 6, order: 2, accessory: {

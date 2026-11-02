@@ -120,6 +120,18 @@ struct DashboardView: View {
             // so it takes the whole window and lays out against its height:
             // the composer sits at the bottom, not under the last card.
             GeometryReader { proxy in
+                if selectedTab == .tasks {
+                    // The Plan page never scrolls as a page (Nick, 11-02): it sits OUTSIDE the page ScrollView, handed
+                    // exactly the viewport, and its two columns scroll on their own. Inside the ScrollView (wave 14's
+                    // first try) the page still scrolled live, whatever height it was given.
+                    tabContent(availableHeight: max(0, proxy.size.height - 44),
+                               availableWidth: max(0, proxy.size.width - 92))
+                        .padding(.horizontal, 46)
+                        .padding(.top, 26)
+                        .padding(.bottom, 18)
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                        .clipped()
+                } else {
                 ScrollView {
                     if selectedTab.fillsWindow {
                         tabContent(availableHeight: proxy.size.height - 24)
@@ -127,22 +139,6 @@ struct DashboardView: View {
                             .padding(.top, 6)
                             .padding(.bottom, 18)
                             .frame(maxWidth: .infinity)
-                    } else if selectedTab == .tasks {
-                        // A vertical ScrollView gives its child an ideal width,
-                        // not a promise to fill the viewport. Tasks needs the
-                        // measured window width so its calendar can genuinely
-                        // reach the right side instead of stopping at an old
-                        // document-style ideal size.
-                        //
-                        // Wave 14: and the Plan page does not scroll as a page. It is handed exactly the
-                        // viewport (minus its 26 + 18 padding) and its two columns scroll on their own; with
-                        // bounce based on size below, the outer ScrollView has nothing to move.
-                        tabContent(availableHeight: max(0, proxy.size.height - 44),
-                                   availableWidth: max(0, proxy.size.width - 92))
-                            .padding(.horizontal, 46)
-                            .padding(.top, 26)
-                            .padding(.bottom, 18)
-                            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                     } else if selectedTab == .project || selectedTab == .knowledge {
                         // Projects is a workspace: the workflow graph owns the
                         // right third, so the document-column cap would leave
@@ -166,7 +162,7 @@ struct DashboardView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .scrollBounceBehavior(selectedTab == .tasks ? .basedOnSize : .automatic, axes: .vertical)
+                }
             }
         }
         .onChange(of: state.sessionTabModel.hasLiveSession) { _, live in if !live { state.sessionMinimized = false } }

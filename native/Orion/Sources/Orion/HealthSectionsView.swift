@@ -2,90 +2,75 @@ import SwiftUI
 import MobileCore
 
 /*
- PHASE 34 — the seven sections on screen.
+ PHASE 34, reshaped in wave 14. The seven parts are no longer a list on the page: the first, Today, is one short
+ serif line here, and each other part floats from the metric it describes (`healthPartHover`, HealthPartHover.swift).
+ What stays on the page is the one part that is a function rather than a reading, the journal, folded away until
+ asked for.
 
- What the manifest asks for is a shape, not a redesign: seven named sections,
- each answering what happened, what it likely means, and what to consider, with
- source and confidence inspectable and without a wall of charts.
-
- So this is ADDITIVE. `HealthTab` keeps its phase-aware headline — the design
- note at the top of that file explains why a dashboard whose headline never
- changes is one you stop reading after breakfast, and that reasoning still
- holds. This renders the seven sections underneath it, from
- `HealthSectionsModel`, which is where every rule actually lives.
-
- Nothing here decides what may be said. The view cannot render an interpretation
- the data does not support, because `SectionNarrative` refuses to hold one; it
- cannot render a clinical term, for the same reason. That is deliberate: a rule
- enforced in a view holds only on the screens somebody remembered to apply it
- to.
-
- The one judgement this file does make is that confidence is shown ALWAYS rather
- than only when it is low. "Make source and confidence inspectable" is a
- property of every claim, and a confidence line that appears only when things
- are uncertain teaches people that its absence means certainty.
+ The rules are unchanged and live in `HealthSectionsModel`: the view cannot render an interpretation the data does not
+ support, because `SectionNarrative` refuses to hold one. Confidence is still shown for every part, now in its hover.
 */
 
+/// The "Today" part as a single serif line, with its detail on hover.
+struct HealthTodayLine: View {
+    let model: HealthSectionsModel
+
+    var body: some View {
+        if let today = model.parts([.today]).first {
+            Text(today.narrative.happened)
+                .font(OrionTheme.serif(21))
+                .foregroundStyle(OrionTheme.text.opacity(0.92))
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 620, alignment: .leading)
+                .healthPartHover([today], model: model, width: 340)
+        }
+    }
+}
+
+/// The journal: a quiet, collapsible entry field. Unchanged in behaviour from the old seventh section.
 struct HealthSectionsView: View {
 
     let model: HealthSectionsModel
     @ObservedObject var journal: JournalStore
 
-    @State private var expanded: Set<String> = []
+    @State private var open = false
     @State private var draft = ""
 
     var body: some View {
-        HairlineSection(title: "In seven parts", spacing: 30) {
-            ForEach(model.sections(), id: \.section.rawValue) { content in
-                sectionBlock(content)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func sectionBlock(_ content: HealthSectionContent) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Wave 13: the Home voices. The machine whispers the section in its hue, his day reads in serif.
-            HStack(spacing: 10) {
-                Kicker(text: content.title, hue: Self.hue(content.section))
-                if [.today, .sleep, .recovery, .activity].contains(content.section) {
-                    Text(model.readingStatus)
-                        .font(OrionTheme.mono(9.5))
+        VStack(alignment: .leading, spacing: 14) {
+            Button {
+                withAnimation(OrionMotion.page) { open.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    Kicker(text: "Journal", hue: OrionTheme.rose.opacity(0.9))
+                    FadingRule()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
                         .foregroundStyle(Color.white.opacity(0.36))
-                        .lineLimit(1)
+                        .rotationEffect(.degrees(open ? 180 : 0))
                 }
+                .contentShape(Rectangle())
             }
-
-            // What happened. Always present.
-            Text(content.narrative.happened)
-                .font(OrionTheme.serif(18))
-                .foregroundStyle(OrionTheme.text)
-                .lineSpacing(2)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let means = content.narrative.likelyMeans {
-                labelled("What this likely means", means)
-            }
-            if let consider = content.narrative.consider {
-                labelled("Worth considering", consider)
-            }
-
-            if content.section == .journal { journalEntry }
-
-            provenance(content)
+            .buttonStyle(.plain)
+            if open { journalEntry.transition(.opacity.combined(with: .offset(y: -6))) }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Writing in the journal, and the one question an entry may raise.
     ///
-    /// The clarification is shown as a QUESTION with the entry already saved,
-    /// not as a blocking prompt. "Ask for clarification only when necessary"
-    /// does not mean "refuse the entry until answered" — an entry Nick typed is
-    /// his, and holding it hostage to a meridiem is how a journal stops being
-    /// used.
+    /// The clarification is shown as a QUESTION with the entry already saved, not as a blocking prompt: an entry
+    /// Nick typed is his, and holding it hostage to a meridiem is how a journal stops being used.
     @ViewBuilder
     private var journalEntry: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let part = model.parts([.journal]).first {
+                Text(part.narrative.happened)
+                    .font(OrionTheme.serif(16))
+                    .foregroundStyle(OrionTheme.text.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 8) {
                 TextField("Had caffeine around 5…", text: $draft, onCommit: commit)
                     .textFieldStyle(.plain)
@@ -95,7 +80,6 @@ struct HealthSectionsView: View {
                     .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.vertical, 8)
-            // An underline, not a filled field: the same hairline the Plan composer sits on.
             .overlay(alignment: .bottom) { FadingRule(tint: OrionTheme.rose) }
 
             if let question = journal.pendingClarification {
@@ -118,11 +102,9 @@ struct HealthSectionsView: View {
                     Text(entry.eventType.rawValue)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.tertiary)
-                    // A corrected entry says so. Hiding it would make Orion's
-                    // guesses look like it was always right.
+                    // A corrected entry says so; hiding it would make Orion's guesses look always right.
                     if entry.source == .correction {
-                        Image(systemName: "pencil").font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
+                        Image(systemName: "pencil").font(.system(size: 9)).foregroundStyle(.tertiary)
                     }
                 }
             }
@@ -137,53 +119,7 @@ struct HealthSectionsView: View {
         draft = ""
     }
 
-    @ViewBuilder
-    private func labelled(_ label: String, _ body: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.tertiary)
-            Text(body)
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// Source and confidence, on every section without exception.
-    ///
-    /// Tappable to expand rather than always spelled out, because seven copies
-    /// of a full provenance sentence IS the overload the manifest warns about —
-    /// but the short form still names both, so nothing is hidden behind the tap.
-    @ViewBuilder
-    private func provenance(_ content: HealthSectionContent) -> some View {
-        let key = content.section.rawValue
-        let isOpen = expanded.contains(key)
-        VStack(alignment: .leading, spacing: 4) {
-            Button {
-                if isOpen { expanded.remove(key) } else { expanded.insert(key) }
-            } label: {
-                HStack(spacing: 6) {
-                    Text(shortProvenance(content))
-                    Image(systemName: isOpen ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-            }
-            .buttonStyle(.plain)
-
-            if isOpen {
-                Text(longProvenance(content))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.top, 2)
-    }
-
-    /// One hue per section, from the Home palette, so the column can be scanned by colour.
+    /// One hue per part, from the Home palette.
     static func hue(_ section: HealthSection) -> Color {
         switch section {
         case .today: OrionTheme.accent
@@ -193,23 +129,6 @@ struct HealthSectionsView: View {
         case .energy: Color(red: 0.95, green: 0.80, blue: 0.40)
         case .trends: OrionTheme.violet
         case .journal: OrionTheme.rose
-        }
-    }
-
-    private func shortProvenance(_ content: HealthSectionContent) -> String {
-        let sources = content.narrative.sources.map(\.label).joined(separator: ", ")
-        return "\(sources) · \(confidenceWord(content.narrative.confidence)) history confidence"
-    }
-
-    private func longProvenance(_ content: HealthSectionContent) -> String {
-        model.provenanceDetail(for: content.section)
-    }
-
-    private func confidenceWord(_ confidence: BaselineConfidence) -> String {
-        switch confidence {
-        case .low: return "low"
-        case .moderate: return "moderate"
-        case .high: return "high"
         }
     }
 }

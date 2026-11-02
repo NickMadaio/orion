@@ -103,6 +103,25 @@ struct HealthSectionsModel {
         return "Older readings — not a current-day assessment"
     }
 
+    /// "Whoop · moderate history confidence": the one-line source and confidence shown with every part.
+    func shortProvenance(_ content: HealthSectionContent) -> String {
+        let sources = content.narrative.sources.map(\.label).joined(separator: ", ")
+        let word: String
+        switch content.narrative.confidence {
+        case .low: word = "low"
+        case .moderate: word = "moderate"
+        case .high: word = "high"
+        }
+        return "\(sources) · \(word) history confidence"
+    }
+
+    /// The parts for the given sections, in that order, skipping any with nothing to say.
+    func parts(_ sections: [HealthSection]) -> [HealthSectionContent] {
+        sections.compactMap { section in
+            narrative(for: section).map { HealthSectionContent(section: section, narrative: $0) }
+        }
+    }
+
     func provenanceDetail(for section: HealthSection) -> String {
         switch section {
         case .energy, .journal:

@@ -121,10 +121,10 @@ struct HomeHologramPlacement: Equatable {
         switch count {
         // Measured on 1440×900 renders: the glance row sits at ~0.86 of the scene, so the ring stops by ~0.84.
         // Empty: lower than centre, so the spread's one calm line sits above the ring rather than across the orb.
-        case 0: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.6), diameter: 0.52, opacity: 0.78)
-        case 1...2: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.52, opacity: 0.72)
-        case 3: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.52, opacity: 0.5)
-        default: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.72, opacity: 0.3)
+        case 0: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.6), diameter: 0.52, opacity: 0.95)
+        case 1...2: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.52, opacity: 0.92)
+        case 3: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.52, opacity: 0.7)
+        default: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.72, opacity: 0.45)
         }
     }
 

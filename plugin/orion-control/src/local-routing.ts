@@ -66,7 +66,7 @@ import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocu
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { whyAnswer } from "./why-answer.js";
 import { kindOf, parseOutreach, asksWhy, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
-import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
+import { TONE_NOTE, clockOf, deskLine, loadCardInputs, readLastOutreach, stateCard, type CardInputs } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
@@ -91,6 +91,8 @@ import { runSleepTurn, SleepPlanPending, type SleepRun } from "./sleep-plan-flow
 import { readDayDefault, runDayDefault, type DayDefault } from "./day-defaults.js";
 import { KnowledgePending, readKnowledgeMove } from "./knowledge-moves.js";   // wave 6: forget / links / profile / trash
 import { runKnowledgeMove, type KnowledgeRun } from "./knowledge-run.js";
+import { liveQuestionsRun, readQuestionsMove, runQuestionsMove, type QuestionsRun } from "./questions-flow.js";   // wave 12 L1
+import { answeredCardLine } from "./questions-store.js";
 import { approvalAsk } from "./approval-reply.js";   // run-1101020721: a held send is said as a draft and a question
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, TOMORROW, LATE_NIGHT_UNTIL, meansTomorrow, blockList, runScheduleFlow, spokenReply, parseAskContext, type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 
@@ -178,6 +180,8 @@ export type LocalRoutingOptions = {
   brainSearch?: (query: string) => Promise<string>;
   /** Wave 6 (knowledge-run.ts): orion-brain forget/links/profile and orion-trash. Unset, those moves are not taken. */
   knowledgeRun?: KnowledgeRun;
+  /** Wave 12 L1 (questions-flow.ts): orion-questions; unset, the real script with stateDir. */
+  questionsRun?: QuestionsRun;
   /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
   nickNote?: () => string;
   /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
@@ -1182,8 +1186,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // The calendar intent layer (calendar-intent.ts): a replan, a follow-up to one, an add at a time or "until T", or a request he took back at the end.
     // 2026-10-30: a statement of what happened ("i dont have classes today") is code's from the start: no desk, no model needed for its effect.
     const quietTurn = hushed || quietStart !== undefined;
-    const reality = on && !cutOff && !quietTurn && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-    const realityWhole = !!reality && !reality.rest;
+    // Wave 12 L1 (questions-flow.ts): "any questions for me", "forget that question", or his answer to ORION's question owns the whole turn.
+    const qmove = on && !cutOff && !quietTurn && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw)!.text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
+    const reality = on && !cutOff && !quietTurn && !qmove && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+    const realityWhole = (!!reality && !reality.rest) || !!qmove;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
     const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
     const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1240,7 +1246,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
     // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
     // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-    const pending = on && !cutOff && !quietTurn && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+    const pending = on && !cutOff && !quietTurn && !qmove && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
       ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, Date.now()),
         ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir) })
         // Wave 6 (bed-state.ts): past his bedtime with no nudge in reach, a stall or "going to bed" is still the bedtime reply.
@@ -1263,6 +1269,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (kmove && options.knowledgeRun) {   // wave 6 (knowledge-run.ts): the reply is built from the scripts' JSON
       const out = await withTimeout(runKnowledgeMove(kmove, options.knowledgeRun).catch(() => undefined), 12000);
       if (out) { run.ownText = out.text; out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 })); if (out.held && sessionKey) knowledgePending.set(sessionKey, out.held, Date.now()); }
+    }
+    if (qmove && options.stateDir) {   // wave 12 L1: the reply is built from orion-questions' JSON
+      const out = await withTimeout(runQuestionsMove(qmove, options.questionsRun ?? liveQuestionsRun(options.stateDir)).catch(() => undefined), 12000);
+      if (out) { run.ownText = out.text; out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 })); }
     }
     if (sessionKey && !cutOff && !quietTurn && options.lateFlow) { const late = lateTurn(sessionKey, message); if (late) run.late = late; }
     if (sessionKey) { const answer = addTurn(sessionKey, message); if (answer && !cutOff) run.addAnswer = answer; }
@@ -1325,7 +1335,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
       // 2026-10-30: the state card and the tone note, just before the clock (both change far less often than it does).
       const tone = pastNudgeTime(options.stateDir, (options.now ?? pluginNow)()) ? `${TONE_NOTE.split("\n").slice(0, 2).join("\n")}\n${LATE_TONE_LINE}` : TONE_NOTE;
-      const card = run.card ? `${stateCard(run.card)}\n\n${tone}\n\n` : "";
+      const card = run.card ? `${[stateCard(run.card), answeredCardLine(options.stateDir, (options.now ?? pluginNow)())].filter(Boolean).join("\n")}\n\n${tone}\n\n` : "";   // wave 12 L1: + his answers
       // Distress comes before every flow: "i literally cant do this anymore" got a canned "Want to take a
       // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
       // Only in "on" mode: in shadow, or once the testing window closes, the configured (cloud) model answers

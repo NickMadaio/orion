@@ -183,7 +183,6 @@ describe("ToolBudget", () => {
 // Only knowledge-run.ts (code, not the model) archives or restores saved memories; orion-trash is never the worker's at all.
 describe("REV6: the worker cannot archive memories or trash files itself", () => {
     it.each([
-        `/opt/orion/scripts/orion-brain forget --apply 3f2a9c01de`,
         "orion-brain forget --restore 3f2a9c01de",
         `~/Desktop/ORION/scripts/orion-brain "forget" "--apply" ab12cd34ef`,
         `node /opt/orion/scripts/orion-brain forget --apply ab12cd34ef 99aa88bb77`,
@@ -196,5 +195,27 @@ describe("REV6: the worker cannot archive memories or trash files itself", () =>
     it.each([`orion-brain forget "my wifi"`, "orion-brain search creatine", "orion-brain links Priya"])("still allowed: %s", (command) => {
         const out = exec(command);
         expect(out && "block" in out).toBeFalsy();
+    });
+});
+// Wave 12 L1: ORION may edit and delete his OWN notes (#orion lines). The script enforces provenance (orion-brain unlearn/edit refuse
+// Nick's and system entries), so the guard lets those through, and a plain `forget --apply <ids>` becomes `unlearn <ids>`: his own
+// notes go, anything else comes back refused. Restore and orion-trash stay code-only.
+describe("wave 12: the worker edits and unlearns only its own notes", () => {
+    it.each([
+        `${SCRIPTS}/orion-brain unlearn 3f2a9c01de`,
+        `${SCRIPTS}/orion-brain edit 3f2a9c01de "Sam is his gym buddy"`,
+        `${SCRIPTS}/orion-brain mine`,
+        `${SCRIPTS}/orion-brain learn --own "Nick" "guess" "probably lifts on tuesdays"`,
+    ])("allowed: %s", (command) => {
+        const out = exec(command);
+        expect(out && "block" in out).toBeFalsy();
+    });
+    it("forget --apply on plain ids becomes unlearn (own notes only)", () => {
+        expect(exec(`${SCRIPTS}/orion-brain forget --apply 3f2a9c01de ab12cd34ef`)).toEqual({ params: { command: `${SCRIPTS}/orion-brain unlearn 3f2a9c01de ab12cd34ef` } });
+        expect(exec(`/opt/orion/scripts/orion-brain forget --apply 3f2a9c01de`)).toEqual({ params: { command: `/opt/orion/scripts/orion-brain unlearn 3f2a9c01de` } });
+    });
+    it("the block for restore names the route for his own notes", () => {
+        const out = exec("orion-brain forget --restore 3f2a9c01de");
+        expect(out && "blockReason" in out && out.blockReason).toMatch(/orion-brain unlearn/);
     });
 });

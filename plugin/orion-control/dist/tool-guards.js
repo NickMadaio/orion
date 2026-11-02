@@ -105,7 +105,20 @@ function fixAgendaArgs(rest) {
  archive his memories silently. Archiving and restoring belong to knowledge-run.ts (code, with his words); orion-trash is never the
  worker's (knowledge-run.ts runs it, and it stays off the allowlist). Matched on words, quotes stripped, under any path or interpreter.
 */
-const CODE_ONLY_REASON = "That change is not yours to run: forgetting or restoring saved memories, and moving files to the Trash, happen only when Nick asks in his own words, and ORION's code runs them. Tell him what you would remove and let him ask.";
+const CODE_ONLY_REASON = "That change is not yours to run: forgetting or restoring saved memories, and moving files to the Trash, happen only when Nick asks in his own words, and ORION's code runs them. Tell him what you would remove and let him ask. Your OWN notes (orion-brain mine) you may change yourself: orion-brain unlearn <id> or orion-brain edit <id> \"<new wording>\".";
+/*
+ Wave 12 L1 (2026-11-02): "obv he can create, edit, delete his own notes". `orion-brain unlearn` and `edit` refuse every entry that
+ is not ORION's own (#orion), so they pass; a plain `orion-brain forget --apply <ids>` (one program, ids only) is the same wish and
+ becomes `unlearn <ids>`, which removes only his own and reports the rest refused. Restore, interpreter forms and orion-trash stay blocked.
+*/
+const OWN_FORGET = /^(\S*orion-brain)\s+forget\s+--apply((?:\s+[0-9a-f]{10})+)\s*$/;
+function ownForget(command) {
+    const m = OWN_FORGET.exec(command);
+    if (!m)
+        return undefined;
+    const head = m[1].replace(/^~\/Desktop\/ORION\/scripts\//, `${SCRIPTS_DIR}/`);
+    return `${head.startsWith("/") ? head : `${SCRIPTS_DIR}/orion-brain`} unlearn${m[2]}`;
+}
 function codeOnly(command) {
     const words = command.split(/\s+/).map((w) => w.replace(/^["']+|["']+$/g, "")).filter(Boolean);
     const at = (name) => words.findIndex((w) => w === name || w.endsWith(`/${name}`));
@@ -122,6 +135,9 @@ function guardExec(toolName, params, deps) {
     if (!key)
         return undefined;
     const trimmed = params[key].trim();
+    const own = ownForget(trimmed);
+    if (own)
+        return { params: { ...params, [key]: own } };
     if (codeOnly(trimmed))
         return block(CODE_ONLY_REASON);
     const m = /^(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed);

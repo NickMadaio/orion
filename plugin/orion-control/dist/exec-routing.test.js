@@ -16,7 +16,7 @@ describe("routeForDoomedExec: the first refusal carries the route", () => {
         expect(route?.reason).toContain("not the same as being forbidden");
     });
     it("knows the bedtime and sleep-plan wrappers, so a bare name gets the absolute-path route", () => {
-        for (const name of ["orion-bedtime-act dim", "orion-sleepplan show"]) {
+        for (const name of ["orion-bedtime-act dim", "orion-sleepplan show", "orion-questions list --open"]) {
             expect(routeForDoomedExec(name)?.reason).toContain(`scripts/${name.split(" ")[0]}`);
         }
     });

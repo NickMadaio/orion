@@ -63,7 +63,8 @@ import { codeDayAnswer, dayRead, isAfterThat, noBlockReply } from "./day-read-an
 import { asksDeadlines, deadlineReply } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes } from "./schedule-pending.js";
-import { parseOutreach, asksWhy, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
+import { whyAnswer } from "./why-answer.js";
+import { kindOf, parseOutreach, asksWhy, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip } from "./anchor-guards.js";
@@ -1757,7 +1758,13 @@ export function registerLocalRouting(api, options) {
                     run.flow = { outcome: "say", kind: "plain", text: `No focus session is running, so there's nothing to ${SESSION_VERB_SAY[sessionVerb] ?? "change"}. Say "start a focus session for 30 minutes" and I'll start one.` };
                 }
             }
-            const moved = !run.flow && !run.cutOff ? toolDirective(run.settled, run.message) : null;
+            // "why" to something ORION sent: code explains THAT message (a weather notice through a forecast lookup it asks for), before any worker guess.
+            const whyPush = !run.outreach && asksWhy(run.message) && recentPush(run.card) ? run.card.lastOutreach : null;
+            const whyAbout = run.outreach ?? (whyPush ? { text: whyPush.text, minutes: 0, kind: kindOf(whyPush.text) } : undefined);
+            const whyDone = !run.flow && !run.cutOff && whyAbout && asksWhy(run.message) ? whyAnswer(whyAbout) : undefined;
+            if (whyDone?.kind === "say")
+                run.flow = { outcome: "say", kind: "plain", text: whyDone.text };
+            const moved = !run.flow && !run.cutOff ? (whyDone ?? toolDirective(run.settled, run.message)) : null;
             if (moved?.kind === "say")
                 run.flow = { outcome: "say", kind: "plain", text: moved.text };
             if (moved?.kind === "call") {

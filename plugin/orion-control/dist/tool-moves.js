@@ -18,6 +18,11 @@ function seconds(amount, unit) {
     return n * 60;
 }
 const call = (action, step, note, failLine) => ({ kind: "call", action, args: JSON.stringify({ steps: [{ action, ...step }] }), note, failLine });
+/** He asked why ORION sent a weather notice: the forecast is looked up, then the reason is worded from it (never from memory). */
+export function weatherDirective(sent) {
+    const said = sent.replace(/["\\$`]/g, "").slice(0, 200);
+    return call("weather_now", { location: LOCATION }, `He is asking WHY you sent him: "${said}". Answer that from the result only, in one or two short sentences, as the reason ("Because it's 8 degrees and rain starts around 4"). Do not ask whether he is ready and do not change anything.`, "I sent that because of the weather, but I can't check the forecast just now. Ask me again in a moment.");
+}
 /** "set a timer for 25 min": a timer, whatever the front desk picked (never a focus session, q032). */
 // "cancel the timer for 10 min", "is my timer for 20 min still running": about a timer, not a new one
 // (review, 2026-10-16).

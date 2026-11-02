@@ -1,3 +1,4 @@
+import OrionViews
 import SwiftUI
 
 /*
@@ -54,20 +55,23 @@ struct MorningBriefPanel: View {
     var body: some View {
         // Each part arrives a beat after the one above it, so the brief reads as
         // being composed for him rather than dropped on screen in one frame.
+        //
+        // One staggered deal (wave 12, review #7): caption, greeting, the ring drawing in, the figures, the
+        // narrative, then TODAY and DUE a beat apart and offset from each other, then the button. Beats are
+        // 0.11 s apart after a 0.25 s start. It runs once per appearance, never on a re-render.
         VStack(spacing: 34) {
-            heading.orionEntrance(order: 0)
-            if facts.hasHealth { readings.orionEntrance(order: 1) }
-            narrative.orionEntrance(order: 2)
-            FadingRule().frame(width: 220).orionEntrance(order: 3)
+            heading
+            if facts.hasHealth { readings }
+            narrative.deal(order: 4)
+            FadingRule().frame(width: 220).deal(order: 5)
             HStack(alignment: .top, spacing: 70) {
-                schedule
-                due
+                schedule.deal(order: 5, rise: 16)
+                due.padding(.top, 14).deal(order: 6, rise: 22)
             }
             .frame(maxWidth: 620)
-            .orionEntrance(order: 4)
             LogButton(title: "Start the day", systemImage: "arrow.right") { onStartDay() }
                 .padding(.top, 6)
-                .orionEntrance(order: 5)
+                .deal(order: 7)
         }
         // The paragraph lands after the facts (the model writes it): fade it
         // in rather than letting the page jump.
@@ -88,14 +92,17 @@ struct MorningBriefPanel: View {
                 .font(OrionTheme.mono(9, .semibold))
                 .tracking(3)
                 .foregroundStyle(OrionTheme.textDim)
+                .deal(order: 0, rise: 8)
             Text(facts.salutation)
                 .font(OrionTheme.display(46))
                 .foregroundStyle(OrionTheme.text)
                 .multilineTextAlignment(.center)
+                .deal(order: 1)
             if let wokeAt = facts.wokeAt {
                 Text("Up at \(wokeAt.formatted(date: .omitted, time: .shortened))")
                     .font(OrionTheme.mono(11))
                     .foregroundStyle(OrionTheme.textSoft)
+                    .deal(order: 1, rise: 8)
             }
         }
     }
@@ -107,7 +114,9 @@ struct MorningBriefPanel: View {
                           value: "\(recovery)",
                           caption: "recovery",
                           tint: recoveryTint(recovery),
-                          diameter: 118)
+                          diameter: 118,
+                          drawInAfter: ViewMotion.dealDelay(order: 2))
+                    .deal(order: 2, rise: 6)
             }
             VStack(alignment: .leading, spacing: 14) {
                 if let sleep = facts.readings.sleepPerformance {
@@ -115,16 +124,17 @@ struct MorningBriefPanel: View {
                             value: "\(sleep)",
                             unit: "%",
                             note: facts.readings.sleepHours.map { String(format: "%.1fh in bed", $0) },
-                            tint: OrionTheme.violet)
+                            tint: OrionTheme.textSoft)
                 }
                 if let hrvDelta = facts.readings.hrvDelta {
                     Reading(label: "hrv",
                             value: hrvDelta,
                             unit: "ms",
                             note: "vs your 7-day average",
-                            tint: OrionTheme.blue)
+                            tint: OrionTheme.textSoft)
                 }
             }
+            .deal(order: 3, rise: 10)
             if facts.readings.recovery != nil {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("STRAIN BAND")
@@ -133,13 +143,15 @@ struct MorningBriefPanel: View {
                         .foregroundStyle(OrionTheme.textDim)
                     Text("\(Int(facts.readings.strainTarget.low))–\(Int(facts.readings.strainTarget.high))")
                         .font(OrionTheme.display(26))
-                        .foregroundStyle(OrionTheme.orange)
+                        .foregroundStyle(OrionTheme.text)
                     Text(facts.readings.strainTarget.headline)
                         .font(OrionTheme.mono(10))
                         .foregroundStyle(OrionTheme.textDim)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 150, alignment: .leading)
                 }
+                .padding(.top, 18)
+                .deal(order: 3, rise: 18)
             }
         }
     }
@@ -147,7 +159,7 @@ struct MorningBriefPanel: View {
     /// Facts render immediately; an optional validated choice adds one detail.
     private var narrative: some View {
             Text(facts.narrative.text(selection: writer.text(for: facts.narrativeKey)))
-                .font(.system(size: 17, weight: .regular))
+                .font(OrionTheme.serif(19))
                 .foregroundStyle(OrionTheme.text.opacity(0.9))
                 .lineSpacing(6)
                 .multilineTextAlignment(.center)
@@ -228,7 +240,7 @@ private struct Reading: View {
                 .tracking(1.6)
                 .foregroundStyle(tint.opacity(0.85))
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value)
+                figure
                     .font(OrionTheme.display(26))
                     .foregroundStyle(OrionTheme.text)
                 Text(unit)
@@ -240,6 +252,18 @@ private struct Reading: View {
                     .font(OrionTheme.mono(9))
                     .foregroundStyle(OrionTheme.textDim)
             }
+        }
+    }
+}
+
+private extension Reading {
+    /// Numeric readings ("84", "+6") count up as they arrive; anything else is shown as given.
+    @ViewBuilder var figure: some View {
+        if let number = Int(value) {
+            CountUp(value: number, delay: ViewMotion.dealDelay(order: 3),
+                    prefix: value.hasPrefix("+") ? "+" : "")
+        } else {
+            Text(value)
         }
     }
 }

@@ -31,6 +31,8 @@ public struct ChatModeView: View {
     @State private var deleting: String?
     /// The newest message when the thread was opened: anything after it arrived live and gets the reveal.
     @State private var openedAt: String?
+    /// The row under the pointer: Copy and the time show only there.
+    @State private var hoveredMessage: String?
     @FocusState private var composerFocused: Bool
     @Namespace private var marker
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -111,18 +113,23 @@ public struct ChatModeView: View {
     private var messages: [ChatMessage] { conversation?.messages ?? [] }
 
     private var threadContent: some View {
-        VStack(alignment: .leading, spacing: 26) {
+        VStack(alignment: .leading, spacing: 8) {
             if conversation == nil {
                 Text("Start a conversation").font(.system(size: 14)).foregroundStyle(ViewTokens.dim)
                     .frame(maxWidth: .infinity).padding(.vertical, 80)
             }
-            ForEach(messages) { message in
-                messageRow(message)
-                    .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : 10)))
+            ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                VStack(alignment: .leading, spacing: 22) {
+                    if ChatTime.needsDivider(after: index > 0 ? messages[index - 1] : nil, message) {
+                        ChatTimeDivider(date: message.at)
+                    }
+                    messageRow(message)
+                }
+                .transition(.softReveal(reduceMotion: reduceMotion))
             }
             if waiting {
                 ChatThinkingIndicator(liveThinking: liveThinking, animated: !snapshot)
-                    .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : 6)))
+                    .transition(.softReveal(reduceMotion: reduceMotion))
             }
             Color.clear.frame(height: 1).id("bottom")
         }
@@ -157,22 +164,33 @@ public struct ChatModeView: View {
     }
 
     private func messageRow(_ message: ChatMessage) -> some View {
-        HStack(alignment: .top) {
-            if message.role == .user { Spacer(minLength: 96) }
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 8) {
-                if let thinking = message.thinking, !thinking.isEmpty, message.role == .orion {
-                    thinkingText(thinking)
+        let isUser = message.role == .user
+        return VStack(alignment: isUser ? .trailing : .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                if isUser { Spacer(minLength: 96) }
+                VStack(alignment: isUser ? .trailing : .leading, spacing: 8) {
+                    if let thinking = message.thinking, !thinking.isEmpty, message.role == .orion {
+                        thinkingText(thinking)
+                    }
+                    Text(message.text)
+                        .font(.system(size: isUser ? 14 : 14.5))
+                        .lineSpacing(isUser ? 2 : 4.5)
+                        .multilineTextAlignment(isUser ? .trailing : .leading)
+                        .textSelection(.enabled)
+                        .foregroundStyle(isUser ? ViewTokens.accent : ViewTokens.text)
                 }
-                Text(message.text)
-                    .font(.system(size: message.role == .user ? 14 : 14.5))
-                    .lineSpacing(message.role == .user ? 2 : 4.5)
-                    .multilineTextAlignment(message.role == .user ? .trailing : .leading)
-                    .textSelection(.enabled)
-                    .foregroundStyle(message.role == .user ? ViewTokens.accent : ViewTokens.text)
+                .modifier(ReplyReveal(active: revealing(message), frozen: revealing(message) ? snapshotReveal : nil))
+                if !isUser { Spacer(minLength: 64) }
             }
-            .modifier(ReplyReveal(active: revealing(message), frozen: revealing(message) ? snapshotReveal : nil))
-            if message.role != .user { Spacer(minLength: 64) }
+            // The reserved gutter: always there, so hovering never moves the thread.
+            ChatRowControls(message: message, visible: hoveredMessage == message.id, trailing: isUser)
         }
+        .contentShape(Rectangle())
+        .onHover { inside in
+            if inside { hoveredMessage = message.id } else if hoveredMessage == message.id { hoveredMessage = nil }
+        }
+        .contextMenu { Button("Copy") { ChatTime.copy(message.text) } }
+        .accessibilityAction(named: "Copy") { ChatTime.copy(message.text) }
     }
 
     private func thinkingText(_ text: String) -> some View {

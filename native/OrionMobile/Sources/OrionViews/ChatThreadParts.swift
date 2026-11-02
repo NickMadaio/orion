@@ -4,7 +4,7 @@ import ThinkingOrbsKit
 
 /// The pieces of the chat screen that carry motion, kept apart from its layout.
 
-/// ORION is working: a small orb, a word that breathes, and the last few live steps — the newest bright, older
+/// ORION is working: a small orb, a word with a slow glimmer across it, and the last few live steps — the newest bright, older
 /// ones fading — so the wait reads as progress rather than as silence.
 struct ChatThinkingIndicator: View {
     let liveThinking: String?
@@ -21,7 +21,8 @@ struct ChatThinkingIndicator: View {
         HStack(alignment: .top, spacing: 12) {
             ThinkingOrb(state: .solving, size: .px20, theme: .dark)
             VStack(alignment: .leading, spacing: 6) {
-                breathingLabel
+                GlimmerText("Thinking", font: .system(size: 13, weight: .medium), animated: animated)
+                    .padding(.top, 2)
                 ForEach(Array(steps.enumerated()), id: \.element) { index, step in
                     Text(step)
                         .font(.system(size: 12))
@@ -33,33 +34,6 @@ struct ChatThinkingIndicator: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("ORION is thinking")
-    }
-
-    /// "Thinking" with three dots that pulse in turn. Still under Reduce Motion and in renders.
-    @ViewBuilder private var breathingLabel: some View {
-        if animated && !reduceMotion {
-            TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                label(phase: context.date.timeIntervalSinceReferenceDate)
-            }
-        } else {
-            label(phase: nil)
-        }
-    }
-
-    private func label(phase: Double?) -> some View {
-        HStack(spacing: 3) {
-            Text("THINKING")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .tracking(2)
-                .foregroundStyle(ViewTokens.violet.opacity(0.9))
-            ForEach(0..<3, id: \.self) { dot in
-                Circle()
-                    .fill(ViewTokens.violet)
-                    .frame(width: 3, height: 3)
-                    .opacity(phase.map { 0.25 + 0.75 * max(0, sin(($0 * 3.2) - Double(dot) * 0.7)) } ?? (0.35 + Double(dot) * 0.25))
-            }
-        }
-        .padding(.top, 4)
     }
 }
 

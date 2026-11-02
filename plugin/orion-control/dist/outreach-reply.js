@@ -10,6 +10,7 @@
  front desk as ORION's last turn, and read the short answers ("yeah", "not yet", "in 10", "already did", "shush") against it
  in code. Pure: no I/O.
 */
+import { askIdOf } from "./bubble-reply.js";
 const BEDTIME = /\b(?:bedtime|past bedtime|bed at \d|still up at|sleep now|go to (?:bed|sleep))\b/i;
 const START = /^(?:time to start: |.+ (?:—|–|-{1,2}) still not started|it'?s been \d+ min\. .+, now\.|you'?ve been avoiding .+ for \d+ min)/i;
 export function kindOf(text, hint) {
@@ -45,7 +46,8 @@ export function parseOutreach(prompt) {
         const minutes = Number(mac.match(/(\d+) min ago/)?.[1] ?? 0);
         const hint = mac.match(/min ago \((bedtime|start|question|info)\)/)?.[1] ?? (/\(mismatch|not started\)/.test(mac) ? "mismatch" : undefined);
         const title = titleOf(text, mac);
-        return { text, minutes, kind: kindOf(text, hint), ...(title ? { title } : {}) };
+        const askId = askIdOf(prompt); // the ask a bubble or tapped reply is bound to (bubble-reply.ts)
+        return { text, minutes, kind: kindOf(text, hint), ...(title ? { title } : {}), ...(askId ? { askId } : {}) };
     }
     const phone = prompt.match(/^- (\d+) min ago you (?:messaged him first(?: \((\w+)\))?: |asked him )"([^"]+)"(.*)$/m)
         ?? prompt.match(/^- You messaged him first[^"]*?"([^"]+)"()()(.*)$/m);

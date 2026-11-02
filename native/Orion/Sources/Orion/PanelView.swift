@@ -39,21 +39,10 @@ struct PanelView: View {
                     .padding(.horizontal, 22)
                     .padding(.bottom, 14)
             }
-            // ORION started this one (orion-reach): a readable bubble, no sound unless he chose aloud.
-            if let message = state.reachMessage {
-                Text(message)
-                    .font(.system(size: 13.5, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.92))
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(8)
-                    .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 6)
-                    .frame(width: 260, alignment: .leading)
-                    // 2026-10-16 UI audit #8: no bubble and no material. Real
-                    // alpha behind the text (it sits over an unknown desktop)
-                    // and a left hairline.
-                    .shadow(color: .black.opacity(0.8), radius: 4)
-                    .background(Color.black.opacity(0.35))
-                    .overlay(alignment: .leading) { Rectangle().fill(Color.white.opacity(0.28)).frame(width: 0.7) }
+            // ORION started this one (orion-reach): a readable bubble, no sound unless he chose aloud. A reply typed
+            // below answers it, and the answer shows here as a mini-thread (W16-d).
+            if let thread = state.bubble {
+                BubbleThreadView(thread: thread, width: 260)
                     .padding(.bottom, 8)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -64,6 +53,6 @@ struct PanelView: View {
         // view in `PanelController`, which knows the shape of what was drawn.
 
         .animation(.easeOut(duration: 0.16), value: state.heard)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: state.reachMessage)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: state.bubble)
     }
 }

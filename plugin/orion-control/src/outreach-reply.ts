@@ -11,8 +11,10 @@
  in code. Pure: no I/O.
 */
 
+import { askIdOf } from "./bubble-reply.js";
+
 export type OutreachKind = "bedtime" | "start" | "question" | "info";
-export type Outreach = { text: string; minutes: number; kind: OutreachKind; title?: string };
+export type Outreach = { text: string; minutes: number; kind: OutreachKind; title?: string; askId?: string };
 export type ShortReply =
   | { kind: "yes" } | { kind: "no" } | { kind: "not-yet" } | { kind: "later"; minutes: number } | { kind: "done" }
   | { kind: "stop" } | { kind: "other"; activity: string };
@@ -50,7 +52,8 @@ export function parseOutreach(prompt: string): Outreach | undefined {
     const minutes = Number(mac.match(/(\d+) min ago/)?.[1] ?? 0);
     const hint = mac.match(/min ago \((bedtime|start|question|info)\)/)?.[1] ?? (/\(mismatch|not started\)/.test(mac) ? "mismatch" : undefined);
     const title = titleOf(text, mac);
-    return { text, minutes, kind: kindOf(text, hint), ...(title ? { title } : {}) };
+    const askId = askIdOf(prompt);   // the ask a bubble or tapped reply is bound to (bubble-reply.ts)
+    return { text, minutes, kind: kindOf(text, hint), ...(title ? { title } : {}), ...(askId ? { askId } : {}) };
   }
   const phone = prompt.match(/^- (\d+) min ago you (?:messaged him first(?: \((\w+)\))?: |asked him )"([^"]+)"(.*)$/m)
     ?? prompt.match(/^- You messaged him first[^"]*?"([^"]+)"()()(.*)$/m);

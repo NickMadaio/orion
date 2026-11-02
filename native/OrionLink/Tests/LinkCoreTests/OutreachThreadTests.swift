@@ -32,6 +32,24 @@ final class OutreachThreadTests: XCTestCase {
         XCTAssertEqual(try store.load(LinkSchema.threadID).messages.count, 1)
     }
 
+    /// W16-d: a reply Nick typed into the Mac's proactive bubble, and ORION's answer, mirrored as one answered turn of his.
+    func testABubbleExchangeIsHisTurnAnsweredNotANewOrionMessage() throws {
+        let row: [String: Any] = ["id": "bubble-reach-1-1800000000", "text": "Okay — want it at 9:30 PM?", "said": "nah plans changed",
+                                  "kind": "bubble-reply", "push": false, "urgent": false]
+        let entry = try XCTUnwrap(OutreachThread.entry(from: row))
+        XCTAssertEqual(entry.said, "nah plans changed")
+        XCTAssertFalse(entry.push)
+        XCTAssertEqual(entry.category, OutreachThread.checkinCategory, "never a question for the phone to answer")
+        XCTAssertNil(OutreachThread.entry(from: nudge)?.said)
+        let store = try ChatStore(directory: dir)
+        XCTAssertTrue(OutreachArchive.append(entry, at: at, to: store))
+        let messages = try store.load(LinkSchema.threadID).messages
+        XCTAssertEqual(messages.map(\.role), [.user, .orion])
+        XCTAssertEqual(messages.map(\.text), ["nah plans changed", "Okay — want it at 9:30 PM?"])
+        OutreachArchive.append(entry, at: at, to: store)
+        XCTAssertEqual(try store.load(LinkSchema.threadID).messages.count, 2, "a retry is still one exchange")
+    }
+
     func testQuestionsGetTheTextReplyCategoryAndTheRestKeepTheButtons() throws {
         var ask = nudge; ask["kind"] = "question"; ask["urgent"] = false
         XCTAssertEqual(OutreachThread.entry(from: ask)?.category, OutreachThread.askCategory)

@@ -14,6 +14,8 @@ public enum OutreachArchive {
             guard (try? store.save(seed)) != nil else { return false }
         }
         let message = ChatMessage(id: entry.id + "-orion", role: .orion, text: entry.text, at: at, device: "mac")
-        return (try? store.merge([message], into: entry.conversationID)) != nil
+        // A bubble exchange (W16-d): his words first, then ORION's answer.
+        let his = entry.said.map { [ChatMessage(id: entry.id + "-nick", role: .user, text: $0, at: at, device: "mac")] } ?? []
+        return (try? store.merge(his + [message], into: entry.conversationID)) != nil
     }
 }

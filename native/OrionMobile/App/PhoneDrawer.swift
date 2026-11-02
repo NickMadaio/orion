@@ -99,7 +99,7 @@ struct PhoneDrawer: View {
             }
             .padding(.vertical, 11).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).accessibilityIdentifier(id)
+        .buttonStyle(PhonePressStyle()).accessibilityIdentifier(id)
     }
 
     private func chatRow(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -109,36 +109,6 @@ struct PhoneDrawer: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 9).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Slides the drawer over the chat with a dim scrim; tap the scrim or drag left to close.
-struct PhoneDrawerHost<Content: View, Drawer: View>: View {
-    @Binding var open: Bool
-    @ViewBuilder let content: () -> Content
-    @ViewBuilder let drawer: () -> Drawer
-    @GestureState private var drag: CGFloat = 0
-    private let width: CGFloat = 300
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            content()
-                .allowsHitTesting(!open)
-                .overlay(alignment: .leading) {
-                    // A narrow strip on the left edge opens the drawer with a swipe.
-                    if !open {
-                        Color.clear.frame(width: 18).contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 12).onEnded { if $0.translation.width > 40 { open = true } })
-                    }
-                }
-            Color.black.opacity(open ? 0.45 : 0).ignoresSafeArea()
-                .allowsHitTesting(open).onTapGesture { open = false }
-            drawer().frame(width: width)
-                .offset(x: open ? min(0, drag) : -width - 2)
-                .gesture(DragGesture().updating($drag) { value, state, _ in state = min(0, value.translation.width) }
-                    .onEnded { if $0.translation.width < -60 { open = false } })
-        }
-        .animation(.easeOut(duration: 0.22), value: open)
+        .buttonStyle(PhonePressStyle())
     }
 }

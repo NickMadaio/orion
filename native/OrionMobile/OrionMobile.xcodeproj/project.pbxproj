@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		0000000000000000000C5002 /* App/PhoneDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C5001 /* App/PhoneDrawer.swift */; };
+		0000000000000000000C6002 /* App/PhoneMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C6001 /* App/PhoneMotion.swift */; };
+		0000000000000000000C6012 /* App/PhoneDrawerHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C6011 /* App/PhoneDrawerHost.swift */; };
 		0000000000000000000C4002 /* App/ChatTopBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C4001 /* App/ChatTopBar.swift */; };
 		0000000000000000000C3002 /* App/ChatTalkingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C3001 /* App/ChatTalkingView.swift */; };
 		0000000000000000000C2002 /* App/ChatComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C2001 /* App/ChatComposer.swift */; };
@@ -100,6 +102,8 @@
 
 /* Begin PBXFileReference section */
 		0000000000000000000C5001 /* App/PhoneDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneDrawer.swift; sourceTree = "<group>"; };
+		0000000000000000000C6001 /* App/PhoneMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneMotion.swift; sourceTree = "<group>"; };
+		0000000000000000000C6011 /* App/PhoneDrawerHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneDrawerHost.swift; sourceTree = "<group>"; };
 		0000000000000000000C4001 /* App/ChatTopBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ChatTopBar.swift; sourceTree = "<group>"; };
 		0000000000000000000C3001 /* App/ChatTalkingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ChatTalkingView.swift; sourceTree = "<group>"; };
 		0000000000000000000C2001 /* App/ChatComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ChatComposer.swift; sourceTree = "<group>"; };
@@ -217,6 +221,8 @@
 				000000000000000000000D03 /* App/FocusLists.swift */,
 				000000000000000000000D05 /* App/PhoneOrb.swift */,
 				0000000000000000000C5001 /* App/PhoneDrawer.swift */,
+				0000000000000000000C6001 /* App/PhoneMotion.swift */,
+				0000000000000000000C6011 /* App/PhoneDrawerHost.swift */,
 				0000000000000000000C4001 /* App/ChatTopBar.swift */,
 				0000000000000000000C3001 /* App/ChatTalkingView.swift */,
 				0000000000000000000C2001 /* App/ChatComposer.swift */,
@@ -423,6 +429,8 @@
 				000000000000000000000D04 /* App/FocusLists.swift in Sources */,
 				000000000000000000000D06 /* App/PhoneOrb.swift in Sources */,
 				0000000000000000000C5002 /* App/PhoneDrawer.swift in Sources */,
+				0000000000000000000C6002 /* App/PhoneMotion.swift in Sources */,
+				0000000000000000000C6012 /* App/PhoneDrawerHost.swift in Sources */,
 				0000000000000000000C4002 /* App/ChatTopBar.swift in Sources */,
 				0000000000000000000C3002 /* App/ChatTalkingView.swift in Sources */,
 				0000000000000000000C2002 /* App/ChatComposer.swift in Sources */,

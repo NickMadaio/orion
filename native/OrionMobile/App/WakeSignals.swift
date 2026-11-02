@@ -63,5 +63,7 @@ struct OrionAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: PhoneUnpluggedIntent(), phrases: ["Tell \(.applicationName) my phone is unplugged"],
                     shortTitle: "Phone unplugged", systemImageName: "powerplug")
+        AppShortcut(intent: AddWaterIntent(), phrases: ["Log water in \(.applicationName)", "Add water in \(.applicationName)"],
+                    shortTitle: "Add water", systemImageName: "drop.fill")
     }
 }

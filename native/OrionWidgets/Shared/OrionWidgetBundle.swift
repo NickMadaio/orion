@@ -16,6 +16,8 @@ struct OrionWidgetBundle: WidgetBundle {
         TonightWidget()
         DeadlineWidget()
         #if os(iOS)
+        WaterWidget()
+        if #available(iOS 18.0, *) { WaterControl() }
         OrionLiveActivity()
         if #available(iOS 26.0, *) { WakeAlarmActivity() }
         #endif

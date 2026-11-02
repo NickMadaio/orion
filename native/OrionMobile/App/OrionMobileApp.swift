@@ -202,6 +202,7 @@ struct PhoneRootView: View {
         #endif
     }()
     @State private var conversationID: String?
+    @State private var loggingFood = false
     @AppStorage("orion.appearance") private var appearance = "dark"
 
     private var sheetOpen: Binding<Bool> {
@@ -211,14 +212,25 @@ struct PhoneRootView: View {
 
     private var shell: some View {
         PhoneDrawerHost(open: $drawerOpen) {
-            NavigationStack { ConversationView(remote: remote, conversationID: $conversationID, onMenu: { drawerOpen = true }) }
+            NavigationStack {
+                ConversationView(remote: remote, conversationID: $conversationID, onMenu: { drawerOpen = true },
+                                 onLogFood: { loggingFood = true })
+            }
         } drawer: {
             PhoneDrawer(chats: ChatSummary.list(from: remote.conversation), currentChat: conversationID,
                         waitingApprovals: remote.snapshot?.approvals.count ?? 0, online: remote.presence == .online,
                         appearance: $appearance,
                         onNewChat: { conversationID = UUID().uuidString; drawerOpen = false },
                         onOpenChat: { conversationID = $0; drawerOpen = false },
-                        onOpenSection: { tab = $0; drawerOpen = false })
+                        onOpenSection: { tab = $0; drawerOpen = false },
+                        onLogFood: { drawerOpen = false; loggingFood = true })
+        }
+        .sheet(isPresented: $loggingFood) {
+            FoodCaptureSheet(onSent: { id, note, _ in
+                remote.noteFoodPhoto(id: id, note: note, conversation: conversationID)
+                loggingFood = false
+            }, onClose: { loggingFood = false })
+            .tint(Phone.accent).preferredColorScheme(colorScheme)
         }
     }
 
@@ -268,6 +280,8 @@ struct PhoneRootView: View {
             PhoneSignals.shared.flushOutbox = { [weak remote] in await remote?.flushOutbox() }
             PhoneSignals.shared.start()
             WakeSignals.observeCharger()
+            // Water taps from widgets / Control Center that had no signal at the time.
+            Task { await WaterCourier.flush() }
             let planner = self.planner, routine = self.routine, remote = self.remote
             remote.offlineContext = OfflineContext(
                 schedule: { tomorrow in
@@ -332,6 +346,14 @@ struct PhoneRootView: View {
             // orion://show/<tab> from a widget or the lock screen.
             guard url.scheme == "orion" else { return }
             if url.host == "listen" { tab = "orion"; return }
+            // orion://water/add: the lock-screen water ring, where iOS opened the app instead of running its button.
+            if url.host == "water" {
+                if let directory = GlanceStore.directory, (try? WaterTap.record(in: directory)) != nil {
+                    WaterCourier.reloadSurfaces()
+                    Task { await WaterCourier.flush(directory: directory) }
+                }
+                return
+            }
             switch url.lastPathComponent {
             case "tasks", "calendar", "plan": tab = "plan"
             case "health": tab = "health"

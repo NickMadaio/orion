@@ -27,6 +27,8 @@ public struct TrackingLog {
     public static let waterGoal = 9
     /// How many geofence events are kept (C6).
     public static let placeEventLimit = 500
+    /// How many phone event ids are remembered to refuse a repeat (2026-11-02).
+    public static let eventIDLimit = 500
     static let staleLockAfter: TimeInterval = 15
     static let giveUpAfter: TimeInterval = 6
 
@@ -79,15 +81,24 @@ public struct TrackingLog {
 
     // MARK: - Writing
 
-    /// Apply one entry and return a sentence for the phone.
+    /// Apply one entry and return a sentence for the phone. With an `eventID`
+    /// (the phone's water taps carry one), an id already applied is skipped:
+    /// the check and the write happen under the same lock, so a repeat that
+    /// arrives while the first is still being written is still one bottle.
     @discardableResult
-    public func apply(_ entry: LinkLog, now: Date = Date()) throws -> String {
+    public func apply(_ entry: LinkLog, eventID: String? = nil, now: Date = Date()) throws -> String {
         let entry = try entry.validated()
         let day = Self.dayKey(at: now)
         let stamp = ISO8601DateFormatter().string(from: now)
         var reply = ""
         try withLock {
             var log = try readForWrite()
+            var seenIDs = log["phoneEventIDs"] as? [String] ?? []
+            if let eventID {
+                if seenIDs.contains(eventID) { reply = "Already logged."; return }
+                seenIDs.append(eventID)
+                log["phoneEventIDs"] = Array(seenIDs.suffix(Self.eventIDLimit))
+            }
             var days = log["days"] as? [String: Any] ?? [:]
             var record = Self.completeRecord(days[day] as? [String: Any])
             var nutrition = log["nutritionLog"] as? [String: Any] ?? [:]

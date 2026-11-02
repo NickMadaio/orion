@@ -31,6 +31,7 @@ struct PhoneDrawer: View {
     let onNewChat: () -> Void
     let onOpenChat: (String?) -> Void
     let onOpenSection: (String) -> Void
+    var onLogFood: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -66,6 +67,7 @@ struct PhoneDrawer: View {
             row("sun.max", "Today", id: "drawerToday") { onOpenSection("today") }
             row("calendar", "Plan", id: "drawerPlan") { onOpenSection("plan") }
             row("heart", "Health & tracking", id: "drawerHealth") { onOpenSection("health") }
+            row("camera", "Log food", id: "drawerLogFood", action: onLogFood)
             row("slider.horizontal.3", "Focus, Mac & settings", id: "drawerControl", badge: waitingApprovals) { onOpenSection("control") }
         }
     }

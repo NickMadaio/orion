@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0000000000000000000D1411 /* AddWaterIntent.swift in Sources (widget) */ = {isa = PBXBuildFile; fileRef = 0000000000000000000D1401 /* ../OrionWidgets/iOS/AddWaterIntent.swift */; };
+		0000000000000000000D1412 /* AddWaterIntent.swift in Sources (app) */ = {isa = PBXBuildFile; fileRef = 0000000000000000000D1401 /* ../OrionWidgets/iOS/AddWaterIntent.swift */; };
+		0000000000000000000D1413 /* WaterWidgets.swift in Sources (widget) */ = {isa = PBXBuildFile; fileRef = 0000000000000000000D1402 /* ../OrionWidgets/iOS/WaterWidgets.swift */; };
+		0000000000000000000D1414 /* App/FoodCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000D1403 /* App/FoodCapture.swift */; };
 		0000000000000000000C5002 /* App/PhoneDrawer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C5001 /* App/PhoneDrawer.swift */; };
 		0000000000000000000C6002 /* App/PhoneMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C6001 /* App/PhoneMotion.swift */; };
 		0000000000000000000C6012 /* App/PhoneDrawerHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000C6011 /* App/PhoneDrawerHost.swift */; };
@@ -101,6 +105,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0000000000000000000D1401 /* ../OrionWidgets/iOS/AddWaterIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/iOS/AddWaterIntent.swift"; sourceTree = "<group>"; };
+		0000000000000000000D1402 /* ../OrionWidgets/iOS/WaterWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../OrionWidgets/iOS/WaterWidgets.swift"; sourceTree = "<group>"; };
+		0000000000000000000D1403 /* App/FoodCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/FoodCapture.swift; sourceTree = "<group>"; };
 		0000000000000000000C5001 /* App/PhoneDrawer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneDrawer.swift; sourceTree = "<group>"; };
 		0000000000000000000C6001 /* App/PhoneMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneMotion.swift; sourceTree = "<group>"; };
 		0000000000000000000C6011 /* App/PhoneDrawerHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PhoneDrawerHost.swift; sourceTree = "<group>"; };
@@ -205,6 +212,9 @@
 				0000000000000000000FA001 /* App/PlaceMonitor.swift */,
 				0000000000000000000E0001 /* App/WakeSignals.swift */,
 				000000000000000000000048 /* App/FocusLock.swift */,
+				0000000000000000000D1403 /* App/FoodCapture.swift */,
+				0000000000000000000D1401 /* ../OrionWidgets/iOS/AddWaterIntent.swift */,
+				0000000000000000000D1402 /* ../OrionWidgets/iOS/WaterWidgets.swift */,
 				00000000000000000000003B /* App/TrackingViews.swift */,
 				000000000000000000000039 /* App/HealthView.swift */,
 				000000000000000000000037 /* App/PhoneSections.swift */,
@@ -455,6 +465,8 @@
 				0000000000000000000FA002 /* App/PlaceMonitor.swift in Sources */,
 				0000000000000000000E0002 /* App/WakeSignals.swift in Sources */,
 				000000000000000000000049 /* App/FocusLock.swift in Sources */,
+				0000000000000000000D1414 /* App/FoodCapture.swift in Sources */,
+				0000000000000000000D1412 /* AddWaterIntent.swift in Sources (app) */,
 				0000000000000000000A0011,
 				0000000000000000000A0012,
 				0000000000000000000A0013,
@@ -486,6 +498,8 @@
 				0000000000000000000A001B,
 				0000000000000000000A001C,
 				0000000000000000000A001D,
+				0000000000000000000D1411 /* AddWaterIntent.swift in Sources (widget) */,
+				0000000000000000000D1413 /* WaterWidgets.swift in Sources (widget) */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -584,6 +598,7 @@
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "ORION shows your day hour by hour and adds or edits events in Apple Calendar when you ask.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "ORION shows and edits your to-dos in Apple Reminders, so they stay in sync on every device.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ORION listens when you tap the mic so you can talk to him instead of typing.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "ORION uses the camera when you tap Log food, so your Mac can estimate what you ate.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "ORION turns what you say into a message on this iPhone, so you can talk to him by voice.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "When you turn on Signals, ORION notes whether you're still, walking or travelling, to learn your real routine.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "When you turn on Signals, ORION notes roughly where you are (to about 100 m) to learn your routine.";
@@ -613,6 +628,7 @@
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "ORION shows your day hour by hour and adds or edits events in Apple Calendar when you ask.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "ORION shows and edits your to-dos in Apple Reminders, so they stay in sync on every device.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ORION listens when you tap the mic so you can talk to him instead of typing.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "ORION uses the camera when you tap Log food, so your Mac can estimate what you ate.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "ORION turns what you say into a message on this iPhone, so you can talk to him by voice.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "When you turn on Signals, ORION notes whether you're still, walking or travelling, to learn your real routine.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "When you turn on Signals, ORION notes roughly where you are (to about 100 m) to learn your routine.";

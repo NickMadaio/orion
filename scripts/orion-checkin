@@ -58,6 +58,7 @@ import { audienceOf } from "./lib/reach/gate.mjs";
 import { speakOnMac } from "./lib/reach/route.mjs";
 import { summarize } from "./lib/life/history.mjs";
 import { checkinStore } from "./lib/reach/checkin-store.mjs";
+import { logCheckinAlerts } from "./lib/reach/log-outreach.mjs";
 const evaluating = evalMode();
 const FILE = evaluating ? join(dirname(EVAL_MARKER), "eval-checkins.json") : process.env.ORION_CHECKIN_FILE || join(controlledDir(), "checkins.json");
 const MAX_ALERTS = 8;
@@ -343,6 +344,9 @@ switch (command) {
       c.returning = null;
     }
     save(state);
+    // The alert reaches the phone through LinkEngine; also record it as outreach (phone-thread id), so the Mac chat has it and
+    // his reply is read against it. Not in an evaluation.
+    if (!evaluating) logCheckinAlerts(CONTROLLED, alerts, { now: new Date(NOW_MS), why: "checkin" });
     if (args.includes("--json")) console.log(JSON.stringify(alerts));
     else for (const a of alerts) console.log(`[${a.id}] ${a.text}`);
     break;

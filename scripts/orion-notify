@@ -48,6 +48,7 @@ import { randomBytes } from "node:crypto";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 import { controlledDir, clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
 import { partitionDeferred } from "./lib/notify/stale.mjs";
+import { logSent } from "./lib/reach/log-sent.mjs";
 
 const run = promisify(execFile);
 
@@ -249,8 +250,10 @@ async function deliver(transport, text, dryRun, { urgentReminder = false } = {})
         "--message", text,
       ], { timeout: 30_000 });
     } else {
-      await run(DISCORD, [text], { timeout: 30_000 });
+      await run(DISCORD, [text], { timeout: 30_000, env: { ...process.env, ORION_ALERT_NO_LOG: "1" } });
     }
+    // Delivered by its own route: also in the phone chat and Mac chat, with no second alert (orion-reach --already-sent).
+    logSent({ text, channel: transport.kind === "openclaw" ? transport.channel : "discord", kind: "update", why: "orion-notify" });
     return { delivered: true };
   } catch (error) {
     // Never let a transport failure kill the caller's mission. Report it, try the

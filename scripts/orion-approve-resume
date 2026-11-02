@@ -13,6 +13,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { logSent } from "./lib/reach/log-sent.mjs";
 
 const run = promisify(execFile);
 const [id, summary, session = "orion-app-v2"] = process.argv.slice(2);
@@ -29,4 +30,6 @@ try {
   reply = `ORION could not run ${id}: ${String(error.message).slice(0, 150)}`;
 }
 const text = (reply || `ORION ran ${id}.`).replace(/[\\"]/g, "'").slice(0, 220);
-await run("/usr/bin/osascript", ["-e", `display notification "${text}" with title "ORION — approved ${id}"`]).catch(() => {});
+const shown = await run(process.env.ORION_OSASCRIPT_BIN || "/usr/bin/osascript", ["-e", `display notification "${text}" with title "ORION — approved ${id}"`]).then(() => true, () => false);
+// The banner is Mac-only: put the same line in the chat threads (no second notification), so "ok thanks" is read against it.
+if (shown) logSent({ text: `Approved ${id}: ${text}`, channel: "mac-notification", kind: "update", why: `approve-resume: ${id}` });

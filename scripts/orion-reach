@@ -24,6 +24,9 @@
  --listen: after saying it aloud, listen a few seconds for an answer.
  --ask '<json>': this message is a question (contract C4); stored on the row and the outbox row. A held ask is
    dropped, never queued: the loop re-decides it with fresh facts.
+ --log-only / --already-sent <channel>: the message was ALREADY delivered by another route (Discord, a banner). Only records it
+   (outreach.jsonl, so his reply is read against it) and posts it to the phone chat and Mac chat with no notification: no gate,
+   budget or hold, never a second alert. --id <id> makes it idempotent.
  --reason break|end|wake: with --drain-held, why it is being released (the gate still decides).
  --valid-until ISO: after this the message is pointless; a held copy is dropped, not released.
  --tier protected|low|blank|normal: the caller knows the block's rank. protected is honoured only for a reminder, a plan ladder
@@ -54,10 +57,11 @@ import { appendHeld, readHeld, clearHeld, mergeHeld, releaseHeldAlerts } from ".
 import { withKind } from "./lib/curiosity/ask.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
 import { clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
+import { logOutreach } from "./lib/reach/log-outreach.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind", "--ask", "--reason", "--valid-until", "--tier"];
+const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind", "--ask", "--reason", "--valid-until", "--tier", "--already-sent", "--id"];
 const drain = args.includes("--drain-held");
 const fail = (m, c = 2) => { console.error(m); process.exit(c); };
 
@@ -113,6 +117,13 @@ const drainReason = flag("--reason") ?? null;
 if (drainReason && !["break", "end", "wake"].includes(drainReason)) fail("--reason must be break, end or wake");
 const dry = args.includes("--dry-run");
 if (!dry) refuseDuringEval("reaching Nick");
+if (args.includes("--log-only") || flag("--already-sent") !== undefined) {
+  if (dry) { console.log(`DRY RUN — would record "${text.trim().slice(0, 60)}" as already sent.`); process.exit(0); }
+  const done = logOutreach(DIR, { text, kind, why: flag("--why") ?? null, channel: flag("--already-sent") || "logged", id: flag("--id") ?? null, now, ask });
+  if (!done.ok) fail(`NOT RECORDED: ${done.reason}`, 2);
+  console.log(args.includes("--json") ? JSON.stringify({ id: done.id, duplicate: !!done.duplicate }) : `Recorded as already sent (${done.id}).`);
+  process.exit(0);
+}
 
 mkdirSync(DIR, { recursive: true });
 const history = existsSync(LOG) ? readFileSync(LOG, "utf8").split("\n").flatMap((l) => { try { return [JSON.parse(l)]; } catch { return []; } }) : [];

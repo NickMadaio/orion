@@ -49,9 +49,14 @@ test("--reply-to finds the ask by id, even 80 minutes later, and names the ask",
   } finally { await t.cleanup(); }
 });
 
-test("without an id, a 30-minute-old plain row is not attached", async () => {
-  const t = await lab([row("reach-p", 30)]);
+test("without an id, a 30-minute-old plain Mac-only row is not attached", async () => {
+  const t = await lab([row("reach-p", 30, { channel: "mac-bubble" })]);
   try { assert.ok(!(await t.turn()).text.includes("Question reach-p")); } finally { await t.cleanup(); }
+});
+
+test("without an id, a 30-minute-old plain phone push IS attached (pushes sent while he was away get 2 hours)", async () => {
+  const t = await lab([row("reach-p", 30)]);
+  try { assert.match((await t.turn()).text, /Question reach-p/); } finally { await t.cleanup(); }
 });
 
 test("without an id, a 60-minute-old ask row is attached (90-minute window)", async () => {

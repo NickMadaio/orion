@@ -5,7 +5,7 @@ import { answeredIn, readAnswered, withAnswered, writeAnswered } from "./pending
 export { offerOf, readReply } from "./pending-reply-read.js";
 const MEMO_MS = 60 * 60_000;
 /** How long after ORION's own message a short reply is read as answering it, when the app sent no label (the state card's last push). */
-const PUSH_MS = 30 * 60_000;
+const PUSH_MS = 120 * 60_000;
 const QUESTION_MS = 90 * 60_000;
 /** Which replies each offer carries out (anything else goes on to the normal turn, which still has the context). */
 const OFFER_TAKES = {
@@ -17,6 +17,7 @@ const OFFER_TAKES = {
     brief: ["accept", "indifferent", "counter"],
     "session-done": ["accept", "next", "indifferent", "done"],
     "plan-check": ["changed", "decline", "accept", "counter"],
+    notice: ["accept", "indifferent", "done", "decline"],
 };
 const MEMO_TAKES = {
     resume: ["resume", "done", "accept"],

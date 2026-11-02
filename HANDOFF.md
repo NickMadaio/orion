@@ -80,6 +80,43 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-02 09:15 GMT: why the phone location stopped, and ORION now asks for a fresh fix (Claude, subagent)
+
+**Found state.** The newest phone fix was 10-30 16:27:59Z. At 08:02 location was "unknown", so a "Leave in 13 min" reminder
+stayed a silent bubble. The speak rule was right and is unchanged.
+
+**Root cause: phone side, the installed app is older than every background-delivery fix.** Evidence from
+`health-log.json`:
+- None of the 1695 `phoneSignals` rows has an `audio` key, and `placeEvents` has never had a row. Both were added in
+  2882012 (10-16). The current phone always sends `audio`, and the Mac Link has stored it since then. So the phone runs a
+  build from before 10-16. ca9c86f and 0ed780f (10-21: background location mode, CLServiceSession, sending queued samples
+  from the background) never reached it.
+- In that old build a background location wake calls `sample()` and then `log?(entry)`. `log` is nil unless the app's
+  window is alive, so the sample is dropped. Samples arrive only when ORION is open, or while it is suspended in memory.
+  That is why signals thinned out from 10-21 (93/day on 10-19, then 6, 9, 5, 21, 3, and nothing from 10-27 to 10-29).
+- The Mac side is healthy. During the same gap `sleepLog` events (unplugged/used) kept arriving from the phone through
+  its own queue. Signals came back at 08:21:25Z today, walking from home, through the new Link 1218. The unified log
+  shows no errors except two short offline blips (08:14 and 08:59).
+
+**What changed** (branch `fix/phone-location-request`, not pushed and not deployed):
+- `MobileCore/LocationRequest` and `LinkSnapshot.locationRequest`. `SnapshotReader.locationRequest()` reads
+  `location-request.json` (valid id, at most 15 min old). `LinkEngine` publishes it, and the snapshot change pushes to
+  the phone. The phone answers each id once (`PhoneSignals.answer`, from BackgroundRefresh and on a foreground snapshot
+  change) with a fix and a sample. `CaptureGate.requested` gets past the 5-min throttle.
+- `scripts/lib/awareness/fix-request.mjs`. `orion-awareness refresh` writes `meta.phoneFix` {lastAt, ageMin, stale,
+  askedAt, askReason}, and `show` prints "phone fix N min old, asked …". It asks when location is unknown, the fix is
+  over 20 min old and a class or fixed block is within 90 min or a commute is on. `orion-reach` also asks when a message
+  stays a bubble only because home is unknown. Asks are limited to one per 10 min.
+- `audioFacet` now reads the bare route string the phone actually sends. Before this it read only `{route}` objects, so
+  phone headphones were never seen.
+
+**Rollback.** Revert the branch's commits. Older phones ignore the new snapshot field.
+
+**Exact next step.** Install the phone build from this branch (rebuild; the 08:00 build predates it) with the phone
+unlocked. Merge, run `scripts/orion-remote-install` (the LifeWatch tick runs the mirror), then rebuild and install
+Orion.app for the Link. On the phone: Location = Always, Signals on, Background App Refresh on, and do not swipe
+ORION away.
+
 ### 2026-11-02 08:00 GMT: Mac app 1218 installed; phone app built but NOT installed (Claude, orchestrator)
 
 **Found state.** Main is at bb9cd6b, which contains the integ/wave4 worktree's head (e0ab44e). The 12 dirty paths are

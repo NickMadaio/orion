@@ -83,6 +83,7 @@ import { LATE_TONE_LINE, pastNudgeTime, stripLateInstruction } from "./night-hus
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn } from "./pending-reply.js";
 import { bedtimeFromState, focusRunning } from "./bed-state.js";
 import { readPreference, savePreference } from "./preference-remember.js";
+import { learnCorrection, standingRulesLine } from "./correction-learn.js";
 import { ownsSleepStatement, readSleepTurn } from "./sleep-plan-read.js"; // W10-B: a standing wake statement wins over a health read ("gym days")
 import { readPhoneBlock } from "./phone-block-read.js";
 import { runPhoneBlock } from "./phone-block-flow.js";
@@ -1170,6 +1171,9 @@ export function registerLocalRouting(api, options) {
         const sheld = sessionKey ? sleepPending.take(sessionKey, Date.now()) : undefined; // W10-B: before preference-remember can keep it as a "preference"
         const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message)) ? readSleepTurn(message, { held: sheld, now: (options.now ?? pluginNow)() }) : undefined;
         const preference = !sleepTurn && !phoneBlock && free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
+        // Wave 12 (correction-learn.ts): a correction meant to last becomes a standing rule in USER.md (never in an evaluation); the turn goes on as usual.
+        if (free && !preference && !sleepTurn && !pendingYes && options.rememberRun && (!spokenTurn || tellsFactAloud(message)))
+            void learnCorrection(message, { run: options.rememberRun, ...(options.stateDir ? { stateDir: options.stateDir } : {}), sessionKey });
         const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
         const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
         const knowledge = on && !quietTurn && !kmove && isKnowledgeAsk(message);
@@ -1330,7 +1334,7 @@ export function registerLocalRouting(api, options) {
             const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
             // 2026-10-30: the state card and the tone note, just before the clock (both change far less often than it does).
             const tone = pastNudgeTime(options.stateDir, (options.now ?? pluginNow)()) ? `${TONE_NOTE.split("\n").slice(0, 2).join("\n")}\n${LATE_TONE_LINE}` : TONE_NOTE;
-            const card = run.card ? `${stateCard(run.card)}\n\n${tone}\n\n` : "";
+            const card = run.card ? `${stateCard(run.card)}${standingRulesLine(options.userMdPath)}\n\n${tone}\n\n` : ""; // wave 12: + his standing rules
             // Distress comes before every flow: "i literally cant do this anymore" got a canned "Want to take a
             // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
             // Only in "on" mode: in shadow, or once the testing window closes, the configured (cloud) model answers

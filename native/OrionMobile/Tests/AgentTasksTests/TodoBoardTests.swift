@@ -90,7 +90,7 @@ final class TodoBoardTests: XCTestCase {
     }
 
     func testFiltersAndOrder() {
-        let items = [item("b", notes: "Order: 2"), item("a", notes: "Order: 1\nTags: gym"), item("done", done: true)]
+        let items = [item("b"), item("a", notes: "Tags: gym"), item("done", done: true)]
         XCTAssertEqual(TodoBoard.open(items).map(\.id), ["a", "b"])
         XCTAssertEqual(TodoBoard.open(items, tags: ["gym"]).map(\.id), ["a"])
         XCTAssertEqual(TodoBoard.done(items).map(\.id), ["done"])

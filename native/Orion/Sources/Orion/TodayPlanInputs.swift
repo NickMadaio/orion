@@ -12,6 +12,26 @@ struct TodayPlanInputs: Equatable {
     let day: Date
     let fingerprint: String
 
+    /// The open tasks as the "Task lengths" list shows them: the shared to-do order
+    /// (MobileCore.TodoOrdering). `tasks` itself stays sorted by id, which the plan's
+    /// fingerprint depends on; this is display only. The scheduler's number is
+    /// urgency (-20 overdue, -10 today) plus the priority rank, so the rank comes back out by
+    /// removing the urgency again.
+    func openTasksInDisplayOrder(now: Date, calendar: Calendar = .current) -> [TodayPlanTask] {
+        let open = tasks.filter { !$0.completedInSource }
+        return TodoOrdering.sorted(open, now: now) { task in
+            let urgency = task.due.map { $0 < now ? -20 : (calendar.isDate($0, inSameDayAs: now) ? -10 : 0) } ?? 0
+            let priority: TodoPriority
+            switch task.priority - urgency {
+            case 0: priority = .high
+            case 1: priority = .medium
+            case 2: priority = .low
+            default: priority = .none
+            }
+            return TodoOrdering.Key(done: false, priority: priority, due: task.due, title: task.title, id: task.id)
+        }
+    }
+
     func isFresh(at now: Date) -> Bool {
         var calendar = Calendar(identifier: .gregorian)
         guard let zone = TimeZone(identifier: timeZone), zone.identifier == TimeZone.current.identifier else { return false }

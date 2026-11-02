@@ -54,12 +54,10 @@ struct SyncedTask: Identifiable, Equatable {
     /// Spread, subtasks and his own notes (MobileCore.TaskNotes, 2026-10-06).
     var notes: String = ""
 
-    /// What the list sorts by. Overdue first because it is the only category
-    /// that is actually urgent, then priority, then when it is due. Sorting by
-    /// due date alone buries a high-priority task with no date under a week of
-    /// trivia that happens to be dated.
-    var sortKey: (Int, Int, Date) {
-        (isOverdue ? 0 : 1, priority.rank, dueDate ?? .distantFuture)
+    /// The shared display order (MobileCore.TodoOrdering): overdue, then priority, then due.
+    /// A date-only due sorts at the start of its day, which is also when it counts as overdue here.
+    var orderKey: TodoOrdering.Key {
+        TodoOrdering.Key(done: isComplete, priority: priority.todo, due: dueDate, title: title, id: id)
     }
 
     /// The task as it will be once EventKit confirms a completion change.
@@ -300,20 +298,14 @@ final class AppleRemindersSync: ObservableObject {
                         notes: reminder.notes ?? ""
                     )
                 }
-                // Completed sink to the bottom; above that, the order he dragged on the phone
-                // ("Order:" in the notes, 2026-10-11), then overdue, priority, due date.
-                .sorted { left, right in
-                    if left.isComplete != right.isComplete { return !left.isComplete }
-                    let (l, r) = (TaskNotes.parse(left.notes).order, TaskNotes.parse(right.notes).order)
-                    if let l, let r, l != r { return l < r }
-                    if (l == nil) != (r == nil) { return l != nil }
-                    if left.sortKey != right.sortKey { return left.sortKey < right.sortKey }
-                    return left.title < right.title
-                }
+            let now = Date()
+            // One order everywhere (TodoOrdering): completed sink to the bottom; above that
+            // overdue, priority, earliest due, undated, then title.
+            let ordered = TodoOrdering.sorted(mapped, now: now, key: \.orderKey)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.lastError = nil
-                self.tasks = mapped
+                self.tasks = ordered
                 self.lastSyncedAt = Date()
                 TaskProgressStore.shared.prune(keeping: Set(mapped.map(\.id)))
             }

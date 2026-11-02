@@ -1,3 +1,4 @@
+import MobileCore
 import SwiftUI
 
 /*
@@ -67,6 +68,9 @@ enum TaskPriority: Int, CaseIterable, Identifiable, Codable {
         case .high: OrionTheme.red
         }
     }
+
+    /// The shared list-ordering vocabulary (MobileCore.TodoOrdering) for this band.
+    var todo: TodoPriority { TodoPriority(eventKit: rawValue) }
 
     /// Sort weight: high first, unset last. Deliberately not `rawValue`, which
     /// would put "none" (0) above "high" (1).

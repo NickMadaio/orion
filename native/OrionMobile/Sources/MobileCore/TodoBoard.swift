@@ -51,6 +51,7 @@ public struct TodoItem: Identifiable, Equatable, Sendable {
 
     public var parsed: TaskNotes { TaskNotes.parse(notes) }
     public var tags: [String] { parsed.tags }
+    public var orderKey: TodoOrdering.Key { TodoOrdering.Key(done: done, priority: priority, due: due, title: title, id: id) }
 }
 
 /// What a quick-add line asks for.
@@ -100,25 +101,25 @@ public struct TodoGroup: Identifiable, Equatable, Sendable {
 }
 
 public enum TodoBoard {
-    /// Open to-dos in his order (dragged by hand), narrowed to any of `tags` when given.
-    public static func open(_ items: [TodoItem], tags: Set<String> = []) -> [TodoItem] {
-        let ordered = TaskNotes.sortedByOrder(items.filter { !$0.done }, order: { $0.parsed.order })
+    /// Open to-dos by TodoOrdering (overdue, then priority, then due), narrowed to any of `tags` when given.
+    public static func open(_ items: [TodoItem], tags: Set<String> = [], now: Date = Date()) -> [TodoItem] {
+        let ordered = TodoOrdering.sorted(items.filter { !$0.done }, now: now, key: \.orderKey)
         guard !tags.isEmpty else { return ordered }
         return ordered.filter { !tags.isDisjoint(with: $0.tags) }
     }
 
-    public static func done(_ items: [TodoItem], tags: Set<String> = []) -> [TodoItem] {
-        items.filter { $0.done && (tags.isEmpty || !tags.isDisjoint(with: $0.tags)) }
+    public static func done(_ items: [TodoItem], tags: Set<String> = [], now: Date = Date()) -> [TodoItem] {
+        TodoOrdering.sorted(items.filter { $0.done && (tags.isEmpty || !tags.isDisjoint(with: $0.tags)) }, now: now, key: \.orderKey)
     }
 
     /// Tags on the open to-dos, in first-seen order.
-    public static func allTags(_ items: [TodoItem]) -> [String] {
-        TaskNotes.cleanTags(open(items).flatMap(\.tags))
+    public static func allTags(_ items: [TodoItem], now: Date = Date()) -> [String] {
+        TaskNotes.cleanTags(open(items, now: now).flatMap(\.tags))
     }
 
-    public static func byTag(_ items: [TodoItem]) -> [TodoGroup] {
-        let openItems = open(items)
-        var groups = allTags(items).map { tag in TodoGroup(title: tag, items: openItems.filter { $0.tags.contains(tag) }, tag: tag) }
+    public static func byTag(_ items: [TodoItem], now: Date = Date()) -> [TodoGroup] {
+        let openItems = open(items, now: now)
+        var groups = allTags(items, now: now).map { tag in TodoGroup(title: tag, items: openItems.filter { $0.tags.contains(tag) }, tag: tag) }
         let untagged = openItems.filter { $0.tags.isEmpty }
         if !untagged.isEmpty { groups.append(TodoGroup(title: "No tag", items: untagged, tag: nil)) }
         return groups
@@ -135,7 +136,8 @@ public enum TodoBoard {
             if buckets[title] == nil { order.append(title) }
             buckets[title, default: []].append(item)
         }
-        let dated = open(items, tags: tags).filter { $0.due != nil }.sorted { $0.due! < $1.due! }
+        // Each group is in TodoOrdering order: the open list arrives sorted, and bucketing keeps it.
+        let dated = open(items, tags: tags, now: now).filter { $0.due != nil }
         for item in dated {
             let due = item.due!
             let day = calendar.startOfDay(for: due)
@@ -150,7 +152,7 @@ public enum TodoBoard {
         var groups = ["Overdue", "Today", "Tomorrow"].compactMap { title in buckets[title].map { TodoGroup(title: title, items: $0, tag: nil) } }
         groups += order.filter { !["Overdue", "Today", "Tomorrow", "Next week", "Later"].contains($0) }.map { TodoGroup(title: $0, items: buckets[$0]!, tag: nil) }
         groups += ["Next week", "Later"].compactMap { title in buckets[title].map { TodoGroup(title: title, items: $0, tag: nil) } }
-        let undated = open(items, tags: tags).filter { $0.due == nil }
+        let undated = open(items, tags: tags, now: now).filter { $0.due == nil }
         if !undated.isEmpty { groups.append(TodoGroup(title: "No date", items: undated, tag: nil)) }
         return groups
     }

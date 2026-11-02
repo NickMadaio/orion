@@ -1,3 +1,4 @@
+import MobileCore
 import Combine
 import CoreGraphics
 import Foundation
@@ -95,10 +96,7 @@ enum TodoFloatItems {
             guard task.isComplete, let at = task.completionDate else { return false }
             return calendar.isDate(at, inSameDayAs: now)
         }
-        let sorted = open.sorted { lhs, rhs in
-            let a = lhs.sortKey, b = rhs.sortKey
-            return (a.0, a.1, a.2) < (b.0, b.1, b.2)
-        }
+        let sorted = TodoOrdering.sorted(open, now: now, key: \.orderKey)
         return Array((sorted + doneToday).prefix(limit))
     }
 

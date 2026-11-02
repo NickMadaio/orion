@@ -109,10 +109,11 @@ test("the model's answer must be exact JSON; anything else is no opinion", async
 });
 
 test("alert lines read like a person said them, with no raw tool text", () => {
-  const prof = item({ from: "\"Prof. Jane Smith\" <j.smith@northeastern.edu>", subject: "CS2100 Midterm", snippet: "Hi all, room change to West 110 for Thursday's midterm, please arrive early" });
+  // verifiedTeacher: set by the tick when the knowledge graph names her and she writes from his school (mail-hardening.test.mjs)
+  const prof = { ...item({ from: "\"Prof. Jane Smith\" <j.smith@northeastern.edu>", subject: "CS2100 Midterm", snippet: "Hi all, room change to West 110 for Thursday's midterm, please arrive early" }), verifiedTeacher: true };
   assert.equal(alertLine(prof), "Prof. Smith emailed about the CS2100 Midterm — 'room change to West 110 for Thursday's midterm, please arrive early'");
   assert.equal(whoOf(item({ from: "no-reply@accounts.barclays.co.uk", subject: "x" })), "Barclays");
-  assert.equal(alertLine(item({ from: "Barclays <no-reply@barclays.co.uk>", subject: "Your security code", snippet: "Your one-time passcode is 482913" })), "Barclays emailed about your security code");
+  assert.equal(alertLine(item({ from: "Barclays <no-reply@barclays.co.uk>", subject: "Your security code", snippet: "Your one-time passcode is 482913" })), "Barclays sent a sign-in code");
   const line = digestLine([prof, item({ from: "Sam Lee <sam@gmail.com>", subject: "Re: Fwd: friday?" }), item({ from: "Barclays <no-reply@barclays.co.uk>", subject: "Payment due" })]);
   assert.equal(line, "3 emails worth a look: Prof. Smith about the CS2100 Midterm; Sam Lee about friday; Barclays about payment due.");
   assert.doesNotMatch(line, /@|thread|url removed|https?:/);

@@ -2,9 +2,9 @@
 // --readonly and --gmail-no-send itself.
 //
 // One search for the inbox's newest threads, then one `thread get` per thread NOT seen before (never for the rest). The thread get is
-// what carries the snippet, the List-Unsubscribe header and whether Nick wrote in the thread; mailItem() keeps only those and drops
-// the bodies on the spot.
-import { getThread, searchThreads } from "../gmail-client.mjs";
+// what carries the snippet, the List-Unsubscribe header and whether Nick wrote in the thread. getThreadMeta() drops the bodies inside
+// gmail-client.mjs, before the payload reaches this module; mailItem() then keeps only what the watcher needs.
+import { getThreadMeta, searchThreads } from "../gmail-client.mjs";
 import { mailItem } from "./normalize.mjs";
 
 export const INBOX_QUERY = "in:inbox newer_than:2d";
@@ -14,7 +14,7 @@ export const INBOX_MAX = 15;
 export const threadKey = (thread) => `${thread.id}@${thread.date ?? thread.messageCount ?? ""}`;
 
 /** fetchInbox for mailTick, bound to a repo root (for .env) and his addresses. Fetches threads in parallel; one failing thread is skipped. */
-export const gogInbox = (orionRoot, { nickAddresses = [], search = searchThreads, thread = getThread } = {}) => async ({ isSeen, firstPoll = false }) => {
+export const gogInbox = (orionRoot, { nickAddresses = [], search = searchThreads, thread = getThreadMeta } = {}) => async ({ isSeen, firstPoll = false }) => {
   const threads = (await search(orionRoot, INBOX_QUERY, INBOX_MAX)).filter((t) => t?.id);
   const unseen = threads.filter((t) => !isSeen(threadKey(t)));
   // The first poll (nothing seen yet) only needs the keys: no thread is read.

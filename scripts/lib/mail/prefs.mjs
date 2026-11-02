@@ -8,6 +8,7 @@
 // The scorer applies these before any other signal, and a boost beats a mute on the same message: being told about something he
 // said always matters is cheaper than missing it.
 import { createHash } from "node:crypto";
+import { PROTECTED_DOMAINS, onDomain } from "./domains.mjs";
 
 export const ACTIONS = Object.freeze(["mute", "boost"]);
 export const KINDS = Object.freeze(["sender", "domain", "topic"]);
@@ -33,6 +34,8 @@ export function makeRule({ action, kind, value, via = "cli", now = new Date() })
   if (!KINDS.includes(kind)) throw new TypeError(`kind must be ${KINDS.join(", ")}`);
   const v = norm(value).replace(/^@/, "");
   if (v.length < 2 || v.length > 80) throw new TypeError("value must be 2 to 80 characters");
+  // His school and the freemail providers are never ruled on as a whole: muting northeastern.edu mutes every professor (wave 14 review).
+  if (kind === "domain" && onDomain(v, PROTECTED_DOMAINS)) throw new TypeError(`${v} is protected: a rule on the whole domain would cover everyone who writes from it; name the sender instead`);
   return { id: ruleId(action, kind, v), action, kind, value: v, added: now.toISOString(), via: String(via).slice(0, 20) };
 }
 
@@ -61,7 +64,8 @@ const wordIn = (needle, hay) => {
 export function ruleMatches(rule, item) {
   if (rule.kind === "sender") return item.fromAddress === rule.value || wordIn(rule.value, item.fromName) || (!rule.value.includes("@") && wordIn(rule.value, item.fromAddress.split("@")[0]));
   if (rule.kind === "domain") return item.domain === rule.value || item.domain.endsWith(`.${rule.value}`);
-  return wordIn(rule.value, `${item.subject} ${item.snippet}`) || wordIn(rule.value, item.fromName) || item.domain.split(".").includes(rule.value);
+  const byDomainName = !onDomain(item.domain, PROTECTED_DOMAINS) && item.domain.split(".").includes(rule.value);
+  return wordIn(rule.value, `${item.subject} ${item.snippet}`) || wordIn(rule.value, item.fromName) || byDomainName;
 }
 
 /** The rule that decides this item, boost first; null when he has said nothing about it. */

@@ -56,18 +56,36 @@ async function keyringEnvironment(orionRoot) {
   };
 }
 
+/** How long one gog call may take. A hung OAuth refresh once held the mail watcher's tick forever (wave 14 review). */
+export const GOG_TIMEOUT_MS = 20_000;
+
+/** Kills the child and everything it started: gog is spawned as its own process group, so -pid reaches the whole group. */
+function killGroup(child) {
+  try { process.kill(-child.pid, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* already gone */ } }
+}
+
 /**
  * Run one gog command and parse its JSON.
  *
  * The query reaches gog as an argv entry, never through a shell, so Gmail
  * search syntax cannot become shell syntax no matter what Nick dictates.
+ *
+ * options: { timeoutMs } (default 20 s; the group is killed and the call
+ * rejects with one plain sentence), { env } extra environment (tests).
  */
-export async function gog(orionRoot, args) {
-  const environment = await keyringEnvironment(orionRoot);
+export async function gog(orionRoot, args, { timeoutMs = GOG_TIMEOUT_MS, env = {} } = {}) {
+  const environment = { ...(await keyringEnvironment(orionRoot)), ...env };
   const argv = [...args, "--account", ACCOUNT, ...SAFETY_FLAGS, "--json"];
 
   const stdout = await new Promise((resolve, reject) => {
-    const child = spawn("gog", argv, { env: environment, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("gog", argv, { env: environment, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    let settled = false;
+    const timer = setTimeout(() => {
+      settled = true;
+      killGroup(child);
+      reject(new Error(`gog didn't answer within ${Math.round(timeoutMs / 1000)} s, so it was stopped`));
+    }, timeoutMs);
+    timer.unref?.();
     let out = "";
     let err = "";
     child.stdout.on("data", (chunk) => {
@@ -76,10 +94,14 @@ export async function gog(orionRoot, args) {
     child.stderr.on("data", (chunk) => {
       err += chunk;
     });
-    child.once("error", (error) =>
-      reject(new Error(`Could not run gog: ${error.message}`)),
-    );
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      if (!settled) { settled = true; reject(new Error(`Could not run gog: ${error.message}`)); }
+    });
     child.once("close", (code) => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       if (code === 0) resolve(out);
       // Pass gog's own words through. "Report its actual error, never claim
       // setup is missing" is a standing rule, and it needs the actual error.
@@ -109,6 +131,35 @@ export async function searchThreads(orionRoot, query, max) {
  */
 export async function getThread(orionRoot, threadId) {
   return gog(orionRoot, ["gmail", "thread", "get", threadId, "--sanitize-content"]);
+}
+
+/** The headers the mail watcher may read. Everything else (Received, DKIM, X-*) is dropped with the bodies. */
+const META_HEADERS = ["from", "to", "subject", "date", "list-unsubscribe", "list-id", "precedence"];
+
+function metaHeaders(message) {
+  const raw = message?.headers ?? message?.payload?.headers ?? {};
+  const pairs = Array.isArray(raw) ? raw.filter((h) => h?.name).map((h) => [String(h.name), h.value]) : raw && typeof raw === "object" ? Object.entries(raw) : [];
+  return Object.fromEntries(pairs.map(([k, v]) => [k.toLowerCase(), String(v ?? "")]).filter(([k]) => META_HEADERS.includes(k)));
+}
+
+/**
+ * A thread reduced to metadata and Gmail's snippet: ids, labels, snippet, the
+ * few headers above. gog 0.34 has no metadata format for `thread get` (only
+ * `gmail get <messageId> --format metadata`, per message, which cannot see who
+ * wrote earlier in the thread), so the body is fetched and dropped HERE, at the
+ * parse boundary, before the payload leaves this module.
+ */
+export function slimThread(payload) {
+  const thread = payload?.thread ?? payload;
+  const messages = Array.isArray(thread?.messages) ? thread.messages : [];
+  return { thread: { id: String(thread?.id ?? ""), ...(thread?.date ? { date: String(thread.date) } : {}),
+    messages: messages.map((m) => ({ id: String(m?.id ?? ""), threadId: String(m?.threadId ?? thread?.id ?? ""), labelIds: Array.isArray(m?.labelIds) ? m.labelIds.map(String) : [],
+      snippet: String(m?.snippet ?? ""), headers: metaHeaders(m) })) } };
+}
+
+/** One thread as metadata and snippet only (slimThread): what the mail watcher reads. */
+export async function getThreadMeta(orionRoot, threadId) {
+  return slimThread(await getThread(orionRoot, threadId));
 }
 
 /**

@@ -42,6 +42,7 @@ import { appendHeld } from "./lib/reach/held.mjs";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
 import { logCheckinAlerts } from "./lib/reach/log-outreach.mjs";
 import { controlledDir, clockNow, isolated, toOutbox } from "./lib/clock.mjs";
+import { kickFoodInbox } from "./lib/food/tick.mjs";   // w14 g-food: phone food photos (lib/food/inbox.mjs)
 // A watcher invoked by an evaluation must not mutate live state or queue alerts.
 if (evalMode()) { console.log(process.argv.includes("--json") ? "[]" : "Watcher paused during evaluation."); process.exit(0); }
 const CONTROLLED = controlledDir();
@@ -313,5 +314,7 @@ if (alerts.length) {
 if (!dry) { save(); summarize(log); }
 // The bedtime nudge ladder (orion-sleep-nudge, W10-F) rides this tick: cheap when it is not bedtime, and a failure never breaks the tick.
 if (!dry) { try { spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "orion-sleep-nudge"), "tick", "--now", now.toISOString()], { encoding: "utf8", timeout: 60000, env: process.env }); } catch { /* the watch goes on */ } }
+// New food photos from the phone (food-inbox/) are estimated and offered in chat, detached so the tick never waits on the model.
+if (!dry) kickFoodInbox();
 if (process.argv.includes("--json")) console.log(JSON.stringify(alerts));
 else for (const a of alerts) console.log(a.text);

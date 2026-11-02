@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cleanupNotes, computerSteps, notesBefore, notesEffect } from "../lib/computer-evidence.mjs";
+import { cleanupNotes, computerSteps, notesEffect } from "../lib/computer-evidence.mjs";
 
-const fakeNotes = (initial) => {
-  const ids = new Map(initial);
-  return { ids: async () => [...ids.keys()], name: async (id) => ids.get(id), remove: async (id) => ids.delete(id), add: (id, name) => ids.set(id, name), has: (id) => ids.has(id) };
+const fakeNotes = (created) => {
+  const live = new Map(created);
+  const asked = [];
+  return { createdSince: async (sec) => { asked.push(sec); return [...live].map(([id, name]) => ({ id, name })); }, remove: async (id) => live.delete(id), has: (id) => live.has(id), asked };
 };
 
 test("computer steps since the turn started become tool calls, errors flagged", () => {
@@ -28,22 +29,29 @@ test("computer steps since the turn started become tool calls, errors flagged", 
   assert.deepEqual(computerSteps({ shadow: join(dir, "none") }, 0), []);
 });
 
-test("notes the item created are reported then deleted; older notes are untouched", async () => {
-  const notes = fakeNotes([["n1", "Groceries"]]);
-  const before = await notesBefore(notes);
-  notes.add("n2", "econ ideas");
-  const found = await notesEffect(before, notes);
-  assert.deepEqual(found.created, [{ id: "n2", name: "econ ideas" }]);
+test("only notes created since the start are asked for, reported, then deleted", async () => {
+  const notes = fakeNotes([["n2", "econ ideas"]]);
+  const found = await notesEffect(Date.now() - 10_000, notes);
+  assert.equal(notes.asked.length, 1);
+  assert.ok(notes.asked[0] >= 11 && notes.asked[0] < 20, "window is the elapsed time plus slack, not the library");
+  assert.deepEqual(found, { probed: true, created: [{ id: "n2", name: "econ ideas" }], deleted: [] });
   const done = await cleanupNotes(found, notes);
   assert.deepEqual(done.deleted, ["n2"]);
   assert.equal(notes.has("n2"), false);
-  assert.equal(notes.has("n1"), true);
 });
 
-test("an unreadable Notes is reported as not probed and nothing is deleted", async () => {
-  const dead = { ids: async () => null, name: async () => "", remove: async () => { throw new Error("no"); } };
-  assert.equal(await notesBefore(dead), null);
-  const eff = await notesEffect(null, dead);
+test("slow or unreadable Notes is not probed and nothing is deleted or blocked on", async () => {
+  const slow = { createdSince: async () => null, remove: async () => { throw new Error("no"); } };
+  const eff = await notesEffect(Date.now(), slow);
   assert.equal(eff.probed, false);
-  assert.deepEqual((await cleanupNotes(eff, dead)).deleted, []);
+  assert.deepEqual((await cleanupNotes(eff, slow)).deleted, []);
+  assert.equal((await notesEffect(NaN, slow)).probed, false);
+  const throwing = { createdSince: async () => { throw new Error("x"); } };
+  assert.equal((await notesEffect(Date.now(), throwing)).probed, false);
+});
+
+test("a runaway number of created notes deletes at most five", async () => {
+  const notes = fakeNotes(Array.from({ length: 9 }, (_, i) => [`n${i}`, "x"]));
+  const found = await notesEffect(Date.now() - 1000, notes);
+  assert.equal((await cleanupNotes(found, notes)).deleted.length, 5);
 });

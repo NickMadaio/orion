@@ -60,7 +60,7 @@ export async function runItem({ item, index, stamp, p, ctx, opts }) {
   try {
     applyPlan(p, plan);
     base = await snapshotState(p);
-    if (probeNotes) notesSeen = await notesBefore(opts.notes);
+    if (probeNotes) notesSeen = await notesBefore();
     for (const t of item.turns) {
       const text = renderTokens(t.text, clock());
       const r = await askTurn({ text, spoken: t.spoken === true, replyTo: replyTo(t.replyToOutreach), conversation, inbound: opts.inbound, allowedApps: opts.allowedApps }, itemCtx, p);

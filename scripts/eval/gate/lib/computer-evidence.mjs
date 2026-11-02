@@ -23,30 +23,40 @@ export function computerSteps(p, sinceMs, sessionKey = null) {
   return calls;
 }
 
-const osa = (script) => new Promise((resolve) => execFile("osascript", ["-e", script], { timeout: 20000, maxBuffer: 1 << 24 }, (e, stdout) => resolve(e ? null : String(stdout).trim())));
+const HARD_MS = 20000;
+const osa = (script) => new Promise((resolve) => execFile("osascript", ["-e", script], { timeout: HARD_MS, killSignal: "SIGKILL", maxBuffer: 1 << 20 }, (e, stdout) => resolve(e ? null : String(stdout))));
+const bounded = (body) => `with timeout of 15 seconds\ntell application "Notes"\n${body}\nend tell\nend timeout`;
+const MAX_DELETES = 5;
 
-/** Real Notes access through osascript; tests pass their own with the same three methods. */
+/**
+ * Notes access through osascript, never enumerating the library (a big one wedged Notes.app, 2026-11-02): only notes
+ * created after the run's start are asked for, each call under a 15 s AppleScript timeout and a 20 s hard kill.
+ * Tests pass their own object with the same two methods.
+ */
 export const liveNotes = {
-  async ids() { const out = await osa('tell application "Notes" to get id of every note'); return out === null ? null : out.split(/,\s*/).filter(Boolean); },
-  async name(id) { return osa(`tell application "Notes" to get name of note id ${JSON.stringify(id)}`); },
-  async remove(id) { return (await osa(`tell application "Notes" to delete note id ${JSON.stringify(id)}`)) !== null; },
+  /** [{id, name}] created in the last `secondsAgo`; null when Notes is slow or unreachable. */
+  async createdSince(secondsAgo) {
+    const n = Math.max(1, Math.ceil(secondsAgo));
+    const out = await osa(bounded(`set out to ""\nrepeat with n in (notes whose creation date > ((current date) - ${n}))\nset out to out & (id of n) & tab & (name of n) & linefeed\nend repeat\nreturn out`));
+    if (out === null) return null;
+    return out.split("\n").filter(Boolean).map((l) => { const [id, ...rest] = l.split("\t"); return { id, name: rest.join("\t") }; });
+  },
+  async remove(id) { return (await osa(bounded(`delete note id ${JSON.stringify(id)}`))) !== null; },
 };
 
-export async function notesBefore(notes = liveNotes) { const ids = await notes.ids().catch(() => null); return ids === null ? null : new Set(ids); }
+/** The moment the item starts (a number), taken before any turn. */
+export async function notesBefore() { return Date.now(); }
 
-/** Notes created since `before`. A null `before` means Notes could not be read: reported as not probed, never guessed. */
-export async function notesEffect(before, notes = liveNotes) {
-  if (!before) return { probed: false, created: [], deleted: [] };
-  const after = await notes.ids().catch(() => null);
-  if (after === null) return { probed: false, created: [], deleted: [] };
-  const created = [];
-  for (const id of after.filter((x) => !before.has(x))) created.push({ id, name: (await notes.name(id).catch(() => null)) ?? "" });
-  return { probed: true, created, deleted: [] };
+/** Notes created since `startMs` (2 s of slack for clock rounding). Slow or unreadable Notes is reported as not probed, never guessed. */
+export async function notesEffect(startMs, notes = liveNotes) {
+  if (!Number.isFinite(startMs)) return { probed: false, created: [], deleted: [] };
+  const created = await notes.createdSince((Date.now() - startMs) / 1000 + 2).catch(() => null);
+  return created === null ? { probed: false, created: [], deleted: [] } : { probed: true, created, deleted: [] };
 }
 
-/** Moves every note the item created to Recently Deleted; `deleted` lists what really went. */
+/** Moves the notes the item created (at most a handful) to Recently Deleted; `deleted` lists what really went. */
 export async function cleanupNotes(effect, notes = liveNotes) {
   const deleted = [];
-  for (const n of effect.created) if (await notes.remove(n.id).catch(() => false)) deleted.push(n.id);
+  for (const n of effect.created.slice(0, MAX_DELETES)) if (await notes.remove(n.id).catch(() => false)) deleted.push(n.id);
   return { ...effect, deleted };
 }

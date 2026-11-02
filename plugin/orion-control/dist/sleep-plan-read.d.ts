@@ -26,11 +26,22 @@ export type SleepTurn = {
     activity: string;
     grace?: boolean;
     again?: boolean;
+}
+/** "i wanna sleep earlier this week": sleep only, nothing about waking. A new bedtime, said and saved in one reply. */
+ | {
+    kind: "bedtime";
+    time?: string;
 };
 /** The default lead when he waves the question off with a yes ("yeah", "sure", "sounds good"): 3 hours, what he asked for. */
 export declare const DEFAULT_LEAD = 180;
 /** A habit statement about when he wakes or sleeps; the slots it already carries. Undefined when it is not one. */
 export declare function readHabit(message: string): Draft | undefined;
+/** "i wanna sleep earlier this week", "earlier bedtime from now on pls", "need to start crashing earlier, like 11": a new bedtime. Pure. */
+export declare function readBedShift(message: string): {
+    time?: string;
+} | undefined;
+/** Whether the sleep plan owns this statement before the health reader can (a wake statement, or a sleep-only bedtime shift). */
+export declare const ownsSleepStatement: (message: string) => boolean;
 /** A night he is out or working (an exception), or idling (no exception). Evening only, unless he says "tonight". Pure. */
 export declare function readException(message: string, now: Date): SleepTurn | undefined;
 /** A late-night plea for more time: an exception when the reason is legit, else no exception with one short grace. Pure. */

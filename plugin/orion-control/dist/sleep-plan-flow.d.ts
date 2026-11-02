@@ -25,6 +25,7 @@ type PlanDay = {
     } | null;
     evening: string;
     sleepBy: string;
+    nudgeAt?: string;
     lockdownAt: string;
     wakeIso?: string;
     nudgeAtIso?: string;

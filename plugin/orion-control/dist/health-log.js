@@ -16,6 +16,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { sandboxNowMs } from "./plugin-clock.js";
 import { mutate, readHealthLog, today as dayOf } from "./health.js";
 const pad = (n) => String(n).padStart(2, "0");
 const clock12 = (d) => `${(d.getHours() + 11) % 12 + 1}:${pad(d.getMinutes())} ${d.getHours() < 12 ? "AM" : "PM"}`;
@@ -238,7 +239,10 @@ export async function runGym(read, deps) {
         streak >= 2 ? `Current streak: ${streak} days${done.has(window.at(-1)) ? "" : " up to yesterday"}.` : ""];
     return say(parts.filter(Boolean).join(" "));
 }
-const configFile = (stateDir) => join(stateDir, "life-config.json");
+// The file scripts/lib/life/config.mjs resolves (W10-B review 4: the gate saw this write the LIVE file mid-evaluation): ORION_LIFE_CONFIG,
+// else eval-life-config.json while a sandboxed evaluation is live (eval-mode marker + fresh eval-calendar.json), else life-config.json.
+const configFile = (stateDir) => process.env.ORION_LIFE_CONFIG
+    || join(stateDir, `${sandboxNowMs({ dir: stateDir }) !== null ? "eval-" : ""}life-config.json`);
 const readConfig = (stateDir) => { try {
     return JSON.parse(readFileSync(configFile(stateDir), "utf8"));
 }

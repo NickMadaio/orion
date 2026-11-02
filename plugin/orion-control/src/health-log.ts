@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { FlowResult } from "./schedule-flow.js";
+import { sandboxNowMs } from "./plugin-clock.js";
 import { mutate, readHealthLog, today as dayOf, type HealthLogFile } from "./health.js";
 
 export type MealRead = { kind: "meal"; meal: string; title: string; notes: string; at: Date };
@@ -222,7 +223,10 @@ export async function runGym(read: GymRead, deps: { stateDir: string; now: Date 
 
 // ---- bedtime ----
 type LifeConfig = Record<string, unknown>;
-const configFile = (stateDir: string) => join(stateDir, "life-config.json");
+// The file scripts/lib/life/config.mjs resolves (W10-B review 4: the gate saw this write the LIVE file mid-evaluation): ORION_LIFE_CONFIG,
+// else eval-life-config.json while a sandboxed evaluation is live (eval-mode marker + fresh eval-calendar.json), else life-config.json.
+const configFile = (stateDir: string) => process.env.ORION_LIFE_CONFIG
+  || join(stateDir, `${sandboxNowMs({ dir: stateDir }) !== null ? "eval-" : ""}life-config.json`);
 const readConfig = (stateDir: string): LifeConfig => { try { return JSON.parse(readFileSync(configFile(stateDir), "utf8")) as LifeConfig; } catch { return {}; } };
 const DEFAULT_BEDTIME = "00:00";   // scripts/lib/life/config.mjs DEFAULTS.bedtime
 const minutesOf = (t: string) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };

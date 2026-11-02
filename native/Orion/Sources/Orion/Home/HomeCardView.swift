@@ -104,30 +104,6 @@ struct HomeCardView: View {
     }
 }
 
-/// The card's one action: an outline capsule in the card's hue with a soft glow rim and a small sparkle.
-struct HomeGlowPill: View {
-    let title: String
-    let hue: Color
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkle").font(.system(size: 10, weight: .semibold))
-                Text(title).font(.system(size: 12.5, weight: .semibold))
-            }
-            .foregroundStyle(OrionTheme.text)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 9)
-            .background(Capsule().fill(hue.opacity(hovering ? 0.16 : 0.09)))
-            .overlay(Capsule().strokeBorder(hue.opacity(hovering ? 0.95 : 0.7), lineWidth: 1))
-            .shadow(color: hue.opacity(hovering ? 0.55 : 0.32), radius: hovering ? 10 : 7)
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .animation(OrionMotion.hover, value: hovering)
-    }
-}
+/// The card's one action. Now the shared page-kit pill (Design/GlowPill.swift), unchanged in look; the old name
+/// stays so Home reads as it did.
+typealias HomeGlowPill = GlowPill

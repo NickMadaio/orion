@@ -433,6 +433,11 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
   "tonight at 8:30am", and the real calendar had none of the gym/study blocks the rubrics assume. That run's 9/20 was
   about half artifacts. Run the live tier on a weekday evening, and read the failures before you trust the number.
 
+- **With `enableComputerControlActions` on, the SANDBOX gate's com-* items act on the real Mac.** The sandbox only swaps
+  the calendar. On 2026-11-02 at 01:21, com-open-app-v/c made two real "Econ ideas" notes in Nick's Notes, and
+  com-click-flow typed "hello" into whatever Safari had focused. After any gate run with control on, check Notes for
+  the scenario titles and delete them. They go to Recently Deleted, so they can be recovered.
+
 - **Gate focus items can wedge Orion.app and quit Nick's real apps.** On 2026-11-01 at 04:44, the gate started and stopped
   sessions every few seconds. Each start's distraction review quit CurseForge, and then the app stopped logging and
   answering ~/.openclaw/orion-session.sock ("Orion is not running") while the process stayed alive. An AppleScript

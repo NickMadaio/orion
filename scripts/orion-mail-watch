@@ -1,0 +1,72 @@
+#!/usr/bin/env node
+/*
+ orion-mail-watch — passive alerts for mail that might matter (wave 14, 2026-11-02).
+
+   orion-mail-watch tick [--force] [--json]   run by orion-watches' tick; polls Gmail at most every 10 minutes
+   orion-mail-watch status [--json]           when it last looked, what is waiting, the last alert
+
+ How it decides and tells him: scripts/lib/mail/tick.mjs. What he taught it: orion-mail-prefs.
+ Read-only on Gmail (headers and snippet). Never runs during an evaluation. Alerts go through orion-reach as quiet, low-tier
+ notices (held for quiet hours, focus and class like any other), so an isolated run's alerts land in its outbox.
+ Seams for tests only: ORION_MAIL_OLLAMA_URL (a fake Ollama), ORION_MAIL_NO_MODEL=1, ORION_MAIL_ROOT (where .env is read).
+*/
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { appendFileSync } from "node:fs";
+import { controlledDir } from "./lib/clock.mjs";
+import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
+import { evalMode } from "./lib/eval-mode.mjs";
+import { readJson } from "./lib/awareness/io.mjs";
+import { mailFile, readAlerts, readState } from "./lib/mail/files.mjs";
+import { mailTick } from "./lib/mail/tick.mjs";
+import { gogInbox } from "./lib/mail/gog.mjs";
+import { askModel, OLLAMA_URL } from "./lib/mail/model.mjs";
+import { nickAddresses, readKnowledgeContext } from "./lib/mail/context.mjs";
+import { DEFAULT_SCHOOL_DOMAINS } from "./lib/mail/score.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ORION_ROOT = process.env.ORION_MAIL_ROOT || dirname(HERE);
+const argv = process.argv.slice(2);
+const command = argv.find((a) => !a.startsWith("--")) ?? "status";
+const json = argv.includes("--json");
+const out = (text, data) => console.log(json ? JSON.stringify(data) : text);
+const dir = controlledDir();
+
+/** orion-reach, quiet: tier low, no voice, worthless after 12 h. Urgent mail is a warning (still held by quiet hours and focus). */
+function reach(text, { why, urgent }) {
+  const now = clockNow();
+  const args = [join(HERE, "orion-reach"), text, "--kind", urgent ? "warning" : "info", "--tier", "low", "--why", why,
+    ...(urgent ? [] : ["--silent"]), "--valid-until", new Date(now.getTime() + 12 * 3600_000).toISOString(), "--json"];
+  const r = spawnSync(process.execPath, args, { encoding: "utf8", timeout: 30000, env: process.env });
+  let id = null;
+  try { id = JSON.parse(String(r.stdout).trim().split("\n").at(-1)).id ?? null; } catch { /* a plain line */ }
+  return { ok: r.status === 0 && !/NOT SENT/.test(r.stdout ?? ""), id, output: String(r.stdout ?? "").trim() };
+}
+
+const logUsage = (row) => { try { appendFileSync(join(dir, "local-usage.jsonl"), `${JSON.stringify({ at: new Date().toISOString(), source: "mail watch", ...row })}\n`); } catch {} };
+
+if (command === "tick") {
+  if (evalMode() || sandbox()) { out("Mail watch paused during an evaluation.", { polled: false, reason: "evaluation" }); process.exit(0); }
+  const prefs = readJson(mailFile(dir, "prefs")) ?? {};
+  const noModel = process.env.ORION_MAIL_NO_MODEL === "1";
+  const result = await mailTick({
+    dir, now: clockNow(), force: argv.includes("--force"),
+    ctx: { ...readKnowledgeContext(dir), schoolDomains: DEFAULT_SCHOOL_DOMAINS },
+    fetchInbox: gogInbox(ORION_ROOT, { nickAddresses: nickAddresses(prefs.me ?? []) }),
+    askModel: noModel ? null : (item, opts) => askModel(item, { ...opts, url: process.env.ORION_MAIL_OLLAMA_URL || OLLAMA_URL, onUsage: logUsage }),
+    reach,
+  });
+  out(result.said ? `Told him: ${result.said}` : `Nothing to tell him (${result.reason ?? "no new mail"}).`, result);
+} else if (command === "status") {
+  const state = readState(mailFile(dir, "state"));
+  const last = readAlerts(mailFile(dir, "alerts"), 1).at(-1);
+  out([
+    `Last looked: ${state.lastPollAt ?? "never"}${state.problem ? ` (problem: ${state.problem})` : ""}`,
+    `Waiting to tell him: ${(state.queue ?? []).length}`,
+    `Last alert: ${last ? `${last.at} — ${last.text}` : "none yet"}`,
+  ].join("\n"), { ...state, lastAlert: last ?? null });
+} else {
+  console.error("usage: orion-mail-watch tick [--force] [--json] | status [--json]");
+  process.exit(2);
+}

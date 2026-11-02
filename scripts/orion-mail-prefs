@@ -1,0 +1,65 @@
+#!/usr/bin/env node
+/*
+ orion-mail-prefs — what Nick has taught ORION about his email (wave 14, 2026-11-02). The mail watcher applies these before any other
+ signal: a mute means "never alert me about this", a boost means "always do".
+
+   orion-mail-prefs list [--json]
+   orion-mail-prefs add mute|boost [sender|domain|topic] "<value>" [--via chat|cli]   kind defaults from the value: an address is a
+        sender, "linkedin.com" a domain, anything else a topic
+   orion-mail-prefs remove <id|value>
+   orion-mail-prefs me add|remove <address>          his own addresses (his reply in a thread is never "from a person")
+
+ Store: orion-controlled/mail-prefs.json, honouring ORION_CONTROLLED_DIR; eval-mail-prefs.json during a sandboxed evaluation.
+ Exit 0 done, 2 bad arguments (nothing saved), 3 nothing matched.
+*/
+import { controlledDir } from "./lib/clock.mjs";
+import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
+import { readJson, writeJsonAtomic } from "./lib/awareness/io.mjs";
+import { mailFile } from "./lib/mail/files.mjs";
+import { KINDS, addRule, emptyPrefs, kindOfValue, makeRule, removeRule, ruleLine } from "./lib/mail/prefs.mjs";
+
+const VALUE_FLAGS = ["--via"];
+const argv = process.argv.slice(2);
+const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+const [command, ...rest] = argv.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(argv[i - 1]));
+const json = argv.includes("--json");
+const USAGE = 'usage: orion-mail-prefs list | add mute|boost [sender|domain|topic] "<value>" | remove <id|value> | me add|remove <address>';
+
+const say = (text, data = {}) => { console.log(json ? JSON.stringify({ ok: true, ...data }) : text); process.exit(0); };
+const fail = (code, text) => { if (json) console.log(JSON.stringify({ ok: false, error: text })); else console.error(`NOTHING WAS SAVED: ${text}`); process.exit(code); };
+
+const dir = controlledDir();
+const path = mailFile(dir, "prefs", { sandboxed: sandbox() !== null });
+const name = path.split("/").at(-1);
+const prefs = { ...emptyPrefs(), ...(readJson(path) ?? {}) };
+const save = (next) => { try { writeJsonAtomic(dir, name, next); } catch (e) { fail(3, `could not write ${name}: ${e.message}`); } };
+
+if (command === "list" || !command) {
+  const rules = prefs.rules ?? [];
+  say(rules.length ? [`Mail rules (${rules.length}):`, ...rules.map(ruleLine)].join("\n") : "No mail rules yet. ORION goes by who wrote it and what it says.", { rules, me: prefs.me ?? [] });
+} else if (command === "add") {
+  const [action, second, third] = rest;
+  const explicitKind = KINDS.includes(second);
+  const value = explicitKind ? third : [second, third].filter(Boolean).join(" ");
+  if (!value) fail(2, USAGE);
+  let rule;
+  try { rule = makeRule({ action, kind: explicitKind ? second : kindOfValue(value), value, via: flag("--via") ?? "cli", now: clockNow() }); }
+  catch (e) { fail(2, e.message); }
+  save(addRule(prefs, rule));
+  say(`${rule.action === "mute" ? "Won't alert" : "Will always alert"} on ${rule.kind} "${rule.value}" (${rule.id}).`, { rule });
+} else if (command === "remove") {
+  if (!rest[0]) fail(2, USAGE);
+  const out = removeRule(prefs, rest.join(" "));
+  if (!out.removed) fail(3, `no rule matches "${rest.join(" ")}" (see orion-mail-prefs list)`);
+  save(out.prefs);
+  say(`Removed ${out.removed} rule${out.removed === 1 ? "" : "s"}.`, { removed: out.removed });
+} else if (command === "me") {
+  const [op, address] = rest;
+  const a = String(address ?? "").toLowerCase();
+  if (!["add", "remove"].includes(op) || !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(a)) fail(2, "usage: orion-mail-prefs me add|remove <address>");
+  const me = op === "add" ? [...new Set([...(prefs.me ?? []), a])] : (prefs.me ?? []).filter((x) => x !== a);
+  save({ ...prefs, me });
+  say(`His addresses: ${me.join(", ") || "none besides the Gmail account"}.`, { me });
+} else {
+  fail(2, USAGE);
+}

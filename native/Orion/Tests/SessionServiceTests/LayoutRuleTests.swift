@@ -96,8 +96,14 @@ final class LayoutRuleTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(tasks.components(separatedBy: "ColumnScroll(").count - 1, 2,
                                     "the plan column and the calendar column each need their own scroll")
-        XCTAssertTrue(dashboard.contains("scrollBounceBehavior(selectedTab == .tasks ? .basedOnSize : .automatic"),
-                      "only the Plan tab opts out of the page scroll")
+        // 11-02 live: inside the page ScrollView the page still scrolled, whatever height it was given. The Plan
+        // branch now comes before the ScrollView, so the page has no scroll to move.
+        guard let planBranch = dashboard.range(of: "if selectedTab == .tasks {"),
+              let pageScroll = dashboard.range(of: "ScrollView {", range: planBranch.upperBound..<dashboard.endIndex) else {
+            return XCTFail("the Plan tab must branch off before the page ScrollView")
+        }
+        XCTAssertFalse(dashboard[planBranch.upperBound..<pageScroll.lowerBound].contains("ScrollView"),
+                       "only the Plan tab opts out of the page scroll, by sitting outside it")
         XCTAssertTrue(dashboard.contains("frame(width: proxy.size.width, height: proxy.size.height"),
                       "the Plan page must be exactly the viewport tall, or the page scrolls again")
     }
@@ -115,9 +121,9 @@ final class LayoutRuleTests: XCTestCase {
                       "the task column should remain substantial on a wide display")
         XCTAssertFalse(tasks.contains("calendar.granularity == .month ? 760 : 470"),
                        "a fixed calendar width strands the right side of the window")
-        XCTAssertTrue(dashboard.contains("else if selectedTab == .tasks"))
+        XCTAssertTrue(dashboard.contains("if selectedTab == .tasks"))
         XCTAssertTrue(dashboard.contains("availableWidth: max(0, proxy.size.width - 92)"),
-                      "Tasks needs the measured usable width inside the dashboard ScrollView")
+                      "Tasks needs the measured usable width of the window")
     }
 
     func testFocusClockInterpolatesBetweenDurableHeartbeats() throws {

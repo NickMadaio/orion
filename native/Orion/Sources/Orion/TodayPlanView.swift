@@ -62,8 +62,7 @@ struct TodayPlanView: View {
             .font(.system(size: 13)).foregroundStyle(OrionTheme.textSoft)
             .fixedSize(horizontal: false, vertical: true)
         HStack(spacing: 12) {
-            Button { model.preview(.plan) } label: { Label("Plan my day", systemImage: "sparkles") }
-                .buttonStyle(PlanButtonStyle(prominent: true))
+            GlowPill(title: "Plan my day", symbol: "sparkles", working: model.isSaving) { model.preview(.plan) }
                 .disabled(!model.loaded || model.isSaving || !usable)
             if !usable { sourcesNote }
         }
@@ -72,24 +71,27 @@ struct TodayPlanView: View {
     @ViewBuilder private func actions(plan: TodayPlan, usable: Bool) -> some View {
         if model.proposal != nil {
             HStack(spacing: 12) {
-                Button("Keep this plan") { model.accept() }
-                    .buttonStyle(PlanButtonStyle(prominent: true)).disabled(!usable || model.isSaving)
-                Button("Discard") { model.dismissProposal() }.buttonStyle(PlanButtonStyle())
+                GlowPill(title: "Keep this plan", hue: OrionTheme.green, symbol: "checkmark", working: model.isSaving) { model.accept() }
+                    .disabled(!usable || model.isSaving)
+                GlowPill(title: "Discard", hue: OrionTheme.textSoft, symbol: "xmark") { model.dismissProposal() }
                 if !usable { sourcesNote }
             }
         } else {
             HStack(spacing: 12) {
-                Button { model.preview(.replan) } label: { Label("Replan from now", systemImage: "arrow.clockwise") }
-                    .buttonStyle(PlanButtonStyle()).disabled(!usable || model.isSaving)
+                // Wave 14: glow pills, Home's one-action shape, springing in when they become available.
+                GlowPill(title: "Replan from now", symbol: "arrow.clockwise", working: model.isSaving) { model.preview(.replan) }
+                    .disabled(!usable || model.isSaving)
                 if model.document.hasUndo {
-                    Button { model.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
-                        .buttonStyle(PlanButtonStyle()).disabled(model.isSaving)
+                    GlowPill(title: "Undo", hue: OrionTheme.violet, symbol: "arrow.uturn.backward") { model.undo() }
+                        .disabled(model.isSaving)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
                 if plan.blocks.contains(where: \.pinned) {
-                    Button("Release pins") { model.preview(.unpinAll) }.buttonStyle(PlanButtonStyle())
+                    CardDetailsLink("Release pins", symbol: "pin.slash") { model.preview(.unpinAll) }
                 }
                 if !usable { sourcesNote }
             }
+            .animation(OrionMotion.select, value: model.document.hasUndo)
         }
     }
 
@@ -133,28 +135,5 @@ struct TodayPlanView: View {
                 Text(String(format: "%02d:%02d", minute / 60, minute % 60)).tag(minute)
             }
         }.frame(maxWidth: 190)
-    }
-}
-
-/// Quiet outline buttons that match the rest of the dashboard; the prominent one has a stronger stroke.
-/// Wave 13: the prominent one is Home's glow pill (a whisper of fill, a bright rim, a soft glow); the others stay
-/// quiet outlines.
-struct PlanButtonStyle: ButtonStyle {
-    var prominent = false
-    @Environment(\.isEnabled) private var enabled
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundStyle(prominent ? OrionTheme.text : OrionTheme.accent)
-            .padding(.horizontal, prominent ? 15 : 12).padding(.vertical, prominent ? 9 : 7)
-            .background { if prominent { Capsule().fill(OrionTheme.accent.opacity(configuration.isPressed ? 0.16 : 0.09)) } }
-            // 2026-10-16 UI audit #7: outline, not filled, prominent or not.
-            .overlay {
-                Capsule().strokeBorder(OrionTheme.accent.opacity(prominent ? 0.7 : 0.25), lineWidth: prominent ? 1 : 0.7)
-            }
-            .shadow(color: OrionTheme.accent.opacity(prominent && enabled ? 0.32 : 0), radius: 7)
-            .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
-            .contentShape(Capsule())
     }
 }

@@ -460,9 +460,11 @@ private struct EventBlock: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 7) {
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+            // Wave 14: a rounded capsule edge, not a hard bar.
+            Capsule()
                 .fill(tint)
                 .frame(width: 3)
+                .padding(.vertical, height < 20 ? 2 : 3)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.title)
@@ -494,19 +496,20 @@ private struct EventBlock: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 7)
+        .padding(.horizontal, 9)
         .padding(.vertical, height < 20 ? 1 : 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Nothing drawn outside the event's own time.
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
         .background {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
                 .fill(tint.opacity(fill))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(tint.opacity(isNow ? 0.95 : 0.55), lineWidth: isNow ? 1.5 : 1)
+                    RoundedRectangle(cornerRadius: corner, style: .continuous)
+                        .strokeBorder(tint.opacity(isNow ? 0.9 : 0.45), lineWidth: isNow ? 1.3 : 0.8)
                 }
-                .shadow(color: .black.opacity(0.35), radius: hovering ? 8 : 4, y: 2)
+                // A soft glow in the event's own hue, brighter for the one happening now, instead of a drop shadow.
+                .shadow(color: tint.opacity(isNow ? 0.45 : (hovering ? 0.25 : 0)), radius: isNow ? 10 : 6)
         }
         // Past events fade rather than vanish: what you already did is context
         // for what is left, and greying it out entirely loses the shape of the
@@ -519,9 +522,12 @@ private struct EventBlock: View {
     }
 
     private var fill: Double {
-        if hovering { return 0.46 }
-        return isNow ? 0.42 : 0.30
+        if hovering { return 0.34 }
+        return isNow ? 0.30 : 0.20
     }
+
+    /// Round as the block allows: a short event is a full capsule, a long one a soft rounded slab.
+    private var corner: CGFloat { min(14, max(4, height / 2)) }
 }
 
 

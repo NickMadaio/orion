@@ -55,6 +55,8 @@ struct TasksTab: View {
     @ObservedObject var todayPlan: TodayPlanModel
     var refreshPlanSources: () -> Void
     var onOpenChat: () -> Void
+    /// Renders draw the columns without their ScrollViews, which ImageRenderer cannot draw.
+    var snapshot = false
 
     @FocusState private var planningComposerFocused: Bool
     @State private var submittedPlanningMessage = false
@@ -62,42 +64,28 @@ struct TasksTab: View {
     @State private var composerTitle = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 40) {
-        PageHeader(title: energyTitle, subline: headline) { doneEarly }
-        HStack(alignment: .top, spacing: 28) {
-            VStack(alignment: .leading, spacing: 32) {
-                dayFigures
-                    .onAppear { state.refreshEarlyContext() }
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .deal(order: 0, rise: 12)
-                PlainSection(padding: 18) {
-                    TodayPlanView(model: todayPlan, refresh: refreshPlanSources)
-                }
-                .deal(order: 1, rise: 12)
-                planningComposer
-                PlainSection(padding: 18) {
-                    tasksSection.frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-                .deal(order: 2, rise: 12)
-            }
-            .frame(width: splitWidths.left, alignment: .topLeading)
+        // Wave 14: the page itself never scrolls (Nick: "things should scroll separately, not the whole page").
+        // The header stays put; the plan column and the calendar column each scroll on their own, inside a
+        // definite height. DashboardView hands this tab exactly its viewport, so the outer ScrollView has nothing to move.
+        VStack(alignment: .leading, spacing: 30) {
+            PageHeader(title: energyTitle, subline: headline) { doneEarly }
+            HStack(alignment: .top, spacing: 28) {
+                planColumn
+                    .frame(width: splitWidths.left, alignment: .topLeading)
+                    .frame(maxHeight: .infinity, alignment: .top)
 
-            // 2026-10-16 UI audit #5/#7: a hairline between unequal columns
-            // instead of a card around each, and room above the day header so
-            // nothing starts flush under the nav scrim.
-            FadingVerticalHairline()
-                .frame(height: max(360, availableHeight))
-            calendarColumn.frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.top, 12)
-                // Definite on BOTH axes. The height is what turns the timeline
-                // into a scrollable region instead of a 24-hour-tall column that
-                // drags the whole page with it; whatever sits above it keeps its
-                // natural height and the timeline takes the remainder.
-                .frame(height: max(360, availableHeight), alignment: .topLeading)
-                .frame(width: splitWidths.calendar, alignment: .topLeading)
+                // 2026-10-16 UI audit #5/#7: a hairline between unequal columns instead of a card around each.
+                FadingVerticalHairline()
+                    .frame(maxHeight: .infinity)
+                calendarColumn.frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.top, 4)
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
+                    .frame(width: splitWidths.calendar, alignment: .topLeading)
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
-        }
-        .frame(width: max(0, availableWidth), alignment: .topLeading)
+        // Definite on BOTH axes: the height is what turns each column into a viewport of its own.
+        .frame(width: max(0, availableWidth), height: max(360, availableHeight), alignment: .topLeading)
         .sheet(isPresented: Binding(
             get: { sheetMode != nil },
             set: { if !$0 { sheetMode = nil; composerTitle = "" } }
@@ -108,6 +96,34 @@ struct TasksTab: View {
                     composerTitle = ""
                 }
             }
+        }
+    }
+
+    /// The left column: the day's rings, ORION's plan and the to-do list scroll together; the composer stays
+    /// pinned under them, the way Home keeps its composer at the bottom of the scene.
+    private var planColumn: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ColumnScroll(snapshot: snapshot) {
+                VStack(alignment: .leading, spacing: 32) {
+                    dayFigures
+                        .onAppear { state.refreshEarlyContext() }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .deal(order: 0, rise: 12)
+                    TodayPlanView(model: todayPlan, refresh: refreshPlanSources)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        .deal(order: 1, rise: 12)
+                    tasksSection.frame(maxWidth: .infinity, alignment: .topLeading)
+                        .deal(order: 2, rise: 12)
+                }
+                // Room for the rings' strokes and glows, which the scroll bounds would otherwise clip.
+                .padding(.leading, 6)
+                .padding(.top, 8)
+                .padding(.trailing, 10)
+                .padding(.bottom, 28)
+            }
+            planningComposer
+                .padding(.trailing, 10)
+                .padding(.bottom, 6)
         }
     }
 
@@ -194,23 +210,33 @@ struct TasksTab: View {
         .padding(.top, 4)
     }
 
-    /// The day's numbers on the page, staggered: how much of the list is done (a line meter, not a ring), what is
-    /// open, and what is late, which is the only one that turns red.
+    /// The day's numbers as rings (wave 14): Done fills as the list gets done and its figure counts up; Open is
+    /// the share of the list still waiting; Overdue appears only when something is late, and is the only red.
+    /// Staggered vertically, not lined up in a grid.
     private var dayFigures: some View {
-        HStack(alignment: .top, spacing: 48) {
-            VStack(alignment: .leading, spacing: 12) {
-                BigNumber(label: "Done", value: "\(Int(completion * 100))", unit: "%", note: "\(hoursLeft)h of awake time left",
-                          hue: completion >= 1 ? OrionTheme.green : OrionTheme.accent, countTo: Int(completion * 100))
-                LineMeter(progress: completion, hue: completion >= 1 ? OrionTheme.green : OrionTheme.accent, width: 150)
-            }
-            BigNumber(label: "Open", value: "\(reminders.openCount)", note: summary, hue: OrionTheme.blue,
-                      valueTint: OrionTheme.text, size: 34, countTo: reminders.openCount)
-                .padding(.top, 20)
+        HStack(alignment: .top, spacing: 34) {
+            RingMeter(progress: completion, value: "\(Int(completion * 100))", caption: "% done",
+                      tint: completion >= 1 ? OrionTheme.green : OrionTheme.accent, diameter: 118, drawInAfter: 0.1)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(Int(completion * 100)) percent done")
+            RingMeter(progress: PlanRings.openFraction(open: reminders.openCount, total: reminders.tasks.count),
+                      value: "\(reminders.openCount)", caption: "open", tint: OrionTheme.blue, diameter: 92, drawInAfter: 0.25)
+                .padding(.top, 22)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(reminders.openCount) open")
             if reminders.overdueCount > 0 {
-                BigNumber(label: "Overdue", value: "\(reminders.overdueCount)", hue: OrionTheme.red,
-                          valueTint: OrionTheme.red, size: 34, countTo: reminders.overdueCount)
+                RingMeter(progress: PlanRings.openFraction(open: reminders.overdueCount, total: reminders.tasks.count),
+                          value: "\(reminders.overdueCount)", caption: "overdue", tint: OrionTheme.red, diameter: 80, drawInAfter: 0.4)
                     .padding(.top, 8)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(reminders.overdueCount) overdue")
             }
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(hoursLeft)h").font(OrionTheme.display(26)).foregroundStyle(OrionTheme.text)
+                Text("of awake time left").font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim)
+                Text(summary).font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft).padding(.top, 4)
+            }
+            .padding(.top, 40)
             Spacer(minLength: 0)
         }
     }
@@ -230,7 +256,6 @@ struct TasksTab: View {
     /// rebuilt after his old Notion list. Everything is set while adding and edited in place.
     private var tasksSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if !reminders.access.isGranted { accessNotice }
             Button { state.todoFloat.togglePopOut() } label: {
                 Label(state.todoFloat.isPoppedOut ? "Close floating to-dos" : "Float to-dos", systemImage: "arrow.up.forward.square")
                     .font(.system(size: 12, weight: .medium))
@@ -287,70 +312,55 @@ struct TasksTab: View {
         return calendar.date(bySettingHour: min(23, hour + 1), minute: 0, second: 0, of: now) ?? now
     }
 
-    @ViewBuilder private var accessNotice: some View {
-        HStack(spacing: 11) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 12))
-                .foregroundStyle(OrionTheme.orange)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Reminders access is needed for the task list")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(OrionTheme.text)
-                Text(reminders.statusLine)
-                    .font(OrionTheme.mono(10))
-                    .foregroundStyle(OrionTheme.textDim)
-            }
-            Spacer(minLength: 12)
-            InlineAction(title: "Open Settings", systemImage: "arrow.up.right") {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders") {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-        }
-        .padding(.bottom, 4)
-    }
-
     // MARK: - Schedule
 
-    /// The right-hand column: a granularity switcher over one of three views.
+    /// The right-hand column: a granularity switcher over one of three views. It scrolls or pages on its own:
+    /// the month pages with ‹ ›, the week and the selected day's list scroll, the day timeline has its own scroll.
     private var calendarColumn: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 Text(calendarTitle)
-                    .font(OrionTheme.display(19))
+                    .font(OrionTheme.display(21))
                     .foregroundStyle(OrionTheme.text)
+                    .contentTransition(.opacity)
+                    .animation(OrionMotion.fade, value: calendarTitle)
 
                 Spacer(minLength: 8)
 
-                ForEach(CalendarGranularity.allCases, id: \.self) { option in
-                    InlineAction(
-                        title: option.title,
-                        tint: option == calendar.granularity ? OrionTheme.accent : OrionTheme.textDim
-                    ) { calendar.show(option) }
-                }
+                CalendarGranularityPills(selected: calendar.granularity) { calendar.show($0) }
 
-                InlineAction(title: "‹", tint: OrionTheme.textSoft) { calendar.step(-1) }
-                InlineAction(title: "•", tint: OrionTheme.textSoft) { calendar.goToToday() }
-                InlineAction(title: "›", tint: OrionTheme.textSoft) { calendar.step(1) }
+                HStack(spacing: 6) {
+                    PlanRoundAction(symbol: "chevron.left", help: "Previous", hue: OrionTheme.textSoft) { calendar.step(-1) }
+                    PlanRoundAction(symbol: "circle.fill", help: "Today", hue: OrionTheme.accent) { calendar.goToToday() }
+                    PlanRoundAction(symbol: "chevron.right", help: "Next", hue: OrionTheme.textSoft) { calendar.step(1) }
+                }
             }
 
-            ForEach(calendar.disclosures, id: \.self) { line in
-                Text(line)
-                    .font(.system(size: 11))
-                    .foregroundStyle(OrionTheme.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let notice = PlanNotice.make(disclosures: calendar.disclosures, remindersGranted: reminders.access.isGranted) {
+                PlanNoticeCapsule(notice: notice, settingsURL: notice.title.hasPrefix("Reminders")
+                                  ? "x-apple.systempreferences:com.apple.preference.security?Privacy_Reminders"
+                                  : "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")
             }
 
             switch calendar.granularity {
             case .day:
                 schedule
             case .week:
-                WeekGrid(model: calendar, height: max(300, availableHeight - 90))
+                ColumnScroll(snapshot: snapshot) {
+                    WeekGrid(model: calendar, height: max(300, availableHeight - 90))
+                        .padding(.bottom, 24)
+                }
             case .month:
-                // Leave a deliberate lower margin below the final week. Month
-                // cells remain easy to scan, but the grid no longer reads as
-                // pressed against the dashboard's lower edge.
-                MonthGrid(model: calendar, height: max(300, availableHeight - 132))
+                // The month is a fixed page of circles, sized from the height it is given; the selected day's
+                // list takes what is left underneath and scrolls on its own.
+                GeometryReader { proxy in
+                    VStack(alignment: .leading, spacing: 18) {
+                        MonthGrid(model: calendar, height: min(440, max(260, proxy.size.height * 0.62)))
+                        ColumnScroll(snapshot: snapshot) {
+                            CalendarDayList(model: calendar).padding(.bottom, 24)
+                        }
+                    }
+                }
             }
         }
         // Month/week use CalendarModel; the detailed day timeline is backed by

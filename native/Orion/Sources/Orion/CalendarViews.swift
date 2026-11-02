@@ -1,5 +1,8 @@
 //
-//  The month and week grids, and what a day looks like when you glance at it.
+//  The month and week views, and what a day looks like when you glance at it.
+//
+//  Wave 14: a day is a circle, not a cell. The notes below still hold for what
+//  the colour means; the shape around it is what changed.
 //
 //  A day cell has to answer one question without being read: was this a good
 //  day. The colour answers it at a glance and the mark out of ten answers it
@@ -18,287 +21,230 @@
 import SwiftUI
 import SessionDomain
 
-// MARK: - One day
+// MARK: - One day, as a circle
 
-struct CalendarDayCell: View {
+/// A day as a number in a circle, with small coloured dots under it for what is on it.
+///
+/// Wave 14: no cell boxes. Today is a filled ring with a soft glow; the selected day keeps a thin ring; a scored
+/// day carries a wash inside its circle whose weight is the score (one hue getting stronger, never a red-to-green
+/// pass/fail); a day with only completed work gets a calm green wash; past days read dimmer. The dots are one per
+/// kind of thing (CalendarDots), so three lectures are one violet dot, not three.
+struct CalendarDayCircle: View {
     let day: Date
     let entries: [CalendarEntry]
     let score: DayScore?
-    let inMonth: Bool
     let isToday: Bool
     let isPast: Bool
     let isSelected: Bool
-    let height: CGFloat
-    let compact: Bool
+    var diameter: CGFloat = 34
     let onTap: () -> Void
     let onDoubleTap: () -> Void
 
+    @State private var hovering = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            // The date and the mark, and nothing else on this line.
-            //
-            // The tick count and the focus minutes used to share this row, and
-            // adding the score to it squeezed them: three small things and a
-            // number in 40 points of width means the first thing to go is the
-            // tick, which is the thing worth seeing most. They get their own
-            // line below, where they cannot be crowded out.
-            HStack(spacing: 4) {
-                Text(Self.dayNumber(day))
-                    .font(.system(size: compact ? 11 : 12,
-                                  weight: isToday ? .bold : .regular))
+        VStack(spacing: 5) {
+            ZStack {
+                Circle().fill(wash)
+                if isToday {
+                    Circle().fill(OrionTheme.accent.opacity(0.20))
+                    Circle().strokeBorder(OrionTheme.accent, lineWidth: 1.5)
+                        .shadow(color: OrionTheme.accent.opacity(0.55), radius: 7)
+                } else if isSelected {
+                    Circle().strokeBorder(Color.white.opacity(0.55), lineWidth: 1)
+                } else if hovering {
+                    Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8)
+                }
+                Text(CalendarViewSupport.dayNumber(day))
+                    .font(.system(size: max(10, diameter * 0.36), weight: isToday ? .semibold : .regular, design: .rounded))
+                    .monospacedDigit()
                     .foregroundStyle(numberTint)
-
-                Spacer(minLength: 0)
-
-                // The mark out of ten. Trailing, because the day number is the
-                // thing you scan for and this is the thing you land on.
-                //
-                // A provisional score — one standing on a minority of the day's
-                // inputs, typically the watch alone — is drawn lighter rather
-                // than hidden or asterisked. It is still true, it just knows
-                // less, and dimming says that without a legend.
-                if let score, score.hasValue {
-                    Text(score.displayValue)
-                        .font(.system(size: compact ? 9 : 10, weight: .semibold,
-                                      design: .rounded))
-                        .monospacedDigit()
-                        .foregroundStyle(OrionTheme.accent.opacity(score.isProvisional ? 0.55 : 0.95))
-                }
             }
+            .frame(width: diameter, height: diameter)
+            .scaleEffect(hovering ? 1.06 : 1)
 
-            if completedCount != nil || (focusMinutes ?? 0) > 0 {
-                HStack(spacing: 4) {
-                    if let count = completedCount, count > 0 {
-                        // The tick is the thing he was looking for and could not
-                        // find. Shown as a count, because "three things done"
-                        // and "one thing done" are different days.
-                        Label("\(count)", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(OrionTheme.green)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(OrionTheme.green.opacity(0.18)))
-                    }
-
-                    if let focusMinutes, focusMinutes > 0 {
-                        Text("\(focusMinutes)m")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(OrionTheme.accent)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !compact {
-                ForEach(entries.prefix(entryLimit)) { entry in
-                    HStack(spacing: 4) {
-                        RoundedRectangle(cornerRadius: 1, style: .continuous)
-                            .fill(entry.tint)
-                            .frame(width: 2, height: 9)
-                        Text(entry.title)
-                            .font(.system(size: 10))
-                            .foregroundStyle(OrionTheme.textSoft)
-                            .lineLimit(1)
-                    }
-                }
-                if entries.count > entryLimit {
-                    Text("+\(entries.count - entryLimit)")
-                        .font(.system(size: 9))
-                        .foregroundStyle(OrionTheme.textDim)
-                }
-            } else if !entries.isEmpty {
-                // Compact cells get dots rather than titles — enough to say
-                // "something happened" without pretending to be readable.
-                HStack(spacing: 2) {
-                    ForEach(entries.prefix(4)) { entry in
-                        Circle().fill(entry.tint).frame(width: 3, height: 3)
-                    }
-                }
-            }
-
-            Spacer(minLength: 0)
+            dots.frame(height: 5)
         }
-        .padding(compact ? 4 : 6)
-        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .topLeading)
-        .background(background)
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(isSelected ? OrionTheme.accent.opacity(0.7) : (inMonth ? Color.white.opacity(0.06) : .clear),
-                              lineWidth: isSelected ? 1 : 0.6)
-                .shadow(color: OrionTheme.accent.opacity(isSelected ? 0.35 : 0), radius: 8)
-        )
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .animation(OrionMotion.hover, value: hovering)
         .onTapGesture(perform: onTap)
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded(onDoubleTap)
-        )
+        .simultaneousGesture(TapGesture(count: 2).onEnded(onDoubleTap))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { onTap() }
+        .accessibilityAction(named: "Open this day") { onDoubleTap() }
     }
 
-    // MARK: What the colour means
-
-    /// Tinted by the score, recorded completed work, or the simple fact that
-    /// the date is already behind us. The past-date state is intentionally
-    /// neutral: it communicates time passing, not performance.
-    ///
-    /// Completion is a recorded fact, unlike a missing score. It earns a calm
-    /// state without implying that the day was good or bad overall.
-    private var background: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(fill)
-    }
-
-    private var fill: Color {
-        guard inMonth else { return .clear }
-        guard let value = score?.value else {
-            if completedCount != nil { return OrionTheme.green.opacity(0.24) }
-            // Wave 13: a day with nothing to say is not a tile. Past days keep a faint wash so time still reads.
-            return isPast ? OrionTheme.textSoft.opacity(0.07) : .clear
+    private var dots: some View {
+        let result = CalendarDots.make(for: entries, limit: 4)
+        return HStack(spacing: 3) {
+            ForEach(result.shown) { entry in
+                Circle().fill(entry.tint).frame(width: 4.5, height: 4.5)
+                    .shadow(color: entry.tint.opacity(0.6), radius: 2)
+            }
+            if result.overflow > 0 {
+                Circle().strokeBorder(OrionTheme.textDim, lineWidth: 0.8).frame(width: 4.5, height: 4.5)
+            }
         }
-        // One hue, varying weight. A red-to-green ramp reads as pass/fail and
-        // invites arguing with the number; a single accent that gets stronger
-        // reads as "more", which is what it actually measures.
-        //
-        // The ramp is not linear in the score. Real days cluster between 5 and
-        // 9, and a linear opacity turns that whole range into four barely
-        // distinguishable washes — the grid looked flat even once every day had
-        // a number. Anchoring the bottom of the visible range at 3 and spending
-        // the opacity across what is left is what makes a 6 and an 8 read as
-        // different days from across the room.
+    }
+
+    /// The score as weight in one hue. Real days cluster between 5 and 9, so the visible range starts at 3.
+    private var wash: Color {
+        guard let value = score?.value else {
+            if entries.contains(where: { if case .completed = $0.kind { return true }; return false }) {
+                return OrionTheme.green.opacity(0.14)
+            }
+            return .clear
+        }
         let spread = min(1, max(0, (value - 0.3) / 0.7))
-        return OrionTheme.accent.opacity(0.08 + 0.42 * spread)
+        return OrionTheme.accent.opacity((score?.isProvisional == true ? 0.04 : 0.06) + 0.26 * spread)
     }
 
     private var numberTint: Color {
-        if isToday { return OrionTheme.accent }
-        guard inMonth else { return OrionTheme.textDim }
-        return OrionTheme.textSoft
+        if isToday { return OrionTheme.text }
+        if isSelected { return OrionTheme.text }
+        return isPast ? OrionTheme.textDim : OrionTheme.textSoft
     }
 
-    /// How many entry titles fit, given whether the tick row is taking a line.
-    private var entryLimit: Int {
-        let base = height > 90 ? 3 : 2
-        let hasMetaRow = completedCount != nil || (focusMinutes ?? 0) > 0
-        return max(1, hasMetaRow ? base - 1 : base)
-    }
-
-    private var completedCount: Int? {
-        let done = entries.filter { if case .completed = $0.kind { return true }; return false }
-        return done.isEmpty ? nil : done.count
-    }
-
-    private var focusMinutes: Int? {
-        let minutes = entries.compactMap { entry -> Int? in
-            if case .focus(let minutes, _) = entry.kind { return minutes }
-            return nil
-        }
-        guard !minutes.isEmpty else { return nil }
-        return minutes.reduce(0, +)
-    }
-
-    static func dayNumber(_ day: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d"
-        return formatter.string(from: day)
+    private var accessibilityText: String {
+        let things = entries.isEmpty ? "nothing on it" : "\(entries.count) \(entries.count == 1 ? "thing" : "things")"
+        let mark = score.flatMap { $0.hasValue ? "scored \($0.displayValue) of 10" : nil }
+        return [CalendarViewSupport.longDay(day), things, mark].compactMap { $0 }.joined(separator: ", ")
     }
 }
 
 // MARK: - The month
 
+/// The month as a calm field of circles: weekday letters over seven columns, one circle per date, nothing for
+/// the neighbouring months' dates. Changing month cross-fades and slides the way time moved.
 struct MonthGrid: View {
     @ObservedObject var model: CalendarModel
+    /// The height the column gives the month. Rows divide it; the page never sizes itself to content.
     let height: CGFloat
 
+    @State private var shownMonth = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 5) {
+        let weeks = model.weeks
+        let rowHeight = max(40, (height - 26) / CGFloat(max(1, weeks.count)))
+        let diameter = min(40, max(24, rowHeight - 16))
+        let direction = MonthTravel.direction(from: shownMonth, to: model.focusDate)
+        let monthKey = model.key(for: model.range.startOfMonth(containing: model.focusDate))
+
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 0) {
                 ForEach(Array(CalendarViewSupport.weekdaySymbols.enumerated()), id: \.offset) { _, symbol in
                     Text(symbol)
-                        .font(.system(size: 10, weight: .medium))
+                        .font(OrionTheme.mono(9, .semibold))
+                        .tracking(1.2)
                         .foregroundStyle(OrionTheme.textDim)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity)
                 }
             }
+            .frame(height: 20)
 
-            let weeks = model.weeks
-            // A definite row height, divided from what the tab was actually
-            // given. Sizing to content is what makes the page grow a scrollbar
-            // for something meant to fit.
-            let rowHeight = max(58, (height - 40) / CGFloat(max(1, weeks.count)))
-
-            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
-                HStack(spacing: 5) {
-                    ForEach(week, id: \.self) { day in
-                        // Month pages are about this month. Neighbouring-month
-                        // dates used to crowd the last row with a misleading
-                        // preview; keep their place in the seven-column grid,
-                        // but leave those cells intentionally blank.
-                        if model.range.isInMonth(day, as: model.focusDate) {
-                            CalendarDayCell(
-                                day: day,
-                                entries: model.entries(on: day),
-                                score: model.score(on: day),
-                                inMonth: true,
-                                isToday: model.range.isSameDay(day, Date()),
-                                isPast: day < Calendar.current.startOfDay(for: Date()),
-                                isSelected: model.range.isSameDay(day, model.selectedDay),
-                                height: rowHeight,
-                                compact: rowHeight < 74,
-                                onTap: { model.select(day) },
-                                onDoubleTap: { model.showDay(day) }
-                            )
-                        } else {
-                            Color.clear
-                                .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight)
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+                        HStack(spacing: 0) {
+                            ForEach(week, id: \.self) { day in
+                                if model.range.isInMonth(day, as: model.focusDate) {
+                                    CalendarDayCircle(
+                                        day: day,
+                                        entries: model.entries(on: day),
+                                        score: model.score(on: day),
+                                        isToday: model.range.isSameDay(day, Date()),
+                                        isPast: day < Calendar.current.startOfDay(for: Date()),
+                                        isSelected: model.range.isSameDay(day, model.selectedDay),
+                                        diameter: diameter,
+                                        onTap: { model.select(day) },
+                                        onDoubleTap: { model.showDay(day) }
+                                    )
+                                } else {
+                                    Color.clear.frame(maxWidth: .infinity)
+                                }
+                            }
                         }
+                        .frame(height: rowHeight)
                     }
                 }
+                .id(monthKey)
+                .transition(.asymmetric(
+                    insertion: reduceMotion ? .opacity : .opacity.combined(with: .offset(x: CGFloat(direction) * 36)),
+                    removal: reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.97))))
             }
+            .animation(OrionMotion.resolved(OrionMotion.page, reduceMotion: reduceMotion), value: monthKey)
         }
+        .frame(height: height, alignment: .top)
+        .clipped()
+        .onAppear { shownMonth = model.focusDate }
+        .onChange(of: model.focusDate) { _, day in shownMonth = day }
     }
 }
 
 // MARK: - The week
 
-/// Deliberately smaller than the month's cells were.
-///
-/// The first version gave each day the whole remaining height, which made a
-/// week of mostly-empty days into a wall. A week is a row you scan, not seven
-/// pages.
+/// Seven columns of circles with the day's events hanging under each as rounded capsules, then the selected
+/// day's list. No boxes: the columns are held apart by spacing alone.
 struct WeekGrid: View {
     @ObservedObject var model: CalendarModel
     let height: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 5) {
-                ForEach(model.weekDays, id: \.self) { day in
-                    VStack(spacing: 3) {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top, spacing: 6) {
+                ForEach(Array(model.weekDays.enumerated()), id: \.element) { index, day in
+                    VStack(spacing: 8) {
                         Text(CalendarViewSupport.weekdayLetter(day))
-                            .font(.system(size: 10, weight: .medium))
+                            .font(OrionTheme.mono(9, .semibold))
                             .foregroundStyle(OrionTheme.textDim)
-
-                        CalendarDayCell(
+                        CalendarDayCircle(
                             day: day,
-                            entries: model.entries(on: day),
+                            entries: [],
                             score: model.score(on: day),
-                            inMonth: true,
                             isToday: model.range.isSameDay(day, Date()),
                             isPast: day < Calendar.current.startOfDay(for: Date()),
                             isSelected: model.range.isSameDay(day, model.selectedDay),
-                            height: min(150, max(96, height * 0.34)),
-                            compact: false,
+                            diameter: 36,
                             onTap: { model.select(day) },
                             onDoubleTap: { model.showDay(day) }
                         )
+                        weekCapsules(model.entries(on: day))
                     }
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .orionEntrance(order: index, distance: 8)
                 }
             }
 
-            // The rest of the column belongs to the selected day, which is what
-            // makes the week view useful rather than seven columns of stubs.
+            // The rest of the column belongs to the selected day, which is what makes the week view useful
+            // rather than seven columns of stubs.
             CalendarDayList(model: model)
+        }
+    }
+
+    private func weekCapsules(_ entries: [CalendarEntry]) -> some View {
+        let limit = 4
+        return VStack(spacing: 4) {
+            ForEach(entries.prefix(limit)) { entry in
+                Text(entry.title)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(OrionTheme.text.opacity(0.85))
+                    .lineLimit(1)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .frame(maxWidth: .infinity)
+                    .background(Capsule().fill(entry.tint.opacity(0.16)))
+                    .overlay(Capsule().strokeBorder(entry.tint.opacity(0.45), lineWidth: 0.7))
+            }
+            if entries.count > limit {
+                Text("+\(entries.count - limit)")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
         }
     }
 }
@@ -318,29 +264,32 @@ struct CalendarDayList: View {
             if entries.isEmpty {
                 Text(model.disclosures.isEmpty
                      ? "Nothing recorded for this day."
-                     : "Nothing to show — see the notice above.")
+                     : "Nothing to show yet.")
                     .font(.system(size: 12))
                     .foregroundStyle(OrionTheme.textDim)
             }
 
-            ForEach(entries) { entry in
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 1, style: .continuous)
-                        .fill(entry.tint)
-                        .frame(width: 2, height: 14)
+            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                HStack(spacing: 10) {
+                    Circle().fill(entry.tint).frame(width: 7, height: 7)
+                        .shadow(color: entry.tint.opacity(0.6), radius: 3)
                     Text(entry.title)
                         .font(.system(size: 12))
                         .foregroundStyle(OrionTheme.text)
                         .lineLimit(1)
                     Spacer(minLength: 8)
                     Text(CalendarViewSupport.describe(entry))
-                        .font(.system(size: 10))
+                        .font(OrionTheme.mono(9.5))
                         .foregroundStyle(OrionTheme.textDim)
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Capsule().fill(entry.tint.opacity(0.05)))
+                .overlay(Capsule().strokeBorder(entry.tint.opacity(0.2), lineWidth: 0.7))
+                .orionEntrance(order: index, distance: 6)
             }
 
-            // Why a day has no score, when it does not. Silence here would look
-            // like the feature being broken.
+            // Why a day has no score, when it does not. Silence here would look like the feature being broken.
             if let score = model.score(on: model.selectedDay), !score.hasValue,
                let why = score.insufficient {
                 Text(why)
@@ -350,12 +299,19 @@ struct CalendarDayList: View {
                     .padding(.top, 2)
             }
         }
+        .id(model.key(for: model.selectedDay))
     }
 }
 
 // MARK: - Shared bits
 
 enum CalendarViewSupport {
+
+    static func dayNumber(_ day: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d"
+        return formatter.string(from: day)
+    }
 
     static var weekdaySymbols: [String] {
         let formatter = DateFormatter()

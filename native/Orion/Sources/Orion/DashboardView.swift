@@ -133,12 +133,16 @@ struct DashboardView: View {
                         // measured window width so its calendar can genuinely
                         // reach the right side instead of stopping at an old
                         // document-style ideal size.
-                        tabContent(availableHeight: proxy.size.height - 86,
+                        //
+                        // Wave 14: and the Plan page does not scroll as a page. It is handed exactly the
+                        // viewport (minus its 26 + 18 padding) and its two columns scroll on their own; with
+                        // bounce based on size below, the outer ScrollView has nothing to move.
+                        tabContent(availableHeight: max(0, proxy.size.height - 44),
                                    availableWidth: max(0, proxy.size.width - 92))
                             .padding(.horizontal, 46)
                             .padding(.top, 26)
-                            .padding(.bottom, 60)
-                            .frame(width: proxy.size.width, alignment: .leading)
+                            .padding(.bottom, 18)
+                            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
                     } else if selectedTab == .project || selectedTab == .knowledge {
                         // Projects is a workspace: the workflow graph owns the
                         // right third, so the document-column cap would leave
@@ -162,6 +166,7 @@ struct DashboardView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                .scrollBounceBehavior(selectedTab == .tasks ? .basedOnSize : .automatic, axes: .vertical)
             }
         }
         .onChange(of: state.sessionTabModel.hasLiveSession) { _, live in if !live { state.sessionMinimized = false } }

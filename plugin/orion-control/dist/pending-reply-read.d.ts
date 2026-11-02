@@ -1,3 +1,4 @@
+import { type Group, type Span } from "./phone-block-read.js";
 export type Offer = {
     kind: "start";
     title: string;
@@ -24,6 +25,12 @@ export type Offer = {
 } | {
     kind: "plan-check";
     title: string;
+}
+/** ORION offered to shut app groups on his phone ("Want me to block social media for an hour?"): a yes blocks exactly those, for that long. */
+ | {
+    kind: "phone-block";
+    groups: Group[];
+    span?: Span;
 }
 /** A message with no question in it that ORION sends anyway (weather, a mission event, a screen lock): a short reply is read against it, but only acknowledged. */
  | {

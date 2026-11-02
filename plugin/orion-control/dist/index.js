@@ -9,6 +9,7 @@ import { tellsFactAloud } from "./memory-facts.js";
 import { liveWakeExec } from "./pending-reply-bed.js";
 import { liveRememberRun } from "./preference-remember.js";
 import { liveSleepPlanRun } from "./sleep-plan-flow.js"; // W10-B
+import { livePhoneTimeRun } from "./phone-block-flow.js"; // W10-G
 import { liveKnowledgeRun } from "./knowledge-run.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
@@ -1406,6 +1407,7 @@ export function installProvenanceHooks(api) {
             wakeFlow: liveWakeFlow,
             wakeExec: liveWakeExec,
             rememberRun: liveRememberRun,
+            phoneTimeRun: livePhoneTimeRun, // W10-G
             sleepPlanRun: liveSleepPlanRun, // W10-B: the sleep-plan interview and night exceptions (sleep-plan-flow.ts)
             knowledgeRun: liveKnowledgeRun, // wave 6: forget / links / profile / trash (knowledge-run.ts)
             lateFlow: (minutes) => liveLateFlow(minutes, () => undoJournalTop()),

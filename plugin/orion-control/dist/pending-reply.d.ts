@@ -65,6 +65,11 @@ export type PendingDeps = {
     }>;
     /** ORION's state dir: wake-request.json says which manual wake alarm is set, and for when. */
     stateDir?: string;
+    /** W10-G: orion-phone-time with fixed arguments, for a yes to "want me to block social media?" (phone-block-flow.ts). */
+    phoneTime?: (args: string[]) => Promise<{
+        stdout: string;
+        code: number;
+    }>;
 };
 export type PendingOutcome = {
     flow: FlowResult;

@@ -55,6 +55,8 @@ export type PendingDeps = {
   wake?: (args: string[]) => Promise<{ stdout: string; code: number }>;
   /** ORION's state dir: wake-request.json says which manual wake alarm is set, and for when. */
   stateDir?: string;
+  /** W10-G: orion-phone-time with fixed arguments, for a yes to "want me to block social media?" (phone-block-flow.ts). */
+  phoneTime?: (args: string[]) => Promise<{ stdout: string; code: number }>;
 };
 
 export type PendingOutcome = { flow: FlowResult; tools: ToolResult[]; marks: string[]; memo: Memo | null };
@@ -75,6 +77,7 @@ const OFFER_TAKES: Record<Offer["kind"], ReadonlyArray<Reply["kind"]>> = {
   "session-done": ["accept", "next", "indifferent", "done"],
   "plan-check": ["changed", "decline", "accept", "counter"],
   notice: ["accept", "indifferent", "done", "decline"],
+  "phone-block": ["accept", "decline"],
 };
 const MEMO_TAKES: Record<Memo["kind"], ReadonlyArray<Reply["kind"]>> = {
   resume: ["resume", "done", "accept"],
@@ -142,7 +145,7 @@ export type PendingInput = {
   lastReplyAt?: number;
 };
 
-const QUESTION_KINDS: ReadonlyArray<Offer["kind"]> = ["catchup", "plan-check", "brief", "slipped"];
+const QUESTION_KINDS: ReadonlyArray<Offer["kind"]> = ["catchup", "plan-check", "brief", "slipped", "phone-block"];
 
 const CHANGE_VERB = /\b(?:move|add|put|book|schedule|cancel|drop|remind|set|start|text|email|play|clear|delete|remove)\s+(?:me\s+)?(?:in\s+)?(?:my\s+|the\s+|a\s+|an\s+|some\s+)?([a-z0-9']+)/i;
 /** Words a counter-offer may name after its verb without naming something else: a length, "it", "time". */

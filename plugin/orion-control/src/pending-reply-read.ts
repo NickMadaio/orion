@@ -7,6 +7,7 @@
  bedtime lines). The replies are read by shape (yes, a time, a reason, "whenever"), never by a list of whole sentences.
 */
 import { titleOf } from "./outreach-reply.js";
+import { readPhoneBlock, type Group, type Span } from "./phone-block-read.js";
 
 export type Offer =
   | { kind: "start"; title: string }
@@ -17,6 +18,8 @@ export type Offer =
   | { kind: "brief"; items: string[]; stale?: boolean }
   | { kind: "session-done"; next?: string }
   | { kind: "plan-check"; title: string }
+  /** ORION offered to shut app groups on his phone ("Want me to block social media for an hour?"): a yes blocks exactly those, for that long. */
+  | { kind: "phone-block"; groups: Group[]; span?: Span }
   /** A message with no question in it that ORION sends anyway (weather, a mission event, a screen lock): a short reply is read against it, but only acknowledged. */
   | { kind: "notice"; topic: "weather" | "mission" | "lock"; approvalId?: string };
 
@@ -61,6 +64,7 @@ const APPROVAL = /\bapprove ([A-Za-z0-9_-]{3,40})\b/i;
 const LOCKED = /\b(?:locked (?:your|the) (?:screen|mac|laptop)|(?:screen|mac|laptop) (?:is |was |got )?locked|locking (?:your|the) (?:screen|mac))\b/i;
 const CHECKING_IN = /^checking in on (.+?)\.\s*how is it going\b/i;
 const FOCUS_NUDGE = /^you planned (.+?) at \d{1,2}:\d{2}\s*(?:am|pm)?\.\s*want to start it now\b/i;
+const BLOCK_OFFER = /\b(?:want me to|should i|shall i|do you want me to|i can|i could|i'll|want me)\b[^?.!]*?\b(?:block|shut(?:\s+(?:off|down))?)\b.*$/i;
 const BEDTIME = /\b(?:wind(?:ing)?[- ]down|bedtime|past bedtime|bed now|still up at|sleep now|go to (?:bed|sleep)|get to bed)\b/i;
 
 const to24 = (h: number, m: number, mer?: string): number => {
@@ -79,6 +83,12 @@ export function offerOf(text: string): Offer | undefined {
   if (LOCKED.test(t)) return { kind: "notice", topic: "lock" };
   const leave = t.match(LEAVE);
   if (leave) return { kind: "leave", title: leave[2]!.trim(), leaveIn: Number(leave[1]), classAt: to24(Number(leave[3]), Number(leave[4]), leave[5]) };
+  const blockOffer = t.match(BLOCK_OFFER);
+  if (blockOffer) {
+    const verb = blockOffer[0].search(/\b(?:block|shut)\b/i);
+    const read = readPhoneBlock(blockOffer[0].slice(verb));
+    if (read?.kind === "block" && !read.all) return { kind: "phone-block", groups: read.groups, ...(read.span ? { span: read.span } : {}) };
+  }
   if (BEDTIME.test(t) && !/\bsession done\b/i.test(t.slice(0, 14)) || /\bsession done\b.*past bedtime/i.test(t)) return { kind: "bedtime" };
   if (SESSION_DONE.test(t)) { const n = t.match(NEXT_IN); return { kind: "session-done", ...(n ? { next: `${n[1]!.trim()} at ${n[2]!.trim()}` } : {}) }; }
   if (CATCHUP.test(t)) { const m = t.match(MISSED); return { kind: "catchup", ...(m ? { subject: m[1]!.trim() } : {}) }; }

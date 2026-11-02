@@ -18,6 +18,7 @@ const OFFER_TAKES = {
     "session-done": ["accept", "next", "indifferent", "done"],
     "plan-check": ["changed", "decline", "accept", "counter"],
     notice: ["accept", "indifferent", "done", "decline"],
+    "phone-block": ["accept", "decline"],
 };
 const MEMO_TAKES = {
     resume: ["resume", "done", "accept"],
@@ -75,7 +76,7 @@ export class PendingMemory {
         this.answered = withAnswered(this.answered, text, sentAt, nowMs);
     }
 }
-const QUESTION_KINDS = ["catchup", "plan-check", "brief", "slipped"];
+const QUESTION_KINDS = ["catchup", "plan-check", "brief", "slipped", "phone-block"];
 const CHANGE_VERB = /\b(?:move|add|put|book|schedule|cancel|drop|remind|set|start|text|email|play|clear|delete|remove)\s+(?:me\s+)?(?:in\s+)?(?:my\s+|the\s+|a\s+|an\s+|some\s+)?([a-z0-9']+)/i;
 /** Words a counter-offer may name after its verb without naming something else: a length, "it", "time". */
 const GENERIC_OBJECT = /^(?:\d+|a|an|one|two|half|it|that|this|them|those|time|some|hour|hours|hr|min|mins|minutes|slot|block|session|both|everything|catch|catchup|tomorrow|tmrw|tonight|today|first|now)$/;

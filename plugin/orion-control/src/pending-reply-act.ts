@@ -15,6 +15,7 @@ import {
 import { bedtime } from "./pending-reply-bed.js";
 import { dayEndFor } from "./life-window.js";
 import { namesBlock } from "./anchor-write-guard.js";
+import { blockGroups, wakeAtFromPlan } from "./phone-block-flow.js";
 
 /** He said a time that has already gone today: nothing is written. */
 const PAST_LINE = "That time's already gone today, so nothing changed. Give me a later one.";
@@ -170,6 +171,17 @@ function notice(c: Ctx, o: Extract<Offer, { kind: "notice" }>, r: Reply): Pendin
   if (r.kind === "decline") return c.done("Okay.", null);
   if (r.kind === "accept" || r.kind === "indifferent" || r.kind === "done") return c.done("Got it.", null);
   return undefined;
+}
+
+/** His yes to "want me to block social media for an hour?" blocks exactly what was offered; a no leaves them open. */
+async function phoneBlock(c: Ctx, o: Extract<Offer, { kind: "phone-block" }>, r: Reply): Promise<PendingOutcome | undefined> {
+  if (r.kind === "decline") return c.done("Okay, leaving them open.", null);
+  if (r.kind !== "accept" || !c.deps.phoneTime) return undefined;
+  const out = await blockGroups({ groups: o.groups, apps: [], ...(o.span ? { span: o.span } : {}), run: c.deps.phoneTime, now: c.now, wake: () => wakeAtFromPlan(c.deps.stateDir, c.now) });
+  out.tools.forEach((t) => c.acc.tools.push({ canonical: t.canonical, stdout: t.stdout, exit: t.exit }));
+  if (out.wrote) c.acc.wrote = true;
+  const text = out.flow.outcome === "done" ? out.flow.reply ?? "" : out.flow.outcome === "say" ? out.flow.text : "";
+  return c.done(text, null);
 }
 
 async function leave(c: Ctx, o: Extract<Offer, { kind: "leave" }>, r: Reply): Promise<PendingOutcome | undefined> {
@@ -383,5 +395,6 @@ export async function runTurn(turn: PendingTurn, deps: PendingDeps): Promise<Pen
     case "session-done": return whatsNext(c, o.next);
     case "plan-check": return planCheck(c, o.title, r);
     case "notice": return notice(c, o, r);
+    case "phone-block": return phoneBlock(c, o, r);
   }
 }

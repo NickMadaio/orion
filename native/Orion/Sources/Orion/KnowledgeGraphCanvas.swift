@@ -3,13 +3,15 @@ import SwiftUI
 
 /// The graph itself (2026-11-02 rebuild, after Sentient's Constellation view): one `TimelineView` + `Canvas`
 /// (`SkyCanvasHost`) draws every star, thread, pulse, label and the hover card. This view only routes input and owns
-/// the few things SwiftUI must: the selection ring's flight from the list, the zoom glyphs, and accessibility.
+/// the few things SwiftUI must: the selection ring's flight from the list, and accessibility. There are no zoom
+/// controls (wave 14): the trackpad implies them.
 ///
 /// The model (`KnowledgeSky`) hangs off the store, which outlives this tab, so positions, camera and the played
 /// entrance survive tab switches. Input:
 /// - hover lights a node's threads, fades the rest and floats its card;
 /// - drag a node to move it (its neighbours follow, and it stays where dropped); drag empty space to pan;
-/// - two-finger scroll pans; pinch, ⌘-scroll or a wheel zoom at the cursor; a still click selects.
+/// - two-finger scroll pans; pinch, ⌘-scroll or a wheel zoom at the cursor; a still click selects;
+/// - a double-click on empty space glides back to the whole sky.
 struct KnowledgeGraphCanvas: View {
     @ObservedObject var store: KnowledgeStore
     let ring: Namespace.ID
@@ -53,6 +55,9 @@ struct KnowledgeGraphCanvas: View {
             }
             .contentShape(Rectangle())
             .gesture(dragGesture(size))
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                if sky.hovered == nil { sky.glideHome() }
+            })
             .onContinuousHover(coordinateSpace: .local) { phase in hover(phase, size: size) }
             .background {
                 if !snapshot {
@@ -60,10 +65,6 @@ struct KnowledgeGraphCanvas: View {
                                     onPan: { sky.pan(by: $0, size: size) },
                                     onVisibility: { windowVisible = $0 })
                 }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                SkyZoomControls(readout: sky.readout, palette: palette,
-                                onZoom: { sky.glideZoom(by: $0, size: size) }, onHome: { sky.glideHome() })
             }
             .accessibilityElement(children: .contain)
             .accessibilityChildren { accessibleNodes }
@@ -99,7 +100,6 @@ struct KnowledgeGraphCanvas: View {
         sky.load(store.graph, now: Date(), animated: !reduceMotion)
         sky.setVisible(visibleIDs)
         sky.selectedID = store.selectedID
-        sky.readout.show(sky.camera.zoom)
     }
 
     private func configureMotion() {

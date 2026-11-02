@@ -3,9 +3,9 @@ import SwiftUI
 import XCTest
 @testable import Orion
 
-/// Renders the living graph at three moments with ImageRenderer: mid-entrance (stars gliding in, threads not yet
-/// drawn), at rest with a hover card, a photon pulse and the recent shimmer, and zoomed in on a selection. Asserts each
-/// is drawn and that the phases differ; writes PNGs only when ORION_KNOWLEDGE_RENDER_DIR is set.
+/// Renders the living graph with ImageRenderer: the entrance at three moments (orbs in flight, landing with no
+/// threads, threads drawing in), the rest twice a second apart, a hover with a pulse, and a zoomed selection.
+/// Asserts each is drawn and that the phases differ; writes PNGs only when ORION_KNOWLEDGE_RENDER_DIR is set.
 @MainActor
 final class KnowledgeSkyRenderTests: XCTestCase {
     private let size = CGSize(width: 1000, height: 700)
@@ -38,29 +38,45 @@ final class KnowledgeSkyRenderTests: XCTestCase {
         XCTAssertTrue(living.recent.contains(true), "the fixture should have something learned on the 25th")
         XCTAssertLessThan(Double(living.recent.filter { $0 }.count) / Double(living.recent.count), 0.31)
 
-        run(living, frames: 28)
-        XCTAssertTrue(living.isEntering)
-        let entrance = try render("sky-phase1-entrance", living)
+        // The entrance, wave 14: orbs mid-flight on their curves; landing with no threads yet; threads drawing in.
+        run(living, frames: 1)
+        let entrance = try XCTUnwrap(living.entrance)
+        living.setEntranceClock(0.55)
+        let flight = try render("sky-entrance-1-flight", living)
+        living.setEntranceClock(entrance.landed - 0.12)
+        XCTAssertTrue(living.links.indices.allSatisfy { living.edgeReveal($0) == 0 })
+        let landing = try render("sky-entrance-2-landing", living)
+        living.setEntranceClock(entrance.landed + 0.3)
+        XCTAssertTrue(living.links.indices.contains { (0.05..<0.95).contains(living.edgeReveal($0)) })
+        let threads = try render("sky-entrance-3-threads", living)
 
-        run(living, frames: 420, from: 28)
+        living.setEntranceClock(entrance.duration)
+        run(living, frames: 420, from: 1)
+        XCTAssertNil(living.entrance)
         XCTAssertTrue(living.physics!.isSettled)
+        let restA = try render("sky-rest-a", living)
+        let pointsA = living.nodes.indices.map(living.restPoint)
+        run(living, frames: 60, from: 421)
+        let restB = try render("sky-rest-b-1s-later", living)
+        XCTAssertEqual(living.nodes.indices.map(living.restPoint), pointsA, "one second of rest moves nothing but the drift")
+
         let gym = try XCTUnwrap(living.index["habit:gym"])
         living.setHovered(gym)
         if let link = living.linksOf[try XCTUnwrap(living.index["person:self"])].first(where: { !living.linksOf[gym].contains($0) }) {
             living.firePulse(link: link)
         }
-        run(living, frames: 40, from: 448)
-        let rest = try render("sky-phase2-hover-pulse", living)
+        run(living, frames: 40, from: 481)
+        let hover = try render("sky-hover-pulse", living)
 
         living.setHovered(nil)
         living.selectedID = "course:mktg2201"
         let target = try XCTUnwrap(living.screenPoint(of: "course:mktg2201", size: size))
         living.zoom(by: 1.45, at: target, size: size)
-        run(living, frames: 40, from: 488)
-        let zoomed = try render("sky-phase3-zoomed-selection", living)
+        run(living, frames: 40, from: 521)
+        let zoomed = try render("sky-zoomed-selection", living)
 
-        XCTAssertNotEqual(entrance, rest)
-        XCTAssertNotEqual(rest, zoomed)
+        XCTAssertEqual(Set([flight, landing, threads, restA, hover, zoomed]).count, 6, "every phase draws differently")
+        _ = restB
     }
 
     func testRendersTwoHundredNodes() throws {

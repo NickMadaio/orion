@@ -6,21 +6,40 @@ import SwiftUI
 /// first — and any that would overlap a label already drawn, or the hover card, is skipped. Quiet labels are also
 /// zoom-gated: zoomed out, only the ones that matter now are named.
 ///
+/// Wave 14: names are clean system type with a soft shadow and no backdrop, all drawn in one shadowed layer. Which
+/// labels fit is decided on the nodes' undrifted points, so the ambient drift can never flip a name on and off.
+///
 /// The hover card has no plate: the kind in tracked mono caps over a hairline that fades, the name in serif, then
 /// the first two facts in soft ink. It floats beside the node on whichever side has room.
 @MainActor
 enum SkyLabels {
+    private struct Placed {
+        let text: GraphicsContext.ResolvedText
+        let at: CGPoint
+        let opacity: Double
+    }
+
     static func draw(_ context: GraphicsContext, _ f: SkyFrame) {
         let card = cardLayout(context, f)
-        var taken: [CGRect] = card.map { [$0.frame.insetBy(dx: -6, dy: -6)] } ?? []
-        // A name never prints over another star either.
-        let stars: [(Int, CGRect)] = f.points.indices.compactMap { i in
-            guard f.sky.visible[i] else { return nil }
-            let r = f.sky.radius(i) * f.scale + 1
-            return (i, CGRect(x: f.points[i].x - r, y: f.points[i].y - r, width: r * 2, height: r * 2))
-        }
-        for i in order(f) where f.sky.visible[i] {
-            drawLabel(context, f, i, taken: &taken, stars: stars)
+        let reveal = f.sky.labelReveal
+        if reveal > 0.002 {
+            var taken: [CGRect] = card.map { [$0.frame.insetBy(dx: -6, dy: -6)] } ?? []
+            // A name never prints over another orb either.
+            let stars: [(Int, CGRect)] = f.restPoints.indices.compactMap { i in
+                guard f.sky.visible[i] else { return nil }
+                let r = f.sky.radius(i) * f.scale + 2
+                return (i, CGRect(x: f.restPoints[i].x - r, y: f.restPoints[i].y - r, width: r * 2, height: r * 2))
+            }
+            let placed = order(f).filter { f.sky.visible[$0] }.compactMap { place(context, f, $0, taken: &taken, stars: stars) }
+            var shadowed = context
+            shadowed.addFilter(.shadow(color: .black.opacity(f.style.palette.isDark ? 0.75 : 0.18), radius: 2.5, x: 0, y: 1))
+            shadowed.drawLayer { layer in
+                for label in placed {
+                    var one = layer
+                    one.opacity = label.opacity * reveal
+                    one.draw(label.text, at: label.at, anchor: .top)
+                }
+            }
         }
         if let card { drawCard(context, f, card) }
     }
@@ -39,25 +58,26 @@ enum SkyLabels {
         return out
     }
 
-    private static func drawLabel(_ context: GraphicsContext, _ f: SkyFrame, _ i: Int, taken: inout [CGRect], stars: [(Int, CGRect)]) {
+    private static func place(_ context: GraphicsContext, _ f: SkyFrame, _ i: Int, taken: inout [CGRect], stars: [(Int, CGRect)]) -> Placed? {
         let node = f.sky.nodes[i]
         let selected = f.sky.selectedID == node.id
         let focus = f.sky.hovered ?? f.sky.selectedID.flatMap { f.sky.index[$0] }
         let near = focus.map { $0 == i || f.sky.neighbours[$0].contains(i) } ?? false
         let prominent = node.isSelf || selected || near || f.sky.degree[i] >= 4 || f.sky.camera.zoom > 1.35 || f.style.searchActive
-        guard prominent || f.sky.camera.zoom >= 0.8 else { return }
+        guard prominent || f.sky.camera.zoom >= 0.8 else { return nil }
         let size: CGFloat = node.isSelf ? 13 : (selected ? 12 : (prominent ? 10.5 : 9.5))
         let weight: Font.Weight = node.isSelf || selected ? .semibold : .medium
         let full = selected || f.sky.hovered == i || node.label.count <= 20
         let title = full ? node.label : String(node.label.prefix(18)) + "…"
         let key = "\(title)|\(size)|\(weight == .semibold)"
-        let p = f.points[i]
+        let p = f.restPoints[i], drawn = f.points[i]
         let r = f.sky.radius(i) * f.scale
-        let top = p.y + (node.isSelf ? r * 1.7 : r) + 4
+        let gap = (node.isSelf ? r * 1.75 + 3 : r + 1.6) + 5
+        let top = p.y + gap
 
         // Measure from the cache when we can, so a label that will be skipped is never resolved.
         let ink = selected ? f.style.palette.text : (prominent ? f.style.palette.textSoft : f.style.palette.textDim)
-        let text = Text(title).font(.system(size: size, weight: weight, design: .rounded)).foregroundColor(ink)
+        let text = Text(title).font(.system(size: size, weight: weight, design: .default)).tracking(0.1).foregroundColor(ink)
         var resolved: GraphicsContext.ResolvedText?
         let measured: CGSize
         if let cached = f.sky.labelSizes[key] {
@@ -71,11 +91,9 @@ enum SkyLabels {
         let rect = CGRect(x: p.x - measured.width / 2, y: top, width: measured.width, height: measured.height)
         let padded = rect.insetBy(dx: -3, dy: -1)
         guard !taken.contains(where: { $0.intersects(padded) }),
-              !stars.contains(where: { $0.0 != i && $0.1.intersects(padded) }) else { return }
+              !stars.contains(where: { $0.0 != i && $0.1.intersects(padded) }) else { return nil }
         taken.append(padded)
-        var layer = context
-        layer.opacity = f.sky.light[i] * f.sky.starReveal
-        layer.draw(resolved ?? context.resolve(text), at: CGPoint(x: p.x, y: top), anchor: .top)
+        return Placed(text: resolved ?? context.resolve(text), at: CGPoint(x: drawn.x, y: drawn.y + gap), opacity: f.sky.light[i] * f.sky.appear(i))
     }
 
     // MARK: Hover card
@@ -111,7 +129,7 @@ enum SkyLabels {
         // Left-aligned always; on the left of a node the block is as wide as its widest line, so it ends near the node.
         let width = min(cardWidth, max(150, kindSize.width, titleSize.width, facts.map(\.1.width).max() ?? 0))
         let height = kindHeight + 9 + titleHeight + facts.reduce(0) { $0 + $1.1.height + 4 } + 4
-        let p = f.points[i]
+        let p = f.restPoints[i]
         let r = f.sky.radius(i) * f.scale
         // Outward from him, where the node's threads are not: most of them run back toward the centre.
         let rightX = p.x + r + 18, leftX = p.x - r - 18 - width

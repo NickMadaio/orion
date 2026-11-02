@@ -4,13 +4,17 @@ import SwiftUI
 
 /// The knowledge graph's living model (2026-11-02): layout, camera, focus blends, photon pulses and the ambient clock.
 ///
+/// Wave 14: nothing on screen is ever the physics settling live. The layout runs to rest off-screen and the arrival
+/// is a choreography (`SkyEntrance`); the physics steps on a fixed 120 Hz clock only while his hand drags a node. At
+/// rest the only motion is intentional: a slow per-node drift of under two points, twinkle and his breath.
+///
 /// A plain reference type that SwiftUI does NOT observe. The graph view's `TimelineView` calls `tick` inside its
 /// Canvas closure every frame, so nothing is published per frame and no node is a view. It hangs off `KnowledgeStore`
 /// (owned by the dashboard), which outlives the tab: switching tabs and back keeps positions and camera, and the
 /// glide-in entrance plays only on the first appearance.
 ///
-/// The only published state is in two tiny objects: `readout` (the zoom percentage, changed by input) and
-/// `invalidator.calm` (flipped once when an un-animated sky comes to rest, so its timeline can pause).
+/// The only published state is `invalidator.calm`, flipped when the sky comes to rest so its timeline can slow (or,
+/// with idle life off, pause).
 @MainActor
 final class KnowledgeSky {
     struct Link {
@@ -26,7 +30,6 @@ final class KnowledgeSky {
         let duration: Double
     }
 
-    let readout = SkyReadout()
     let invalidator = SkyInvalidator()
 
     var physics: SkyPhysics?
@@ -72,7 +75,12 @@ final class KnowledgeSky {
     private(set) var returnGlow: (index: Int, level: Double)?
     private(set) var pulses: [Pulse] = []
     private(set) var needsFrames = true
-    private(set) var isEntering = false
+    /// The arrival in flight (first appearance, or a reload that added nodes); nil at rest.
+    private(set) var entrance: SkyEntrance?
+    /// Only the first appearance counts as entering (labels and the breath wait for it).
+    var isEntering: Bool { entrance?.isFirst == true }
+    /// How much of the ambient drift is on: eases in after the entrance and out when idle life stops.
+    private(set) var driftLevel = 0.0
     /// Measured label sizes, so a label that will be skipped is never resolved.
     var labelSizes: [String: CGSize] = [:]
 
@@ -81,6 +89,8 @@ final class KnowledgeSky {
     private var hasAppeared = false
     private var visibleIDs: Set<String>?
     private var lastTick: Date?
+    /// Unspent time for the fixed-step physics clock.
+    private var accumulator = 0.0
     private var nextPulseAt = 4.0
     private var rng = SkyRandom(seed: 0x5EED_0815)
 
@@ -134,18 +144,44 @@ final class KnowledgeSky {
         byDegree = nodes.indices.sorted { (degree[$0], $1) > (degree[$1], $0) }
     }
 
+    /// A new layout for the current graph. Whatever moves is choreographed: the rest layout is computed here at once,
+    /// and `entrance` carries nodes to it.
     private func rebuild(size: CGSize, from old: SkyPhysics?) {
-        var fresh = SkyPhysics(graph, size: size)
+        let fresh = SkyPhysics(graph, size: size)
+        built = true
+        entrance = nil
+        accumulator = 0
         if let old, !old.ids.isEmpty {
-            fresh = fresh.restoring(from: old)
-        } else if animated && !hasAppeared && !nodes.isEmpty {
-            fresh = fresh.entering()
-            isEntering = true
+            let restored = fresh.restoring(from: old)
+            let kept = Set(old.ids)
+            let added = fresh.ids.contains { !kept.contains($0) }
+            guard added else { physics = restored; return }
+            // Kept nodes hold still while the new ones find room; then the hold is released.
+            let keptMask = fresh.ids.map { kept.contains($0) }
+            let ownAnchors = restored.anchored
+            let rest = restored.anchoring(zip(keptMask, ownAnchors).map { $0 || $1 }).settled().anchoring(ownAnchors)
+            physics = rest
+            if animated {
+                let from = fresh.ids.indices.map { kept.contains(fresh.ids[$0]) ? restored.point($0) : nil }
+                let drawn = links.map { kept.contains(fresh.ids[$0.a]) && kept.contains(fresh.ids[$0.b]) }
+                entrance = makeEntrance(rest, from: from, drawn: drawn, isFirst: false)
+            }
+            return
+        }
+        let rest = fresh.settled()
+        physics = rest
+        if animated && !hasAppeared && !nodes.isEmpty {
+            entrance = makeEntrance(rest, from: Array(repeating: nil, count: rest.ids.count),
+                                    drawn: Array(repeating: false, count: links.count), isFirst: true)
+            driftLevel = 0
         }
         if !nodes.isEmpty { hasAppeared = true }
-        physics = animated ? fresh : fresh.settled()
-        if !animated { isEntering = false }
-        built = true
+    }
+
+    private func makeEntrance(_ rest: SkyPhysics, from: [CGPoint?], drawn: [Bool], isFirst: Bool) -> SkyEntrance {
+        let centre = rest.selfIndex.map { rest.point($0) } ?? CGPoint(x: rest.size.width / 2, y: rest.size.height / 2)
+        return SkyEntrance(to: rest.ids.indices.map { rest.point($0) }, from: from, centre: centre,
+                           links: links.map { ($0.a, $0.b) }, drawn: drawn, isFirst: isFirst, ids: rest.ids)
     }
 
     // MARK: Frame
@@ -158,8 +194,10 @@ final class KnowledgeSky {
         let dt = lastTick.map { min(max(now.timeIntervalSince($0), 0), 0.05) } ?? 1.0 / 60
         lastTick = now
         if ambient && animated { time += dt }
+        advanceEntrance(dt)
         stepPhysics(dt)
         blend(dt)
+        easeDrift(dt)
         firePulses()
         let still = isStill
         if needsFrames && still {
@@ -174,16 +212,81 @@ final class KnowledgeSky {
         }
     }
 
+    /// The choreography's clock. A slow frame slows it rather than skipping ahead, so no node ever jumps.
+    private func advanceEntrance(_ dt: Double) {
+        guard let e = entrance else { return }
+        let next = e.advanced(by: animated ? min(dt, 1.0 / 30) : e.duration)
+        entrance = next.isFinished ? nil : next
+    }
+
+    /// Fixed-step integration: the same 1/120 s step whatever the display does, with the remainder carried to the
+    /// next frame. Variable steps were half the old shiver.
     private func stepPhysics(_ dt: Double) {
-        guard var p = physics, !p.isSettled else { return }
-        if animated {
-            let steps = min(4, max(1, Int((dt * SkyTuning.stepsPerSecond).rounded())))
-            for _ in 0..<steps { p = p.stepped() }
-        } else {
-            p = p.settled()
+        guard var p = physics, !p.isSettled else { accumulator = 0; return }
+        guard animated else { physics = p.settled(); return }
+        let h = 1 / SkyTuning.stepsPerSecond
+        accumulator = min(accumulator + dt, h * 8)
+        while accumulator >= h && !p.isSettled {
+            p = p.stepped()
+            accumulator -= h
         }
+        if p.isSettled { accumulator = 0 }
         physics = p
-        if isEntering && p.alpha <= 0.1 { isEntering = false }
+    }
+
+    private func easeDrift(_ dt: Double) {
+        let target: Double = ambient && animated && entrance == nil && dragging == nil ? 1 : 0
+        guard animated else { driftLevel = 0; return }
+        let stepTo = dt / 1.6
+        driftLevel = target > driftLevel ? min(target, driftLevel + stepTo) : max(target, driftLevel - stepTo)
+    }
+
+    // MARK: Points
+
+    /// Where node `i` stands without drift: on its entrance path, or at its layout point. Label collision reads this,
+    /// so drift can never flip a label on and off.
+    func restPoint(_ i: Int) -> CGPoint {
+        if let e = entrance, e.to.indices.contains(i) { return e.point(i) }
+        return physics?.point(i) ?? .zero
+    }
+
+    /// Where node `i` is drawn: its rest point plus the slow ambient drift.
+    func displayPoint(_ i: Int) -> CGPoint {
+        let p = restPoint(i)
+        guard driftLevel > 0, twinklePhase.indices.contains(i), i != dragging else { return p }
+        let d = drift(i)
+        return CGPoint(x: p.x + d.dx, y: p.y + d.dy)
+    }
+
+    /// A slow Lissajous of at most 1.8 points, each node on its own 13–21 s periods: alive, never restless.
+    func drift(_ i: Int) -> CGVector {
+        let amp = (nodes[i].isSelf ? 0.8 : 1.8) * driftLevel
+        let px = 13 + twinkleSpeed[i] * 5, py = 16 + twinkleSpeed[i] * 3
+        return CGVector(dx: amp * sin(2 * .pi * time / px + twinklePhase[i]),
+                        dy: amp * cos(2 * .pi * time / py + twinklePhase[i] * 1.7))
+    }
+
+    // MARK: Entrance reveal
+
+    /// How present node `i` is (1 at rest).
+    func appear(_ i: Int) -> Double { entrance.map { $0.appear(i) } ?? 1 }
+
+    /// How much of edge `e` is drawn (1 at rest). Edges draw only after their nodes have landed.
+    func edgeReveal(_ e: Int) -> Double { entrance.map { $0.edge(e) } ?? 1 }
+
+    /// Labels and the breath: in once every node has landed.
+    var labelReveal: Double { entrance.map(\.labels) ?? 1 }
+
+    /// Land every node at once (a drag that starts mid-arrival).
+    func finishEntrance() {
+        entrance = nil
+        wake()
+    }
+
+    /// Jump the choreography to a moment (render tests pick phases this way).
+    func setEntranceClock(_ seconds: Double) {
+        guard let e = entrance else { return }
+        entrance = e.at(seconds)
     }
 
     private var focus: Int? { hovered ?? selectedID.flatMap { index[$0] } }
@@ -219,7 +322,7 @@ final class KnowledgeSky {
     /// Every 5 to 8 s, only once the sky is calm, one visible edge fires a short trail of light.
     private func firePulses() {
         pulses.removeAll { time - $0.start > $0.duration }
-        guard ambient, animated, let p = physics, p.alpha < 0.05, dragging == nil, time >= nextPulseAt else { return }
+        guard ambient, animated, entrance == nil, let p = physics, p.isSettled, dragging == nil, time >= nextPulseAt else { return }
         nextPulseAt = time + 5 + rng.unit() * 3
         let candidates = links.indices.filter { visible[links[$0].a] && visible[links[$0].b] }
         guard !candidates.isEmpty else { return }
@@ -228,8 +331,8 @@ final class KnowledgeSky {
 
     /// Start a pulse now along one link (also how a render test pins one in flight).
     func firePulse(link: Int) {
-        guard let p = physics, links.indices.contains(link) else { return }
-        let a = p.point(links[link].a), b = p.point(links[link].b)
+        guard physics != nil, links.indices.contains(link) else { return }
+        let a = restPoint(links[link].a), b = restPoint(links[link].b)
         let length = Double(hypot(b.x - a.x, b.y - a.y))
         pulses.append(Pulse(link: link, start: time, duration: min(2.2, max(1.1, length / 240))))
     }
@@ -240,36 +343,14 @@ final class KnowledgeSky {
     private var isStill: Bool {
         let settled = physics?.isSettled ?? false
         let blendsAtRest = abs(dim - (focus == nil ? 0 : 1)) < 0.002 && (card == 0 || card > 0.998)
-        return settled && blendsAtRest && cameraTarget == nil && pulses.isEmpty && returnGlow == nil && dragging == nil && !isEntering
+        let driftAtRest = driftLevel == 0 || driftLevel == 1
+        return settled && blendsAtRest && driftAtRest && cameraTarget == nil && pulses.isEmpty && returnGlow == nil && dragging == nil && entrance == nil
     }
 
     /// Something changed outside a frame (input, selection, data): make sure frames run until it settles.
     func wake() {
         needsFrames = true
         if invalidator.calm { invalidator.calm = false }
-    }
-
-    // MARK: Reveal
-
-    /// Stars ignite as they arrive; threads fade in only once things settle.
-    var starReveal: Double {
-        guard isEntering, let p = physics else { return 1 }
-        return min(1, (1 - p.alpha) * 3 + 0.15)
-    }
-
-    var threadReveal: Double {
-        guard isEntering, let p = physics else { return 1 }
-        return min(1, max(0, (0.55 - p.alpha) / 0.45))
-    }
-}
-
-/// The zoom percentage under the graph: published only when the whole-number value changes, on input.
-@MainActor
-final class SkyReadout: ObservableObject {
-    @Published private(set) var zoomPercent = 100
-    func show(_ zoom: CGFloat) {
-        let next = Int((zoom * 100).rounded())
-        if next != zoomPercent { zoomPercent = next }
     }
 }
 

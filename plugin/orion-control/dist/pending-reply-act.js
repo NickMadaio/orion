@@ -389,21 +389,27 @@ async function whatsNext(c, staleNext) {
 async function planCheck(c, title, r) {
     if (r.kind === "accept")
         return c.done(`Good — leaving ${title} where it is.`, null);
+    // w16: neither "still on" nor "plans changed" said clearly: one short question, nothing written.
+    if (r.kind === "unclear")
+        return c.done(`Got it. Is ${title} still on for later, or should I move it?`, null);
     const day = await c.day("today");
     const block = blockNamed(day, title);
+    // w16: he said he is out ("at Avery's place, away rn"): that is said back first, in his words, before the offer.
+    const out = r.kind === "changed" && r.away !== undefined ? `Got it, you're out${r.away ? ` at ${r.away}` : ""}, so ${block?.title ?? title} isn't happening now.` : undefined;
     // REV4 9: a class or a plan with people moves only when his own words name it (never on "yes" to a move ORION offered).
     if (isProtected(title, block) && !(r.kind === "counter" && named(c.turn.said, title)))
         return c.done(PROTECTED_LINE(block?.title ?? cap(title)), null);
     if (r.kind === "counter")
         return moveTo(c, block?.title ?? title, r.details);
     if (!block)
-        return c.done(`Okay. Should ${title} move or come off today? Give me a time and I'll move it.`, null);
+        return c.done(out ? `${out} Should it move or come off today? Give me a time and I'll move it.` : `Okay. Should ${title} move or come off today? Give me a time and I'll move it.`, null);
     const length = toMin(block.end) - toMin(block.start);
     // Wave 6: up to his bedtime less wind-down (life-window.ts), not a fixed 10 PM (20:30-24:00 free read as "no free 90 min left").
     const start = freeSlot(day, length, c.nowMin + 30, dayEndFor(c.deps.stateDir), block); // plans changed: not the next ten minutes
     if (start === undefined)
-        return c.done(`Okay. There's no free ${length} min left today for ${block.title} — want it tomorrow? Give me a time.`, null);
-    return c.done(`Okay — want ${block.title} moved to ${h12(start)}, or somewhere else? Say yes, or a time.`, { kind: "move-offer", title: block.title, to: start, which: "today", at: c.now.getTime() });
+        return c.done(out ? `${out} There's no free ${length} min left today for it — want it tomorrow? Give me a time.` : `Okay. There's no free ${length} min left today for ${block.title} — want it tomorrow? Give me a time.`, null);
+    const memo = { kind: "move-offer", title: block.title, to: start, which: "today", at: c.now.getTime() };
+    return c.done(out ? `${out} Want it moved to ${h12(start)}, or somewhere else? Say yes, or a time.` : `Okay — want ${block.title} moved to ${h12(start)}, or somewhere else? Say yes, or a time.`, memo);
 }
 async function moveTo(c, title, d) {
     if (d.at === undefined)

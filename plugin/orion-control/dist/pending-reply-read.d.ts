@@ -59,8 +59,15 @@ export type Reply = {
     kind: "done";
 } | {
     kind: "resume";
-} | {
+}
+/** away: where he said he is instead ("Avery's"), as he said it (plan-check-story.ts). */
+ | {
     kind: "changed";
+    away?: string;
+}
+/** His answer to the off-plan question says neither "still on" nor "plans changed" clearly: ask once, write nothing. */
+ | {
+    kind: "unclear";
 } | {
     kind: "defer";
     minutes?: number;

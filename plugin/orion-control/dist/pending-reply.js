@@ -2,6 +2,7 @@ import { HUSH, REQUEST, offerOf, pauseThenStart, readReply } from "./pending-rep
 import { runTurn } from "./pending-reply-act.js";
 import { readCrisisAt, writeCrisisAt } from "./pending-reply-crisis.js";
 import { answeredIn, readAnswered, withAnswered, writeAnswered } from "./pending-reply-answered.js";
+import { readPlanCheckStory } from "./plan-check-story.js";
 export { offerOf, readReply } from "./pending-reply-read.js";
 const MEMO_MS = 60 * 60_000;
 /** How long after ORION's own message a short reply is read as answering it, when the app sent no label (the state card's last push). */
@@ -18,7 +19,7 @@ const OFFER_TAKES = {
     slipped: ["accept", "indifferent", "decline", "counter"],
     brief: ["accept", "indifferent", "counter"],
     "session-done": ["accept", "next", "indifferent", "done"],
-    "plan-check": ["changed", "decline", "accept", "counter"],
+    "plan-check": ["changed", "decline", "accept", "counter", "unclear"],
     notice: ["accept", "indifferent", "done", "decline"],
     "phone-block": ["accept", "decline"],
 };
@@ -102,15 +103,20 @@ export function readPendingTurn(input) {
     const said = message.trim().slice(0, 120);
     if (explicit)
         return { said, offer: { kind: "start", title: explicit.title }, reply: { kind: "defer", activity: explicit.activity, ...(explicit.minutes ? { minutes: explicit.minutes } : {}), ...(explicit.typical ? { typical: explicit.typical } : {}) } };
-    const reply = readReply(message);
+    const short = readReply(message);
+    // w16: an answer to the off-plan question ("im at a friend's place … away rn, postpone that") is read by plan-check-story.ts, which
+    // knows that question; the short reader's own times still win ("moved to 8pm tonight").
+    const story = storyReply(message, input);
+    const reply = story && short?.kind !== "counter" ? story : short ?? story;
     if (!reply || HUSH.test(message.toLowerCase()))
         return undefined;
-    if (reply.kind !== "counter" && REQUEST.test(message.toLowerCase()))
+    const asked = reply === story ? message.toLowerCase().replace(PLAN_PRONOUN_VERB, " ") : message.toLowerCase();
+    if (reply.kind !== "counter" && REQUEST.test(asked))
         return undefined;
     if (memo && MEMO_TAKES[memo.kind].includes(reply.kind) && !ownRequest(message, reply, memoNames(memo)))
         return { said, reply, memo };
     const fromLabel = outreach ? { text: outreach.text, at: now.getTime() - outreach.minutes * 60_000 } : undefined;
-    const push = !fromLabel && lastPush ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
+    const push = !fromLabel && lastPush && input.chatSurface !== false ? { text: lastPush.text, at: Date.parse(lastPush.at) } : undefined;
     const source = fromLabel ?? push;
     const planned = planDefer(said, reply);
     if (!source || Number.isNaN(source.at) || input.answered?.(source.text, source.at))
@@ -136,6 +142,13 @@ export function readPendingTurn(input) {
     }
     // A memo about a different thing is replaced by the outreach he is answering now.
     return { said, reply, offer, sentAt: source.at, outreachText: source.text };
+}
+/** "push it", "move that", "reschedule it": about the plan ORION asked after, not a request of his own. */
+const PLAN_PRONOUN_VERB = /\b(?:move|push|reschedule|postpone|drop|cancel)\s+(?:it|that|this|them)\b/g;
+/** The off-plan question's own reading of a reply the short reader passed over; only when that question is what he is answering. */
+function storyReply(message, input) {
+    const text = input.outreach?.text ?? (input.chatSurface !== false ? input.lastPush?.text : undefined);
+    return text && offerOf(text)?.kind === "plan-check" ? readPlanCheckStory(message) : undefined;
 }
 /**
  W5 (gate loop-eat-first): "im starving gonna eat first" with no nudge on record. A pause for something named (eating, a shower, a call)

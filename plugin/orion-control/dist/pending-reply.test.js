@@ -3,7 +3,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { registerLocalRouting, NOT_CAUGHT, REFUSED_NOTHING_CHANGED, honestLine } from "./local-routing.js";
 import { continuationOf, offerOf, readPendingTurn, readReply } from "./pending-reply.js";
 import { pauseThenStart } from "./pending-reply-read.js";
@@ -215,6 +215,19 @@ describe("the loop closes, through the routing hooks", () => {
         expect(h.flows).toEqual([]);
         await h.turn(`${APP}you pick`);
         expect(h.flows).toHaveLength(2);
+    });
+    it("loop-morning-brief-v: the memo ages on the injected clock, not the wall clock", async () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date(2026, 10, 2, 23, 30));
+            const h = harness({ now: at("2026-11-02", "08:05") });
+            await h.turn(`${label(BRIEF)}${APP}yeah`);
+            await h.turn(`${APP}you pick`);
+            expect(h.flows).toHaveLength(2);
+        }
+        finally {
+            vi.useRealTimers();
+        }
     });
     it("loop-morning-brief-c: each item at the time said next to it", async () => {
         const h = harness({ now: at("2026-11-02", "08:05") });

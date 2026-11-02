@@ -646,3 +646,16 @@ enum PlaidError: LocalizedError {
         }
     }
 }
+
+#if DEBUG
+extension PlaidClient {
+    /// Renders only: put fixture accounts and transactions in place without a network call. Compiled out of
+    /// release builds.
+    func seedForRender(accounts: [PlaidAccount], transactions: [PlaidTransaction], items: [PlaidItem], syncedAt: Date?) {
+        self.accounts = accounts
+        self.transactions = transactions
+        self.items = items
+        self.lastSyncedAt = syncedAt
+    }
+}
+#endif

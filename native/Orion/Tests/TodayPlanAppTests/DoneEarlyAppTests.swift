@@ -19,7 +19,9 @@ final class DoneEarlyAppTests: XCTestCase {
     func testTheTasksTabButtonUsesTheSharedWordsAndNoOldWording() throws {
         let text = try source("TasksTab.swift")
         XCTAssertFalse(text.contains("out early"), "the old label is gone")
-        XCTAssertTrue(text.contains("Label(DoneEarly.label, systemImage: DoneEarly.symbol)"))
+        // Wave 13: the button became the header's glow pill; the words and glyph still come from DoneEarly.
+        XCTAssertTrue(text.contains("GlowPill(title: DoneEarly.label"))
+        XCTAssertTrue(text.contains("symbol: DoneEarly.symbol"))
         XCTAssertTrue(text.contains("DoneEarly.accessibilityLabel"), "VoiceOver text comes from the same place")
         XCTAssertTrue(text.contains("state.finishEarly(\"auto\")"), "one press, the planner works out what is current")
         XCTAssertFalse(text.contains("state.earlyFinish?.kind == \"none\""), "it is never disabled for having nothing on: it answers instead")

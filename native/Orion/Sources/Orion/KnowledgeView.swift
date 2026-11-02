@@ -20,7 +20,28 @@ struct KnowledgeView: View {
     @State private var ringInList = false
     @Environment(\.colorScheme) private var scheme
 
+    /// Wave 13: the page header every tab now opens with. Things are counted the way the reading column counts
+    /// them: Nick himself is the centre of the graph, not one of the things known about him.
+    private static let headerHeight: CGFloat = 92
+
+    private var headline: String {
+        KnowledgeHeadline.line(nodes: store.graph.nodes.filter { $0.id != "person:self" }.count, edges: store.graph.edges.count)
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            PageHeader(title: "Knowledge", subline: headline)
+                .padding(.leading, 14)
+                .frame(height: Self.headerHeight, alignment: .top)
+            columns
+        }
+        .frame(height: max(420 + Self.headerHeight, availableHeight))
+        .environment(\.knowledgePalette, KnowledgePalette(scheme: scheme))
+        .onAppear { store.load() }
+        .onExitCommand { store.selectedID = nil }
+    }
+
+    private var columns: some View {
         GeometryReader { proxy in
             // A narrow window gives the graph the space: the side columns tighten before it does.
             let narrow = proxy.size.width < 1060
@@ -37,10 +58,6 @@ struct KnowledgeView: View {
                     .padding(.top, 46)
             }
         }
-        .frame(height: max(420, availableHeight))
-        .environment(\.knowledgePalette, KnowledgePalette(scheme: scheme))
-        .onAppear { store.load() }
-        .onExitCommand { store.selectedID = nil }
     }
 
     @ViewBuilder private var detailColumn: some View {

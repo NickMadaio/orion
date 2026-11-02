@@ -125,7 +125,9 @@ struct CalendarDayCell: View {
         .background(background)
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(isSelected ? OrionTheme.accent.opacity(0.7) : .clear, lineWidth: 1)
+                .strokeBorder(isSelected ? OrionTheme.accent.opacity(0.7) : (inMonth ? Color.white.opacity(0.06) : .clear),
+                              lineWidth: isSelected ? 1 : 0.6)
+                .shadow(color: OrionTheme.accent.opacity(isSelected ? 0.35 : 0), radius: 8)
         )
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
@@ -151,7 +153,8 @@ struct CalendarDayCell: View {
         guard inMonth else { return .clear }
         guard let value = score?.value else {
             if completedCount != nil { return OrionTheme.green.opacity(0.24) }
-            return isPast ? OrionTheme.textSoft.opacity(0.13) : OrionTheme.card
+            // Wave 13: a day with nothing to say is not a tile. Past days keep a faint wash so time still reads.
+            return isPast ? OrionTheme.textSoft.opacity(0.07) : .clear
         }
         // One hue, varying weight. A red-to-green ramp reads as pass/fail and
         // invites arguing with the number; a single accent that gets stronger

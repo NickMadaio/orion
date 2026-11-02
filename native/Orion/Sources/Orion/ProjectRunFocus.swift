@@ -92,7 +92,7 @@ struct ProjectRunFocusView: View {
             topBar
             // Pinned: status, Pause/Stop and the overall number never scroll away.
             header.padding(.horizontal, 32).padding(.top, 4).padding(.bottom, 16)
-            Rectangle().fill(OrionTheme.line).frame(height: 1).padding(.horizontal, 32)
+            FadingRule().padding(.horizontal, 32)
             ScrollView {
                 HStack(alignment: .top, spacing: 36) {
                     loop
@@ -107,7 +107,9 @@ struct ProjectRunFocusView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(OrionTheme.ink.opacity(0.97))
+        // Wave 13: real glass, not a 97% slab. The full view underneath is hidden while this one is up, so nothing
+        // needs covering; the shape keeps the swipe-down gesture catching everywhere.
+        .contentShape(Rectangle())
         .offset(y: max(0, drag))
         .opacity(1 - min(0.5, Double(max(0, drag)) / 600))
         .gesture(
@@ -155,7 +157,7 @@ struct ProjectRunFocusView: View {
         HStack(alignment: .center, spacing: 22) {
             ProjectPulseOrb(mood: mood, size: 46)
             VStack(alignment: .leading, spacing: 6) {
-                Text(status).font(.system(size: 24, weight: .semibold, design: .rounded)).tracking(-0.3).foregroundStyle(mood == .idle ? OrionTheme.textSoft : mood.tint)
+                Text(status).font(OrionTheme.display(26)).foregroundStyle(mood == .idle ? OrionTheme.textSoft : mood.tint)
                     .id(status)
                     .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                                             removal: .move(edge: .top).combined(with: .opacity)))

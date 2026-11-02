@@ -65,16 +65,33 @@ struct TodayPlanContent: View {
     }
 
     /// Now and next in one glance.
-    private var summary: some View {
+    ///
+    /// Wave 13: the block in front of him is a Home card: a kicker in the block's hue, the title in serif, what
+    /// comes after it, and (for a task) the one action that matters plus a quiet second.
+    @ViewBuilder private var summary: some View {
         let current = plan.current(at: now)
         let next = plan.next(at: now)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(current.map { "Now · \($0.title)" } ?? (next.map { "Next · \($0.title)" } ?? "Nothing left in today's plan"))
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
-            Text([current.map { "until \(time($0.end))" }, current == nil ? next.map { "at \(time($0.start))" } : next.map { "then \($0.title) at \(time($0.start))" },
-                  "\(plan.freeMinutes(after: now)) min free left"].compactMap { $0 }.joined(separator: " · "))
-                .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textSoft)
+        let block = current ?? next
+        let hue = block.map { tint($0.kind) } ?? OrionTheme.textDim
+        OutlineCard(hue: hue, tilt: -0.6, padding: 18) {
+            VStack(alignment: .leading, spacing: 0) {
+                Kicker(text: current.map { "Now · until \(time($0.end))" } ?? next.map { "Next · at \(time($0.start))" } ?? "Today's plan",
+                       hue: hue)
+                    .padding(.bottom, 10)
+                CardTitle(block?.title ?? "Nothing left in today's plan", size: 20)
+                    .padding(.bottom, 8)
+                CardBody([current == nil ? nil : next.map { "Then \($0.title) at \(time($0.start))" },
+                          "\(plan.freeMinutes(after: now)) min free left"].compactMap { $0 }.joined(separator: " · "))
+                if let current, current.kind == .task, let id = current.sourceID {
+                    HStack(spacing: 16) {
+                        GlowPill(title: "Mark done", hue: hue, symbol: "checkmark") { finish(id) }
+                        CardDetailsLink("15 more minutes", symbol: "plus") { moreTime(id) }
+                    }
+                    .padding(.top, 16)
+                }
+            }
         }
+        .padding(.vertical, 4)
     }
 
     private func row(_ block: TodayPlanBlock) -> some View {
@@ -82,7 +99,8 @@ struct TodayPlanContent: View {
         let past = block.end <= now
         return HStack(alignment: .center, spacing: 10) {
             Text(time(block.start)).font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim).frame(width: 40, alignment: .leading)
-            RoundedRectangle(cornerRadius: 1.5).fill(tint(block.kind)).frame(width: 3, height: 22)
+            Capsule().fill(tint(block.kind)).frame(width: 2, height: 22)
+                .shadow(color: tint(block.kind).opacity(live ? 0.9 : 0), radius: 4)
             VStack(alignment: .leading, spacing: 1) {
                 Text(block.title).font(.system(size: 12.5, weight: live ? .semibold : .regular)).lineLimit(1)
                 Text("\(block.minutes) min\(block.kind == .free ? " · yours" : block.kind == .commitment ? " · calendar" : "")\(block.pinned ? " · pinned" : "")")
@@ -97,8 +115,8 @@ struct TodayPlanContent: View {
                 }
             }
         }
-        .padding(.vertical, 4).padding(.horizontal, 6)
-        .background(live ? OrionTheme.accent.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        // The live block glows at its tick and reads brighter; no plate behind it.
+        .padding(.vertical, 5).padding(.horizontal, 6)
         .opacity(past ? 0.45 : 1)
     }
 

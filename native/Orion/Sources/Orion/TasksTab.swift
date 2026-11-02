@@ -62,30 +62,23 @@ struct TasksTab: View {
     @State private var composerTitle = ""
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 40) {
+        PageHeader(title: energyTitle, subline: headline) { doneEarly }
         HStack(alignment: .top, spacing: 28) {
             VStack(alignment: .leading, spacing: 32) {
-                PlainSection(padding: 18) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        dayHeader
-                        Button { state.finishEarly("auto"); refreshPlanSources() } label: {
-                            Label(DoneEarly.label, systemImage: DoneEarly.symbol)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(OrionTheme.textSoft)
-                                .padding(.horizontal, 12).padding(.vertical, 8)
-                                .overlay(Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5))
-                        }.buttonStyle(.plain).disabled(state.earlyBusy)   // with nothing on it still works: ORION says so and offers what is next
-                            .accessibilityLabel(DoneEarly.accessibilityLabel(for: state.earlyFinish))
-                            .accessibilityHint(DoneEarly.accessibilityHint(for: state.earlyFinish))
-                        if let feedback = state.earlyFeedback { Text(feedback).font(.caption).foregroundStyle(OrionTheme.textSoft) }
-                    }.onAppear { state.refreshEarlyContext() }.frame(maxWidth: .infinity, alignment: .topLeading)
-                }
+                dayFigures
+                    .onAppear { state.refreshEarlyContext() }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .deal(order: 0, rise: 12)
                 PlainSection(padding: 18) {
                     TodayPlanView(model: todayPlan, refresh: refreshPlanSources)
                 }
+                .deal(order: 1, rise: 12)
                 planningComposer
                 PlainSection(padding: 18) {
                     tasksSection.frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+                .deal(order: 2, rise: 12)
             }
             .frame(width: splitWidths.left, alignment: .topLeading)
 
@@ -102,6 +95,7 @@ struct TasksTab: View {
                 // natural height and the timeline takes the remainder.
                 .frame(height: max(360, availableHeight), alignment: .topLeading)
                 .frame(width: splitWidths.calendar, alignment: .topLeading)
+        }
         }
         .frame(width: max(0, availableWidth), alignment: .topLeading)
         .sheet(isPresented: Binding(
@@ -174,30 +168,50 @@ struct TasksTab: View {
 
     // MARK: - The day
 
-    private var dayHeader: some View {
-        HStack(alignment: .top, spacing: 28) {
-            VStack(alignment: .leading, spacing: 7) {
-                Text(Date().formatted(.dateTime.weekday(.wide).month().day()).uppercased())
-                    .font(OrionTheme.mono(9, .semibold))
-                    .tracking(2.2)
-                    .foregroundStyle(OrionTheme.textDim)
-                Text(energyTitle)
-                    .font(OrionTheme.display(32))
-                    .foregroundStyle(OrionTheme.text)
-                Text("\(hoursLeft)h of awake time left")
-                    .font(.system(size: 13))
-                    .foregroundStyle(OrionTheme.textSoft)
-                Text(summary)
-                    .font(OrionTheme.mono(11))
-                    .foregroundStyle(summaryTint)
-                    .padding(.top, 2)
+    /// The header's one true line: the date, then what is open, what is late and how much day is left.
+    private var headline: String {
+        let date = Date().formatted(.dateTime.weekday(.wide).month().day())
+        let line = PlanHeadline.line(open: reminders.openCount, overdue: reminders.overdueCount,
+                                     total: reminders.tasks.count, hoursLeft: hoursLeft)
+        return PageSummary.line([date, line])
+    }
+
+    /// "Done early" as the header's one glowing action, with what ORION said about it underneath.
+    private var doneEarly: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            // With nothing on it still works: ORION says so and offers what is next.
+            GlowPill(title: DoneEarly.label, hue: OrionTheme.green, symbol: DoneEarly.symbol, working: state.earlyBusy) {
+                state.finishEarly("auto"); refreshPlanSources()
             }
-            Spacer(minLength: 12)
-            RingMeter(progress: completion,
-                      value: "\(Int(completion * 100))%",
-                      caption: "done",
-                      tint: completion >= 1 ? OrionTheme.green : OrionTheme.accent,
-                      diameter: 98)
+            .disabled(state.earlyBusy)
+            .accessibilityLabel(DoneEarly.accessibilityLabel(for: state.earlyFinish))
+            .accessibilityHint(DoneEarly.accessibilityHint(for: state.earlyFinish))
+            if let feedback = state.earlyFeedback {
+                Text(feedback).font(.caption).foregroundStyle(OrionTheme.textSoft)
+                    .multilineTextAlignment(.trailing).frame(maxWidth: 320, alignment: .trailing)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    /// The day's numbers on the page, staggered: how much of the list is done (a line meter, not a ring), what is
+    /// open, and what is late, which is the only one that turns red.
+    private var dayFigures: some View {
+        HStack(alignment: .top, spacing: 48) {
+            VStack(alignment: .leading, spacing: 12) {
+                BigNumber(label: "Done", value: "\(Int(completion * 100))", unit: "%", note: "\(hoursLeft)h of awake time left",
+                          hue: completion >= 1 ? OrionTheme.green : OrionTheme.accent, countTo: Int(completion * 100))
+                LineMeter(progress: completion, hue: completion >= 1 ? OrionTheme.green : OrionTheme.accent, width: 150)
+            }
+            BigNumber(label: "Open", value: "\(reminders.openCount)", note: summary, hue: OrionTheme.blue,
+                      valueTint: OrionTheme.text, size: 34, countTo: reminders.openCount)
+                .padding(.top, 20)
+            if reminders.overdueCount > 0 {
+                BigNumber(label: "Overdue", value: "\(reminders.overdueCount)", hue: OrionTheme.red,
+                          valueTint: OrionTheme.red, size: 34, countTo: reminders.overdueCount)
+                    .padding(.top, 8)
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -420,12 +434,6 @@ struct TasksTab: View {
         if reminders.tasks.isEmpty { return "Nothing on the list." }
         if reminders.openCount == 0 { return "Everything on the list is done." }
         return "\(reminders.openCount) still open."
-    }
-
-    private var summaryTint: Color {
-        if reminders.overdueCount > 0 { return OrionTheme.red }
-        if reminders.openCount == 0 && !reminders.tasks.isEmpty { return OrionTheme.green }
-        return OrionTheme.textDim
     }
 
     /// A substantial work column, with every remaining point assigned to the

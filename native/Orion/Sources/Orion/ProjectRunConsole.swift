@@ -155,8 +155,6 @@ struct ConsoleButton: View {
     let action: () -> Void
     @State private var hovering = false
     @Environment(\.isEnabled) private var enabled
-    /// A white tint at full strength is a grey slab; colours can carry more.
-    private var fill: Double { tint == OrionTheme.text ? 0.13 : 0.34 }
 
     var body: some View {
         Button(action: action) {
@@ -168,16 +166,17 @@ struct ConsoleButton: View {
                 .frame(width: 16)
                 Text(title)
             }
-            .font(.system(size: prominent ? 14 : 12, weight: .semibold, design: .rounded))
-            .padding(.horizontal, prominent ? 22 : 14).padding(.vertical, prominent ? 12 : 8)
-            .foregroundStyle(enabled ? (prominent ? Color.white : tint) : OrionTheme.textDim)
+            // Wave 13: the prominent one is Home's glow pill (a whisper of fill, a bright rim, a soft glow); the
+            // rest stay plain outlines in their tint.
+            .font(.system(size: 12.5, weight: .semibold))
+            .padding(.horizontal, 15).padding(.vertical, 9)
+            .foregroundStyle(enabled ? (prominent ? OrionTheme.text : tint) : OrionTheme.textDim)
             .background {
-                Capsule().fill(LinearGradient(colors: [tint.opacity(prominent ? fill : 0.06), tint.opacity(prominent ? fill / 3 : 0.0)],
-                                              startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .opacity(enabled ? (hovering ? 1 : 0.8) : 0.25)
+                Capsule().fill(tint.opacity(prominent ? (hovering ? 0.16 : 0.09) : (hovering ? 0.06 : 0)))
+                    .opacity(enabled ? 1 : 0.25)
             }
-            .overlay { Capsule().stroke(tint.opacity(enabled ? (hovering ? 0.9 : 0.55) : 0.15), lineWidth: 1.1) }
-            .shadow(color: tint.opacity(enabled && prominent ? (hovering ? 0.55 : 0.32) : 0), radius: hovering ? 16 : 10)
+            .overlay { Capsule().strokeBorder(tint.opacity(enabled ? (hovering ? 0.95 : (prominent ? 0.7 : 0.45)) : 0.15), lineWidth: prominent ? 1 : 0.8) }
+            .shadow(color: tint.opacity(enabled && prominent ? (hovering ? 0.55 : 0.32) : 0), radius: hovering ? 10 : 7)
             .contentShape(Capsule())
         }
         .buttonStyle(ConsolePressStyle())

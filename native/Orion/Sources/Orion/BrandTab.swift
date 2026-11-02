@@ -15,25 +15,38 @@ struct BrandTab: View {
     private let audience: [ConnectorID] = [.tiktok, .instagram, .google]
 
     var body: some View {
-        HStack(alignment: .top, spacing: 54) {
-            VStack(alignment: .leading, spacing: 34) {
-                OrionPanel(padding: 20) { audienceSection }
-                OrionPanel(padding: 20) { reflection }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 44) {
+            PageHeader(title: "Brand", subline: BrandHeadline.line(readable: readable, total: audience.count, live: live))
+            HStack(alignment: .top, spacing: 64) {
+                VStack(alignment: .leading, spacing: 46) {
+                    HStack(alignment: .top, spacing: 56) {
+                        BigNumber(label: "Readable", value: "\(readable)", unit: "of \(audience.count)",
+                                  note: "connectors with a reader behind them", hue: OrionTheme.rose, countTo: readable)
+                        BigNumber(label: "Live", value: "\(live)", unit: live == 1 ? "feed" : "feeds",
+                                  note: "returning data today", hue: OrionTheme.violet, countTo: live)
+                            .padding(.top, 18)
+                    }
+                    .deal(order: 0, rise: 12)
+                    audienceSection
+                    reflection
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            OrionPanel(padding: 18) { statusRail }
-                .frame(width: 300)
-                .padding(.top, 52)
+                statusRail
+                    .frame(width: 300)
+                    .padding(.top, 64)
+            }
         }
+    }
+
+    private var live: Int {
+        audience.filter { ConnectorSpec.spec(for: $0).dataClient && connections.state($0).isConnected }.count
     }
 
     // MARK: - Audience
 
     private var audienceSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionRule(title: "Audience", trailing: "\(readable) of \(audience.count) readable")
-
+        HairlineSection(title: "Audience", trailing: "\(readable) of \(audience.count) readable", order: 1) {
             VStack(spacing: 0) {
                 ForEach(audience) { id in
                     let spec = ConnectorSpec.spec(for: id)
@@ -41,9 +54,7 @@ struct BrandTab: View {
                             sublabel: spec.purpose,
                             value: value(for: id),
                             valueTint: tint(for: id))
-                    if id != audience.last {
-                        Rectangle().fill(OrionTheme.line).frame(height: 1)
-                    }
+                    if id != audience.last { RowHairline() }
                 }
             }
         }
@@ -67,35 +78,36 @@ struct BrandTab: View {
 
     // MARK: - Reflection
 
+    /// The day's question, as a Home card: the one discrete thing on this page that asks something of him.
     private var reflection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionRule(title: "Today's reflection")
-            Text("Where is the account going? What's working? What's failing?")
-                .font(OrionTheme.display(22))
-                .foregroundStyle(OrionTheme.textSoft)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 520, alignment: .leading)
-            Text("Say it to Orion and it lands in your notes — the composer on Home takes it in plain language.")
-                .font(.system(size: 13))
-                .foregroundStyle(OrionTheme.textDim)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 520, alignment: .leading)
+        OutlineCard(hue: OrionTheme.violet, tilt: -0.8) {
+            VStack(alignment: .leading, spacing: 0) {
+                Kicker(text: "Today's reflection", hue: OrionTheme.violet).padding(.bottom, 12)
+                CardTitle("Where is the account going? What's working? What's failing?")
+                    .padding(.bottom, 10)
+                CardBody("Say it to Orion and it lands in your notes — the composer on Home takes it in plain language.")
+            }
         }
+        .frame(maxWidth: 560, alignment: .leading)
+        .deal(order: 2, rise: 22)
     }
 
     // MARK: - Status
 
     private var statusRail: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionRule(title: "Why nothing is live")
-            Text("Signing in to these stores a token. Nothing in Orion reads them yet, so a follower count would be a number this app invented.")
-                .font(.system(size: 12))
-                .foregroundStyle(OrionTheme.textSoft)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Whoop and Plaid are the two connectors with real readers behind them — Health and Finances show genuine data.")
-                .font(.system(size: 12))
-                .foregroundStyle(OrionTheme.textDim)
-                .fixedSize(horizontal: false, vertical: true)
+        HairlineSection(title: "Why nothing is live", order: 3) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Signing in to these stores a token. Nothing in Orion reads them yet, so a follower count would be a number this app invented.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.textSoft)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Whoop and Plaid are the two connectors with real readers behind them — Health and Finances show genuine data.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(OrionTheme.textDim)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

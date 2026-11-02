@@ -10,6 +10,7 @@
 //   orion-sleepplan except --date tonight|YYYY-MM-DD --reason friends|party|bar|schoolwork [--until HH:MM]
 //                                                                 a night he is out or working: no lockdown that evening
 //   orion-sleepplan clear-except [--date tonight|YYYY-MM-DD]       take it back (no --date: every exception)
+//   orion-sleepplan refresh [--json]                               rewrite wake-plan.json from the stored plan + calendar (the nudge tick does this daily)
 //   orion-sleepplan plan --json [--days … --wake … --only --rest …] [--lead N|off]   the coming week as data; the flags preview a change
 //                                                                 without saving it
 // Days: mon..sun, "weekdays", "weekends", "all", "gym" (his gym anchor's days). Every write also rewrites wake-plan.json (shape documented in
@@ -109,7 +110,8 @@ const say = (d) => `${d.weekday[0].toUpperCase()}${d.weekday.slice(1)} ${d.date.
 
 async function main() {
   const WRITES = new Set(["set", "unset", "lead", "except", "clear-except"]);
-  if (!WRITES.has(command) && !["show", "plan"].includes(command)) fail(2, `unknown command ${command}. Commands: show, set, unset, lead, except, clear-except, plan`);
+  const REFRESH = command === "refresh";   // rewrite wake-plan.json from the stored plan and the calendar; the stored plan is untouched
+  if (!WRITES.has(command) && !REFRESH && !["show", "plan"].includes(command)) fail(2, `unknown command ${command}. Commands: show, set, unset, lead, except, clear-except, plan, refresh`);
   const config = loadConfig();
   const saved = config.sleepPlan;
   let plan;
@@ -119,8 +121,8 @@ async function main() {
   const { calendar, blocksOf } = await blocksSource();
   const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: await readWakeRequest() });
   let file = null;
-  if (WRITES.has(command)) {
-    try { setSleepPlan(storable(plan, saved), CONFIG_FILE); } catch (error) { fail(2, error.message); }
+  if (WRITES.has(command) || REFRESH) {
+    if (!REFRESH) { try { setSleepPlan(storable(plan, saved), CONFIG_FILE); } catch (error) { fail(2, error.message); } }
     file = writeWakePlan(controlledDir(), wakePlanName, wakePlanDoc({ now, days, config: nextConfig }));
   }
   const plain = sleepPlanOf(nextConfig);

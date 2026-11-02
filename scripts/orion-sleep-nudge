@@ -1,0 +1,110 @@
+#!/usr/bin/env node
+// orion-sleep-nudge — the bedtime nudge engine's tick (W10-F). Run from orion-watch's tick (about every 5 minutes).
+//   orion-sleep-nudge tick [--json] [--dry-run] [--now ISO] [--signals file.json]
+// Reads wake-plan.json, the Mac's focus-activity.json, the phone's screen sample and tonight's calendar, asks
+// scripts/lib/life/sleep-nudge.mjs what to do, and does it through orion-reach / orion-bedtime-act / orion-phone-time.
+// State: sleep-nudge-state.json; log: sleep-nudge-log.jsonl (both in the controlled dir).
+// Seams: ORION_REACH_BIN, ORION_BEDTIME_ACT_BIN, ORION_PHONE_TIME_BIN (stand-in executables), ORION_SLEEP_NUDGE_FORCE=1 (run
+// inside an evaluation: tests only). In an isolated state copy a real Mac/phone action is skipped unless its bin is injected.
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { controlledDir, clockNow, isolated } from "./lib/clock.mjs";
+import { evalMode } from "./lib/eval-mode.mjs";
+import { decide } from "./lib/life/sleep-nudge.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const json = args.includes("--json");
+const dry = args.includes("--dry-run");
+const out = (o) => console.log(json ? JSON.stringify(o) : (o.note ?? `${o.why}: ${o.results?.length ?? 0} action(s)`));
+if (args[0] !== "tick") { console.error("usage: orion-sleep-nudge tick [--json] [--dry-run] [--now ISO] [--signals file]"); process.exit(2); }
+
+const read = (file, fallback) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return fallback; } };
+const DIR = controlledDir();
+const sandboxed = evalMode();
+if (sandboxed && process.env.ORION_SLEEP_NUDGE_FORCE !== "1") { out({ ok: true, why: "evaluation", actions: [], results: [], note: "Bedtime nudge paused during evaluation." }); process.exit(0); }
+
+const now = flag("--now") ? new Date(flag("--now")) : clockNow();
+const bin = (envName, file) => process.env[envName] || join(here, file);
+const PLAN_FILE = join(DIR, `${sandboxed ? "eval-" : ""}wake-plan.json`);
+let plan = read(PLAN_FILE, null);
+// The plan covers 7 mornings and was built from one calendar read: rebuild it once a day (only when one exists).
+const localDay = (d) => new Date(d).toLocaleDateString("en-CA");
+const stale = plan && (!plan.generatedAt || localDay(plan.generatedAt) !== localDay(now) || !(plan.alarms ?? []).some((a) => Date.parse(a.iso) > now.getTime()));
+if (stale && !dry && (!isolated() || process.env.ORION_SLEEPPLAN_BIN)) {
+  try {
+    spawnSync(process.execPath, [bin("ORION_SLEEPPLAN_BIN", "orion-sleepplan"), "refresh", "--json"], { encoding: "utf8", timeout: 40_000, env: process.env });
+    plan = read(PLAN_FILE, plan);
+  } catch { /* the old plan stands */ }
+}
+const STATE = join(DIR, "sleep-nudge-state.json");
+const LOG = join(DIR, "sleep-nudge-log.jsonl");
+
+async function gather() {
+  const given = flag("--signals");
+  if (given) return { ...read(given, {}), drivenByTest: true };
+  const activity = read(join(DIR, "focus-activity.json"), null);
+  const fresh = activity && now - Date.parse(activity.at) < 3 * 60_000;
+  const mac = fresh ? { idleSeconds: activity.idleSeconds, locked: activity.locked, displayAsleep: activity.displayAsleep, app: activity.app, bundleID: activity.bundleID } : {};
+  const screen = read(process.env.ORION_HEALTH_LOG || join(DIR, "health-log.json"), {}).phoneScreen;
+  const sample = Array.isArray(screen) ? screen.at(-1) : screen;
+  const age = sample && sample.locked === false ? (now - Date.parse(sample.at)) / 60_000 : null;
+  const phone = { usedMinutesAgo: age != null && age >= 0 ? age : null };
+  let calendar = [];
+  if (plan?.source === "nick") {
+    try {
+      const { calendarEvents } = await import("./lib/life/live-day.mjs");
+      calendar = (await calendarEvents()).filter((e) => e.allDay !== "true").map((e) => ({ title: e.title ?? "", kind: e.orion ?? null, start: e.start, end: e.end }));
+    } catch { /* calendar unreadable: no guessed exception, the stored ones still count */ }
+  }
+  return { mac, phone, calendar };
+}
+
+function runAct(action) {
+  const injected = (name) => !!process.env[name];
+  const sh = (name, file, argv, needsInjection) => {
+    if (needsInjection && isolated() && !injected(name)) return { ok: false, skipped: "isolated: real action not run" };
+    const r = spawnSync(process.execPath, [bin(name, file), ...argv], { encoding: "utf8", timeout: 30_000, env: process.env });
+    return { ok: r.status === 0, status: r.status, detail: `${r.stdout || r.stderr || ""}`.trim().slice(0, 160) };
+  };
+  switch (action.type) {
+    case "message": return sh("ORION_REACH_BIN", "orion-reach", [action.text, "--kind", "reminder", "--why", action.why, "--awake", "--no-queue"], false);
+    case "dim": return sh("ORION_BEDTIME_ACT_BIN", "orion-bedtime-act", ["dim"], true);
+    case "undim": return sh("ORION_BEDTIME_ACT_BIN", "orion-bedtime-act", ["undim"], true);
+    case "lock-screen": return sh("ORION_BEDTIME_ACT_BIN", "orion-bedtime-act", ["lock-screen"], true);
+    case "quit-app": return sh("ORION_BEDTIME_ACT_BIN", "orion-bedtime-act", ["quit-app", action.bundleId], true);
+    case "phone-block": return sh("ORION_PHONE_TIME_BIN", "orion-phone-time", ["block", action.groups.join(","), "--minutes", String(action.minutes), "--why", action.why], true);
+    case "phone-unblock": return sh("ORION_PHONE_TIME_BIN", "orion-phone-time", ["unblock", action.group], true);
+    default: return { ok: false, skipped: "unknown action" };
+  }
+}
+
+try {
+  const state = read(STATE, null);
+  const signals = { ...(await gather()), sandbox: sandboxed };
+  const decision = decide(now, plan, signals, state);
+  const results = [];
+  if (!dry) {
+    for (const action of decision.actions) {
+      const r = runAct(action);
+      results.push({ action, ...r });
+    }
+    const failedMessage = results.find((r) => r.action.type === "message" && !r.ok && !r.skipped);
+    // A rung whose message could not be sent stays due: keep the old state so the next tick retries it.
+    if (!failedMessage && JSON.stringify(decision.state) !== JSON.stringify(state)) {
+      mkdirSync(DIR, { recursive: true });
+      writeFileSync(`${STATE}.tmp`, JSON.stringify(decision.state, null, 2));
+      renameSync(`${STATE}.tmp`, STATE);
+    }
+    if (decision.actions.length) {
+      appendFileSync(LOG, `${JSON.stringify({ at: now.toISOString(), why: decision.why, results })}\n`);
+    }
+  }
+  out({ ok: true, why: decision.why, dryRun: dry, actions: decision.actions, results });
+} catch (error) {
+  out({ ok: false, why: "error", error: String(error?.message ?? error).slice(0, 200), actions: [], results: [], note: "sleep nudge failed" });
+  process.exit(dry ? 1 : 0);
+}

@@ -27,7 +27,7 @@ final class WakeAlarmTests: XCTestCase {
 
     func testPlanParsesIsoAndClockForms() {
         let plan = """
-        {"generatedAt":"x","alarms":[{"date":"2027-01-15","at":"06:30","reason":"gym"},
+        {"generatedAt":"x","source":"nick","alarms":[{"date":"2027-01-15","at":"06:30","reason":"gym"},
         {"date":"2027-01-16","at":"07:00","iso":"2027-01-16T07:05:00Z","reason":"iso wins"},
         {"date":"bad","at":"06:00"},{"date":"2027-01-17","at":"25:00"}],"bedtimes":[]}
         """
@@ -35,6 +35,13 @@ final class WakeAlarmTests: XCTestCase {
         XCTAssertEqual(entries.count, 2)
         XCTAssertEqual(entries[0].fireAt, calendar.date(from: DateComponents(year: 2027, month: 1, day: 15, hour: 6, minute: 30)))
         XCTAssertEqual(entries[1].fireAt, WakeAlarmPlan.parseISO("2027-01-16T07:05:00Z"))
+    }
+
+    func testOnlyAPlanNickSetRings() {
+        for source in ["", "\"source\":\"default\","] {
+            let plan = "{\(source)\"alarms\":[{\"date\":\"2027-01-15\",\"at\":\"09:00\",\"reason\":\"default wake\"}]}"
+            XCTAssertTrue(WakeAlarmPlan.entries(plan: Data(plan.utf8), override: nil, calendar: calendar).isEmpty, source)
+        }
     }
 
     func testMissingOrInvalidFilesGiveNoAlarms() {
@@ -45,7 +52,7 @@ final class WakeAlarmTests: XCTestCase {
 
     func testOverrideWinsForItsDateOnly() {
         let plan = """
-        {"alarms":[{"date":"2027-01-15","at":"06:30","reason":"plan"},{"date":"2027-01-16","at":"06:30","reason":"plan"}]}
+        {"source":"nick","alarms":[{"date":"2027-01-15","at":"06:30","reason":"plan"},{"date":"2027-01-16","at":"06:30","reason":"plan"}]}
         """
         let override = "{\"at\":\"2027-01-15T09:00:00.000Z\",\"setAt\":\"x\"}"
         let entries = WakeAlarmPlan.entries(plan: Data(plan.utf8), override: Data(override.utf8), calendar: calendar)

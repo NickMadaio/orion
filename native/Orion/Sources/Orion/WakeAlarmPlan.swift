@@ -23,6 +23,8 @@ enum WakeAlarmPlan {
     private static func planEntries(_ data: Data?, calendar: Calendar) -> [WakeAlarmEntry] {
         guard let data, let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let alarms = root["alarms"] as? [[String: Any]] else { return [] }
+        // Only a plan Nick set rings; a plan derived from defaults ("default", or no source) never does.
+        guard (root["source"] as? String) == "nick" else { return [] }
         return alarms.compactMap { row in
             guard let date = row["date"] as? String, isDay(date) else { return nil }
             let reason = (row["reason"] as? String) ?? "wake plan"

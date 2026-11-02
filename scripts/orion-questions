@@ -5,7 +5,7 @@
    orion-questions add "<question>" [--why "<what made you wonder>"] [--topic person|preference|routine|fact|other] [--priority high|normal|low]
    orion-questions list [--open] [--json]
    orion-questions edit <id> ["<new wording>"] [--why "…"] [--topic …] [--priority …]
-   orion-questions answer <id> "<his answer>"      record his answer and keep it in his Nick note (a dated, #orion learned line)
+   orion-questions answer <id> "<his answer>"      record his answer and keep it in his Nick note (a dated #answer line: his words, not ORION's)
    orion-questions drop <id> [--why "…"]           no longer worth asking
    orion-questions resolve <id> ["<how it was settled>"]   found out another way (no answer from him needed)
    orion-questions skip <id>                         he passed on it for now ("idk", "ask me later"): open again
@@ -52,7 +52,7 @@ function keep(fact) {
   if (sandboxed) return { kept: "eval", note: "evaluation run: kept in the eval queue only" };
   const date = now.toLocaleDateString("en-CA");
   if (isolated() && !process.env.ORION_BRAIN_VAULT) {
-    toOutbox("brain", { note: "Nick", line: learnedLine("answer", fact, date, { own: true }) }, { by: "orion-questions" });
+    toOutbox("brain", { note: "Nick", line: learnedLine("answer", fact, date, { answer: true }) }, { by: "orion-questions" });
     return { kept: "outbox", note: "isolated run: the line went to the outbox" };
   }
   const vaultDir = process.env.ORION_BRAIN_VAULT || join(homedir(), "Documents/orionBrain");

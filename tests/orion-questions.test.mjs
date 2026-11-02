@@ -42,7 +42,7 @@ test("add, dedupe, list --open, edit, drop", () => {
   assert.equal(run(e, "drop", id).status, 3);
 });
 
-test("answer keeps a dated #orion line in his Nick note", () => {
+test("answer keeps a dated #answer line (his words, not ORION's) in his Nick note", () => {
   const e = env();
   run(e, "add", "Who is Sam?", "--topic", "person");
   const id = rows(e)[0].id;
@@ -50,7 +50,7 @@ test("answer keeps a dated #orion line in his Nick note", () => {
   assert.equal(out.status, 0, out.stderr);
   assert.match(out.stdout, /Kept in his Nick note/);
   const note = readFileSync(join(e.vaultDir, "20 Areas/Me/Nick.md"), "utf8");
-  assert.match(note, /- \[answer\] Who is Sam\? → my gym buddy from uni #orion \(2026-11-02\)/);
+  assert.match(note, /- \[answer\] Who is Sam\? → my gym buddy from uni #answer \(2026-11-02\)/);
   assert.equal(rows(e)[0].status, "answered");
 });
 
@@ -60,7 +60,7 @@ test("an isolated run without a vault seam never touches real notes: the line go
   const id = rows(e)[0].id;
   const out = run(e, "answer", id, "gym buddy", "--json");
   assert.equal(JSON.parse(out.stdout).kept, "outbox");
-  assert.match(readFileSync(join(e.ctl, "isolated-outbox.jsonl"), "utf8"), /gym buddy #orion/);
+  assert.match(readFileSync(join(e.ctl, "isolated-outbox.jsonl"), "utf8"), /gym buddy #answer/);
 });
 
 test("bad arguments save nothing", () => {

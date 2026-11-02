@@ -1,5 +1,5 @@
-// ORION's own notes (wave 12 L1): answers folded into his Nick note, tagged #orion, which ORION may edit or unlearn.
-// Nick's and system entries are refused.
+// ORION's own notes (wave 12 L1): lines tagged #orion, which ORION may edit or unlearn. Answers folded into his Nick note are his
+// (#answer, fixer 2026-11-02); they and Nick's and system entries are refused.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -31,9 +31,10 @@ function dirs() {
 }
 
 test("learnedLine tags ORION's own lines; isOwn reads the tag", () => {
-  assert.equal(learnedLine("answer", "Who is Sam? → gym buddy", "2026-11-02", { own: true }), "- [answer] Who is Sam? → gym buddy #orion (2026-11-02)");
+  assert.equal(learnedLine("guess", "lifts tuesdays", "2026-11-02", { own: true }), "- [guess] lifts tuesdays #orion (2026-11-02)");
   assert.equal(learnedLine("fact", "x", "2026-11-02"), "- [fact] x (2026-11-02)");
-  assert.ok(isOwn("- [answer] a #orion (2026-11-02)"));
+  assert.ok(isOwn("- [guess] a #orion (2026-11-02)"));
+  assert.ok(!isOwn("- [answer] a #answer (2026-11-02)"));
   assert.ok(!isOwn("- [fact] DS lab partner is Priya (2026-10-16)"));
 });
 
@@ -71,7 +72,7 @@ test("foldAnswer writes the fact into his Nick note, where forget/recall find it
   const out = foldAnswer({ vaultDir: d.vaultDir, fact: "Who is Sam? → my gym buddy", date: "2026-11-02" });
   assert.equal(out.written, true);
   const text = readFileSync(nickNotePath(d.vaultDir), "utf8");
-  assert.match(text, /- \[answer\] Who is Sam\? → my gym buddy #orion \(2026-11-02\)/);
+  assert.match(text, /- \[answer\] Who is Sam\? → my gym buddy #answer \(2026-11-02\)/);
   assert.ok(listEntries(d).some((e) => /gym buddy/.test(e.text)));
 });
 
@@ -80,12 +81,12 @@ test("foldAnswer creates the Nick note when the vault has none", () => {
   const out = foldAnswer({ vaultDir: root, fact: "q → a", date: "2026-11-02" });
   assert.equal(out.written, true);
   assert.ok(existsSync(nickNotePath(root)));
-  assert.match(readFileSync(nickNotePath(root), "utf8"), /title: Nick[\s\S]*## Learned\n- \[answer\] q → a #orion/);
+  assert.match(readFileSync(nickNotePath(root), "utf8"), /title: Nick[\s\S]*## Learned\n- \[answer\] q → a #answer/);
 });
 
 test("unlearn: ORION's own entry is archived; Nick's is refused and stays", () => {
   const d = dirs();
-  foldAnswer({ vaultDir: d.vaultDir, fact: "Who is Sam? → my gym buddy", date: "2026-11-02" });
+  learnIntoNote(d.vaultDir, "Nick", learnedLine("guess", "Who is Sam? → my gym buddy", "2026-11-02", { own: true }));
   const mine = ownEntries(d);
   assert.equal(mine.length, 1);
   assert.equal(mine[0].text, "Who is Sam? → my gym buddy");
@@ -102,12 +103,12 @@ test("unlearn: ORION's own entry is archived; Nick's is refused and stays", () =
 
 test("edit: ORION's own entry is rewritten in place (old line archived); Nick's is refused", () => {
   const d = dirs();
-  foldAnswer({ vaultDir: d.vaultDir, fact: "Who is Sam? → my gym buddy", date: "2026-11-01" });
+  learnIntoNote(d.vaultDir, "Nick", learnedLine("guess", "Who is Sam? → my gym buddy", "2026-11-01", { own: true }));
   const [mine] = ownEntries(d);
   const out = editOwn(d, mine.id, "Sam is his gym buddy on Tuesdays", new Date(2026, 10, 2, 12));
   assert.equal(out.edited.text, "Sam is his gym buddy on Tuesdays");
   const text = readFileSync(nickNotePath(d.vaultDir), "utf8");
-  assert.match(text, /- \[answer\] Sam is his gym buddy on Tuesdays #orion \(2026-11-02\)/);
+  assert.match(text, /- \[guess\] Sam is his gym buddy on Tuesdays #orion \(2026-11-02\)/);
   assert.doesNotMatch(text, /→ my gym buddy/);
   assert.match(readFileSync(join(d.controlledDir, "memory-archive.jsonl"), "utf8"), /→ my gym buddy/);
   const nicks = listEntries(d).find((e) => /Priya/.test(e.text));

@@ -3,9 +3,15 @@
 // Provenance is a tag on the line itself, so it survives any copy of the vault: a learned bullet ORION wrote on his own
 // account (an answer to one of his questions, or `orion-brain learn --own`) ends in " #orion" before its date:
 //
-//   - [answer] Who is Sam? → my gym buddy #orion (2026-11-02)
+//   - [guess] probably lifts on tuesdays #orion (2026-11-02)
 //
-// Only those lines may be edited or unlearned by ORION (orion-brain edit / unlearn). A line without the tag is Nick's (he
+// Only those lines may be edited or unlearned by ORION (orion-brain edit / unlearn). Nick's ANSWER to one of ORION's questions is
+// his words, not ORION's: it carries #answer instead (fixer, 2026-11-02), is read and recalled like any fact, and only Nick can
+// change it, through the guarded forget. An [answer] line is never ORION's own even if an older build tagged it #orion.
+//
+//   - [answer] Who is Sam? → my gym buddy #answer (2026-11-02)
+//
+// A line without the tag is Nick's (he
 // asked ORION to keep it) or the system's (seeded observations, USER.md, the journal) and stays code-only: forgetting it
 // still needs his own words (knowledge-run.ts). Unlearning archives like `forget --apply`, so nothing is ever lost outright.
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
@@ -14,16 +20,19 @@ import { basename, dirname, join } from "node:path";
 import { archiveEntries, displayText, listEntries } from "./forget.mjs";
 
 export const OWN_TAG = "#orion";
+export const ANSWER_TAG = "#answer";
 const OWN = /\s#orion(?=\s|$)/;
+const ANSWER_LINE = /^\s*-\s+(?:\d{4}-\d{2}-\d{2}\s*[—–-]\s*|\d{1,2}:\d{2}(?:\s*[AP]M)?\s*[—–-]\s*)?\[answer\]|\s#answer(?=\s|$)/i;
 export const NICK_NOTE = "20 Areas/Me/Nick.md";
 export const nickNotePath = (vaultDir) => join(vaultDir, NICK_NOTE);
 
-export const isOwn = (raw) => OWN.test(String(raw));
+export const isOwn = (raw) => OWN.test(String(raw)) && !ANSWER_LINE.test(String(raw));
 const clean = (s, max) => String(s ?? "").replace(/[\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
 const day = (d) => new Date(d).toLocaleDateString("en-CA");
 
-/** One learned bullet, the shape orion-brain learn writes; `own` adds the provenance tag. */
-export const learnedLine = (category, text, date, { own = false } = {}) => `- [${category}] ${text}${own ? ` ${OWN_TAG}` : ""} (${date})`;
+/** One learned bullet, the shape orion-brain learn writes; `own` adds ORION's provenance tag, `answer` Nick's answer tag. */
+export const learnedLine = (category, text, date, { own = false, answer = false } = {}) =>
+  `- [${category}] ${text}${answer ? ` ${ANSWER_TAG}` : own ? ` ${OWN_TAG}` : ""} (${date})`;
 
 /**
  The note with `line` at the end of its LAST "## Learned" section (before whatever heading follows it, e.g. "## Relations"); a new
@@ -82,12 +91,12 @@ const writeAtomic = (path, text) => {
 const readOr = (path, fallback) => { try { return readFileSync(path, "utf8"); } catch { return fallback; } };
 const NEW_NOTE = "---\ntitle: Nick\ntype: person\npermalink: 20-areas-me/nick\n---\n\n# Nick\n";
 
-/** His answer, kept in his Nick note as ORION's own line. The recall path (memory-facts.ts learnedLines) reads it back. */
+/** His answer, kept in his Nick note as HIS line (#answer, never #orion). The recall path (memory-facts.ts learnedLines) reads it back. */
 export function foldAnswer({ vaultDir, fact, date }) {
-  const text = clean(fact, 480);
+  const text = clean(fact, 480).replace(/\s#(?:orion|answer)\b/gi, " ").trim();   // a typed tag must not change whose line it is
   if (!text) throw new Error("nothing to keep");
   const path = nickNotePath(vaultDir);
-  const line = learnedLine("answer", text, date, { own: true });
+  const line = learnedLine("answer", text, date, { answer: true });
   writeAtomic(path, appendLearned(readOr(path, NEW_NOTE), line));
   return { written: true, path, line };
 }
@@ -113,6 +122,20 @@ export function unlearnOwn(dirs, ids, now = new Date()) {
 
 const idOf = (file, raw) => createHash("sha1").update(`${file}\n${raw}`).digest("hex").slice(0, 10);
 
+/**
+ The edited line in its own store's shape, so listing still finds it (fixer: a USER.md or journal line rewritten as a vault bullet
+ vanished). vault "- [cat] text #orion (today)"; USER.md "- today — [Label: ]text #orion"; journal "- <same time> — [[auto] ]text #orion".
+*/
+function rewrittenLine(entry, text, now) {
+  const raw = entry.raw;
+  if (entry.store === "vault") return learnedLine(raw.match(/^-\s+\[([\w -]{1,30})\]/)?.[1] ?? "note", text, day(now), { own: true });
+  const user = raw.match(/^-\s+\d{4}-\d{2}-\d{2}\s*([—–-])\s*((?:[A-Z][a-z]{2,20}:\s+)?)/);
+  if (user) return `- ${day(now)} ${user[1]} ${user[2]}${text} ${OWN_TAG}`;
+  const journal = raw.match(/^-\s+(\d{1,2}:\d{2}(?:\s*[AP]M)?)\s*([—–-])\s*((?:\[[\w -]{1,30}\]\s+)?)/i);
+  if (journal) return `- ${journal[1]} ${journal[2]} ${journal[3]}${text} ${OWN_TAG}`;
+  throw new Error(`${entry.id} is in a shape ORION cannot rewrite safely; nothing was changed`);
+}
+
 /** Rewrite one of ORION's own entries in place, keeping its category and tag, dated today. The old line is archived. */
 export function editOwn(dirs, id, newText, now = new Date()) {
   const entry = listEntries(dirs).find((e) => e.id === id);
@@ -120,8 +143,7 @@ export function editOwn(dirs, id, newText, now = new Date()) {
   if (!isOwn(entry.raw)) throw new Error(`${id} is not one of ORION's own notes; only Nick can change it`);
   const text = clean(newText, 480);
   if (!text) throw new Error("the new text is empty");
-  const category = entry.raw.match(/^-\s+\[([\w -]{1,30})\]/)?.[1] ?? "note";
-  const raw = learnedLine(category, text, day(now), { own: true });
+  const raw = rewrittenLine(entry, text, now);
   const base = entry.store === "vault" ? dirs.vaultDir : dirs.workspaceDir;
   const path = join(base, entry.file);
   const lines = readOr(path, "").split("\n");

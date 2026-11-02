@@ -11,7 +11,7 @@ const script = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "o
 function env() {
   const root = mkdtempSync(join(tmpdir(), "brain-own-"));
   const vault = join(root, "vault"); mkdirSync(join(vault, "20 Areas/Me"), { recursive: true });
-  writeFileSync(join(vault, "20 Areas/Me/Nick.md"), "## Learned\n- [fact] DS lab partner is Priya (2026-10-16)\n- [answer] Who is Sam? → gym buddy #orion (2026-11-01)\n");
+  writeFileSync(join(vault, "20 Areas/Me/Nick.md"), "## Learned\n- [fact] DS lab partner is Priya (2026-10-16)\n- [guess] Who is Sam? → gym buddy #orion (2026-11-01)\n");
   const ws = join(root, "ws"); mkdirSync(ws);
   writeFileSync(join(ws, "USER.md"), "# USER\n- 2026-10-31 — stop being so formal\n");
   return { vault, ws, ctl: join(root, "ctl"), note: join(vault, "20 Areas/Me/Nick.md") };
@@ -59,7 +59,7 @@ test("edit rewrites his own line; Nick's is refused with nothing changed", () =>
   const [own] = JSON.parse(run(e, "mine").stdout).mine;
   const ok = run(e, "edit", own.id, "Sam is his gym buddy (Tuesdays)");
   assert.equal(ok.status, 0, ok.stderr);
-  assert.match(readFileSync(e.note, "utf8"), /- \[answer\] Sam is his gym buddy \(Tuesdays\) #orion \(\d{4}-\d{2}-\d{2}\)/);
+  assert.match(readFileSync(e.note, "utf8"), /- \[guess\] Sam is his gym buddy \(Tuesdays\) #orion \(\d{4}-\d{2}-\d{2}\)/);
   const [priya] = forgetIds(e, "priya");
   const no = run(e, "edit", priya, "Priya is nobody");
   assert.equal(no.status, 3);

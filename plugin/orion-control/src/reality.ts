@@ -106,6 +106,10 @@ const PRONOUN_OR_ADVERB = /\b(?:i|im|i'm|me|we|you|he|she|they|it|its|it's|this|
 const NOT_A_PLACE = /^(?:home|library|uni|campus|work|school|bed|my room|office|cafe|town)$/;
 const ATTENDED = /\bi (?:was|went|did go|made it)\s+(?:literally\s+|actually\s+|totally\s+|definitely\s+)?(?:in|at|to)\s+(?:the\s+|my\s+)?([a-z][a-z0-9 ]{1,25}?)(?=\s*(?:class|lecture|today|lol|tho|though|,|\.|!|$|fix|but|so|the whole))/i;
 const SAID_MISSED = /\byou (?:said|thought|marked|logged)\s+(?:that\s+)?i (?:missed|skipped|didn'?t (?:go to|make it to|go))\s+(?:the\s+|my\s+)?([a-z0-9]+)/i;
+/** A capture that ends on a joining word is a fragment of a longer sentence, not a block name. */
+const TRAILING_LINK = /\b(?:with|and|for|from|to|of|on|in|at|by|her|him|them|my|the|a|an|some|who|that)$/;
+/** "i went to X with her": somewhere he went with someone. */
+const WENT_WITH = /^i (?:went|was) (?:to|in|at) (?:the |my )?[a-z]+(?: [a-z]+)? with\b/;
 const WAS_THERE = /\b(?:i was there|i went|i was in (?:it|class)|i attended|i did go)\b/i;
 
 function readDone(m: string): Reality | null {
@@ -124,6 +128,8 @@ function readAttended(m: string): Reality | null {
   const was = ATTENDED.exec(m);
   if (!was || NOT_A_PLACE.test(was[1]!.trim())) return null;
   const what = was[1]!.trim();
+  // w16 (2026-11-02 23:04): "a friend i went to wales with" is a trip with someone, never "wales with" attended.
+  if (TRAILING_LINK.test(what) || WENT_WITH.test(m.slice(was.index))) return null;
   // "i was at the gym" is the gym done, not a class attended.
   if (/\bgym\b/.test(what)) return { kind: "done", what: "gym", fill: PLAN_REST.test(m) };
   return { kind: "attended", what };
@@ -431,7 +437,7 @@ async function doneIt(r: Extract<Reality, { kind: "done" }>, deps: RealityDeps):
 }
 
 /** "i was in marketing": the missed mark ORION made is taken back, and that he was there is noted. */
-async function attendedIt(r: Extract<Reality, { kind: "attended" }>, deps: RealityDeps): Promise<RealityOutcome> {
+async function attendedIt(r: Extract<Reality, { kind: "attended" }>, deps: RealityDeps): Promise<RealityOutcome | null> {
   const day = await deps.readDay().catch(() => undefined);
   const block = matchBlock(r.what, day?.blocks ?? [], deps.text);
   const name = block ? shortTitle(block.title) : r.what;
@@ -439,6 +445,8 @@ async function attendedIt(r: Extract<Reality, { kind: "attended" }>, deps: Reali
   let facts: Array<{ id?: string; kind?: string; title?: string; text?: string }> = [];
   try { const parsed = JSON.parse(listedFacts.stdout.trim().split("\n").at(-1) ?? "[]") as unknown; facts = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { facts?: unknown }).facts) ? (parsed as { facts: typeof facts }).facts : []; } catch { facts = []; }
   const wrong = facts.filter((f) => f.kind === "skip" && typeof f.id === "string" && (names(r.what, f.title ?? "") || (block && f.title === block.title)));
+  // w16: nothing on today's plan by that name and no missed mark to take back: nothing to log (the turn goes on as usual).
+  if (!block && !wrong.length) return null;
   const calls = ["exec orion-declare list"]; const outputs = [listedFacts.stdout];
   for (const f of wrong) { const out = await deps.run("orion-declare", ["remove", "--id", f.id!]).catch(() => ({ stdout: "", code: 1 })); calls.push(`exec orion-declare remove --id ${f.id}`); outputs.push(out.stdout); }
   const id = await declare(deps, "note", ["--title", block?.title ?? r.what]);

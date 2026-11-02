@@ -82,6 +82,7 @@ import { declareOnly, readReality, runReality, undoReality, type RealityRead, ty
 import { pluginNow } from "./plugin-clock.js";
 import { LATE_TONE_LINE, pastNudgeTime, stripLateInstruction } from "./night-hush.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn, type PendingTurn } from "./pending-reply.js";
+import { learnPersonAfter } from "./person-learn.js";
 import { bedtimeFromState, focusRunning } from "./bed-state.js";
 import { readPreference, savePreference, type Preference } from "./preference-remember.js";
 import { learnCorrection, pendingOffer, standingRulesLine } from "./correction-learn.js";
@@ -1388,6 +1389,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.wakeExec ? { wake: options.wakeExec } : {}), ...(options.phoneTimeRun ? { phoneTime: options.phoneTimeRun } : {}) }).catch(() => undefined);
         if (run.sessionKey) { pendingMemory.setMemo(run.sessionKey, out?.memo ?? null); if (out && run.pending.outreachText && run.pending.sentAt !== undefined) pendingMemory.markAnswered(run.pending.outreachText, run.pending.sentAt, (options.now ?? pluginNow)().getTime(), options.stateDir); }
         if (out) { run.flow = out.flow; run.tools.push(...out.tools); if (out.marks.length) recordChange(run.sessionKey, out.marks); }
+        // w16: a person he named in that answer ("im at Avery's place, shes a friend…") is kept, and the reply says so.
+        if (out && options.knowledgeRun) {
+          const kept = await withTimeout(learnPersonAfter(out.flow, run.message, options.knowledgeRun).catch(() => undefined), 6000);
+          if (kept) { run.flow = kept.flow; if (kept.call) run.tools.push(kept.call); }
+        }
       }
       if (!run.flow && !run.cutOff && run.sleepTurn && options.sleepPlanRun) {   // W10-B (sleep-plan-flow.ts)
         const out = await runSleepTurn(run.sleepTurn, { run: options.sleepPlanRun, now: (options.now ?? pluginNow)(), ...(options.checkinRun ? { checkin: options.checkinRun } : {}) });

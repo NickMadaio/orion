@@ -1873,6 +1873,16 @@ final class AppState: ObservableObject {
     /// — but never silently: a preserved fragment from an earlier cut-off is
     /// sent rather than dropped, which is the same "never lose the words"
     /// rule `handleFinalTranscript` follows.
+    /// A paused answer still held for "continue" goes to the bubble and the saved chat: the exchange it waited on is over.
+    private func landHeldPausedAnswer() {
+        guard let paused = pausedReplacementText else { return }
+        pausedReplacementText = nil
+        pausedGeneration = nil
+        pausedSeedWasRoom = false
+        append(.orion, paused)
+        saveChat(.orion, text: paused)
+    }
+
     private func endConversation() {
         // The 6 s window lapsed: the question's own 20 s clock keeps running (SpokenQuestionFollowUp).
         repeatFollowUpGrace = nil
@@ -1885,6 +1895,8 @@ final class AppState: ObservableObject {
             flushPreservedTranscript()
             return
         }
+        // w16: the window closed with nothing more from him (no "continue", no rest of his sentence): the held answer is still his.
+        landHeldPausedAnswer()
         setPhase(.idle)
         statusLine = wakeWordEnabled ? "Listening for “Orion”" : pushToTalk.idleHint
     }
@@ -1987,12 +1999,7 @@ final class AppState: ObservableObject {
     private func dropUnaddressed(_ text: String, reason: String) {
         OrionLog.write("[gate] not said to ORION — not sent (\(reason), \(text.count) chars)")
         if pausedGeneration != nil { pausedSeedWasRoom = true }
-        if let paused = pausedReplacementText {
-            pausedReplacementText = nil
-            pausedGeneration = nil
-            pausedSeedWasRoom = false
-            append(.orion, paused)
-        }
+        landHeldPausedAnswer()
         weakAdmitsInARow = 0
         endConversation()
     }
@@ -2039,6 +2046,7 @@ final class AppState: ObservableObject {
             pausedReplacementText = nil
             pausedGeneration = nil
             append(.orion, paused)
+            saveChat(.orion, text: paused)
             speak(paused, origin: origin)
             return
         }
@@ -2251,8 +2259,17 @@ final class AppState: ObservableObject {
                     // between `pauseThinking` and `cancelThinking`.
                     if self.pausedGeneration == generation, case .success(let reply) = result {
                         self.pausedGeneration = nil
-                        self.pausedReplacementText = reply.text
-                        self.append(.system, "(The paused answer is ready — say \"continue\" to hear it.)")
+                        // w16 (2026-11-02 23:01): held only while he is finishing his sentence; otherwise it is his answer, now.
+                        switch PausedAnswerLanding.on(seedWasRoom: self.pausedSeedWasRoom, listening: self.phase == .listening) {
+                        case .bubble:
+                            self.pausedSeedWasRoom = false
+                            OrionLog.write("[think] paused answer landed — shown in the chat (\(reply.text.count) chars)")
+                            self.append(.orion, reply.text)
+                            self.saveChat(.orion, text: reply.text, thinking: reply.thinking)
+                        case .hold:
+                            self.pausedReplacementText = reply.text
+                            self.append(.system, "(The paused answer is ready — say \"continue\" to hear it.)")
+                        }
                     }
                     return
                 }

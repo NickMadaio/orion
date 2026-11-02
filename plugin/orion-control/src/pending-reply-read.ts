@@ -33,7 +33,10 @@ export type Reply =
   | { kind: "decline" }
   | { kind: "done" }
   | { kind: "resume" }
-  | { kind: "changed" }
+  /** away: where he said he is instead ("Avery's"), as he said it (plan-check-story.ts). */
+  | { kind: "changed"; away?: string }
+  /** His answer to the off-plan question says neither "still on" nor "plans changed" clearly: ask once, write nothing. */
+  | { kind: "unclear" }
   | { kind: "defer"; minutes?: number; activity?: string; typical?: number; stall?: boolean }
   | { kind: "bed" }
   | { kind: "awake"; activity?: string; minutes?: number; sleepless: boolean; workload: boolean }

@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { decide, keepWarm, FRONT_DESK_CTX } from "./front-desk.js";
 import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
-import { BRAIN_INSTRUCTIONS, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
+import { BRAIN_INSTRUCTIONS, FOOD_TOOL, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
 import { checkWork, outcomeOf, retryInstruction } from "./work-check.js";
 import { isSessionStart, startsSession } from "./session-flow.js";
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
@@ -92,6 +92,8 @@ import { readDayDefault, runDayDefault } from "./day-defaults.js";
 import { KnowledgePending, readKnowledgeMove } from "./knowledge-moves.js"; // wave 6: forget / links / profile / trash
 import { runKnowledgeMove } from "./knowledge-run.js";
 import { liveQuestionsRun, readQuestionsMove, runQuestionsMove } from "./questions-flow.js"; // wave 12 L1
+import { readFoodTurn } from "./food-read.js"; // w14 g-food
+import { FoodMemory, readFoodPending, runFoodTurn } from "./food-chat.js"; // w14 g-food
 import { answeredCardLine } from "./questions-store.js";
 import { approvalAsk } from "./approval-reply.js"; // run-1101020721: a held send is said as a draft and a question
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
@@ -298,8 +300,9 @@ export function instructionsFor(decision, message) {
         return BRAIN_INSTRUCTIONS;
     if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message) || RUNNING_LATE.test(message))
         return SCHEDULING_INSTRUCTIONS;
-    return GENERAL_INSTRUCTIONS;
+    return FOOD_TURN.test(message) ? `${GENERAL_INSTRUCTIONS}\n\n${FOOD_TOOL}` : GENERAL_INSTRUCTIONS; // w14 g-food: the food line only when it is about food
 }
+const FOOD_TURN = /\b(?:calories|calorie|cals|kcal|macros|protein|carbs|ate|eaten|food|meal|breakfast|lunch|dinner|snack)\b/i;
 // The small core every local turn gets (Nick, 2026-10-12: a small prompt, and ORION looks up the rest
 // in the brain). The manual is generated into the brain by scripts/orion-brain-manual.
 export const LOOK_IT_UP = "Your manual and his memory live in his brain; you only see a small part of it here. When you need something that is not in front of you — how a script works, a scheduling rule, dates, his routines, people, preferences, what was decided before — look it up first with exec: /Users/nickmadaio/Desktop/ORION/scripts/orion-brain search \"<words>\", or read \"ORION Manual - Index\" for the list of manual sections, then read \"<title>\". Never guess a fact about Nick or a command's syntax that you could look up.";
@@ -624,6 +627,7 @@ export function registerLocalRouting(api, options) {
     const knowledgePending = new KnowledgePending(); // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
     const sleepPending = new SleepPlanPending(); // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
     const pendingMemory = new PendingMemory(); // 2026-10-31 (pending-reply.ts): what a nudge's reply agreed, for the next short reply
+    const foodMemory = new FoodMemory(); // w14 g-food (food-chat.ts): whether "yes" still answers "Log it?", and the last food log for "undo"
     const forgetMade = (key) => { if (key)
         lastMade.delete(key); };
     const recentMade = (key) => { const m = key ? lastMade.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m : undefined; };
@@ -1155,8 +1159,15 @@ export function registerLocalRouting(api, options) {
         const quietTurn = hushed || quietStart !== undefined;
         // Wave 12 L1 (questions-flow.ts): "any questions for me", "forget that question", or his answer to ORION's question owns the whole turn.
         const qmove = on && !cutOff && !quietTurn && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
-        const reality = on && !cutOff && !quietTurn && !qmove && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-        const realityWhole = (!!reality && !reality.rest) || !!qmove;
+        // w14 g-food (food-read.ts): a calorie question, "log this: …", a meal with a food in it, a chat photo, or his reply to "Log it?".
+        const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
+        const food = on && !cutOff && !quietTurn && !qmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
+            ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : {}), attachments: Array.isArray(event.attachments) ? event.attachments : [],
+            ...(foodMemory.lastLogged(sessionKey) ? { lastLogged: foodMemory.lastLogged(sessionKey) } : {}) }) ?? undefined : undefined;
+        if (!food && !quietTurn)
+            foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
+        const reality = on && !cutOff && !quietTurn && !qmove && !food && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!food;
         // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
         const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
         const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1183,7 +1194,7 @@ export function registerLocalRouting(api, options) {
         }
         const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
         const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
-        const knowledge = on && !quietTurn && !kmove && isKnowledgeAsk(message);
+        const knowledge = on && !quietTurn && !kmove && !food && isKnowledgeAsk(message);
         const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
         const pendingAt = (options.now ?? pluginNow)();
         const prior = sessionKey ? pendingMemory.beginTurn(sessionKey, pendingAt.getTime(), { crisis: isCrisis(message), replied: !hushed }, options.stateDir) : undefined;
@@ -1220,7 +1231,7 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
         // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
         // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-        const pending = on && !cutOff && !quietTurn && !qmove && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+        const pending = on && !cutOff && !quietTurn && !qmove && !food && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
             ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir) })
                 // Wave 6 (bed-state.ts): past his bedtime with no nudge in reach, a stall or "going to bed" is still the bedtime reply.
@@ -1260,6 +1271,15 @@ export function registerLocalRouting(api, options) {
                 run.ownText = out.text;
                 out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
             }
+        }
+        if (food && options.foodRun && options.stateDir) { // w14 g-food: the reply is built from orion-food-estimate's JSON
+            const out = await withTimeout(runFoodTurn(food, { run: options.foodRun, stateDir: options.stateDir, now: (options.now ?? pluginNow)() }).catch(() => undefined), 55000);
+            run.ownText = out?.text ?? "I couldn't estimate that just now, so nothing was logged. Tell me again in a bit.";
+            out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+            if (out?.logged)
+                foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime());
+            if (food.kind === "undo")
+                foodMemory.forgetLog(sessionKey);
         }
         if (sessionKey && !cutOff && !quietTurn && options.lateFlow) {
             const late = lateTurn(sessionKey, message);

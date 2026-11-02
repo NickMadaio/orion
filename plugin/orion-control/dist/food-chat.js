@@ -1,0 +1,123 @@
+/*
+ Food turns carried out (w14 g-food, 2026-11-02): food-read.ts says what he meant, scripts/orion-food-estimate does the work and the
+ writing, and every reply is built from what that script returned. The offer waiting on a yes is the script's food-pending.json
+ (scripts/lib/food/pending.mjs has the contract); a photo from the phone arrives through the food inbox (scripts/lib/food/inbox.mjs),
+ because the plugin hook is given only that an image is attached, never the image.
+
+ Binding: a short reply ("yes", "it was a small one") is the offer's only while the offer is still the last thing in this chat.
+ FoodMemory records every other turn; a turn about anything else after the offer unbinds it, and a label naming a different
+ message unbinds it too. So an inbox offer from three hours ago never swallows a "yes" meant for a gym nudge.
+*/
+import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { runMeal } from "./health-log.js";
+import { scriptPath } from "./tool-guards.js";
+export const PHOTO_LINE = "I can't see photos sent in this chat yet. Send it with the food button on the phone and I'll estimate it, or tell me what it was.";
+/** A photo turn reuses an inbox estimate made this recently (the photo he just sent from the phone). */
+const PHOTO_REUSE_MS = 30 * 60_000;
+/** A text estimate is a few seconds on the resident 9b; the script's own limit is 45 s, this is the hard stop behind it. */
+const RUN_TIMEOUT_MS = 50_000;
+/** The real script with the plugin's state dir. Wired in by index.ts only. */
+export const liveFoodRun = (stateDir) => (args) => new Promise((resolve) => execFile(scriptPath("orion-food-estimate"), args, { timeout: RUN_TIMEOUT_MS, maxBuffer: 1 << 20, env: { ...process.env, ...(stateDir ? { ORION_CONTROLLED_DIR: stateDir } : {}) } }, (e, stdout) => resolve({ stdout: String(stdout ?? ""), code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
+/** The live offer in food-pending.json, or undefined. */
+export function readFoodPending(stateDir, now) {
+    try {
+        const row = JSON.parse(readFileSync(join(stateDir, "food-pending.json"), "utf8"));
+        const at = Date.parse(String(row.at)), expires = Date.parse(String(row.expiresAt));
+        if (!Number.isFinite(at) || !(expires > now.getTime()) || typeof row.offerText !== "string")
+            return undefined;
+        return { at, via: row.via === "inbox" ? "inbox" : "chat", offerText: row.offerText };
+    }
+    catch {
+        return undefined;
+    }
+}
+/** Per chat: when a non-food turn last happened, and the last food entry logged here (for "undo"). */
+export class FoodMemory {
+    others = new Map();
+    logs = new Map();
+    otherTurn(key, nowMs) { this.others.set(key, nowMs); }
+    logged(key, id, nowMs) { this.logs.set(key, { id, at: nowMs }); }
+    lastLogged(key) { return this.logs.get(key); }
+    forgetLog(key) { this.logs.delete(key); }
+    /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
+    bound(key, pending, label) {
+        if (label && !/Log it\?|Add those numbers/.test(label))
+            return false;
+        return (this.others.get(key) ?? 0) <= pending.at;
+    }
+}
+const parse = (stdout) => { try {
+    return JSON.parse(stdout.trim().split("\n").at(-1) ?? "");
+}
+catch {
+    return { ok: false, error: "orion-food-estimate gave no answer" };
+} };
+const failed = (error) => `I couldn't estimate that just now${error ? ` (${error})` : ""}, so nothing was logged. Tell me again in a bit.`;
+const offerOf = (j) => String(j.offer?.text ?? (j.summary ? `${String(j.summary)}. Log it?` : ""));
+const lower = (s) => String(s ?? "").toLowerCase();
+async function call(run, args) {
+    const r = await run(args).catch((e) => ({ stdout: JSON.stringify({ ok: false, error: String(e) }), code: 1 }));
+    return { j: parse(r.stdout), call: `orion-food-estimate ${args.join(" ")}`, out: r.stdout.trim().slice(0, 2000) };
+}
+function loggedLine(j) {
+    const e = (j.entry ?? {});
+    const l = (j.logged ?? {});
+    return `${l.filled ? "Updated" : "Logged"} ${lower(e.title)} as ${lower(e.meal)}: ${e.calories} kcal, ${e.protein}P ${e.carbohydrates}C ${e.fat}F. ${l.dayCalories} kcal today. Say "undo" to take it off.`;
+}
+/** Carries out one food turn. Never throws; a failure is one honest sentence. */
+export async function runFoodTurn(turn, deps) {
+    const one = async (args, reply, failure = failed) => {
+        const r = await call(deps.run, args);
+        if (!r.j.ok)
+            return { text: failure(r.j.error), calls: [r.call], outputs: [r.out] };
+        const logged = r.j.logged?.id;
+        return { text: reply(r.j), calls: [r.call], outputs: [r.out], ...(logged ? { logged: { id: logged } } : {}) };
+    };
+    switch (turn.kind) {
+        case "ask": return one(["--text", turn.text, "--offer", "--json"], offerOf);
+        case "log": return one(["--text", turn.text, "--log", "--json"], (j) => {
+            const l = (j.logged ?? {});
+            return l.error ? `${String(j.summary)}. ${l.error}` : `${String(j.summary)}. Logged (${l.dayCalories} kcal today). Say "undo" to take it off.`;
+        });
+        case "yes": return one(["log-pending", "--json"], loggedLine, (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
+        case "no": return one(["discard", "--json"], () => "Okay, not logged.", () => "Okay, not logged.");
+        case "revise": return one(["--revise", turn.correction, "--json"], offerOf);
+        case "undo": return one(["undo", turn.id, "--json"], (j) => {
+            const r = (j.removed ?? {});
+            return `Took ${lower(r.title)} off (${r.calories} kcal). ${j.dayCalories} kcal today.`;
+        }, (e) => `I couldn't take it off: ${e ?? "the health log didn't answer"}.`);
+        case "that": {
+            const pending = readFoodPending(deps.stateDir, deps.now);
+            if (pending)
+                return { text: pending.offerText, calls: ["read food-pending.json"], outputs: [pending.offerText] };
+            return one(["--entry", "latest", "--offer", "--json"], offerOf, (e) => (/no meal|no description/.test(String(e)) ? "I don't have a recent meal to size. Tell me what you had and I'll estimate it." : failed(e)));
+        }
+        case "photo": {
+            const pending = readFoodPending(deps.stateDir, deps.now);
+            if (pending?.via === "inbox" && deps.now.getTime() - pending.at <= PHOTO_REUSE_MS)
+                return { text: pending.offerText, calls: ["read food-pending.json"], outputs: [pending.offerText] };
+            return { text: PHOTO_LINE, calls: [], outputs: [] };
+        }
+        case "meal": return mealThenEstimate(turn.read, deps);
+    }
+}
+/** "had a chicken burrito and a coke for lunch": logged at once (health-log.ts, 0 kcal), then sized; a yes fills that entry. */
+async function mealThenEstimate(read, deps) {
+    const flow = await runMeal(read, { stateDir: deps.stateDir, now: deps.now });
+    if (flow.outcome !== "done")
+        return { text: flow.outcome === "say" ? flow.text : "I couldn't log that meal just now.", calls: [], outputs: [] };
+    const id = (() => { try {
+        return String(JSON.parse(flow.outputs[0] ?? "{}").id ?? "");
+    }
+    catch {
+        return "";
+    } })();
+    const base = (flow.reply ?? "").replace(/; I didn't guess calories\.$/, "");
+    const r = id ? await call(deps.run, ["--entry", id, "--offer", "--json"]) : undefined;
+    const calls = [...flow.calls, ...(r ? [r.call] : [])], outputs = [...flow.outputs, ...(r ? [r.out] : [])];
+    if (!r?.j.ok)
+        return { text: `${base}; I couldn't estimate the calories just now.`, calls, outputs };
+    return { text: `${base}. My estimate: ${offerOf(r.j)}`, calls, outputs };
+}

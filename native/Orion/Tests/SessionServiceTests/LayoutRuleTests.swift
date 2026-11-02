@@ -87,6 +87,21 @@ final class LayoutRuleTests: XCTestCase {
                       + "inner ScrollView has no viewport")
     }
 
+    /// Wave 14: the Plan page does not scroll as a whole. Its header stays put and each column scrolls on its
+    /// own, and the dashboard hands it exactly the viewport so the outer ScrollView has nothing to move. Other
+    /// tabs keep their page scroll.
+    func testPlanColumnsScrollSeparatelyAndThePageDoesNot() throws {
+        let tasks = code(try source("TasksTab.swift"))
+        let dashboard = code(try source("DashboardView.swift"))
+
+        XCTAssertGreaterThanOrEqual(tasks.components(separatedBy: "ColumnScroll(").count - 1, 2,
+                                    "the plan column and the calendar column each need their own scroll")
+        XCTAssertTrue(dashboard.contains("scrollBounceBehavior(selectedTab == .tasks ? .basedOnSize : .automatic"),
+                      "only the Plan tab opts out of the page scroll")
+        XCTAssertTrue(dashboard.contains("frame(width: proxy.size.width, height: proxy.size.height"),
+                      "the Plan page must be exactly the viewport tall, or the page scrolls again")
+    }
+
     func testTasksUsesTheFullWindowAndCalendarGetsTheRemainingColumn() throws {
         let tasks = code(try source("TasksTab.swift"))
         let dashboard = code(try source("DashboardView.swift"))

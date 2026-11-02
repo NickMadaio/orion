@@ -83,17 +83,17 @@ private struct DayCell: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
             .background {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                Capsule(style: .continuous)
                     .fill(isSelected ? OrionTheme.accent.opacity(0.10) : (hovering ? Color.white.opacity(0.04) : .clear))
             }
             .overlay {
                 // Today keeps its own mark even when another day is selected.
                 if isToday {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    Capsule(style: .continuous)
                         .strokeBorder(OrionTheme.accent.opacity(isSelected ? 0.7 : 0.35), lineWidth: 1)
                 }
             }
-            .contentShape(Rectangle())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

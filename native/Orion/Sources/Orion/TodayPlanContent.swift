@@ -47,7 +47,8 @@ struct TodayPlanContent: View {
             }
             DisclosureGroup(isExpanded: $expanded) {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(plan.blocks.filter { $0.kind != .transition }) { block in row(block) }
+                    PlanTimeline(blocks: plan.blocks.filter { $0.kind != .transition }, now: now, isProposal: isProposal,
+                                 time: time, finish: finish, moreTime: moreTime, togglePin: togglePin)
                     if !plan.deferredIDs.isEmpty {
                         Text("Didn't fit today · " + plan.tasks.filter { plan.deferredIDs.contains($0.id) }.map(\.title).joined(separator: " · "))
                             .font(.system(size: 11)).foregroundStyle(OrionTheme.orange).padding(.top, 6)
@@ -58,8 +59,8 @@ struct TodayPlanContent: View {
                     }
                 }.padding(.top, 8)
             } label: {
-                Text("\(plan.blocks.filter { $0.kind == .task }.count) tasks · \(plan.freeMinutes) min free\(plan.completedIDs.isEmpty ? "" : " · \(plan.completedIDs.count) done")")
-                    .font(.system(size: 11, weight: .medium)).foregroundStyle(OrionTheme.textDim)
+                Text("\(plan.blocks.filter { $0.kind == .task }.count) tasks · \(plan.freeMinutes) min free\(plan.completedIDs.isEmpty ? "" : " · \(plan.completedIDs.count) done")".uppercased())
+                    .font(OrionTheme.mono(9.5, .semibold)).tracking(1.8).foregroundStyle(OrionTheme.textDim)
             }
         }
     }
@@ -72,12 +73,16 @@ struct TodayPlanContent: View {
         let current = plan.current(at: now)
         let next = plan.next(at: now)
         let block = current ?? next
-        let hue = block.map { tint($0.kind) } ?? OrionTheme.textDim
-        OutlineCard(hue: hue, tilt: -0.6, padding: 18) {
+        let hue = block.map { PlanTimeline.hue($0) } ?? OrionTheme.textDim
+        // Wave 14: a soft outline, untilted, with a breathing dot beside the kicker: the one live thing on the page.
+        OutlineCard(hue: hue, padding: 18) {
             VStack(alignment: .leading, spacing: 0) {
-                Kicker(text: current.map { "Now · until \(time($0.end))" } ?? next.map { "Next · at \(time($0.start))" } ?? "Today's plan",
-                       hue: hue)
-                    .padding(.bottom, 10)
+                HStack(spacing: 6) {
+                    if block != nil { PlanPulseDot(hue: hue, size: 6).padding(.leading, -4) }
+                    Kicker(text: current.map { "Now · until \(time($0.end))" } ?? next.map { "Next · at \(time($0.start))" } ?? "Today's plan",
+                           hue: hue)
+                }
+                .padding(.bottom, 10)
                 CardTitle(block?.title ?? "Nothing left in today's plan", size: 20)
                     .padding(.bottom, 8)
                 CardBody([current == nil ? nil : next.map { "Then \($0.title) at \(time($0.start))" },
@@ -92,48 +97,6 @@ struct TodayPlanContent: View {
             }
         }
         .padding(.vertical, 4)
-    }
-
-    private func row(_ block: TodayPlanBlock) -> some View {
-        let live = block.contains(now)
-        let past = block.end <= now
-        return HStack(alignment: .center, spacing: 10) {
-            Text(time(block.start)).font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim).frame(width: 40, alignment: .leading)
-            Capsule().fill(tint(block.kind)).frame(width: 2, height: 22)
-                .shadow(color: tint(block.kind).opacity(live ? 0.9 : 0), radius: 4)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(block.title).font(.system(size: 12.5, weight: live ? .semibold : .regular)).lineLimit(1)
-                Text("\(block.minutes) min\(block.kind == .free ? " · yours" : block.kind == .commitment ? " · calendar" : "")\(block.pinned ? " · pinned" : "")")
-                    .font(.system(size: 10)).foregroundStyle(OrionTheme.textDim)
-            }
-            Spacer(minLength: 6)
-            if block.kind == .task, let id = block.sourceID, !isProposal, !past {
-                HStack(spacing: 10) {
-                    icon("checkmark", "Mark done in this plan") { finish(id) }
-                    icon("plus", "15 more minutes") { moreTime(id) }
-                    icon(block.pinned ? "pin.fill" : "pin", block.pinned ? "Unpin" : "Keep this slot") { togglePin(id) }
-                }
-            }
-        }
-        // The live block glows at its tick and reads brighter; no plate behind it.
-        .padding(.vertical, 5).padding(.horizontal, 6)
-        .opacity(past ? 0.45 : 1)
-    }
-
-    private func icon(_ name: String, _ help: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: name).font(.system(size: 10, weight: .semibold)).foregroundStyle(OrionTheme.accent)
-        }
-        .buttonStyle(.plain).help(help).accessibilityLabel(help)
-    }
-
-    private func tint(_ kind: TodayPlanBlock.Kind) -> Color {
-        switch kind {
-        case .task: return OrionTheme.accent
-        case .free: return OrionTheme.green
-        case .commitment: return OrionTheme.violet
-        case .transition: return OrionTheme.textDim
-        }
     }
 
     private func time(_ date: Date) -> String {

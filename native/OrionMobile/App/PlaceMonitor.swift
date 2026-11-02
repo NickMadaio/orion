@@ -49,6 +49,8 @@ final class PlaceMonitor {
         }
     }
 
+    /// The name must be plain letters and digits: "orion.places" aborted every launch with "Monitor name is not valid"
+    /// (NSInternalInconsistencyException, read off the device console 2026-11-02; this code had never run on the phone before).
     /// One CLMonitor per process, ever. Creating a second CLMonitor with a name already open aborts the app inside
     /// CoreLocation (NSInternalInconsistencyException): stop() then start() re-created it while the cancelled task still
     /// held the first, and the phone app crashed on every launch (2026-11-02, five crash logs, all in CLMonitor.init).
@@ -57,7 +59,7 @@ final class PlaceMonitor {
     private static func sharedMonitor() async -> CLMonitor {
         let task = await MainActor.run { () -> Task<CLMonitor, Never> in
             if let existing = monitorTask { return existing }
-            let created = Task { await CLMonitor("orion.places") }
+            let created = Task { await CLMonitor("OrionPlaces") }
             monitorTask = created
             return created
         }

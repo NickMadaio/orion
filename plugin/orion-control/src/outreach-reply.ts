@@ -142,8 +142,29 @@ export function planOutreachReply(o: Outreach, message: string): OutreachPlan | 
 export const loopArgs = (act: LoopAct, id: string): string[] =>
   act.verb === "defer" ? ["defer", String(act.minutes), id, "--because", act.because] : [act.verb, id];
 
+/**
+ He is asking why ORION sent what it sent ("why", "huh", "what for", "why are you telling me that", "wdym"): a question about THAT message,
+ not a new request and never a reply the start/check-in paths may act on. At most 10 words, so a question of his own ("why is gym at 5") that
+ only starts with "why" is not taken unless it points back at the message.
+*/
+const WHY_OPEN = /^(?:why|y|huh|hm+|wdym|what for|what do you mean|what does that mean|what'?s (?:that|this) (?:for|about)|how come|come again|meaning)\b/;
+const WHY_POINTS = /\b(?:telling|tell|saying|say|sending|send|messaging|texting|pinging|that|this|it|me)\b/;
+export function asksWhy(message: string): boolean {
+  const m = message.trim().toLowerCase().replace(/[‘’]/g, "'").replace(/[?!.,…]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!m || m.split(" ").length > 10) return false;
+  if (!WHY_OPEN.test(m)) return false;
+  return m.split(" ").length <= 4 || WHY_POINTS.test(m);
+}
+
+/** The worker's instruction for a why-question: explain THAT message, from what it said and why it was sent, looking up live facts first. */
+export function whyNote(text: string, minutes?: number): string {
+  const when = minutes !== undefined ? `${minutes} min ago ` : "";
+  return `[Conversation so far: ${when}YOU (ORION) messaged him first: "${text.slice(0, 300)}". Nick is asking WHY you sent that. Answer about that message, in one or two short sentences, giving the actual reason. If it was about the weather (a jacket, rain, an umbrella, heat, cold), check the forecast with weather_now for London first and say what it shows. Do not ask him how he is doing or whether he is ready, do not treat it as a check-in, and do not change anything.]`;
+}
+
 /** For the worker when code does not answer: ORION's own message, as the conversation it is, and how to read his answer. */
-export function outreachNote(o: Outreach): string {
+export function outreachNote(o: Outreach, message = ""): string {
+  if (message && asksWhy(message)) return whyNote(o.text, o.minutes);
   const meaning = o.kind === "bedtime" ? "it was a bedtime reminder: whatever he says, no more bedtime reminders tonight; never ask when he started something"
     : o.kind === "start" ? `it was about starting ${o.title ? q(o.title) : "a planned block"}: "not yet"/"in 10" means later (defer the open check-in about it, with his reason), "already did" means done, something else he is doing means it waits; never a calendar change and never a cancel unless he asks for one`
     : o.kind === "question" ? "\"yeah\" accepts what you offered, \"no\" declines it" : "read his message as an answer to it";

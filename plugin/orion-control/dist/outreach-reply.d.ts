@@ -60,8 +60,11 @@ export type OutreachPlan = {
 export declare function planOutreachReply(o: Outreach, message: string): OutreachPlan | undefined;
 /** argv for orion-checkin acting on loop `id`. */
 export declare const loopArgs: (act: LoopAct, id: string) => string[];
+export declare function asksWhy(message: string): boolean;
+/** The worker's instruction for a why-question: explain THAT message, from what it said and why it was sent, looking up live facts first. */
+export declare function whyNote(text: string, minutes?: number): string;
 /** For the worker when code does not answer: ORION's own message, as the conversation it is, and how to read his answer. */
-export declare function outreachNote(o: Outreach): string;
+export declare function outreachNote(o: Outreach, message?: string): string;
 /** The front desk's "Earlier:" turn. */
 export declare const outreachHistory: (o: Outreach) => {
     role: "assistant";

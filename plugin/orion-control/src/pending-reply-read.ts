@@ -21,7 +21,7 @@ export type Offer =
   /** ORION offered to shut app groups on his phone ("Want me to block social media for an hour?"): a yes blocks exactly those, for that long. */
   | { kind: "phone-block"; groups: Group[]; span?: Span }
   /** A message with no question in it that ORION sends anyway (weather, a mission event, a screen lock): a short reply is read against it, but only acknowledged. */
-  | { kind: "notice"; topic: "weather" | "mission" | "lock"; approvalId?: string };
+  | { kind: "notice"; topic: "weather" | "mission" | "lock" | "heads-up"; approvalId?: string };
 
 export type Part = "morning" | "afternoon" | "evening";
 /** What a counter-offer names: a day, a part of it, a clock time (minutes after midnight; meridiem when he said am/pm or a 24-hour time), a length, a block to follow. */
@@ -62,6 +62,8 @@ const WEATHER = /^weather (?:update|alert|heads[- ]?up)\b|\b(?:rain|snow|storm|t
 const MISSION = /^orion \|\s*[^|\n]+\|\s*\S+/i;
 const APPROVAL = /\bapprove ([A-Za-z0-9_-]{3,40})\b/i;
 const LOCKED = /\b(?:locked (?:your|the) (?:screen|mac|laptop)|(?:screen|mac|laptop) (?:is |was |got )?locked|locking (?:your|the) (?:screen|mac))\b/i;
+/** A heads-up line ("Heads up - take a jacket when you leave"): informs, asks nothing. A timed "Heads up 3:30 PM" is the standing check's. */
+const HEADS_UP = /^(?:heads[- ]?up|fyi|just so you know|don'?t forget|take (?:a|an|your) (?:jacket|umbrella|coat)|bring (?:a|an|your) (?:jacket|umbrella|coat))\b(?!\s*\d)[^?]*$/i;
 const CHECKING_IN = /^checking in on (.+?)\.\s*how is it going\b/i;
 const FOCUS_NUDGE = /^you planned (.+?) at \d{1,2}:\d{2}\s*(?:am|pm)?\.\s*want to start it now\b/i;
 const BLOCK_OFFER = /\b(?:want me to|should i|shall i|do you want me to|i can|i could|i'll|want me)\b[^?.!]*?\b(?:block|shut(?:\s+(?:off|down))?)\b.*$/i;
@@ -81,6 +83,7 @@ export function offerOf(text: string): Offer | undefined {
   if (MISSION.test(t)) { const a = t.match(APPROVAL)?.[1]; return { kind: "notice", topic: "mission", ...(a ? { approvalId: a } : {}) }; }
   if (WEATHER.test(t)) return { kind: "notice", topic: "weather" };
   if (LOCKED.test(t)) return { kind: "notice", topic: "lock" };
+  if (HEADS_UP.test(t)) return { kind: "notice", topic: "heads-up" };
   const leave = t.match(LEAVE);
   if (leave) return { kind: "leave", title: leave[2]!.trim(), leaveIn: Number(leave[1]), classAt: to24(Number(leave[3]), Number(leave[4]), leave[5]) };
   const blockOffer = t.match(BLOCK_OFFER);

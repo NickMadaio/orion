@@ -63,7 +63,7 @@ import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } fro
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
-import { parseOutreach, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
+import { parseOutreach, asksWhy, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, stateCard, type CardInputs } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
@@ -1219,6 +1219,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 2026-10-31: a screen task is code's (computer-loop.ts), so the desk is not asked.
     const computerFirst = on && !cutOff && !quietTurn && !!options.computer && !!detectComputerIntent(message);
     const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst;
+    // "why" to something ORION sent is about THAT message: the front desk (which saw only a one-line history) must not answer it as chat.
+    const whyAsked = on && !cutOff && !quietTurn && asksWhy(message) && !!parseOutreach(raw);
     // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
     const outreach = parseOutreach(raw);
     // 2026-10-30: his state, read once per turn by code (state-card.ts). The desk gets one line of it; the worker gets the card.
@@ -1226,7 +1228,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const deskContext = [card ? deskLine(card) : "", spokenTurn ? SPOKEN_DESK_NOTE : ""].filter(Boolean).join(" ") || undefined;
     const decision = cutOff
       ? Promise.resolve<Decision>({ move: "ask", answer: GO_ON })
-      : codeFirst || own || kmove ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })
+      : codeFirst || whyAsked || own || kmove ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })
       : Promise.resolve(deskHealth.begin()).then((call) => Promise.resolve()
         .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs, ...(outreach ? { history: outreachHistory(outreach) } : {}), ...(deskContext ? { context: deskContext } : {}) }))
         .then((d) => { deskHealth.record(d, call); return d; })
@@ -1785,11 +1787,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const pushed = !run.outreach && recentPush(run.card) && run.message.trim().split(/\s+/).length <= 6 ? run.card!.lastOutreach : null;
       const ignoreNote = run.settled.move === "ignore" && !run.outreach && !pushed ? `\n\n${IGNORE_NOTE}` : "";
       // A short reply with no outreach line of its own answers the push the card names (sent in the last 30 min).
-      const pushNote = pushed ? `\n\nHe is most likely answering what you sent him at ${clockOf(pushed.at)}: "${pushed.text.slice(0, 200)}". Act on that (book it, move it, start it, or ask which one first); never "didn't catch that".` : "";
+      const pushNote = pushed && asksWhy(run.message) ? `\n\n${whyNote(pushed.text)}` : pushed ? `\n\nHe is most likely answering what you sent him at ${clockOf(pushed.at)}: "${pushed.text.slice(0, 200)}". Act on that (book it, move it, start it, or ask which one first); never "didn't catch that".` : "";
       // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
       const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
       return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${pushNote}${brainFetched}${askNote}\n\n${card}${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
-        ...(run.outreach ? { prependContext: outreachNote(run.outreach) } : {}) };
+        ...(run.outreach ? { prependContext: outreachNote(run.outreach, run.message) } : {}) };
     }), { timeoutMs: HOOK_TIMEOUT_MS });
   }
 

@@ -35,7 +35,7 @@ export type Offer = {
 /** A message with no question in it that ORION sends anyway (weather, a mission event, a screen lock): a short reply is read against it, but only acknowledged. */
  | {
     kind: "notice";
-    topic: "weather" | "mission" | "lock";
+    topic: "weather" | "mission" | "lock" | "heads-up";
     approvalId?: string;
 };
 export type Part = "morning" | "afternoon" | "evening";

@@ -18,13 +18,21 @@
 #   orion_v2_workspace_sync.sh            report drift (default; CI runs this)
 #   orion_v2_workspace_sync.sh --apply    copy repo -> live, backing up first
 #
+# What ORION LEARNED is carried across, never wiped (wave 12, 2026-11-02): `orion-remember --user` appends dated
+# one-line bullets to USER.md, and notes may keep a "## Learned" section. The old --apply copied the repo file over
+# the live one and would have erased all of it. scripts/lib/brain/consolidate-learned.mjs tells those lines apart
+# from the template; a live copy that differs only by them is "in step (+N learned)", and --apply installs the
+# template with them appended.
+#
 # TOOLS.md is deliberately excluded: it is GENERATED into the live workspace by
 # the runtime, so the live copy is the newer one by design and copying the repo
 # version over it would be a regression, not a sync.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="$REPO/plugin/workspace"
+SRC="${ORION_WORKSPACE_SRC:-$REPO/plugin/workspace}"
+LEARNED="$REPO/scripts/lib/brain/consolidate-learned.mjs"
+NODE="$(command -v node || echo "$HOME/.openclaw/tools/node-v24.15.0/bin/node")"
 LIVE="${ORION_WORKSPACE:-$HOME/.openclaw/workspace}"
 FILES=(AGENTS.md SOUL.md SELF.md USER.md PLAYBOOK.md MEMORY.md SCHEDULING.md)
 APPLY=0
@@ -43,6 +51,11 @@ for f in "${FILES[@]}"; do
   if [ ! -f "$LIVE/$f" ]; then
     echo "  MISSING live      $f"; drift=$((drift + 1))
   elif ! diff -q "$SRC/$f" "$LIVE/$f" >/dev/null 2>&1; then
+    # "<learned lines> <1 if the rest is the template>"; no node or a failure reads as plain drift (the safe side).
+    read -r learned rest_in_step < <("$NODE" "$LEARNED" count "$SRC/$f" "$LIVE/$f" 2>/dev/null || echo "0 0")
+    if [ "${rest_in_step:-0}" = "1" ]; then
+      echo "  in step           $f  (+$learned learned, kept live)"; continue
+    fi
     echo "  DRIFTED           $f  ($(diff "$LIVE/$f" "$SRC/$f" | grep -c '^>') lines the live copy does not have)"
     drift=$((drift + 1))
   else
@@ -95,8 +108,14 @@ backup="$LIVE/.backup-$stamp"
 mkdir -p "$backup" || exit 1
 for f in "${FILES[@]}"; do
   [ -f "$SRC/$f" ] || continue
-  [ -f "$LIVE/$f" ] && cp -p "$LIVE/$f" "$backup/$f"
-  cp "$SRC/$f" "$LIVE/$f" || exit 1
+  if [ -f "$LIVE/$f" ]; then
+    cp -p "$LIVE/$f" "$backup/$f" || exit 1
+    # The template plus every line ORION learned; if the merge cannot run, nothing is overwritten.
+    merged="$("$NODE" "$LEARNED" merge "$SRC/$f" "$LIVE/$f")" || { echo "workspace sync: could not merge learned lines into $f; left it alone" >&2; exit 1; }
+    printf '%s\n' "$merged" > "$LIVE/$f" || exit 1
+  else
+    cp "$SRC/$f" "$LIVE/$f" || exit 1
+  fi
 done
 echo
 echo "workspace sync: applied. previous copies in $backup"

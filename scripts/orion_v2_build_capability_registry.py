@@ -121,6 +121,9 @@ EFFECTS_BY_KIND = {
     "computer_control": ["reads_device_state", "controls_input", "launches_process"],
     "raw_terminal": ["launches_process", "writes_files", "network_request"],
     "media_control":   ["controls_media"],
+    # Bedtime nudges (2026-11-02): quit an allowlisted distraction app, lock the screen, dim/undim the display.
+    # quit_app and lock_screen are refused outside tonight's window by scripts/orion-bedtime-act.
+    "bedtime_act":     ["quits_process", "reads_device_state"],
     "reminder":        ["writes_files"],
     "calendar":        ["reads_user_data"],
     "health_log":      ["writes_files", "reads_user_data"],

@@ -129,8 +129,8 @@
     {
       "data": "device and system information",
       "source": "sw_vers, pmset, df, lsappinfo, and the remote read-only capabilities",
-      "purpose": "answering 'how is the machine', and the remote device status read",
-      "storage": "not stored; ~/.openclaw/orion-controlled/location.json for coarse location",
+      "purpose": "answering 'how is the machine', and the remote device status read; bedtime nudges (media_control): quit an allowlisted distraction app, lock the screen, dim/undim, only inside tonight's sleep-plan window",
+      "storage": "not stored; ~/.openclaw/orion-controlled/location.json for coarse location; dim-state.json, sleep-nudge-state.json and sleep-nudge-log.jsonl in ~/.openclaw/orion-controlled",
       "tiers": [
         "ambient_info",
         "app_control",

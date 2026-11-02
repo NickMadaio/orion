@@ -80,6 +80,45 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-02 02:00 GMT: wave 10 — sleep plan, alarms, bedtime nudges, phone groups, proactive in both chats (Claude, orchestrator)
+
+**Asked by Nick (23:59).** He wanted five things:
+- (A) Every phone notification and every Mac proactive message also lands in the phone chat, and his reply binds to it.
+- (B) "I'm going to start waking up earlier" starts an interview. His answers: 6am Mon/Wed/Thu, at least 3h before class, Tue/Fri class 13:30 so 9am. The result changes his wake/sleep times. Plan for 8h sleep, with a nudge 30 min before bed. Escalation is slow; lockdown only when projected sleep is 6h or less, unless he is out with friends or doing schoolwork (gaming doesn't count). He can talk ORION out of it.
+- (C) A wake alarm on the phone and the Mac. Exercise-to-dismiss comes later.
+- (D) Phone Screen Time blocks specific groups, not everything, driven by what he is doing.
+- (E) Earlier the same night: the gentle crisis tier now teases instead of checking in (02b5ccb).
+
+**What changed, all on sweep/integration.** Rollback tag: `pre-wave10-20261102` (5c8fd31).
+- D 5debe3c: the legacy combined-selection shields are gone. A browsers group was added. `orion-phone-time block|unblock <group>` writes per-group until/why through the `focusPlan` snapshot field. That field is optional, so it is backward compatible.
+- A1 7ec0a9a: `orion-reach --already-sent/--log-only`. Discord, notify, cron-deliver, approve-resume, checkin ticks and watcher alerts now all land in both chats and in outreach.jsonl. Phone replies bind for 2h. Fixed: orion-ontask-watch alerts had no id, so they never reached the phone.
+- C 3c8e6e6: Mac `WakeAlarm*` (Sosumi at full volume, snooze 9 min ×2, gives up after 20 min, alarm-log.jsonl). Bridge `quit_app`, `lock_screen`, `dim`, `undim`. `scripts/orion-bedtime-act`, catalog `bedtime_*`.
+- E 67265c4: phone-local notifications are mirrored into the thread, deduped by id. The Mac logs them via `orion-reach --already-sent phone`. The phone schedules per-weekday AlarmKit alarms from the plan.
+- B b103b0a: `sleepPlan` in life-config, plus `scripts/orion-sleepplan` and `sleep-plan-flow.ts`. The interview runs code-first in local-routing. It writes `wake-plan.json`: {source, alarms[], bedtimes[], lockdowns[]}. bedtimes/lockdowns are dated by the evening the night starts.
+- G 4a4c2d2: `phone-block-flow.ts` handles "block safari n stuff till 12" code-first. A yes to an ORION block offer runs the block.
+- F c2a5b3a: `scripts/orion-sleep-nudge` runs from `orion-watch tick` (about every 5 min via LifeWatch). Ladder: nudge, bedtime, firm, warn, dim, then lockdown. It acts only when he is active, and only for a plan with source "nick". It refreshes wake-plan.json daily.
+- Review fixes (opus reviewer, then f0819fc and d3c3a37):
+  - Only `plan`/`class` alarms are emitted, each marked `byNick`; both Swift readers require it. So no weekend or calendar alarms.
+  - The wake request is never copied into the plan.
+  - quit/lock is refused outside tonight's window, and quit is allowlisted to distraction apps only (never Atlas or Xcode).
+  - A bare yes binds acting offers for 30 min only.
+  - A phone lock the Mac didn't set survives "unblock".
+- 6808ab0: I reverted one fix. The phone keeps tonight's computed wake whenever his own Wake alarm setting is on, as before.
+- Registry and inventory: added a `bedtime_act` effect mapping, then regenerated the registry.
+
+**Verification (integ/wave4 at 6808ab0).**
+- vitest: 164 files, 3909/3909. `tsc` clean.
+- Root `node --test`: 2160 pass, 1 fail. The failure is `orion-watch held queue`; it depends on the time of day and was failing before this wave.
+- Swift: WakeAlarmTests 14/14, OrionMacBridge 12, OrionLink 64, OrionMobile all green.
+- xcodebuild: OrionPhone and ScreenMonitor build.
+- Live gate: see the next entry.
+
+**Not live yet / needs Nick.**
+- The phone app is not installed. devicectl showed the iPhone as unavailable.
+- Browsers (and any empty group) need apps picked in ORION on the phone.
+- The camera exercise-dismiss is a seam only (`AlarmDismissal`).
+- quit/lock use private APIs and have never run against the real screen.
+
 ### 2026-11-01 10:00 GMT: live tier, waves 8–9, and how far to trust the grader (Claude, orchestrator)
 
 **Found state.** The 05:30 entry below was accurate. The 08:00 live tier then ran, and that run is where this session starts.

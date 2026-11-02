@@ -80,6 +80,22 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-02 evening: wave 14: tab redesigns, hologram, mail alerts, food estimates, phone water and food (Claude, orchestrator)
+
+**Changed.**
+- **UI.** Home hologram moves on battery: Low Power now throttles instead of pausing, occlusion is ignored for the transparent window, and it is more visible. Plan sits outside the page ScrollView, so its columns scroll on their own; it has ring meters, a flow timeline and a circle calendar. Projects run settings and plan/activity/review panes restyled. Knowledge has no jitter (fixed-step physics that settles to rest, a clock-driven entrance), orb nodes, and no zoom buttons. Health uses rings and fixed hover stages; "In seven parts" and the Journal are removed.
+- **Mail.** `scripts/orion-mail-watch` and `lib/mail/*` give read-only Gmail importance alerts via gog: rules plus qwen3.5:4b for borderline mail, digests at most every 30 min, security codes never shown. `orion-mail-prefs` holds exact-address rules; school and freemail domains can't be domain-muted.
+- **Food.** `scripts/orion-food-estimate` estimates from text or a photo with qwen3.5:9b vision plus a 158-food table, with "Log it?" offers keyed by id, undo, and the food-inbox from the phone's CloudKit link.
+- **Phone.** AddWaterIntent widget, lock-screen accessory, Control and Siri phrase, with an idempotent water outbox and Mac-side dedupe. Log food camera capture sends a CKAsset that lands in food-inbox.
+
+**Verification.**
+- An opus review of mail and food blocked on 2 HIGH (a code leak via the subject; one "not important" muting a whole domain) and 7 MEDIUM. All fixed; re-review approved. A further 4 MEDIUM were fixed in ccaeb78.
+- root 2323/2324 (load flakes pass alone); plugin 4379/4379; tsc 0; Mac swift test 520, 0 failures.
+
+**Live.** Orion.app build 1273+. Gmail sign-in is EXPIRED: Nick must run `gog auth add nmadaio08@gmail.com`. Allowlist (approved by Nick): orion-mail-prefs and orion-food-estimate.
+
+**Open.** `orion-mail-prefs remove` is guarded by instruction only. Real-device checks of the widget, Control, Siri and the CloudKit food photo round trip are pending. The CloudKit `FoodPhoto` record type needs deploying to Production if the container runs there.
+
 ### 2026-11-02 11:20 GMT: wave 12: learning loop, questions queue, Sentient-style Home (Claude, orchestrator)
 
 **Found state.** Nick asked whether ORION learns (the audit is in the orchestrator scratchpad `orch/learning-audit.md`). Only the

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { combineWithOutreach, isDependentReply, isJunkCandidate, nearDuplicate, outreachOf, stripInjectedContext, } from "./episode-filter.js";
 const MAX_EPISODE = 600;
 const DAILY_BEGIN = "<!-- orion-daily:begin";
 // The same common credential families refused by orion-remember, plus names
@@ -62,7 +63,8 @@ export function nickWords(input) {
     return own.split(/\n/).filter((line) => !/^\s*\[orion-remote[^\]]*\]/.test(line)).join("\n");
 }
 export function episodeFromUserText(rawInput) {
-    const input = nickWords(rawInput);
+    const outreach = outreachOf(rawInput);
+    const input = stripInjectedContext(nickWords(rawInput));
     const source = clean(input);
     if (!source || SECRET_SHAPED.test(source))
         return undefined;
@@ -76,6 +78,16 @@ export function episodeFromUserText(rawInput) {
         const explicit = /\b(?:remember|don'?t forget|before i forget|from now on|going forward)\b/i.test(candidate);
         if (candidate.endsWith("?") && !explicit)
             continue;
+        if (isJunkCandidate(candidate))
+            continue;
+        if (isDependentReply(candidate)) {
+            // Only meaningful next to ORION's message: keep it with that message, or drop it.
+            if (!outreach)
+                continue;
+            if (DURABLE_SIGNAL.test(candidate))
+                selected.push(combineWithOutreach(candidate, outreach));
+            continue;
+        }
         if (!DURABLE_SIGNAL.test(candidate) && !DURABLE_PERSONAL_FACT.test(candidate))
             continue;
         if (SECRET_SHAPED.test(candidate))
@@ -105,7 +117,14 @@ export async function appendEpisode(memoryDirectory, episode, now = new Date()) 
     await mkdir(memoryDirectory, { recursive: true, mode: 0o700 });
     const existing = existsSync(target) ? await readFile(target, "utf8") : `# ${day}\n`;
     const compact = clean(episode).slice(0, MAX_EPISODE);
-    if (!compact || normalized(existing).includes(normalized(compact))) {
+    const sameDayEpisodes = existing
+        .split("\n")
+        .map((l) => l.match(/—\s+\[auto\]\s+(.*)$/)?.[1])
+        .filter((l) => Boolean(l));
+    if (!compact ||
+        isJunkCandidate(compact.replace(/^ORION asked ".*?" and Nick said:\s*/, "")) ||
+        normalized(existing).includes(normalized(compact)) ||
+        sameDayEpisodes.some((l) => nearDuplicate(l, compact))) {
         return { written: false, path: target };
     }
     const line = `- ${clock} — [auto] ${compact}`;

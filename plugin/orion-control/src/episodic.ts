@@ -2,6 +2,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  combineWithOutreach,
+  isDependentReply,
+  isJunkCandidate,
+  nearDuplicate,
+  outreachOf,
+  stripInjectedContext,
+} from "./episode-filter.js";
 
 const MAX_EPISODE = 600;
 const DAILY_BEGIN = "<!-- orion-daily:begin";
@@ -75,7 +83,8 @@ export function nickWords(input: string): string {
 }
 
 export function episodeFromUserText(rawInput: string): string | undefined {
-  const input = nickWords(rawInput);
+  const outreach = outreachOf(rawInput);
+  const input = stripInjectedContext(nickWords(rawInput));
   const source = clean(input);
   if (!source || SECRET_SHAPED.test(source)) return undefined;
 
@@ -90,6 +99,13 @@ export function episodeFromUserText(rawInput: string): string | undefined {
     const explicit =
       /\b(?:remember|don'?t forget|before i forget|from now on|going forward)\b/i.test(candidate);
     if (candidate.endsWith("?") && !explicit) continue;
+    if (isJunkCandidate(candidate)) continue;
+    if (isDependentReply(candidate)) {
+      // Only meaningful next to ORION's message: keep it with that message, or drop it.
+      if (!outreach) continue;
+      if (DURABLE_SIGNAL.test(candidate)) selected.push(combineWithOutreach(candidate, outreach));
+      continue;
+    }
     if (!DURABLE_SIGNAL.test(candidate) && !DURABLE_PERSONAL_FACT.test(candidate)) continue;
     if (SECRET_SHAPED.test(candidate)) continue;
     if (!selected.some((existing) => normalized(existing) === normalized(candidate))) {
@@ -122,7 +138,16 @@ export async function appendEpisode(
   await mkdir(memoryDirectory, { recursive: true, mode: 0o700 });
   const existing = existsSync(target) ? await readFile(target, "utf8") : `# ${day}\n`;
   const compact = clean(episode).slice(0, MAX_EPISODE);
-  if (!compact || normalized(existing).includes(normalized(compact))) {
+  const sameDayEpisodes = existing
+    .split("\n")
+    .map((l) => l.match(/—\s+\[auto\]\s+(.*)$/)?.[1])
+    .filter((l): l is string => Boolean(l));
+  if (
+    !compact ||
+    isJunkCandidate(compact.replace(/^ORION asked ".*?" and Nick said:\s*/, "")) ||
+    normalized(existing).includes(normalized(compact)) ||
+    sameDayEpisodes.some((l) => nearDuplicate(l, compact))
+  ) {
     return { written: false, path: target };
   }
 

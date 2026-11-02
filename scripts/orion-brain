@@ -9,9 +9,13 @@
    orion-brain search "<words>"                 notes and facts that match
    orion-brain read "<note title>"              one note
    orion-brain context "<note title>"           a note plus the notes linked to it
-   orion-brain learn "<note title>" "<category>" "<fact>"
+   orion-brain learn [--own] "<note title>" "<category>" "<fact>"
         add what he told you to a note's "## Learned" section (the note is
-        created, linked to [[Nick]], if it does not exist yet)
+        created, linked to [[Nick]], if it does not exist yet). --own marks it
+        as ORION's own note (#orion): something you worked out, not his words
+   orion-brain mine                              ORION's own notes (#orion lines), with ids, as JSON
+   orion-brain unlearn <id>...                  archive ORION's own notes (reversible); his and system entries are refused
+   orion-brain edit <id> "<new wording>"        rewrite one of ORION's own notes in place (the old line is archived)
    orion-brain recent                            what changed in the last week
    orion-brain forget "<words>"                 saved entries matching the words, as JSON (nothing changes)
    orion-brain forget --apply <id>...           archive those entries (reversible) and say which went
@@ -31,6 +35,7 @@ import { bmArgs } from "./lib/brain/bm.mjs";
 import { brainSearch } from "./lib/brain/search.mjs";
 import { loadGraph } from "./lib/brain/graph-search.mjs";
 import { archiveEntries, findEntries, restoreEntries } from "./lib/brain/forget.mjs";
+import { editOwn, learnedLine, learnIntoNote, ownEntries, unlearnOwn } from "./lib/brain/questions-notes.mjs";
 import { linksFor, readVault } from "./lib/brain/links.mjs";
 import { loadProfile } from "./lib/brain/profile.mjs";
 import { join } from "node:path";
@@ -106,15 +111,22 @@ try {
     if (badTitle(title)) fail(`orion-brain: "${title}" is not a note title (no leading "-", "/" or ".."); nothing was read.`);
     process.stdout.write(command === "read" ? bm(bmArgs.read(title)) : bm(bmArgs.context(title)));
   } else if (command === "learn") {
-    const [rawTitle, rawCategory, ...fact] = rest;
+    const own = rest[0] === "--own";
+    const [rawTitle, rawCategory, ...fact] = own ? rest.slice(1) : rest;
     const title = clean(rawTitle, 80); const category = clean(rawCategory, 30).toLowerCase().replace(/[^a-z -]/g, "");
     const text = clean(fact.join(" "), 400);
-    if (!title || !category || !text) fail('usage: orion-brain learn "<note title>" "<category>" "<fact>"');
+    if (!title || !category || !text) fail('usage: orion-brain learn [--own] "<note title>" "<category>" "<fact>"');
     if (badTitle(title)) fail(`orion-brain: "${title}" is not a note title (no leading "-", "/" or ".."); nothing was saved.`);
-    const line = `- [${category}] ${text} (${new Date().toISOString().slice(0, 10)})`;
+    // only --own may carry the provenance tag: a plain learn is his words, and a typed "#orion" must not make it removable by ORION
+    const line = learnedLine(category, own ? text : text.replace(/#orion\b/gi, "orion"), new Date().toISOString().slice(0, 10), { own });
+    // Wave 12: the note on disk decides, never `bm read` output (its rendering failed /^## Learned/m every time live, so each learn
+    // added another header: seven in the Nick note). The line goes under the note's existing header, before "## Relations".
+    const onDisk = learnIntoNote(dirs().vaultDir, title, line);
     let existing = null;
-    try { existing = bm(bmArgs.read(title)); } catch { /* new note */ }
-    if (!existing || /not found/i.test(existing)) {
+    if (!onDisk) { try { existing = bm(bmArgs.read(title)); } catch { /* new note */ } }
+    if (onDisk) {
+      console.log(`Added to "${title}": ${line}`);
+    } else if (!existing || /not found/i.test(existing)) {
       bm(bmArgs.write({ title, directory: "20 Areas/Learned", noteType: "note", content: `## Learned\n${line}\n\n## Relations\n- about [[Nick]]\n` }));
       console.log(`New note "${title}" (linked to Nick) with: ${line}`);
     } else {
@@ -131,6 +143,20 @@ try {
       const q = clean(rest.join(" "), 200); if (!q || /^-/.test(q)) fail('usage: orion-brain forget "<words>"');
       console.log(JSON.stringify({ query: q, matches: findEntries(dirs(), q) }));
     }
+  } else if (command === "mine") {
+    // Wave 12 L1: ORION's own notes, the only saved entries he may edit or unlearn himself.
+    if (rest.length) fail("usage: orion-brain mine");
+    console.log(JSON.stringify({ mine: ownEntries(dirs()).map((e) => ({ id: e.id, text: e.text, where: e.where })) }));
+  } else if (command === "unlearn") {
+    if (!rest.length || !rest.every((id) => ID.test(id))) fail("usage: orion-brain unlearn <id>... (ids from orion-brain mine)");
+    const out = unlearnOwn(dirs(), rest);
+    console.log(JSON.stringify(out.refused.length ? { ...out, note: "Refused ids are Nick's or the system's: not yours to remove. Tell him and let him ask." } : out));
+    if (!out.archived.length) process.exit(3);
+  } else if (command === "edit") {
+    const [id, ...words] = rest;
+    if (!ID.test(id ?? "") || !words.join(" ").trim()) fail('usage: orion-brain edit <id> "<new wording>" (ids from orion-brain mine)');
+    try { console.log(JSON.stringify(editOwn(dirs(), id, words.join(" ")))); }
+    catch (e) { fail(`orion-brain: ${e.message}; nothing was changed.`, 3); }
   } else if (command === "links") {
     const q = clean(rest.join(" "), 120); if (!q || /^-/.test(q)) fail('usage: orion-brain links "<thing>"');
     const d = dirs();
@@ -141,7 +167,7 @@ try {
   } else if (command === "recent") {
     process.stdout.write(bm(bmArgs.recent()));
   } else {
-    fail("usage: orion-brain search|read|context|learn|recent|forget|links|profile|canvas-courses|canvas-refresh (see the header)");
+    fail("usage: orion-brain search|read|context|learn|recent|forget|mine|unlearn|edit|links|profile|canvas-courses|canvas-refresh (see the header)");
   }
 } catch (e) {
   fail(`orion-brain: ${String(e.stderr || e.message).slice(0, 300)}`, 1);

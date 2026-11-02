@@ -44,6 +44,8 @@ import { buildNow, writeNowRecord } from "./lib/life/now-state.mjs";
 import { clockNow, controlledDir } from "./lib/clock.mjs";
 import { awakeLateFor } from "./lib/reach/bedtime-guard.mjs";
 import { readDeclaredFacts } from "./lib/awareness/declared-facts.mjs";
+import { questionAsk } from "./lib/curiosity/question-ask.mjs";
+import { markAsked, questionsPath, readQuestions, updateQuestions } from "./lib/brain/questions.mjs";
 
 const DIR = controlledDir();
 const STATE = join(DIR, "proactive-sent.json");
@@ -167,6 +169,10 @@ const evening = dayOk && !actions.some((a) => a.action === "ask") && !chasing(ch
 if (evening && !sent[evening.key]) actions.push({ ...evening, action: "ask", kind: "question" });
 const routineCheck = dayOk && !actions.some((a) => a.action === "ask") ? routineAsk(aw.routine, { aw, now, sent, ledger }) : null;   // "Out tonight like usual Fridays?", once
 if (routineCheck) actions.push(routineCheck);
+// Wave 12 L1: one of ORION's own questions (orion-questions), at most one a day, only when he is at the Mac and free (question-ask.mjs).
+const questionsFile = questionsPath(DIR);
+const questionCheck = dayOk && !chasing(checkins) ? questionAsk(aw, { now, rows: readQuestions(questionsFile), ledger, turns, day, wakeGrace, otherAsk: actions.some((a) => a.action === "ask") }) : null;
+if (questionCheck && !sent[questionCheck.key]) actions.push(questionCheck);
 const said = actions.filter((a) => a.action === "say");
 const messages = [...said, ...decide({ ...ctxBase, declared: declaredToday, awakeLate: awakeLateFor({ dir: DIR, now })?.message ?? null, skipLadder: true })];
 
@@ -197,6 +203,8 @@ for (const a of actions.filter((x) => x.action === "ask")) {
   }
   if (!outcome.said) continue;
   sent[a.key] = true; closed.push(a.key);
+  // his reply binds to it through questions.jsonl (plugin questions-flow.ts), not the curiosity ledger
+  if (a.type === "question-note") { try { updateQuestions(questionsFile, (rows) => ({ rows: markAsked(rows, a.questionId, { via: "push", text: a.text }, now) })); } catch {} continue; }
   const reachId = lastReachId(a.key);
   const record = { askId, reachId, type: a.blankType ?? a.type, key: a.key, window: a.ask?.window ?? null, cell: a.ask?.cell ?? null, at: now.toISOString() };
   ledger = recordAsk(ledger, record);

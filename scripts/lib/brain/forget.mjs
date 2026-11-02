@@ -34,7 +34,7 @@ export function entryMatches(entryText, query) {
 /** The words of a saved line, without its bullet, category tag, timestamp or trailing date. */
 export const displayText = (raw) => String(raw).replace(/^\s*-\s+/, "")
   .replace(/^\d{4}-\d{2}-\d{2}\s*[—–-]\s*/, "").replace(/^\d{1,2}:\d{2}(?:\s*[AP]M)?\s*[—–-]\s*/i, "")
-  .replace(/^\[auto\]\s*/i, "").replace(/^\[[\w -]{1,30}\]\s*/, "").replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/, "").trim();
+  .replace(/^\[auto\]\s*/i, "").replace(/^\[[\w -]{1,30}\]\s*/, "").replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/, "").replace(/\s+#orion$/, "").trim();   // #orion: ORION's own line (questions-notes.mjs)
 
 const idOf = (file, raw) => createHash("sha1").update(`${file}\n${raw}`).digest("hex").slice(0, 10);
 const continues = (next) => /^\s{2,}\S/.test(next ?? "");

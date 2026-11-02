@@ -1,0 +1,113 @@
+#!/usr/bin/env node
+/*
+ orion-questions — the things ORION is unsure of about Nick, kept to ask him later (wave 12 L1, 2026-11-02).
+
+   orion-questions add "<question>" [--why "<what made you wonder>"] [--topic person|preference|routine|fact|other] [--priority high|normal|low]
+   orion-questions list [--open] [--json]
+   orion-questions edit <id> ["<new wording>"] [--why "…"] [--topic …] [--priority …]
+   orion-questions answer <id> "<his answer>"      record his answer and keep it in his Nick note (a dated, #orion learned line)
+   orion-questions drop <id> [--why "…"]           no longer worth asking
+   orion-questions resolve <id> ["<how it was settled>"]   found out another way (no answer from him needed)
+   orion-questions skip <id>                         he passed on it for now ("idk", "ask me later"): open again
+   orion-questions next [--json]                   the question the proactive path would ask now (nothing changes)
+   orion-questions asked <id> [--via push|chat] [--text "<what he saw>"]   mark it asked (code calls this; his reply binds to it)
+
+ A near-identical open question is not added twice (the existing id is reported). At most 20 are open at once.
+ Store: orion-controlled/questions.jsonl, honouring ORION_CONTROLLED_DIR; during a sandboxed evaluation eval-questions.jsonl, and no
+ answer is written to his vault. An isolated run (ORION_CONTROLLED_DIR not live) without ORION_BRAIN_VAULT puts the vault line in
+ the isolated outbox instead of his real notes.
+ Exit 0 done, 2 bad arguments (nothing saved), 3 refused (full, a secret, not open; nothing saved).
+*/
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { controlledDir, isolated, toOutbox } from "./lib/clock.mjs";
+import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
+import {
+  addQuestion, answerQuestion, dropQuestion, editQuestion, markAsked, nextToAsk, openQuestions, questionsPath, readQuestions,
+  resolveQuestion, skipQuestion, updateQuestions,
+} from "./lib/brain/questions.mjs";
+import { foldAnswer, learnedLine } from "./lib/brain/questions-notes.mjs";
+
+const VALUE_FLAGS = ["--why", "--topic", "--priority", "--via", "--text"];
+const argv = process.argv.slice(2);
+const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+const positional = argv.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(argv[i - 1]));
+const [command, ...rest] = positional;
+const json = argv.includes("--json");
+const ID = /^q-[0-9a-f]{6}$/;
+const USAGE = "usage: orion-questions add \"<question>\" [--why …] [--topic …] [--priority …] | list [--open] | edit <id> [\"<wording>\"] | answer <id> \"<answer>\" | drop <id> | resolve <id> | next";
+
+const say = (text, data) => { console.log(json ? JSON.stringify({ ok: true, ...data }) : text); process.exit(0); };
+const fail = (code, text) => { if (json) console.log(JSON.stringify({ ok: false, error: text })); else console.error(`NOTHING WAS SAVED: ${text}`); process.exit(code); };
+const now = clockNow();
+const sandboxed = sandbox() !== null;
+const path = questionsPath(controlledDir(), { sandboxed });
+const idArg = () => { const id = rest[0]; if (!ID.test(id ?? "")) fail(2, `${command} needs a question id like q-1a2b3c (see orion-questions list)`); return id; };
+const fields = () => Object.fromEntries([["why", flag("--why")], ["topic", flag("--topic")], ["priority", flag("--priority")]].filter(([, v]) => v !== undefined));
+const line = (r) => `- ${r.id} [${r.priority}, ${r.topic}${r.status === "open" ? "" : `, ${r.status}`}] ${r.q}${r.why ? ` (why: ${r.why})` : ""}${r.answer ? ` → ${r.answer}` : ""}`;
+/** A store error is a refusal (3), not a crash: its words say why. */
+const change = (fn) => { try { return updateQuestions(path, fn); } catch (e) { return fail(/needs|usage/.test(e.message) ? 2 : 3, e.message); } };
+
+function keep(fact) {
+  if (sandboxed) return { kept: "eval", note: "evaluation run: kept in the eval queue only" };
+  const date = now.toLocaleDateString("en-CA");
+  if (isolated() && !process.env.ORION_BRAIN_VAULT) {
+    toOutbox("brain", { note: "Nick", line: learnedLine("answer", fact, date, { own: true }) }, { by: "orion-questions" });
+    return { kept: "outbox", note: "isolated run: the line went to the outbox" };
+  }
+  const vaultDir = process.env.ORION_BRAIN_VAULT || join(homedir(), "Documents/orionBrain");
+  try { const out = foldAnswer({ vaultDir, fact, date }); return { kept: "vault", line: out.line }; }
+  catch (e) { return { kept: "no", note: `saved as answered, but his Nick note could not be written (${String(e.message).slice(0, 80)})` }; }
+}
+
+if (command === "add") {
+  const q = rest.join(" ");
+  if (!q.trim()) fail(2, USAGE);
+  const out = change((rows) => addQuestion(rows, { q, ...fields() }, now));
+  if (out.duplicate) say(`Already on the list as ${out.duplicate.id}: ${out.duplicate.q}`, { duplicate: out.duplicate });
+  say(`Added ${out.added.id}: ${out.added.q} (I'll ask him when he has a moment, at most one a day.)`, { added: out.added });
+} else if (command === "list") {
+  const rows = readQuestions(path);
+  const shown = argv.includes("--open") ? openQuestions(rows) : rows;
+  if (json) say("", { questions: shown });
+  say(shown.length ? `${argv.includes("--open") ? "Open questions" : "Questions"} (${shown.length}):\n${shown.map(line).join("\n")}` : "No questions on the list.", {});
+} else if (command === "edit") {
+  const id = idArg();
+  const wording = rest.slice(1).join(" ");
+  const input = { ...fields(), ...(wording.trim() ? { q: wording } : {}) };
+  if (!Object.keys(input).length) fail(2, "edit needs new wording, --why, --topic or --priority");
+  const out = change((rows) => { const next = editQuestion(rows, id, input, now); return { rows: next, row: next.find((r) => r.id === id) }; });
+  say(`Changed ${id}: ${out.row.q}`, { question: out.row });
+} else if (command === "answer") {
+  const id = idArg();
+  const answer = rest.slice(1).join(" ");
+  if (!answer.trim()) fail(2, "answer needs his answer in quotes");
+  const out = change((rows) => answerQuestion(rows, id, answer, now));
+  const kept = keep(out.fact);
+  const where = kept.kept === "vault" ? " Kept in his Nick note." : kept.note ? ` (${kept.note})` : "";
+  say(`Answered ${id}: ${out.fact}.${where}`, { id, fact: out.fact, ...kept });
+} else if (command === "drop") {
+  const id = idArg();
+  const out = change((rows) => { const next = dropQuestion(rows, id, flag("--why") ?? "", now); return { rows: next, row: next.find((r) => r.id === id) }; });
+  say(`Dropped ${id}: ${out.row.q}`, { question: out.row });
+} else if (command === "resolve") {
+  const id = idArg();
+  const how = rest.slice(1).join(" ");
+  const out = change((rows) => { const next = resolveQuestion(rows, id, how, now); return { rows: next, row: next.find((r) => r.id === id) }; });
+  say(`Resolved ${id}: ${out.row.q}${how ? ` (${how})` : ""}`, { question: out.row });
+} else if (command === "skip") {
+  const id = idArg();
+  const out = change((rows) => { const next = skipQuestion(rows, id, now); return { rows: next, row: next.find((r) => r.id === id) }; });
+  say(`Skipped ${id} for now: ${out.row.q}`, { question: out.row });
+} else if (command === "next") {
+  const next = nextToAsk(readQuestions(path), now);
+  say(next ? `Next to ask: ${next.id} ${next.q}` : "Nothing to ask right now.", { next });
+} else if (command === "asked") {
+  const id = idArg();
+  const via = flag("--via") ?? "push";
+  if (!["push", "chat"].includes(via)) fail(2, "--via must be push or chat");
+  const out = change((rows) => { const next = markAsked(rows, id, { via, text: flag("--text") ?? "" }, now); return { rows: next, row: next.find((r) => r.id === id) }; });
+  say(`Marked ${id} asked (${via}).`, { question: out.row });
+} else {
+  fail(2, USAGE);
+}

@@ -622,7 +622,10 @@ public final class HologramModel {
     /// Limb is deeper/cooler, front face is hot. `depth` is -1 (back) .. 1 (front).
     private func rampColor(_ depth: Double) -> HoloRGB {
         let t = holoClamp((depth + 1) / 2, 0, 1)
-        var c = holoMix(palette.deep, palette.hot, pow(t, 0.8))
+        // Through mid: the deep hue only at the far limb, the main hue across most depths, highlights in front.
+        var c = palette.rampThroughMid
+            ? (t < 0.35 ? holoMix(palette.deep, palette.mid, t / 0.35) : holoMix(palette.mid, palette.hot, pow((t - 0.35) / 0.65, 1.6)))
+            : holoMix(palette.deep, palette.hot, pow(t, 0.8))
         if tint > 0.001 {
             let alt: HoloRGB
             switch state {
@@ -670,7 +673,7 @@ public final class HologramModel {
 
         rebuildRamp(force: false)
 
-        let bloom = (0.55 + energy * 0.85 + pulse * 0.4 + onset * 0.25) * (batchGeometry ? 0.22 : 1)
+        let bloom = (0.55 + energy * 0.85 + pulse * 0.4 + onset * 0.25) * (batchGeometry ? 0.22 * palette.bloomGain : 1)
 
         // Ambient wash behind the shell, in normal blend so it stays a wash.
         //
@@ -779,7 +782,7 @@ public final class HologramModel {
                 var path = Path()
                 path.move(to: CGPoint(x: a.x, y: a.y))
                 path.addLine(to: CGPoint(x: b.x, y: b.y))
-                ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? 0.32 : 1)
+                ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? min(1, 0.32 * palette.strokeGain) : 1)
                 ctx.stroke(path, with: rampShading[rampIndex(depth + lit * 0.8)],
                            style: StrokeStyle(lineWidth: CGFloat(f.width * mid.persp), lineCap: .round))
             }
@@ -832,7 +835,7 @@ public final class HologramModel {
 
             let alpha = holoClamp((0.16 + shimmer * 0.24) * backDim * (0.7 + energy * 0.5)
                                   * (1 + lit * 2.2), 0, 1)
-            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? 0.32 : 1)
+            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? min(1, 0.32 * palette.strokeGain) : 1)
             ctx.stroke(path,
                        with: lit > 0.01 ? rampShading[rampIndex(Double(side) * 0.5 + lit * 0.9)]
                                         : arcShading,
@@ -860,7 +863,7 @@ public final class HologramModel {
 
             let cw = chip.w * p.persp
             let ch = chip.h * p.persp
-            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? 0.32 : 1)
+            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? min(1, 0.32 * palette.strokeGain) : 1)
             ctx.fill(
                 Path(CGRect(x: p.x - cw / 2, y: p.y - ch / 2, width: cw, height: ch)),
                 with: rampShading[rampIndex(p.z + lit * 0.8)]
@@ -903,7 +906,7 @@ public final class HologramModel {
                 drawn += 1
             }
             if drawn == 0 { continue }
-            ctx.opacity = holoClamp(orb.alpha * backDim * (0.6 + energy * 0.6) * holoGain, 0, 1) * (batchGeometry ? 0.45 : 1)
+            ctx.opacity = holoClamp(orb.alpha * backDim * (0.6 + energy * 0.6) * holoGain, 0, 1) * (batchGeometry ? min(1, 0.45 * palette.strokeGain) : 1)
             ctx.stroke(path, with: orbitShading, style: StrokeStyle(lineWidth: CGFloat(orb.width), lineCap: .round))
         }
 
@@ -917,7 +920,7 @@ public final class HologramModel {
             if (p.z > 0) != front { continue }
             let alpha = holoClamp((0.10 + 0.30 * abs(sin(t * m.speed * 0.7 + m.phase))) * backDim, 0, 1)
             let s = m.size * p.persp
-            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? 0.32 : 1)
+            ctx.opacity = holoClamp(alpha * holoGain, 0, 1) * (batchGeometry ? min(1, 0.32 * palette.strokeGain) : 1)
             ctx.fill(Path(CGRect(x: p.x, y: p.y, width: s, height: s)), with: hotShading)
         }
     }

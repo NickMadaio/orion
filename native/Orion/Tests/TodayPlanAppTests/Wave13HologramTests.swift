@@ -43,8 +43,8 @@ final class Wave13HologramTests: XCTestCase {
     func testBlueOrbAccentPopsOnNearBlack() {
         for (state, label) in [(OrbState.breathing, "idle"), (.listening, "listening"), (.solving, "thinking")] {
             let accent = HoloPalette.blue.orbAccent(state: state, isError: false)
-            XCTAssertGreaterThan(accent.contrast(against: background), 7, "\(label) blue is too dim")
-            XCTAssertGreaterThan(accent.relativeLuminance, 0.30, "\(label) blue reads as navy")
+            XCTAssertGreaterThan(accent.contrast(against: background), 8, "\(label) blue is too dim")
+            XCTAssertGreaterThan(accent.relativeLuminance, 0.38, "\(label) blue reads as navy")
         }
     }
 
@@ -58,6 +58,9 @@ final class Wave13HologramTests: XCTestCase {
         XCTAssertGreaterThan(blue.core.relativeLuminance, blue.hot.relativeLuminance)
         XCTAssertGreaterThan(blue.hot.relativeLuminance, blue.mid.relativeLuminance)
         XCTAssertGreaterThan(blue.mid.relativeLuminance, blue.deep.relativeLuminance)
+        // The main stroke hue is luminous azure, not steel or slate.
+        XCTAssertGreaterThan(blue.mid.relativeLuminance, 0.30)
+        XCTAssertGreaterThan(blue.mid.contrast(against: background), 6)
         // Even the limb must stay visible.
         XCTAssertGreaterThan(blue.deep.contrast(against: background), 3)
     }
@@ -66,6 +69,14 @@ final class Wave13HologramTests: XCTestCase {
         XCTAssertEqual(HoloPalette.gold.core, HoloRGB(r: 255, g: 246, b: 214))
         XCTAssertEqual(HoloPalette.gold.mid, HoloRGB(r: 255, g: 158, b: 38))
         XCTAssertEqual(HoloPalette.gold.orbAccent(state: .breathing, isError: false), HoloRGB(r: 255, g: 176, b: 69))
+    }
+
+    func testBlueCarriesStrongerStrokesAndGoldIsUntouched() {
+        XCTAssertEqual(HoloPalette.gold.strokeGain, 1)
+        XCTAssertEqual(HoloPalette.gold.bloomGain, 1)
+        XCTAssertFalse(HoloPalette.gold.rampThroughMid)
+        XCTAssertGreaterThanOrEqual(HoloPalette.blue.strokeGain, 1.5)
+        XCTAssertGreaterThan(HoloPalette.blue.bloomGain, 1)
     }
 
     func testTheModelCarriesAPaletteAndDefaultsToGold() {

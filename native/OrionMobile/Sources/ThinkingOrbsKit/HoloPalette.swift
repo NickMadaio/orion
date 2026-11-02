@@ -50,6 +50,13 @@ public struct HoloPalette: Equatable, Sendable {
     /// The orb's filament and dot colour at rest, and the brighter one while listening.
     public let orbRest: HoloRGB
     public let orbListening: HoloRGB
+    /// Multiplies stroke alpha (rings, arcs, filaments, orbit lines) on the batched projection. Blue reads darker
+    /// than gold at the same alpha, so it carries more.
+    public let strokeGain: Double
+    /// Multiplies the core and wash glow on the batched projection.
+    public let bloomGain: Double
+    /// Depth ramp runs deep → mid → hot rather than deep → hot, so the middle depths sit on the main hue.
+    public let rampThroughMid: Bool
 
     /// Warm gold, matching the Age of Ultron projection: a white-hot core falling off through amber to a deep ember
     /// at the limb. The original; unchanged.
@@ -58,16 +65,19 @@ public struct HoloPalette: Equatable, Sendable {
         mid: HoloRGB(r: 255, g: 158, b: 38), deep: HoloRGB(r: 214, g: 104, b: 12),
         cool: HoloRGB(r: 120, g: 176, b: 255), thinking: HoloRGB(r: 192, g: 116, b: 255),
         alarm: HoloRGB(r: 255, g: 92, b: 64),
-        orbRest: HoloRGB(r: 255, g: 176, b: 69), orbListening: HoloRGB(r: 255, g: 207, b: 110))
+        orbRest: HoloRGB(r: 255, g: 176, b: 69), orbListening: HoloRGB(r: 255, g: 207, b: 110),
+        strokeGain: 1, bloomGain: 1, rampThroughMid: false)
 
-    /// Electric azure: an ice-white core, a bright azure face and a cobalt limb. Listening leans cyan and thinking
-    /// leans periwinkle, so the states still read without leaving blue.
+    /// Luminous electric azure: a blue-white core, #A8DCFF highlights, #3DA5FF–#4FB8FF main strokes, and #1F5FD6
+    /// kept for the limb and depth only. Listening leans cyan and thinking leans periwinkle, so the states still read
+    /// without leaving blue.
     public static let blue = HoloPalette(
-        core: HoloRGB(r: 232, g: 248, b: 255), hot: HoloRGB(r: 140, g: 212, b: 255),
-        mid: HoloRGB(r: 70, g: 165, b: 255), deep: HoloRGB(r: 52, g: 124, b: 255),
-        cool: HoloRGB(r: 96, g: 232, b: 255), thinking: HoloRGB(r: 150, g: 160, b: 255),
+        core: HoloRGB(r: 236, g: 249, b: 255), hot: HoloRGB(r: 168, g: 220, b: 255),
+        mid: HoloRGB(r: 61, g: 165, b: 255), deep: HoloRGB(r: 31, g: 95, b: 214),
+        cool: HoloRGB(r: 96, g: 232, b: 255), thinking: HoloRGB(r: 150, g: 170, b: 255),
         alarm: HoloRGB(r: 255, g: 92, b: 64),
-        orbRest: HoloRGB(r: 100, g: 196, b: 255), orbListening: HoloRGB(r: 156, g: 224, b: 255))
+        orbRest: HoloRGB(r: 79, g: 184, b: 255), orbListening: HoloRGB(r: 168, g: 220, b: 255),
+        strokeGain: 2.6, bloomGain: 2.0, rampThroughMid: true)
 
     /// The orb painter's single hue for a state.
     public func orbAccent(state: OrbState, isError: Bool) -> HoloRGB {

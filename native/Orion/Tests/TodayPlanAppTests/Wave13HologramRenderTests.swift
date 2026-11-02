@@ -39,6 +39,22 @@ final class Wave13HologramRenderTests: XCTestCase {
         XCTAssertLessThan(warm, blue / 20, "the blue hologram still draws gold")
     }
 
+    /// As Home shows it with few cards: the faint ring, the orb inset, the whole at 0.75 opacity.
+    func testBlueHologramStillPopsAtHomeOpacity() throws {
+        let orb = CGSize(width: 520, height: 520)
+        let model = HomeHologram.advanced(by: 2, palette: .blue)
+        let view = ZStack {
+            Circle().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8)
+                .shadow(color: OrionTheme.accent.opacity(0.35), radius: 10).padding(10)
+            HomeHologram(model: model, frozenTime: 2, styleOverride: .blueOrion).padding(40)
+        }
+        .opacity(0.75)
+        let image = try UIRender.write("\(prefix)hologram-blue-home", UIRender.onDesktop(view, light: false, size: orb), size: orb)
+        let (blue, warm) = Self.countBrightPixels(image)
+        XCTAssertGreaterThan(blue, 2_000, "at Home's 0.75 opacity the blue hologram fades out")
+        XCTAssertLessThan(warm, blue / 20)
+    }
+
     /// Bright pixels whose blue channel leads (blue) or whose red leads (warm).
     private static func countBrightPixels(_ image: CGImage) -> (blue: Int, warm: Int) {
         let width = image.width, height = image.height

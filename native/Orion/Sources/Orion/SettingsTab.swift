@@ -307,7 +307,7 @@ struct SettingsTab: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            Text("Choose the hologram for Home and the floating voice view. Thinking Orion combines slow orb geometry with the original filament shell, arcs, chips, bright core and audio response.")
+            Text("Choose the hologram for Home and the floating voice view. Thinking Orion combines slow orb geometry with the original filament shell, arcs, chips, bright core and audio response. Blue Orion is the same projection in electric blue.")
                 .font(OrionTheme.mono(10))
                 .foregroundStyle(OrionTheme.textDim)
                 .fixedSize(horizontal: false, vertical: true)

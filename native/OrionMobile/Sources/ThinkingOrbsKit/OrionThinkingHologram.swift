@@ -52,7 +52,7 @@ public struct OrionThinkingHologram: View {
             shell.translateBy(x: centre.x, y: centre.y)
             shell.rotate(by: .radians(angle))
             let ellipse = Path(ellipseIn: CGRect(x: -radius, y: -radius * 0.30, width: radius * 2, height: radius * 0.60))
-            shell.stroke(ellipse, with: .color(accent.opacity(0.12 + 0.12 * energy)), lineWidth: max(0.5, side / 350))
+            shell.stroke(ellipse, with: .color(accent.opacity(min(1, (0.12 + 0.12 * energy) * palette.strokeGain))), lineWidth: max(0.5, side / 350))
         }
         let preset = resolvePreset(state, .px64)
         let frame = orbFrame(preset, size: 64, t: t * preset.speed)
@@ -60,7 +60,7 @@ public struct OrionThinkingHologram: View {
         func point(_ x: Double, _ y: Double) -> CGPoint { CGPoint(x: centre.x + (x-32)*zoom, y: centre.y + (y-32)*zoom) }
         for edge in frame.lines {
             var path = Path(); path.move(to: point(edge.x1, edge.y1)); path.addLine(to: point(edge.x2, edge.y2))
-            context.stroke(path, with: .color(accent.opacity(max(0, min(1, (1-edge.white)*edge.a)))), lineWidth: max(0.4, edge.w * zoom))
+            context.stroke(path, with: .color(accent.opacity(max(0, min(1, (1-edge.white)*edge.a*palette.strokeGain)))), lineWidth: max(0.4, edge.w * zoom))
         }
         // All dots share a hue; quantized alpha keeps depth without a fill per dot.
         var dots = Array(repeating: Path(), count: 16)

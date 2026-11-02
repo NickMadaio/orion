@@ -6,7 +6,9 @@ import Foundation
 /// (capture -> requestLocation -> didUpdateLocations -> capture ...), and wakes that come in bursts
 /// must not each cost a fix, a sample and an upload.
 public struct CaptureGate: Sendable {
-    public enum Reason: Sendable { case geofence, significantChange, backgroundRefresh }
+    /// `requested`: the Mac asked for a fix (LocationRequest). Like a geofence it is not throttled here: the Mac asks at most
+    /// once per 10 minutes and the phone answers each request id once, so it cannot come in bursts.
+    public enum Reason: Sendable { case geofence, significantChange, backgroundRefresh, requested }
 
     /// At most one non-geofence capture per this many seconds.
     public static let minInterval: TimeInterval = 5 * 60
@@ -28,9 +30,9 @@ public struct CaptureGate: Sendable {
         return now.timeIntervalSince(requestedAt) <= Self.requestedFixWindow
     }
 
-    /// Geofence enter/exit always captures once; everything else at most once per `minInterval`.
+    /// Geofence enter/exit and a Mac request always capture once; everything else at most once per `minInterval`.
     public mutating func allow(_ reason: Reason, at now: Date) -> Bool {
-        if reason != .geofence, let lastCapture, now.timeIntervalSince(lastCapture) < Self.minInterval { return false }
+        if reason != .geofence, reason != .requested, let lastCapture, now.timeIntervalSince(lastCapture) < Self.minInterval { return false }
         lastCapture = now
         return true
     }

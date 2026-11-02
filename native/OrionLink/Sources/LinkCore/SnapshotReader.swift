@@ -183,6 +183,18 @@ public struct SnapshotReader {
         return at
     }
 
+    /// The Mac's ask for a fresh phone fix (`location-request.json`, written by orion-awareness and orion-reach when the
+    /// newest fix is stale and ORION needs to know where he is). Carried only while it stands (LocationRequest.lifetime);
+    /// an unreadable file or a malformed id is nil, never a guess.
+    public func locationRequest(now: Date = Date()) -> LocationRequest? {
+        guard let object = json(controlled.appendingPathComponent("location-request.json")) as? [String: Any],
+              let id = object["id"] as? String, LocationRequest.isValidID(id),
+              let at = (object["at"] as? String).flatMap(Self.parseDate) else { return nil }
+        let reason = (object["reason"] as? String).map { String($0.prefix(80)) }
+        let request = LocationRequest(id: id, at: at, reason: reason)
+        return request.isFresh(at: now) ? request : nil
+    }
+
     /// The per-day sleep plan from `wake-plan.json`. Only a plan Nick set (source "nick") is carried; a missing,
     /// unreadable or default-sourced file is nil, so the phone never rings an alarm he did not ask for.
     public func wakePlan() -> WakePlan? {

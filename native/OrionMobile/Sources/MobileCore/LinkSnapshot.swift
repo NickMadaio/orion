@@ -294,6 +294,9 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
     public var lastInputAt: Date?
     /// Places Nick confirmed (home, campus, gym...), for the phone's geofences (C6). Optional so older snapshots decode.
     public var knownPlaces: [KnownPlace]?
+    /// The Mac asking for one fresh fix because the last is stale and it needs to know where he is (2026-11-02).
+    /// Optional so older snapshots decode, and an older phone simply ignores it.
+    public var locationRequest: LocationRequest?
 
     public struct KnownPlace: Codable, Equatable, Sendable, Identifiable {
         public var id: String
@@ -312,7 +315,7 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
                 tracking: Tracking? = nil, plan: TodayPlan? = nil, planRequest: PlanRequest? = nil, wakeRequest: Date? = nil,
                 checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil,
                 screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil, focusPlan: [FocusListPlan]? = nil,
-                knownPlaces: [KnownPlace]? = nil, wakePlan: WakePlan? = nil) {
+                knownPlaces: [KnownPlace]? = nil, wakePlan: WakePlan? = nil, locationRequest: LocationRequest? = nil) {
         self.version = LinkSnapshot.currentVersion
         self.generatedAt = generatedAt; self.mac = mac; self.runs = runs; self.approvals = approvals
         self.running = running; self.attention = attention; self.health = health
@@ -321,6 +324,7 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
         self.screenGrant = screenGrant; self.night = night; self.earlyFinish = earlyFinish; self.chatModels = chatModels; self.focusLists = focusLists; self.focusPlan = focusPlan
         self.knownPlaces = knownPlaces
         self.wakePlan = wakePlan
+        self.locationRequest = locationRequest
     }
 
     public static let currentVersion = 1

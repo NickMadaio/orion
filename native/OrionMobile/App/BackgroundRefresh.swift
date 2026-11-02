@@ -75,6 +75,8 @@ enum BackgroundRefresh {
         if routine.plan == nil { await routine.refresh(planner: planner, wakeRequest: snapshot?.wakeRequest, now: now) }
         await routine.checkNightSignals(planner: planner, macLastInput: snapshot?.lastInputAt, now: now)
         GlanceWriter.publish(planner: planner, snapshot: snapshot, night: routine.plan, now: now)
+        // The Mac asked for a fresh fix: answer it first, past the 5-minute capture gate (LocationRequest).
+        await PhoneSignals.shared.answer(snapshot?.locationRequest, now: now)
         // A wake is also the moment to take a location sample and send everything waiting (wake signals included).
         await PhoneSignals.shared.captureAndFlushNow(.backgroundRefresh)
         // Keep the chain going: through the night until the alarm, and every half hour by day.

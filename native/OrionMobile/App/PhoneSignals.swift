@@ -138,6 +138,18 @@ final class PhoneSignals: NSObject, ObservableObject, CLLocationManagerDelegate 
         await captureAndFlushNow()
     }
 
+    /// The Mac asked for a fresh fix (LinkSnapshot.locationRequest, 2026-11-02): its last one was stale and it needs to
+    /// know where he is, e.g. before a leave-for-class reminder. Each request id is answered once; the id is kept in the
+    /// app group so a background relaunch does not answer it again.
+    func answer(_ request: LocationRequest?, now: Date = Date()) async {
+        guard enabled, let request else { return }
+        let defaults = UserDefaults(suiteName: "group.com.nickmadaio.orion") ?? .standard
+        let key = "orion.signals.answeredRequest"
+        guard request.shouldAnswer(lastAnsweredID: defaults.string(forKey: key), now: now) else { return }
+        defaults.set(request.id, forKey: key)
+        await captureAndFlushNow(.requested)
+    }
+
     /// Every one-shot fix goes through here so its answer is recognised as ours.
     private func requestFix() {
         gate.noteRequestedFix(at: Date())

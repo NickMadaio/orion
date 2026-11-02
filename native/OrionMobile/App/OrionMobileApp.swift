@@ -312,6 +312,10 @@ struct PhoneRootView: View {
             FocusLock.shared.grant(grant)
             remote.logQuietly(FocusLock.screenState())
         }
+        .onChange(of: remote.snapshot?.locationRequest) { _, request in
+            // The Mac asked for a fresh fix while the app is open (the background path is BackgroundRefresh).
+            BackgroundAssertion.run("orion.request") { await PhoneSignals.shared.answer(request) }
+        }
         .onChange(of: remote.snapshot?.wakeRequest) { _, request in
             Task { await routine.refresh(planner: planner, wakeRequest: request) }
         }

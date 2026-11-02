@@ -588,6 +588,18 @@ function mediaAction(policy, definition) {
         },
     };
 }
+function bedtimeAction(operation, definition) {
+    return {
+        risk: "low",
+        requiredArguments: definition.requiredArguments,
+        approvalRequired: false,
+        verification: definition.verification,
+        reversible: definition.reversible,
+        capabilityTier: "media_control",
+        execution: { kind: "bedtime_act", operation, bundleIdArgument: definition.bundleIdArgument },
+        validateArguments: (arguments_) => definition.extraValidation?.(arguments_) ?? [],
+    };
+}
 /**
  * PHASE 53/54/55. Computer use.
  *
@@ -2201,6 +2213,16 @@ export const ACTION_CATALOG = {
      * third party, or changes what Orion may do -- which is the whole of the
      * floor's test.
      */
+    // Bedtime nudges: low risk, no approval, because Nick sets them on himself. The bridge refuses the apps that
+    // must never be quit (Finder, terminals, ORION, system surfaces) and only ever asks an app to quit.
+    bedtime_quit_app: bedtimeAction("quit_app", {
+        requiredArguments: ["bundleId"], bundleIdArgument: "bundleId", reversible: true, // reopening the app undoes it
+        verification: "bedtime_app_quit_requested",
+        extraValidation: (a) => bundleIdIssues(a.bundleId),
+    }),
+    bedtime_lock_screen: bedtimeAction("lock_screen", { requiredArguments: [], reversible: true, verification: "bedtime_screen_lock_requested" }),
+    bedtime_dim: bedtimeAction("dim", { requiredArguments: [], reversible: true, verification: "bedtime_display_dimmed" }),
+    bedtime_undim: bedtimeAction("undim", { requiredArguments: [], reversible: true, verification: "bedtime_display_restored" }),
     selfdev_queue: {
         risk: "medium",
         // `repository` is required for the same reason every other dev action

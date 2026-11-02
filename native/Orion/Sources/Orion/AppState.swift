@@ -57,6 +57,7 @@ final class AppState: ObservableObject {
     /// Applies this requested visual lift once, rather than compounding it on
     /// every launch.
     private let scheduleFocusWatcher = ScheduleFocusWatcher()
+    private lazy var wakeAlarm = MainActor.assumeIsolated { WakeAlarmController() }
     private static let hologramBrightnessBoostKey = "OrionHologramBrightnessBoost20260801"
 
     // MARK: Published surface
@@ -688,6 +689,7 @@ final class AppState: ObservableObject {
         wireSession()
         refreshFocusConfiguration()
         scheduleFocusWatcher.start { [weak self] in self?.focusExtras.quitDistractions ?? false }
+        MainActor.assumeIsolated { wakeAlarm.start() }
     }
 
     /// Refresh away from SwiftUI's render pass, then publish the answer back

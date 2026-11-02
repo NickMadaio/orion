@@ -456,6 +456,8 @@ export type ExecutionPolicy =
    * for a denylisted app or window — see ScreenPrivacy.swift.
    */
   | { kind: "selfdev"; operation: "queue" | "status" }
+  /** 2026-11-02. Self-imposed bedtime nudges on the Mac, through scripts/orion-bedtime-act. */
+  | { kind: "bedtime_act"; operation: "quit_app" | "lock_screen" | "dim" | "undim"; bundleIdArgument?: string }
   | { kind: "computer_observe"; operation: "screen_observe" | "screen_capture" }
   /** PHASE 52. One shell command, run by zsh as Nick. See `terminal_run`. */
   | { kind: "raw_terminal" }
@@ -1304,6 +1306,28 @@ function mediaAction(
             ];
       return [...issues, ...(definition.extraValidation?.(arguments_) ?? [])];
     },
+  };
+}
+
+function bedtimeAction(
+  operation: Extract<ExecutionPolicy, { kind: "bedtime_act" }>["operation"],
+  definition: {
+    requiredArguments: string[];
+    verification: string;
+    reversible: boolean;
+    bundleIdArgument?: string;
+    extraValidation?: (arguments_: Record<string, unknown>) => string[];
+  },
+): ActionDefinition {
+  return {
+    risk: "low",
+    requiredArguments: definition.requiredArguments,
+    approvalRequired: false,
+    verification: definition.verification,
+    reversible: definition.reversible,
+    capabilityTier: "media_control",
+    execution: { kind: "bedtime_act", operation, bundleIdArgument: definition.bundleIdArgument },
+    validateArguments: (arguments_) => definition.extraValidation?.(arguments_) ?? [],
   };
 }
 
@@ -3096,6 +3120,16 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
    * third party, or changes what Orion may do -- which is the whole of the
    * floor's test.
    */
+  // Bedtime nudges: low risk, no approval, because Nick sets them on himself. The bridge refuses the apps that
+  // must never be quit (Finder, terminals, ORION, system surfaces) and only ever asks an app to quit.
+  bedtime_quit_app: bedtimeAction("quit_app", {
+    requiredArguments: ["bundleId"], bundleIdArgument: "bundleId", reversible: true, // reopening the app undoes it
+    verification: "bedtime_app_quit_requested",
+    extraValidation: (a) => bundleIdIssues(a.bundleId),
+  }),
+  bedtime_lock_screen: bedtimeAction("lock_screen", { requiredArguments: [], reversible: true, verification: "bedtime_screen_lock_requested" }),
+  bedtime_dim: bedtimeAction("dim", { requiredArguments: [], reversible: true, verification: "bedtime_display_dimmed" }),
+  bedtime_undim: bedtimeAction("undim", { requiredArguments: [], reversible: true, verification: "bedtime_display_restored" }),
   selfdev_queue: {
     risk: "medium",
     // `repository` is required for the same reason every other dev action

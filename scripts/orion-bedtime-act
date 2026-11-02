@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+/*
+ orion-bedtime-act: the Mac half of the bedtime nudge, through OrionMacBridge.
+   orion-bedtime-act quit-app <bundleId>   ask an app to quit (graceful; never Finder, Terminal, ORION or system apps)
+   orion-bedtime-act lock-screen
+   orion-bedtime-act dim | undim           lower the built-in display's brightness / put it back
+ Prints one JSON line built from the bridge's answer. Self-imposed nudges: no approval step, so the
+ bridge itself refuses the apps that must never be quit.
+ ORION_MAC_BRIDGE overrides the binary (tests use a mock).
+*/
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+const BRIDGE = process.env.ORION_MAC_BRIDGE
+  || join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge");
+const [command, arg] = process.argv.slice(2);
+
+function fail(message, code = 2) {
+  console.error(`orion-bedtime-act: ${message}`);
+  process.exit(code);
+}
+
+const USAGE = "usage: orion-bedtime-act quit-app <bundleId> | lock-screen | dim | undim";
+const plans = {
+  "quit-app": () => {
+    if (!arg || !/^[A-Za-z0-9][A-Za-z0-9._-]{1,200}$/.test(arg)) fail("quit-app needs a bundle id");
+    return ["quit_app", { bundle_id: arg }];
+  },
+  "lock-screen": () => ["lock_screen", {}],
+  dim: () => ["dim", {}],
+  undim: () => ["undim", {}],
+};
+if (!plans[command]) fail(USAGE);
+const [action, payload] = plans[command]();
+
+if (!existsSync(BRIDGE)) fail("the OrionMacBridge release binary is missing -- build it with `swift build -c release` in native/OrionMacBridge", 1);
+
+const stdout = await new Promise((resolve, reject) => {
+  const child = spawn(BRIDGE, [], { stdio: ["pipe", "pipe", "pipe"] });
+  let out = "";
+  let err = "";
+  const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+  child.stdout.on("data", (c) => (out += String(c)));
+  child.stderr.on("data", (c) => (err += String(c)));
+  child.on("error", reject);
+  child.on("close", (code) => {
+    clearTimeout(timer);
+    code === 0 ? resolve(out) : reject(new Error(err.trim() || `bridge exited ${code}`));
+  });
+  child.stdin.end(`${JSON.stringify({ id: String(Date.now()), action, payload })}\n`);
+}).catch((e) => fail(`bridge did not respond: ${String(e.message ?? e).slice(0, 240)}`, 1));
+
+const line = String(stdout).split("\n").find((l) => l.trim().startsWith("{"));
+if (!line) fail("bridge returned no JSON response", 1);
+let parsed;
+try { parsed = JSON.parse(line); } catch { fail("bridge returned malformed JSON", 1); }
+if (!parsed.ok) fail(parsed.error || "bridge reported an unspecified failure", 1);
+console.log(JSON.stringify({ action: command, ...(parsed.result ?? {}) }));

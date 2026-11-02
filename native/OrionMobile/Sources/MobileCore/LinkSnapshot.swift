@@ -247,6 +247,8 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
     /// A wake-up time Nick asked ORION for ("wake me up at 7:30"); the phone's
     /// alarm uses it instead of the automatic one for that morning.
     public var wakeRequest: Date?
+    /// The per-day sleep plan Nick set (wake-plan.json); optional so older snapshots still decode.
+    public var wakePlan: WakePlan?
     /// Extra phone time ORION granted ("unblock my apps until 12:45"): the phone
     /// lifts its Screen Time lock until `until`, then puts it back. `id` makes one
     /// grant apply once.
@@ -310,7 +312,7 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
                 tracking: Tracking? = nil, plan: TodayPlan? = nil, planRequest: PlanRequest? = nil, wakeRequest: Date? = nil,
                 checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil,
                 screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil, focusPlan: [FocusListPlan]? = nil,
-                knownPlaces: [KnownPlace]? = nil) {
+                knownPlaces: [KnownPlace]? = nil, wakePlan: WakePlan? = nil) {
         self.version = LinkSnapshot.currentVersion
         self.generatedAt = generatedAt; self.mac = mac; self.runs = runs; self.approvals = approvals
         self.running = running; self.attention = attention; self.health = health
@@ -318,6 +320,7 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
         self.checkin = checkin; self.deadlines = deadlines; self.lastInputAt = lastInputAt
         self.screenGrant = screenGrant; self.night = night; self.earlyFinish = earlyFinish; self.chatModels = chatModels; self.focusLists = focusLists; self.focusPlan = focusPlan
         self.knownPlaces = knownPlaces
+        self.wakePlan = wakePlan
     }
 
     public static let currentVersion = 1

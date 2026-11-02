@@ -50,6 +50,9 @@ const argument = process.argv[2];
 if (!argument) { try { (await import("node:child_process")).spawnSync(process.execPath, [join(import.meta.dirname, "orion-patterns"), "learn", "--calendar"], { stdio: "ignore", timeout: 45_000 }); } catch {} }
 // ...and rebuilds the knowledge graph the Knowledge tab and brain search read (2026-10-31; deterministic, read-only on its sources).
 if (!argument) { try { (await import("node:child_process")).spawnSync(process.execPath, [join(import.meta.dirname, "orion-knowledge")], { stdio: "ignore", timeout: 45_000 }); } catch {} }
+// ...and tidies what he learned (wave 12, 2026-11-02): one "## Learned" per note, no duplicate or lapsed facts, junk episodes out,
+// standing ones promoted to dated facts. Backs up first, logs to consolidate.jsonl, writes nothing during an evaluation.
+if (!argument) { try { (await import("node:child_process")).spawnSync(process.execPath, [join(import.meta.dirname, "orion-memory-consolidate.mjs"), "--apply"], { stdio: "ignore", timeout: 45_000 }); } catch {} }
 const today = argument === "--today";
 const day = argument && !today ? argument : localDay(today ? 0 : 1);
 

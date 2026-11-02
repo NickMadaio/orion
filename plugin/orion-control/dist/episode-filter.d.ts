@@ -15,6 +15,11 @@ export declare function isQuickQuestion(candidate: string): boolean;
 export declare function isDependentReply(candidate: string): boolean;
 /** True when a candidate can never be an episode, whatever signal words it carries. */
 export declare function isJunkCandidate(candidate: string): boolean;
+/**
+ * A line worth keeping beyond its day (wave 12): a standing statement ("always", "from now on", "at least", "i hate …"),
+ * said plainly and whole. Hedged musing, a cut-off sentence, a question or a one-off instruction is not.
+ */
+export declare function isDurableEpisode(candidate: string): boolean;
 /** Wrap a short dependent reply in the message it answers, so the line stands alone. */
 export declare function combineWithOutreach(reply: string, outreach: string): string;
 /** Same thing said twice: containment either way, or heavy word overlap. */

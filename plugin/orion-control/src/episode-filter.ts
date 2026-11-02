@@ -66,12 +66,43 @@ export function isDependentReply(candidate: string): boolean {
   return !EXPLICIT.test(c) && words(c).length <= 6 && (ANAPHORA_LEAD.test(c) || ANAPHORA_TAIL.test(c));
 }
 
+/*
+ Wave 12 (2026-11-02): prompt text that reached the journal as Nick's words. Instructions written to a model ("Answer in three
+ short lists", "Reply with the collection titles"), the transport's own rules, and the tail of a cut prompt whose opening bracket
+ was lost ("Answer the whole thing.) Exactly remember that part.").
+*/
+const SCAFFOLD = [
+  /^(?:answer|reply|respond|return|output)\s+(?:in|with|only|the|as)\b/i,
+  /^(?:never offer|this existing)\b/i,
+  /\bhandled by the transport\b|\bminted for you\b|\bthe things you were asked\b/i,
+  /^[^(]{0,40}\)\s/,
+];
+
 /** True when a candidate can never be an episode, whatever signal words it carries. */
 export function isJunkCandidate(candidate: string): boolean {
   const c = tidy(candidate);
   if (!c || c.startsWith("[") || /^[-*]\s+\*\*/.test(c)) return true;
+  if (SCAFFOLD.some((re) => re.test(c))) return true;
   if (isFiller(c) || isQuickQuestion(c)) return true;
   return words(c).length < 3 && !EXPLICIT.test(c);
+}
+
+const STANDING = /\b(?:always|never|from now on|going forward|remember|prefer(?:s|red)?|at least|at most|no matter what|every (?:day|time|morning|night|week)|i (?:hate|like|love|don'?t like|do not like)|don'?t (?:ever|use)|dont (?:ever|use))\b/i;
+const HEDGE = /\b(?:um+|uh+|i think|i guess|kinda|kind of|if anything|maybe|probably|seemed)\b|\blike,/i;
+const TRUNCATED = /(?:\.\.\.|…|--|—|-)\s*$/;
+// A bug report or a story about what happened is not a standing fact about him (seen in the 2026-11-02 dry run on live data:
+// "Id prefer we fix the tool…", "every time I went to go end it, it would just make it six minutes").
+const NOT_ABOUT_HIM = /\b(?:fix|bug|the tool|the app|the code|went|was|were|did|had|it would)\b/i;
+
+/**
+ * A line worth keeping beyond its day (wave 12): a standing statement ("always", "from now on", "at least", "i hate …"),
+ * said plainly and whole. Hedged musing, a cut-off sentence, a question or a one-off instruction is not.
+ */
+export function isDurableEpisode(candidate: string): boolean {
+  const c = tidy(candidate);
+  const n = words(c).length;
+  if (n < 4 || n > 30 || isJunkCandidate(c) || c.includes("?") || isQuickQuestion(c)) return false;
+  return STANDING.test(c) && !HEDGE.test(c) && !TRUNCATED.test(c) && !NOT_ABOUT_HIM.test(c);
 }
 
 /** Wrap a short dependent reply in the message it answers, so the line stands alone. */

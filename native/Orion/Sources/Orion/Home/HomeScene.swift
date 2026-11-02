@@ -30,14 +30,13 @@ struct HomeScene<Composer: View>: View {
             .padding(.top, 10)
             .softReveal(delay: 0.05)
 
-            // Spare height splits above and below the spread, so three cards on a quiet evening sit in the
-            // middle of the page instead of leaving a void over the composer.
-            Spacer(minLength: 40)
-
+            // The spread hangs a fixed step below the greeting, as Sentient's does; spare height goes under it.
+            // Centring it (the first version) left a void between greeting and cards on a two-card day (live, 11-02).
             HomeCardSpread(cards: cards, onAction: onAction)
                 .frame(maxWidth: 1_260)
                 .padding(.horizontal, 44)
                 .frame(maxWidth: .infinity)
+                .padding(.top, 72)
 
             Spacer(minLength: 34)
 

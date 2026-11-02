@@ -74,6 +74,35 @@ struct HomeFormat {
         return head.count > 26 ? String(head.prefix(25)) + "…" : head
     }
 
+    /// "$6", "$11.99", "£214": whole amounts and anything from 100 up drop the pence. A fixed locale per currency,
+    /// so a test reads the same on every machine.
+    static func money(_ value: Double, currency: String) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = Locale(identifier: currency == "GBP" ? "en_GB" : "en_US")
+        formatter.currencyCode = currency
+        let whole = abs(value) >= 100 || value.rounded() == value
+        formatter.maximumFractionDigits = whole ? 0 : 2
+        formatter.minimumFractionDigits = whole ? 0 : 2
+        return formatter.string(from: NSNumber(value: whole ? value.rounded() : value)) ?? "\(value)"
+    }
+
+    /// "1h20", "45m", "2h".
+    static func hoursMinutes(_ minutes: Int) -> String {
+        let value = max(0, minutes)
+        if value < 60 { return "\(value)m" }
+        return value % 60 == 0 ? "\(value / 60)h" : String(format: "%dh%02d", value / 60, value % 60)
+    }
+
+    /// "Thursday".
+    func weekday(_ date: Date) -> String { formatter("EEEE").string(from: date) }
+
+    /// Whole calendar days from today to `date` (0 = today).
+    func days(until date: Date) -> Int {
+        let calendar = clock.calendar
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: date)).day ?? 0
+    }
+
     /// "Three" for 3, up to ten; digits past that.
     static func word(_ number: Int) -> String {
         let words = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"]

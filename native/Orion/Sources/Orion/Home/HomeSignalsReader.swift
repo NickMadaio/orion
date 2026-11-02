@@ -7,7 +7,9 @@ import Foundation
    · knowledge-graph.json — how many facts ORION holds about him, and the name on his own node. Read as plain JSON
      rather than through KnowledgeStore, so the Knowledge rebuild (wave 12 U1) can change that model freely;
    · morning-view.json — the morning's "leave by", when it was written today;
-   · night.json — bedtime and tomorrow's alarm, through NightMarkers (the same rule the alarm uses).
+   · night.json — bedtime and tomorrow's alarm, through NightMarkers (the same rule the alarm uses);
+   · the other sections' files (projects, finance-summary.json, health-log.json, focus-history.jsonl), through
+     HomeSectionReader (HomeSections.swift).
  A missing or malformed file is "nothing to say", never an error on screen.
 */
 
@@ -80,6 +82,11 @@ enum HomeSignalsReader {
         signals.knowledgeCount = knowledge?.factCount
         signals.selfName = knowledge?.selfName
         signals.phoneLinkAlive = PhoneLinkStatus.read()?.alive(now: now)
+        let today = HomeSectionReader.dayKey(now, calendar: calendar)
+        signals.projects = HomeSectionReader.projects(at: directory.appendingPathComponent("project-agent/projects"), now: now)
+        signals.finance = (try? Data(contentsOf: file("finance-summary.json"))).flatMap(HomeSectionReader.finance)
+        signals.healthDay = (try? Data(contentsOf: file("health-log.json"))).flatMap { HomeSectionReader.healthDay($0, dayKey: today) }
+        signals.focusMinutesToday = HomeSectionReader.focusMinutes(tail(file("focus-history.jsonl")), dayKey: today)
         return signals
     }
 

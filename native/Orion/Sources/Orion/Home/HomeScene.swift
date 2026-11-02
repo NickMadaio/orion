@@ -1,16 +1,24 @@
 import OrionViews
 import SwiftUI
+import ThinkingOrbsKit
 
 /*
  The Home page's composition, from plain values (renders use it directly; HomeTab feeds it live data):
- greeting top left, the card spread below it, the composer pinned to the bottom. Behind the cards, one soft radial
- glow is the only atmosphere: no orrery, no orbiting app shortcuts (Nick, 2026-11-02: "all gone").
+ greeting top left, the card spread below it, the glance row and the composer pinned to the bottom. Behind it all,
+ the hologram (U5, 2026-11-02: "combine the old stuff with the new"): large, slow and dimmed, filling the empty
+ field on a quiet day and sinking behind the cards on a busy one (HomeHologramPlacement). The app-shortcut orbs
+ that used to circle it stay gone.
 */
 
 struct HomeScene<Composer: View>: View {
     let greeting: String
     let subline: String
     let cards: [HomeCard]
+    var glance: [HomeGlanceItem] = []
+    /// Nil draws no hologram (renders of the bare layout).
+    var hologram: HologramModel?
+    /// Renders only: a fixed moment of the hologram.
+    var hologramFrozenTime: Double?
     let availableHeight: CGFloat
     let onAction: (HomeCardAction) -> Void
     @ViewBuilder let composer: () -> Composer
@@ -40,13 +48,45 @@ struct HomeScene<Composer: View>: View {
 
             Spacer(minLength: 34)
 
+            if !glance.isEmpty {
+                HomeGlanceRow(items: glance, onAction: onAction)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 22)
+                    .softReveal(delay: 0.3)
+            }
+
             composer()
                 .frame(maxWidth: 1_200)
                 .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, minHeight: availableHeight, alignment: .top)
+        .background(hologramLayer)
         .background(atmosphere)
+    }
+
+    /// The hologram and a faint ring around it, placed by card count. Behind the cards and never hit-testable.
+    private var hologramLayer: some View {
+        GeometryReader { proxy in
+            if let hologram {
+                let placement = HomeHologramPlacement.forCards(cards.count)
+                let frame = placement.frame(in: proxy.size)
+                ZStack {
+                    // The ring, after Sentient's hero: one hairline with a soft halo, static.
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8)
+                        .shadow(color: OrionTheme.accent.opacity(0.35), radius: 10)
+                        .padding(frame.width * 0.02)
+                    HomeHologram(model: hologram, frozenTime: hologramFrozenTime)
+                        .padding(frame.width * 0.08)
+                }
+                .frame(width: frame.width, height: frame.height)
+                .opacity(placement.opacity)
+                .position(x: frame.midX, y: frame.midY)
+                .animation(ViewMotion.softReveal, value: cards.count)
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     /// A faint pool of light behind the spread. Static.

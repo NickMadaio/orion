@@ -5,8 +5,10 @@ import SwiftUI
  a few quiet text links and a gear at the right. It replaces the row of eight tabs and the dense status strip.
 
    · The wordmark is Home.
-   · Plan, Knowledge and Health are first-class links; Projects, Finances and Brand sit in "More", with the two
-     session previews that used to be a "TEMPORARY PREVIEW" row under the Home composer.
+   · Every section is a quiet text link: Plan, Projects, Knowledge, Health, Finances, Brand (U5, 2026-11-02: the
+     "More" menu is gone; Nick likes those pages and wants them one click away).
+   · The two session previews (once a "TEMPORARY PREVIEW" row under the composer, then in More) are on the
+     wordmark's right-click menu: reachable for checking the focus and break screens, invisible otherwise.
    · The gear is Settings.
    · The status strip is gone. One small capsule appears only when something is wrong (gateway down, overdue
      items, the phone link offline) and is absent otherwise.
@@ -24,10 +26,8 @@ struct NavCentersKey: PreferenceKey {
 }
 
 extension DashboardTab {
-    /// Always visible in the header.
-    static let primaryLinks: [DashboardTab] = [.tasks, .knowledge, .health]
-    /// In the "More" menu.
-    static let moreLinks: [DashboardTab] = [.project, .finance, .brand]
+    /// The header's text links, in order. Home is the wordmark; Settings is the gear.
+    static let headerLinks: [DashboardTab] = [.tasks, .project, .knowledge, .health, .finance, .brand]
 }
 
 struct DashboardHeader: View {
@@ -46,6 +46,10 @@ struct DashboardHeader: View {
                 Button { onSelect(.home) } label: { OrionWordmark(lit: selected == .home) }
                     .buttonStyle(.plain)
                     .help("Home")
+                    .contextMenu {
+                        Button("Preview the focus screen", action: onPreviewFocus)
+                        Button("Preview a break", action: onPreviewBreak)
+                    }
                     .reportCenter(for: [.home], in: Self.space, width: row.size.width)
 
                 Spacer(minLength: 24)
@@ -56,13 +60,11 @@ struct DashboardHeader: View {
                         .transition(.opacity)
                 }
 
-                HStack(spacing: 30) {
-                    ForEach(DashboardTab.primaryLinks) { tab in
+                HStack(spacing: 28) {
+                    ForEach(DashboardTab.headerLinks) { tab in
                         HeaderLink(title: tab.title, isSelected: selected == tab) { onSelect(tab) }
                             .reportCenter(for: [tab], in: Self.space, width: row.size.width)
                     }
-                    moreMenu
-                        .reportCenter(for: DashboardTab.moreLinks, in: Self.space, width: row.size.width)
                     HeaderIcon(systemName: "gearshape", isSelected: selected == .settings, help: "Settings") { onSelect(.settings) }
                         .reportCenter(for: [.settings], in: Self.space, width: row.size.width)
                 }
@@ -80,70 +82,6 @@ struct DashboardHeader: View {
         .animation(OrionMotion.fade, value: issues)
     }
 
-    private var moreMenu: some View {
-        MoreLink(selected: selected, onSelect: onSelect, onPreviewFocus: onPreviewFocus, onPreviewBreak: onPreviewBreak)
-    }
-}
-
-/// "More": the secondary sections and the session previews, in a small popover. A plain button rather than a
-/// `Menu`, so it draws in the same quiet type as the links beside it (and in renders, where a Menu is a placeholder).
-private struct MoreLink: View {
-    let selected: DashboardTab
-    let onSelect: (DashboardTab) -> Void
-    let onPreviewFocus: () -> Void
-    let onPreviewBreak: () -> Void
-
-    @State private var open = false
-    @State private var hovering = false
-
-    private var isSelected: Bool { DashboardTab.moreLinks.contains(selected) }
-
-    var body: some View {
-        Button { open.toggle() } label: {
-            HStack(spacing: 6) {
-                if isSelected { SelectedDot() }
-                Text(isSelected ? selected.title : "More")
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).opacity(0.7)
-            }
-            .font(.system(size: 13.5, weight: .medium))
-            .foregroundStyle(isSelected ? OrionTheme.text : Color.white.opacity(hovering || open ? 0.88 : 0.62))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
-        .onHover { hovering = $0 }
-        .help("Projects, Finances, Brand")
-        .popover(isPresented: $open, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(DashboardTab.moreLinks) { tab in
-                    row(tab.title, icon: tab.icon, lit: tab == selected) { onSelect(tab) }
-                }
-                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.vertical, 6)
-                Text("PREVIEW").font(OrionTheme.mono(8.5, .semibold)).tracking(2).foregroundStyle(OrionTheme.textDim)
-                    .padding(.horizontal, 10).padding(.bottom, 2)
-                row("Focus screen", icon: "scope", lit: false, action: onPreviewFocus)
-                row("Break", icon: "leaf", lit: false, action: onPreviewBreak)
-            }
-            .padding(10)
-            .frame(width: 200)
-        }
-    }
-
-    private func row(_ title: String, icon: String, lit: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            open = false
-            action()
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: icon).font(.system(size: 11)).frame(width: 16).foregroundStyle(lit ? OrionTheme.accent : OrionTheme.textSoft)
-                Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(lit ? OrionTheme.text : Color.white.opacity(0.8))
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 // MARK: - Pieces

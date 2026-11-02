@@ -31,6 +31,10 @@ export function harness({ now = NOW, facts = { idleSeconds: 5, locked: false, he
   const reschedule = bin("fake-reschedule", `echo "$@" >> "${home}/reschedule.log"`);
   writeFileSync(join(home, "config.json"), JSON.stringify({ bedtime: "23:59", usualWake: "00:01" }));
   writeFileSync(join(home, "cal.json"), "[]");
+  // These senders run on the real clock: a wake plan whose nudge is a year away keeps the night hush (lib/reach/night-hush.mjs) out of them.
+  const farNudge = new Date(Date.now() + 365 * 86400_000).toISOString();
+  const day = (n) => new Date(Date.now() + n * 86400_000).toLocaleDateString("en-CA");
+  writeFileSync(join(dir, "wake-plan.json"), JSON.stringify({ source: "nick", bedtimes: [-1, 0, 1].map((n) => ({ date: day(n), nudgeAtIso: farNudge })) }));
   const env = { PATH: process.env.PATH, HOME: home, ORION_CONTROLLED_DIR: dir, ORION_LIFE_CONFIG: join(home, "config.json"),
     ORION_REACH_FACTS: JSON.stringify(facts), ORION_REACH_OPEN_BIN: open, ORION_REACH_NOW: iso(now), ORION_AWARENESS_NO_REFRESH: "1",
     ORION_SESSION_SOCKET: join(home, "no-such.sock"), ORION_BRIDGE_BIN: join(SCRIPTS, "../tests/fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"),

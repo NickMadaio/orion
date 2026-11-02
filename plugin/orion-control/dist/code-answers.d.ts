@@ -28,6 +28,11 @@ export declare function askKind(message: string): AskKind | null;
 export declare const askedName: (message: string) => string | undefined;
 /** Last night's sleep and recovery from the health log, what they mean for today, and the recent average. */
 export declare function sleepReply(log: HealthLog | undefined, now: Date): string | undefined;
+/**
+ One plain sentence from a note's raw text: no markdown headings, bullets, emphasis, code, links or wikilinks (the label of
+ [[Annika|my friend]] is "my friend"), and the note's own title is never repeated ("# Annika Annika is a friend" is "Annika is a friend").
+ */
+export declare function noteSentence(raw: string, title: string, max?: number): string;
 /** A person from the knowledge graph and his notes. Nothing found is said plainly, with no offer to search. */
 export declare function peopleReply(name: string, brainOutput: string, graph?: Graph): string;
 /** Connector names and whether a key is set. Only name, title and two booleans are ever read from a row. */

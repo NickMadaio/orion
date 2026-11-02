@@ -51,6 +51,7 @@ import { controlledDir, clockMs } from "./lib/clock.mjs";
 import { tickPlanLoop, replyResolution, startGrace, sentToday, kindOf, ladderOf } from "./lib/reach/plan-loop.mjs";
 import { graceFor } from "./lib/reach/plan-ladder.mjs";
 import { planEffects } from "./lib/reach/plan-effects.mjs";
+import { nightHushed } from "./lib/reach/night-hush.mjs";
 import { laddersView, writeLadders } from "./lib/reach/ladder-state.mjs";
 import { readNowRecord } from "./lib/life/now-state.mjs";
 import { readDeclaredFacts } from "./lib/awareness/declared-facts.mjs";
@@ -304,11 +305,13 @@ switch (command) {
     const grace = inWakeGrace({ dir: CONTROLLED, now: new Date(NOW_MS), minutes: Number(loadConfig().wakeGraceMinutes ?? 30) });
     const plan = planContext(aw);
     const fx = effects();
+    // Sleep wins: past tonight's bedtime-nudge time ORION's own plan/gym/catch-up lines wait for the morning brief.
+    const hushed = nightHushed({ dir: CONTROLLED, now: new Date(NOW_MS), config: loadConfig() });
     for (const c of state.checkins.filter(open)) {
       // A plan block's ladder (lib/reach/plan-loop.mjs): driven by now.json, closed by a reply, evidence, a declared fact or
       // the closing message; never dropped silently while the day is still on (2026-10-30).
       if (c.block) {
-        const next = tickPlanLoop(c, { ...plan, held: duringClass || held(c), graceWake: grace, sentToday: sentToday(state.checkins, NOW_MS),
+        const next = tickPlanLoop(c, { ...plan, held: duringClass || hushed || held(c), graceWake: grace, sentToday: sentToday(state.checkins, NOW_MS),
           habit: lateHabit(plan.patterns, kindOf(c)), ...titlesToday(state.checkins, c) }, fx);
         if (next.attended) state.attended = [...(state.attended ?? []).slice(-30), { date: localDate(new Date(NOW_MS)), blockId: c.block, title: c.what, ...next.attended }];
         const { attended: _a, ...rest } = next;
@@ -324,6 +327,7 @@ switch (command) {
         c.loop = step(c.loop, {type: "cancelled"}, now); continue;
       }
       if (duringClass) continue;
+      if (hushed && c.by === "orion") continue;
       if (held(c)) continue;
       const before = c.loop;
       const after = step(before, { type: "tick" }, now);

@@ -57,7 +57,7 @@ export type OutreachPlan = {
  * A start line's loop is acted on by its id only (the caller finds it); a "no" or "stop" to a start line is never acted on by
  * code (it cancelled the newest check-in and removed a calendar block, review 2026-10-23).
  */
-export declare function planOutreachReply(o: Outreach, message: string): OutreachPlan | undefined;
+export declare function planOutreachReply(o: Outreach, message: string, late?: boolean): OutreachPlan | undefined;
 /** argv for orion-checkin acting on loop `id`. */
 export declare const loopArgs: (act: LoopAct, id: string) => string[];
 export declare function asksWhy(message: string): boolean;

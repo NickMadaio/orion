@@ -112,7 +112,7 @@ export type OutreachPlan = { text: string; act?: LoopAct; find?: { what: string 
  * A start line's loop is acted on by its id only (the caller finds it); a "no" or "stop" to a start line is never acted on by
  * code (it cancelled the newest check-in and removed a calendar block, review 2026-10-23).
  */
-export function planOutreachReply(o: Outreach, message: string): OutreachPlan | undefined {
+export function planOutreachReply(o: Outreach, message: string, late = false): OutreachPlan | undefined {
   const r = readShortReply(message);
   if (!r) return undefined;
   if (o.kind === "bedtime") {
@@ -126,6 +126,8 @@ export function planOutreachReply(o: Outreach, message: string): OutreachPlan | 
   }
   if (o.kind === "start" && o.title) {
     const t = o.title, find = { what: t };
+    // Past tonight's nudge time sleep wins: no new time for it, no check-back (the ladder is hushed too); the morning brief has it.
+    if (late && (r.kind === "later" || r.kind === "not-yet" || r.kind === "other")) return { text: `Okay, it's late, so ${t} is off for tonight. Sleep wins.` };
     switch (r.kind) {
       case "later": return { text: `Okay, ${t} in ${r.minutes} min. I'll check in then.`, act: { verb: "defer", minutes: r.minutes, because: message.slice(0, 120) }, find };
       case "not-yet": return { text: `Okay, not yet. I'll check on ${t} in 15 min.`, act: { verb: "defer", minutes: 15, because: message.slice(0, 120) }, find };

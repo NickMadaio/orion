@@ -107,6 +107,26 @@ export function sleepReply(log: HealthLog | undefined, now: Date): string | unde
   return `${lead} ${parts.join(" and ")}.${meaning}${avg}`;
 }
 
+/**
+ One plain sentence from a note's raw text: no markdown headings, bullets, emphasis, code, links or wikilinks (the label of
+ [[Annika|my friend]] is "my friend"), and the note's own title is never repeated ("# Annika Annika is a friend" is "Annika is a friend").
+ */
+export function noteSentence(raw: string, title: string, max = 300): string {
+  const lines = raw.replace(/^---\n[\s\S]*?\n---\n/, "").split("\n").map((l) => l
+    .replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)/, "")
+    .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[([^\]]*)\]\]/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`~]{1,3}/g, "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const titleKey = title.toLowerCase();
+  const body = lines.filter((l) => l.toLowerCase() !== titleKey);
+  let text = (body.length ? body : lines).join(" ").trim();
+  // a heading and its first line collapse into "Title Title is …": say the title once
+  const t = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  text = text.replace(new RegExp(`^(?:#+\\s*)?(${t})\\s+\\1\\b`, "i"), "$1");
+  if (!text) return "";
+  const cut = text.length > max ? text.slice(0, max).replace(/\s+\S*$/, "") : text;
+  return /[.!?]$/.test(cut) ? cut : `${cut}.`;
+}
+
 /** A person from the knowledge graph and his notes. Nothing found is said plainly, with no offer to search. */
 export function peopleReply(name: string, brainOutput: string, graph?: Graph): string {
   const label = capital(name);
@@ -115,9 +135,7 @@ export function peopleReply(name: string, brainOutput: string, graph?: Graph): s
   const facts = (node?.facts ?? []).map((f) => (f.text ?? "").replace(/[.\s]+$/, "")).filter(Boolean).slice(0, 3);
   const fromGraph = facts.length ? `${node?.label ?? label}: ${facts.join("; ")}.` : "";
   const block = brainOutput.split(/\n(?=## )/).map((b) => b.trim()).find((b) => b.startsWith("## ") && b.toLowerCase().includes(lower));
-  const lines = block ? block.split("\n").slice(1).map((l) => l.replace(/^[-*\s]+/, "").trim()).filter(Boolean) : [];
-  const hit = lines.filter((l) => l.toLowerCase().includes(lower)).slice(0, 2);
-  const fromNotes = (hit.length ? hit : lines.slice(0, 2)).join(" ").slice(0, 300);
+  const fromNotes = block ? noteSentence(block.split("\n").slice(1).join("\n"), label) : "";
   const notes = fromNotes ? (fromNotes.toLowerCase().startsWith(lower) ? fromNotes : `${label}: ${fromNotes}`) : "";
   return [fromGraph, notes].filter(Boolean).join(" ") || `I don't have anything on ${label} in your notes or memory.`;
 }

@@ -35,3 +35,9 @@ export function dayEndFor(stateDir: string | undefined): number {
   const line = bed < 12 * 60 ? bed + 1440 : bed;
   return Math.min(1440, line - wind);
 }
+
+/** Minutes of wind-down before bedtime (30 when unset). */
+export function windDownMin(stateDir: string | undefined): number {
+  const w = readLifeConfig(stateDir).windDownMinutes;
+  return Number.isInteger(w) && Number(w) >= 0 ? Number(w) : DEFAULT_WIND_DOWN;
+}

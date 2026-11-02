@@ -79,6 +79,7 @@ import { KNOWLEDGE_PROMPT, isKnowledgeAsk } from "./knowledge-ask.js";
 import { askKind, ownAnswer, readGraphFile, readHealthFile } from "./code-answers.js";
 import { declareOnly, readReality, runReality, undoReality } from "./reality.js";
 import { pluginNow } from "./plugin-clock.js";
+import { LATE_TONE_LINE, pastNudgeTime, stripLateInstruction } from "./night-hush.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn } from "./pending-reply.js";
 import { bedtimeFromState, focusRunning } from "./bed-state.js";
 import { readPreference, savePreference } from "./preference-remember.js";
@@ -1328,7 +1329,8 @@ export function registerLocalRouting(api, options) {
             // on a 6.7k prompt; 3.67 s against 1.09 s on a 3.8k one). The wording of each part is unchanged, only its place.
             const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
             // 2026-10-30: the state card and the tone note, just before the clock (both change far less often than it does).
-            const card = run.card ? `${stateCard(run.card)}\n\n${TONE_NOTE}\n\n` : "";
+            const tone = pastNudgeTime(options.stateDir, (options.now ?? pluginNow)()) ? `${TONE_NOTE.split("\n").slice(0, 2).join("\n")}\n${LATE_TONE_LINE}` : TONE_NOTE;
+            const card = run.card ? `${stateCard(run.card)}\n\n${tone}\n\n` : "";
             // Distress comes before every flow: "i literally cant do this anymore" got a canned "Want to take a
             // break?" with no question about his safety (live sweep, 2026-10-16). Fixed text, no tools.
             // Only in "on" mode: in shadow, or once the testing window closes, the configured (cloud) model answers
@@ -1446,7 +1448,7 @@ export function registerLocalRouting(api, options) {
             // 8 am", "remind me in 10 min to call mom", "play some music" were all taken): those go to the normal turn, with the context.
             if (!run.flow && !run.cutOff && run.outreach && !isCrisis(run.message) && run.settled.move !== "tool" && !CHANGE_REQUEST.test(run.message)
                 && !REMINDER.test(run.message) && !LIVE_DATA.test(run.message) && !isSessionStart(run.message)) {
-                const plan = planOutreachReply(run.outreach, run.message);
+                const plan = planOutreachReply(run.outreach, run.message, pastNudgeTime(options.stateDir, (options.now ?? pluginNow)()));
                 if (plan && !plan.act)
                     run.flow = { outcome: "say", kind: "plain", text: plan.text };
                 else if (plan?.act && plan.find && options.checkinRun) {
@@ -2374,6 +2376,15 @@ export function registerLocalRouting(api, options) {
                 const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), askedChange: !isQuestion(run.message) && (CHANGE_REQUEST.test(run.message) || readStatedMove(run.message) !== null), codeAuthored: owed !== undefined });
                 if (clean !== before) {
                     owed = clean;
+                    remember([runId, sessionKeyNow], owed);
+                }
+            }
+            // 2026-11-02: past tonight's nudge time a reply never ends by ordering him to the gym or a plan task.
+            if (on && (owed ?? reply).trim() && pastNudgeTime(options.stateDir, (options.now ?? pluginNow)())) {
+                const before = owed ?? reply;
+                const late = stripLateInstruction(before, run.message);
+                if (late !== before) {
+                    owed = late;
                     remember([runId, sessionKeyNow], owed);
                 }
             }

@@ -25,6 +25,10 @@ struct ConversationView: View {
     @State private var showingTalk = false
     @State private var selectedModel: String?
     @FocusState private var typing: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Ids on screen when the thread first appeared: only later ones ease in.
+    @State private var firstShown: Set<String>?
+    @State private var sendCount = 0
     /// The pushed message he tapped (or nil): a reply answers it, and the thread scrolls to it.
     @State private var tappedAsk: String?
 
@@ -46,7 +50,7 @@ struct ConversationView: View {
             thread
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ChatComposer(draft: $draft, voice: voice, typing: $typing, replyingTo: tappedAsk,
+            ChatComposer(draft: $draft, voice: voice, typing: $typing, replyingTo: tappedAsk, sendCount: sendCount,
                          onClearReply: { tappedAsk = nil }, onSend: send, onTalk: talk)
         }
         .background(Phone.ink.ignoresSafeArea())
@@ -59,7 +63,7 @@ struct ConversationView: View {
     private var thread: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 28) {
+                LazyVStack(alignment: .leading, spacing: PhoneChat.exchangeGap) {
                     if visible.isEmpty {
                         ChatEmptyState(mood: OrbMood(voice: voice.phase, waitingForReply: waiting), level: voice.level,
                                        suggestions: suggestions) { remote.say($0, conversation: conversationID, model: selectedModel) }
@@ -67,6 +71,7 @@ struct ConversationView: View {
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
                         if index == 0 || message.sentAt.timeIntervalSince(visible[index - 1].sentAt) > 3600 { ChatTimeMarker(date: message.sentAt) }
                         ChatExchange(message: message, awaitingReplyTo: replyTarget, waitingText: waitingText,
+                                     arriving: firstShown.map { !$0.contains(message.id) } ?? false,
                                      onReply: { tappedAsk = $0; typing = true },
                                      onDecline: { id in remote.say("Not now", conversation: conversationID, model: selectedModel, replyTo: id); tappedAsk = nil })
                             .id(message.id)
@@ -78,7 +83,7 @@ struct ConversationView: View {
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom)
             .onChange(of: remote.conversation) { _, messages in
-                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                withAnimation(PhoneMotion.spring(PhoneMotion.enter, reduce: reduceMotion)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 for message in messages where message.status == .done || message.status == .failed {
                     voice.replyArrived(id: message.id, text: message.reply ?? "No answer came back.")
                 }
@@ -89,6 +94,7 @@ struct ConversationView: View {
             // every conversation as it started (2026-10-07: "it didn't even hear me").
             .onChange(of: scenePhase) { _, phase in if phase == .background { voice.end(.background) } }
             .onAppear {
+                if firstShown == nil { firstShown = Set(remote.conversation.map(\.id)) }
                 if let id = ThreadTarget.consume() { tappedAsk = id; proxy.scrollTo(id, anchor: .center) }
                 else { proxy.scrollTo("bottom", anchor: .bottom) }
             }
@@ -151,5 +157,6 @@ struct ConversationView: View {
         draft = ""
         remote.say(text, conversation: conversationID, model: selectedModel, replyTo: replyTarget)
         tappedAsk = nil
+        sendCount += 1
     }
 }

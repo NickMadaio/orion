@@ -14,7 +14,7 @@ struct ChatTalkingView: View {
                     Button(action: onClose) {
                         Label("Back to chat", systemImage: "chevron.down")
                             .font(.system(size: 14, weight: .medium)).foregroundStyle(Phone.soft)
-                    }.accessibilityIdentifier("closeTalkingMode")
+                    }.buttonStyle(PhonePressStyle()).accessibilityIdentifier("closeTalkingMode")
                 }
                 Spacer(minLength: 20)
                 PhoneOrb(mood: OrbMood(voice: voice.phase, waitingForReply: false), level: voice.level,
@@ -30,6 +30,7 @@ struct ChatTalkingView: View {
                 }
                 Spacer(minLength: 20)
                 Button("End conversation", action: onClose)
+                    .buttonStyle(PhonePressStyle())
                     .font(.system(size: 15, weight: .medium)).foregroundStyle(Phone.text)
                     .padding(.horizontal, 24).padding(.vertical, 14)
                     .overlay(Capsule().stroke(Phone.wash(0.2), lineWidth: 1))

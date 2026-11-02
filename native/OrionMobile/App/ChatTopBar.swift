@@ -49,6 +49,6 @@ struct ChatTopBar: View {
             Image(systemName: symbol).font(.system(size: 18, weight: .regular)).foregroundStyle(Phone.text)
                 .frame(width: 44, height: 44).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).accessibilityLabel(label).accessibilityIdentifier(id)
+        .buttonStyle(PhonePressStyle()).accessibilityLabel(label).accessibilityIdentifier(id)
     }
 }

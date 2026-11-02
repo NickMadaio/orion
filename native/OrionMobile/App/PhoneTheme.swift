@@ -127,7 +127,8 @@ struct PhoneButtonStyle: ButtonStyle {
             .overlay { Capsule().stroke(tint.opacity(enabled ? 0.6 : 0.15), lineWidth: 1.1) }
             .shadow(color: tint.opacity(enabled && prominent ? 0.35 : 0), radius: 12)
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.6), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .animation(PhoneMotion.press, value: configuration.isPressed)
     }
 }
 

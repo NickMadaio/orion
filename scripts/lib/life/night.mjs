@@ -9,25 +9,50 @@
 //           through it (a night out) plus the trip home.
 // "Real commitment" excludes ORION's own blocks: a side-project hour it planned
 // at 8 must not drag the alarm to 6:45.
-import { toMinute } from "./config.mjs";
+// W10-B (2026-11-02): his sleep plan (config.sleepPlan, scripts/orion-sleepplan) adds two things:
+//   - a wake time per weekday ("6am for the gym, only mon wed thu"), and
+//   - a lead before his first class ("at least 3 hours before a class"): the wake is never later than that.
+//   wake = asked-for alarm, else byDay wake, else min(usual wake, first class − lead); always capped by
+//          first class − lead (when a lead is set) and first commitment − get-ready time.
+//   bed  = next wake − sleep need (capped by bedtime), unless a night out runs through it.
+import { toMinute, sleepPlanOf, WEEKDAYS } from "./config.mjs";
+import { classify } from "./live-day.mjs";
 
 const dayAfter = (date) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate() + 1); return d.toLocaleDateString("en-CA"); };
+/** "mon".."sun" for a YYYY-MM-DD. */
+export const weekdayOf = (date) => WEEKDAYS[new Date(`${date}T12:00:00`).getDay()];
+const real = (blocks) => blocks.filter((b) => b.fixed && b.source !== "orion").sort((a, b) => a.start - b.start);
+/** His first real class that day, or undefined. */
+export const firstClassOn = (date, blocksOf) => real(blocksOf(date)).find((b) => (b.kind ?? classify(b.title ?? "")) === "class");
 
-/** Minutes after `date`'s midnight when he wakes that morning. */
-export function wakeOn(date, { blocksOf, config, wakeRequest = null }) {
+/** Why the wake is what it is: { minute, reason } (reason: "asked" | "plan" | "class" | "commitment" | "usual"). */
+export function wakeWhy(date, { blocksOf, config, wakeRequest = null }) {
   // Only a morning alarm is his wake-up. "Wake me at 3:30" after a lunchtime nap
   // drew the wake line at 3:30 PM (2026-09-30); the phone already ignored it.
-  if (wakeRequest && wakeRequest.date === date && wakeRequest.minute < 12 * 60) return wakeRequest.minute;
-  const usual = toMinute(config.usualWake);
-  const first = blocksOf(date).filter((b) => b.fixed && b.source !== "orion").sort((a, b) => a.start - b.start)[0];
-  return first ? Math.min(usual, first.start - (config.readyMinutes ?? 105)) : usual;
+  if (wakeRequest && wakeRequest.date === date && wakeRequest.minute < 12 * 60) return { minute: wakeRequest.minute, reason: "asked" };
+  const plan = sleepPlanOf(config);
+  const planned = plan.byDay[weekdayOf(date)]?.wake;
+  let best = planned ? { minute: toMinute(planned), reason: "plan" } : { minute: toMinute(config.usualWake), reason: "usual" };
+  const lead = Number.isInteger(plan.firstClassLeadMin) ? plan.firstClassLeadMin : null;
+  const cls = lead !== null ? firstClassOn(date, blocksOf) : undefined;
+  if (cls && cls.start - lead < best.minute) best = { minute: cls.start - lead, reason: "class" };
+  const first = real(blocksOf(date))[0];
+  const ready = config.readyMinutes ?? 105;
+  if (first && first.start - ready < best.minute) best = { minute: first.start - ready, reason: "commitment" };
+  return { minute: Math.max(0, best.minute), reason: best.reason };
+}
+
+/** Minutes after `date`'s midnight when he wakes that morning. */
+export function wakeOn(date, options) {
+  return wakeWhy(date, options).minute;
 }
 
 /** Minutes after `date`'s midnight by which he should be asleep that night (may pass 1440). */
 export function bedOn(date, { blocksOf, config, wakeRequest = null }) {
   const bedtime = toMinute(config.bedtime);
   const target = bedtime < 12 * 60 ? 1440 + bedtime : bedtime;
-  const needed = 1440 + wakeOn(dayAfter(date), { blocksOf, config, wakeRequest }) - Math.round((config.sleepHours ?? 8) * 60);
+  const sleep = sleepPlanOf(config).sleepHours;
+  const needed = 1440 + wakeOn(dayAfter(date), { blocksOf, config, wakeRequest }) - Math.round(sleep * 60);
   let bed = Math.min(target, needed);
   const lateFixed = blocksOf(date).filter((b) => b.fixed && b.source !== "orion" && b.end > bed).sort((a, b) => b.end - a.end)[0];
   if (lateFixed) bed = lateFixed.end + (config.commuteMinutes ?? 30);

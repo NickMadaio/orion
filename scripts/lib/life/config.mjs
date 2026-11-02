@@ -46,7 +46,56 @@ export const DEFAULTS = Object.freeze({
   // The calendar ORION's own blocks are written to. Not the default one: that was "School" (a synced university feed that removed them
   // within a minute, 2026-10-19). A name that does not exist falls back to the default, so this is safe to leave as is.
   eventCalendar: "Calendar",
+  // His sleep plan (W10-B, 2026-11-02: "im going to start waking up earlier and going to bed earlier"). scripts/orion-sleepplan
+  // writes it; night.mjs reads it. byDay: { mon: { wake: "06:00" }, ... } (a day not listed uses the class rule, then usualWake).
+  // firstClassLeadMin: up at least this long before the first class (null: the readyMinutes rule above). sleepHours: absent means
+  // the top-level sleepHours. exceptions: [{ date, reason, until }] nights he talked ORION out of the lockdown (a legit reason only).
+  sleepPlan: Object.freeze({ byDay: Object.freeze({}), firstClassLeadMin: null, nudgeBeforeMin: 30, lockdownBelowHours: 6,
+    legitReasons: Object.freeze(["friends", "party", "bar", "schoolwork"]), exceptions: Object.freeze([]) }),
 });
+
+export const WEEKDAYS = Object.freeze(["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A whole sleepPlan, as stored (every field optional; unknown fields refused). */
+export function validSleepPlan(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions"];
+  if (Object.keys(v).some((k) => !known.includes(k))) return false;
+  const byDay = v.byDay ?? {};
+  if (typeof byDay !== "object" || Array.isArray(byDay)) return false;
+  const daysOk = Object.entries(byDay).every(([d, x]) => WEEKDAYS.includes(d) && x && typeof x === "object"
+    && Object.keys(x).every((k) => k === "wake") && (x.wake === undefined || HHMM.test(x.wake)));
+  const lead = v.firstClassLeadMin;
+  const leadOk = lead === undefined || lead === null || (Number.isInteger(lead) && lead >= 15 && lead <= 360);
+  const sleepOk = v.sleepHours === undefined || (typeof v.sleepHours === "number" && v.sleepHours >= 5 && v.sleepHours <= 11);
+  const nudgeOk = v.nudgeBeforeMin === undefined || (Number.isInteger(v.nudgeBeforeMin) && v.nudgeBeforeMin >= 0 && v.nudgeBeforeMin <= 180);
+  const lockOk = v.lockdownBelowHours === undefined || (typeof v.lockdownBelowHours === "number" && v.lockdownBelowHours >= 0 && v.lockdownBelowHours <= 10);
+  const reasons = v.legitReasons ?? [];
+  const reasonsOk = Array.isArray(reasons) && reasons.length <= 20 && reasons.every((r) => typeof r === "string" && /^[a-z][a-z ]{1,29}$/.test(r));
+  const ex = v.exceptions ?? [];
+  const exOk = Array.isArray(ex) && ex.length <= 30 && ex.every((e) => e && DATE.test(e.date) && typeof e.reason === "string" && e.reason.length <= 30
+    && (e.until === null || e.until === undefined || HHMM.test(e.until)));
+  return daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
+}
+
+/** The plan with every default filled in (never mutates the stored object). */
+export function sleepPlanOf(config) {
+  const saved = config?.sleepPlan && typeof config.sleepPlan === "object" ? config.sleepPlan : {};
+  return { ...DEFAULTS.sleepPlan, ...saved, byDay: { ...(saved.byDay ?? {}) }, legitReasons: [...(saved.legitReasons ?? DEFAULTS.sleepPlan.legitReasons)],
+    exceptions: [...(saved.exceptions ?? [])], sleepHours: saved.sleepHours ?? config?.sleepHours ?? 8 };
+}
+
+/** Replaces the stored sleepPlan after validating it whole. */
+export function setSleepPlan(plan, file = CONFIG_FILE) {
+  if (!validSleepPlan(plan)) throw new TypeError("that sleep plan is not valid");
+  const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(`${file}.tmp`, JSON.stringify({ ...current, sleepPlan: plan }, null, 2));
+  renameSync(`${file}.tmp`, file);
+  return plan;
+}
 
 /** True when ORION should act as if this calendar event did not exist. */
 export function ignoredEvent(title, config = loadConfig()) {
@@ -100,6 +149,7 @@ const VALIDATORS = {
   windDownMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 90,
   freeMinutesKept: (v) => Number.isInteger(v) && v >= 0 && v <= 240,
   autoShrink: (v) => typeof v === "boolean",
+  sleepPlan: validSleepPlan,
 };
 
 /** "Naps at least 75 minutes, always": orion-life min nap 75 (0 removes it). */
@@ -123,7 +173,7 @@ export function setConfig(key, raw, file = CONFIG_FILE) {
   let value = raw;
   if (typeof DEFAULTS[key] === "number") value = Number(raw);
   if (typeof DEFAULTS[key] === "boolean") value = raw === true || raw === "true";
-  if (key === "anchors" && typeof raw === "string") { try { value = JSON.parse(raw); } catch { value = null; } }
+  if ((key === "anchors" || key === "sleepPlan") && typeof raw === "string") { try { value = JSON.parse(raw); } catch { value = null; } }
   if (Array.isArray(DEFAULTS[key])) value = String(raw).split(",").map((x) => Number(x.trim()));
   if (!VALIDATORS[key](value)) throw new TypeError(`${key} cannot be ${raw}`);
   const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();

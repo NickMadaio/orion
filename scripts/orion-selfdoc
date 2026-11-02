@@ -344,6 +344,7 @@ const WRAPPER_BLURB = {
   "orion-life": "the day PLANNER's settings only (side-project hour, gym days, bedtime, wake, study length) — never supplements, food or to-dos; `orion-life` shows them; `orion-life set sideProjectLabel \"Edit the London vlog\"`, `set gymDays 1,3,5`, `set bedtime 00:30`, `set usualWake 09:00`",
   "orion-watch": "`orion-watch status` — what ORION already asked him today about an empty day, and whether it reshaped the morning after a short night",
   "orion-wake": "set Nick's wake-up alarm on his iPhone — `orion-wake 07:30`, `orion-wake clear`, no argument shows it; the ONLY way to wake him (alarm_set rings on the Mac)",
+  "orion-sleepplan": "his STANDING wake times and bedtime (a one-off alarm is orion-wake): `show`, `set --days mon,wed,thu --wake 06:00 [--only] [--rest 09:00] [--lead 180]` (up 180 min before the first class), `except --date tonight --reason friends|party|bar|schoolwork [--until HH:MM]` (no bedtime lockdown that night; gaming is never a reason), `clear-except`, `plan --json`",
   "orion-gmail-latest": "the newest inbox thread (read-only)",
   "orion-gmail-search": "search mail with a Gmail query (read-only)",
   "orion-discord-alert": "send Nick a short Discord alert (he must have approved the alert policy)",

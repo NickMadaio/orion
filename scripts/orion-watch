@@ -311,5 +311,7 @@ if (alerts.length) {
   }
 }
 if (!dry) { save(); summarize(log); }
+// The bedtime nudge ladder (orion-sleep-nudge, W10-F) rides this tick: cheap when it is not bedtime, and a failure never breaks the tick.
+if (!dry) { try { spawnSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), "orion-sleep-nudge"), "tick", "--now", now.toISOString()], { encoding: "utf8", timeout: 60000, env: process.env }); } catch { /* the watch goes on */ } }
 if (process.argv.includes("--json")) console.log(JSON.stringify(alerts));
 else for (const a of alerts) console.log(a.text);

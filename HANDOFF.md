@@ -80,6 +80,18 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-02 late: wave 16: replies, phone Home, voice address gate, bubble threads (Claude, orchestrator)
+
+- **Replies (w16/a-reply).**
+  - Answers that arrived while the app was paused for a continuation are now delivered to chat (PausedAnswerLanding.swift).
+  - Long place-check replies go to plan-check-story.ts, not reality's attendance guess. The old route produced "you were at wales with".
+  - A question never binds to a pending move offer. Repro: "whats the weather…tmrw" was read as "move to tomorrow". Live mitigation: a gateway restart at 23:15 cleared the in-memory offer.
+- **Phone Home (w16/b-phonehome).** First screen: what's next, ORION's latest ask with Reply and quick answers, approvals, Done early (existing `checkin early-auto` path), and a water/sleep/focus glance. Earlier tonight the phone crashed on launch: `CLMonitor("orion.places")` gave "Monitor name is not valid", read off `devicectl … --console`. Renamed to OrionPlaces (f5cca8d).
+- **Voice (w16/c-voice).** `FollowUpAddressGate` applies only to follow-up and continuation speech. It vetoes on voice-id below 0.40, mixed voices, a level drop of 12 dB or more, or speech said to someone else, and scores on timing and topic. A borderline score of 0 goes to qwen3.5:4b. Decisions are logged to ~/.openclaw/logs/orion-address-decisions.jsonl.
+- **Bubble (w16/d-bubble).** BubbleThread shows the reply and the answer in the bubble, binds by askId, and mirrors to the Mac and phone chats.
+- **Tests.** Plugin 4447/4447, Mac 588/0, phone suites green. LayoutRuleTests were updated for the Plan page sitting outside the page ScrollView.
+- **Trap.** Parallel workers share `git stash`; two swapped stashes tonight. Workers must commit WIP instead of stashing.
+
 ### 2026-11-02 evening: wave 14: tab redesigns, hologram, mail alerts, food estimates, phone water and food (Claude, orchestrator)
 
 **Changed.**

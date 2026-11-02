@@ -231,3 +231,22 @@ describe("the worker knows the tool", () => {
         expect(BRAIN_INSTRUCTIONS).toMatch(/domain[^\n]*only when he says "everything from <domain>"/);
     });
 });
+describe("ordinary sentences never mute a sender (wave 14 review)", () => {
+    const SAM_DIGEST = alert({ text: "2 emails worth a look: Sam Lee about the project; Indeed about new jobs.", items: [
+            { who: "Sam Lee", fromAddress: "sam.lee@example.org", domain: "example.org", topic: "the project", person: true },
+            { who: "Indeed", fromAddress: "alert@indeed.com", domain: "indeed.com", topic: "new jobs", person: false }
+        ] });
+    it.each(["i dont care what sam thinks", "sam isnt important to this", "idc what sam says lol", "sam doesnt matter for the group chat", "not important rn lol"])("a digest naming Sam is not a mail instruction: %s", (m) => {
+        const move = readMailMove(m, ctx([SAM_DIGEST]));
+        expect(rulesOf(move), m).toBeUndefined();
+    });
+    it("with no alert bound, 'not important rn lol' is nothing", () => expect(readMailMove("not important rn lol", ctx([]))).toBeUndefined());
+    it.each(["sam isnt important in these emails", "sam sam lee email isnt important", "stop telling me about sam", "dont alert me about sam"])("but a clear mail reference still mutes one sender: %s", (m) => {
+        const rules = rulesOf(readMailMove(m, ctx([SAM_DIGEST])));
+        expect(rules, m).toEqual([expect.objectContaining({ action: "mute", value: "sam.lee@example.org" })]);
+    });
+    it("a direct reply to the alert counts as about the mail", () => {
+        const rules = rulesOf(readMailMove("sam isnt important", ctx([SAM_DIGEST], { label: SAM_DIGEST.text })));
+        expect(rules).toEqual([expect.objectContaining({ action: "mute", value: "sam.lee@example.org" })]);
+    });
+});

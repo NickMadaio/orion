@@ -91,6 +91,40 @@ describe("several offers and a filled meal (wave 14 review)", () => {
     const out = await runFoodTurn({ kind: "undo", id: "abc-1" }, { run: fakeRun({ undo: restored }), stateDir: dir(), now: NOW });
     expect(out.text).toBe("Put burger and fries back as it was (0 kcal). 5 kcal today.");
   });
+  it("a no that names an offer sends the name; a choose answer is relayed", async () => {
+    const calls: string[][] = [];
+    const named = await runFoodTurn({ kind: "no", which: "nah not the salad" }, { run: fakeRun({ discard: { ok: true, discarded: 1 } }, calls), stateDir: dir(), now: NOW });
+    expect(calls[0]).toEqual(["discard", "--pick", "nah not the salad", "--json"]);
+    expect(named.text).toBe("Okay, not logged.");
+    const ask = await runFoodTurn({ kind: "no" }, { run: fakeRun({ discard: CHOOSE }), stateDir: dir(), now: NOW });
+    expect(ask.text).toBe(CHOOSE.say);
+  });
+  it("a correction that names an offer revises that one; an unnamed one with several waiting is asked back", async () => {
+    const calls: string[][] = [];
+    await runFoodTurn({ kind: "revise", correction: "the burger was small", which: "the burger was small" }, { run: fakeRun({ "--revise": ESTIMATE }, calls), stateDir: dir(), now: NOW });
+    expect(calls[0]).toEqual(["--revise", "the burger was small", "--pick", "the burger was small", "--json"]);
+    const ask = await runFoodTurn({ kind: "revise", correction: "it was small" }, { run: fakeRun({ "--revise": CHOOSE }), stateDir: dir(), now: NOW });
+    expect(ask.text).toBe(CHOOSE.say);
+  });
+  it("logging several at once remembers every id, and undo removes them all", async () => {
+    const both = { ...SAID, logged: { ...LOGGED.logged, id: "FOOD-b", ids: ["FOOD-a", "FOOD-b"] } };
+    const logged = await runFoodTurn({ kind: "pick", which: "both" }, { run: fakeRun({ "log-pending": both }), stateDir: dir(), now: NOW });
+    expect(logged.logged).toEqual({ id: "FOOD-b", ids: ["FOOD-a", "FOOD-b"] });
+    const memory = new FoodMemory();
+    memory.logged("s", logged.logged!.id, 1000, logged.logged!.ids);
+    expect(memory.lastLogged("s")).toEqual({ id: "FOOD-b", ids: ["FOOD-a", "FOOD-b"], at: 1000 });
+    const calls: string[][] = [];
+    const removal = (args: string[]) => ({ ok: true, removed: { id: args[1], title: args[1] === "FOOD-a" ? "Cheeseburger" : "Salad", calories: 500 }, day: "2026-11-02", dayCalories: args[1] === "FOOD-a" ? 800 : 300 });
+    const run: FoodRun = async (args) => { calls.push(args); return { stdout: JSON.stringify(removal(args)), code: 0 }; };
+    const undone = await runFoodTurn({ kind: "undo", id: "FOOD-b", ids: ["FOOD-a", "FOOD-b"] }, { run, stateDir: dir(), now: NOW });
+    expect(calls.map((c) => c[1])).toEqual(["FOOD-a", "FOOD-b"]);
+    expect(undone.text).toBe("Took cheeseburger and salad off (1000 kcal). 300 kcal today.");
+  });
+  it("a single log still remembers one id", () => {
+    const memory = new FoodMemory();
+    memory.logged("s", "FOOD-a", 5);
+    expect(memory.lastLogged("s")).toEqual({ id: "FOOD-a", ids: ["FOOD-a"], at: 5 });
+  });
   it("readFoodPending reads the keyed file: the newest live offer, with how many wait and their names", () => {
     const d = dir();
     const row = (id: string, name: string, minutes: number) => ({ id, name, at: new Date(NOW.getTime() - minutes * 60_000).toISOString(), expiresAt: new Date(NOW.getTime() + 3600_000).toISOString(), via: "inbox", offerText: `Food photo: ${name}. Log it?`, estimate: {} });

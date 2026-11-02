@@ -41,7 +41,8 @@ export class FoodMemory {
     others = new Map();
     logs = new Map();
     otherTurn(key, nowMs) { this.others.set(key, nowMs); }
-    logged(key, id, nowMs) { this.logs.set(key, { id, at: nowMs }); }
+    /** `ids`: every entry one turn logged ("both"), so "undo" takes them all off; `id` is the last. */
+    logged(key, id, nowMs, ids = [id]) { this.logs.set(key, { id, ids: [...ids], at: nowMs }); }
     lastLogged(key) { return this.logs.get(key); }
     forgetLog(key) { this.logs.delete(key); }
     /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
@@ -77,8 +78,9 @@ export async function runFoodTurn(turn, deps) {
         const r = await call(deps.run, args);
         if (!r.j.ok)
             return { text: failure(r.j.error), calls: [r.call], outputs: [r.out] };
-        const logged = r.j.logged?.id;
-        return { text: reply(r.j), calls: [r.call], outputs: [r.out], ...(logged ? { logged: { id: logged } } : {}) };
+        const row = r.j.logged;
+        const ids = Array.isArray(row?.ids) ? row.ids.map(String).filter(Boolean) : [];
+        return { text: reply(r.j), calls: [r.call], outputs: [r.out], ...(row?.id ? { logged: { id: row.id, ...(ids.length > 1 ? { ids } : {}) } } : {}) };
     };
     switch (turn.kind) {
         case "ask": return one(["--text", turn.text, "--offer", "--json"], offerOf);
@@ -88,16 +90,9 @@ export async function runFoodTurn(turn, deps) {
         });
         case "yes": return one(["log-pending", "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
         case "pick": return one(["log-pending", "--pick", turn.which, "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
-        case "no": return one(["discard", "--json"], () => "Okay, not logged.", () => "Okay, not logged.");
-        case "revise": return one(["--revise", turn.correction, "--json"], offerOf);
-        case "undo": return one(["undo", turn.id, "--json"], (j) => {
-            if (j.restored) {
-                const e = (j.entry ?? {});
-                return `Put ${lower(e.title)} back as it was (${e.calories} kcal). ${j.dayCalories} kcal today.`;
-            }
-            const r = (j.removed ?? {});
-            return `Took ${lower(r.title)} off (${r.calories} kcal). ${j.dayCalories} kcal today.`;
-        }, (e) => `I couldn't take it off: ${e ?? "the health log didn't answer"}.`);
+        case "no": return one(["discard", ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose ? String(j.say) : "Okay, not logged."), () => "Okay, not logged.");
+        case "revise": return one(["--revise", turn.correction, ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose ? String(j.say) : offerOf(j)));
+        case "undo": return undoAll(turn.ids?.length ? turn.ids : [turn.id], deps);
         case "that": {
             const pending = readFoodPending(deps.stateDir, deps.now);
             if (pending)
@@ -131,3 +126,35 @@ async function mealThenEstimate(read, deps) {
         return { text: `${base}; I couldn't estimate the calories just now.`, calls, outputs };
     return { text: `${base}. My estimate: ${offerOf(r.j)}`, calls, outputs };
 }
+const undoFailure = (e) => `I couldn't take it off: ${e ?? "the health log didn't answer"}.`;
+/** Takes off every entry one turn logged: one reply naming what came off (or what was put back), the day's total from the last undo. */
+async function undoAll(ids, deps) {
+    const calls = [], outputs = [], removed = [], restored = [];
+    let kcal = 0, restoredKcal = 0, dayCalories, failure;
+    for (const id of ids) {
+        const r = await call(deps.run, ["undo", id, "--json"]);
+        calls.push(r.call);
+        outputs.push(r.out);
+        if (!r.j.ok) {
+            failure = String(r.j.error ?? "");
+            continue;
+        }
+        const e = (r.j.restored ? r.j.entry : r.j.removed ?? {});
+        (r.j.restored ? restored : removed).push(lower(e.title));
+        if (r.j.restored)
+            restoredKcal += Number(e.calories ?? 0);
+        else
+            kcal += Number(e.calories ?? 0);
+        dayCalories = r.j.dayCalories;
+    }
+    if (!removed.length && !restored.length)
+        return { text: undoFailure(failure), calls, outputs };
+    const parts = [
+        ...(removed.length ? [`Took ${listOfNames(removed)} off (${kcal} kcal).`] : []),
+        ...(restored.length ? [`Put ${listOfNames(restored)} back as it was (${restoredKcal} kcal).`] : []),
+        `${dayCalories} kcal today.`,
+        ...(failure !== undefined ? [`One didn't come off: ${failure || "the health log didn't answer"}.`] : []),
+    ];
+    return { text: parts.join(" "), calls, outputs };
+}
+const listOfNames = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);

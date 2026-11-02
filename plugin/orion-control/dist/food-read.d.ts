@@ -19,12 +19,15 @@ export type FoodTurn = {
     which: string;
 } | {
     kind: "no";
+    which?: string;
 } | {
     kind: "revise";
     correction: string;
+    which?: string;
 } | {
     kind: "undo";
     id: string;
+    ids?: string[];
 };
 /** The offer waiting in food-pending.json, as the plugin sees it. */
 export type FoodPendingView = {
@@ -46,6 +49,7 @@ export type FoodContext = {
     }>;
     lastLogged?: {
         id: string;
+        ids?: string[];
         at: number;
     };
 };

@@ -85,6 +85,9 @@ function mentioned(m, alert) {
 }
 const MUTE_CUE = /\b(?:not (?:that |really |very |super )?(?:important|urgent|relevant|needed)|(?:isnt|arent|wasnt) (?:that |really )?(?:important|urgent|relevant)|unimportant|irrelevant|spam|junk|who cares|idc|dont (?:really )?care|dont need|not worth)\b/;
 const BOOST_CUE = /\b(?:(?:is|was|are|really|actually|super|very|def|definitely) (?:important|urgent)|matters?|good catch|keep (?:em|them) coming|good to know)\b/;
+/** Words that tie a sentence to the mail alert: the mail itself, "these", "the X one", or a mute phrase about messages. */
+const MAIL_REFERENCE = /\b(?:alerts?|these|those|ones?|stop (?:telling|alerting|pinging|notifying) me|dont (?:alert|ping|notify|tell|bother) me|not important)\b/;
+const refersToMail = (m, directReply) => directReply || MAIL_WORD.test(m) || MAIL_REFERENCE.test(m);
 /** The item of the current alert that what he named points at (its sender's name or brand, or its topic). */
 function itemNamed(target, alert) {
     const want = words(target);
@@ -131,7 +134,8 @@ export function readMailMove(message, ctx) {
     if (alert && alert.items.length > 1 && !EVERYTHING_FROM.test(m)) { // "the registrar one isn't important": one named item of a digest
         const hit = mentioned(m, alert);
         const action = MUTE_CUE.test(m) ? "mute" : BOOST_CUE.test(m) ? "boost" : undefined;
-        if (action && hit.length === 1)
+        // Only when it clearly refers to the mail: "i dont care what sam thinks" is about Sam, not his email.
+        if (action && hit.length === 1 && refersToMail(m, ctx.label !== undefined))
             return { kind: "rules", action, rules: [itemRule(action, hit[0])] };
     }
     for (const [action, patterns] of [["mute", NAMED_MUTE], ["boost", NAMED_BOOST]]) {

@@ -6,8 +6,11 @@
 //     text?, photos?: [path], eatenAt?, estimate }
 // The older single-object file is read as one offer. The plugin (food-chat.ts) reads it to bind "yes" / "the burger" / "no" /
 // "it was a small one", and runs `orion-food-estimate log-pending [--pick "<words>"]`, `discard` or `--revise`; nothing else writes it.
+// Every change is read-modify-write under food-pending.json.lock (O_EXCL, stale after 15 s, the same scheme as health-log.json's lock in
+// log.mjs), because the detached inbox run and the plugin's log-pending race. Logging claims an offer (claimPending removes it under the
+// lock) BEFORE it writes the meal, so the same offer id can never log twice; a failed log puts the offer back (restorePending).
 // Never written during an evaluation (eval-mode marker): an offer made then is said, not kept, so a gate never leaves one behind.
-import { readFileSync, renameSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, renameSync, unlinkSync, writeFileSync, mkdirSync, openSync, closeSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { controlledDir } from "../clock.mjs";
@@ -37,6 +40,23 @@ function readAll(env) {
 
 const isLive = (row, now) => !!row?.estimate && Date.parse(row.expiresAt) > now.getTime();
 
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/** Runs `body` holding the pending file's lock; waits up to 6 s, and breaks a lock older than 15 s (a crashed holder). */
+export function withPendingLock(body, env = process.env) {
+  const lock = `${pendingPath(env)}.lock`; const deadline = Date.now() + 6000;
+  mkdirSync(controlledDir(env), { recursive: true });
+  for (;;) {
+    try { closeSync(openSync(lock, "wx")); break; } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      try { if (Date.now() - statSync(lock).mtimeMs > 15000) unlinkSync(lock); } catch { /* raced: retry */ }
+      if (Date.now() > deadline) throw new Error("the pending offers stayed busy; try again");
+      sleep(15);
+    }
+  }
+  try { return body(); } finally { try { unlinkSync(lock); } catch { /* already gone */ } }
+}
+
 function writeAll(offers, env) {
   mkdirSync(controlledDir(env), { recursive: true });
   const tmp = `${pendingPath(env)}.${randomUUID().slice(0, 8)}.tmp`;
@@ -53,8 +73,10 @@ export function writePending(offer, { now = new Date(), env = process.env, repla
   const { id: _id, at: _at, expiresAt: _exp, saved: _saved, ...rest } = offer;   // a revised offer is a new offer, with its own id and clock
   const row = { ...rest, name: mealName(offer.estimate), id: `fp-${randomUUID().slice(0, 8)}`, at: now.toISOString(), expiresAt: new Date(now.getTime() + ttl).toISOString() };
   if (evalMode()) return { ...row, saved: false };
-  const kept = readAll(env).filter((o) => isLive(o, now) && o.id !== replaces);
-  writeAll([...kept, row].slice(-MAX_OFFERS), env);
+  withPendingLock(() => {
+    const kept = readAll(env).filter((o) => isLive(o, now) && o.id !== replaces);
+    writeAll([...kept, row].slice(-MAX_OFFERS), env);
+  }, env);
   return row;
 }
 
@@ -70,7 +92,35 @@ export function readPending({ now = new Date(), env = process.env, id = null } =
 /** Drops the offers with these ids (all of them with no ids). */
 export function clearPending({ env = process.env, ids = null, now = new Date() } = {}) {
   if (evalMode()) return;
-  const left = ids ? readAll(env).filter((o) => isLive(o, now) && !ids.includes(o.id)) : [];
+  withPendingLock(() => {
+    const left = ids ? readAll(env).filter((o) => isLive(o, now) && !ids.includes(o.id)) : [];
+    if (left.length) { writeAll(left, env); return; }
+    try { unlinkSync(pendingPath(env)); } catch { /* none */ }
+  }, env);
+}
+
+/** Takes these live offers out of the file and returns the ones this caller got: a second caller asking for the same id gets nothing. */
+export function claimPending(ids, { env = process.env, now = new Date() } = {}) {
+  if (evalMode()) return livePending({ now, env }).filter((o) => ids.includes(o.id));
+  return withPendingLock(() => {
+    const live = readAll(env).filter((o) => isLive(o, now));
+    const got = live.filter((o) => ids.includes(o.id));
+    if (got.length) clearPendingLocked(live.filter((o) => !ids.includes(o.id)), env);
+    return got;
+  }, env);
+}
+
+/** Puts claimed offers back (a log that failed), oldest first, without duplicating an id. */
+export function restorePending(offers, { env = process.env, now = new Date() } = {}) {
+  if (evalMode() || !offers.length) return;
+  withPendingLock(() => {
+    const have = readAll(env).filter((o) => isLive(o, now));
+    const back = offers.filter((o) => !have.some((h) => h.id === o.id));
+    writeAll([...have, ...back].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-MAX_OFFERS), env);
+  }, env);
+}
+
+function clearPendingLocked(left, env) {
   if (left.length) { writeAll(left, env); return; }
   try { unlinkSync(pendingPath(env)); } catch { /* none */ }
 }

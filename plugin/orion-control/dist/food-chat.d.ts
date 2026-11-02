@@ -9,6 +9,7 @@ export type FoodOutcome = {
     outputs: string[];
     logged?: {
         id: string;
+        ids?: string[];
     };
 };
 export declare const PHOTO_LINE = "I can't see photos sent in this chat yet. Send it with the food button on the phone and I'll estimate it, or tell me what it was.";
@@ -21,9 +22,11 @@ export declare class FoodMemory {
     private others;
     private logs;
     otherTurn(key: string, nowMs: number): void;
-    logged(key: string, id: string, nowMs: number): void;
+    /** `ids`: every entry one turn logged ("both"), so "undo" takes them all off; `id` is the last. */
+    logged(key: string, id: string, nowMs: number, ids?: readonly string[]): void;
     lastLogged(key: string): {
         id: string;
+        ids: string[];
         at: number;
     } | undefined;
     forgetLog(key: string): void;

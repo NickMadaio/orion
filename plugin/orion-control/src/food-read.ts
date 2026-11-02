@@ -24,9 +24,9 @@ export type FoodTurn =
   | { kind: "photo" }
   | { kind: "yes" }
   | { kind: "pick"; which: string }
-  | { kind: "no" }
-  | { kind: "revise"; correction: string }
-  | { kind: "undo"; id: string };
+  | { kind: "no"; which?: string }
+  | { kind: "revise"; correction: string; which?: string }
+  | { kind: "undo"; id: string; ids?: string[] };
 
 /** The offer waiting in food-pending.json, as the plugin sees it. */
 export type FoodPendingView = { at: number; via: "chat" | "inbox"; offerText: string; count?: number; names?: string[] };
@@ -39,7 +39,7 @@ export type FoodContext = {
   /** The offer is still the last thing in this chat (FoodMemory.bound). */
   bound?: boolean;
   attachments?: ReadonlyArray<{ kind?: string }>;
-  lastLogged?: { id: string; at: number };
+  lastLogged?: { id: string; ids?: string[]; at: number };
 };
 
 const UNDO_MS = 10 * 60_000;
@@ -71,6 +71,25 @@ function picked(said: string, names: readonly string[]): boolean {
   return want.every((w) => have.some((h) => stem(h) === stem(w) || (stem(w).length >= 4 && h.includes(stem(w)))));
 }
 
+/** "nah not the salad", "no dont log the pasta", "skip the fries": a no, with whatever follows it (the thing it is about). Null when it is not a no. */
+const NO_LEAD = /^(?:(?:n|no|nah|nope|naw)\b[, ]*)?(?:(?:not|dont|don'?t|do not)(?: (?:log|add|save|track))?\b|skip\b|forget\b|never ?mind\b|cancel\b|drop\b|ignore\b|scrap\b)?[, ]*(.*)$/;
+const NO_START = /^(?:n|no|nah|nope|naw|not|dont|don'?t|do not|skip|forget|never ?mind|cancel|drop|ignore|scrap)\b/;
+const NO_FILLER = new Set(["the", "a", "an", "one", "ones", "that", "this", "it", "log", "add", "save", "track", "please", "pls", "thanks", "thank", "you", "thx", "ty", "lol", "for", "now", "of", "bother", "with", "just", "meal", "food"]);
+const stemOf = (w: string) => w.replace(/(?:es|s)$/, "");
+/** Whether any of what he said names one of the waiting offers (by a word of its name). */
+function mentions(said: string, names: readonly string[]): boolean {
+  const want = said.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !PICK_STOP.has(w) && !NO_FILLER.has(w));
+  const have = names.flatMap((n) => n.toLowerCase().split(/[^a-z0-9]+/)).filter((w) => w.length >= 3);
+  return want.some((w) => have.some((h) => stemOf(h) === stemOf(w) || (stemOf(w).length >= 4 && h.includes(stemOf(w)))));
+}
+/** A no that names one offer, or a bare no with several waiting; null when the words are something else (a correction, a pick). */
+function readNo(said: string, m: string, names: readonly string[], count: number): FoodTurn | null {
+  if (!NO_START.test(said) || CORRECTION.test(said)) return null;
+  const rest = (NO_LEAD.exec(said)?.[1] ?? "").split(/[^a-z0-9]+/).filter((w) => w && !NO_FILLER.has(w));
+  if (!rest.length) return count >= 2 || NO.test(said) ? { kind: "no" } : null;
+  return mentions(rest.join(" "), names) ? { kind: "no", ...(count >= 2 ? { which: m } : {}) } : null;
+}
+
 const tidy = (s: string) => s.trim().replace(/\s+/g, " ").replace(/^[,.:;\-–—\s]+|[?.!,\s]+$/g, "");
 const flat = (s: string) => s.toLowerCase().replace(/[’]/g, "'").replace(/[.!?…,]+$/g, "").replace(/\s+/g, " ").trim();
 
@@ -89,13 +108,16 @@ export function readFoodTurn(message: string, c: FoodContext): FoodTurn | null {
   if (c.attachments?.some((a) => a.kind === "image") && PHOTO_WORDS.test(said)) return { kind: "photo" };
   if (m.length > 200) return null;
   if (c.pending && c.bound) {
-    if ((c.pending.count ?? 1) >= 2 && picked(said, c.pending.names ?? [])) return { kind: "pick", which: m };
+    const count = c.pending.count ?? 1, names = c.pending.names ?? [];
+    const no = readNo(said, m, names, count);
+    if (no) return no;
+    if (count >= 2 && !NO_START.test(said) && picked(said, names)) return { kind: "pick", which: m };
     if (YES.test(said)) return { kind: "yes" };
     if (THAT.test(said)) return { kind: "that" };
-    if (CORRECTION.test(said) && !NOT_A_CORRECTION.test(said) && said.length <= 140) return { kind: "revise", correction: m };
+    if (CORRECTION.test(said) && !NOT_A_CORRECTION.test(said) && said.length <= 140) return { kind: "revise", correction: m, ...(count >= 2 && mentions(said, names) ? { which: m } : {}) };
     if (NO.test(said)) return { kind: "no" };
   }
-  if (c.lastLogged && c.now.getTime() - c.lastLogged.at <= UNDO_MS && UNDO.test(said)) return { kind: "undo", id: c.lastLogged.id };
+  if (c.lastLogged && c.now.getTime() - c.lastLogged.at <= UNDO_MS && UNDO.test(said)) return { kind: "undo", id: c.lastLogged.id, ...((c.lastLogged.ids?.length ?? 0) > 1 ? { ids: [...c.lastLogged.ids!] } : {}) };
   if (THAT.test(said)) return { kind: "that" };
   if (ASK.test(m) && !DAY_TOTAL.test(m)) {
     const food = askedFood(m);

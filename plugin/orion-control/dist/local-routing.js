@@ -1287,7 +1287,7 @@ export function registerLocalRouting(api, options) {
             run.ownText = out?.text ?? "I couldn't estimate that just now, so nothing was logged. Tell me again in a bit.";
             out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
             if (out?.logged)
-                foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime());
+                foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime(), out.logged.ids ?? [out.logged.id]);
             if (food.kind === "undo")
                 foodMemory.forgetLog(sessionKey);
         }

@@ -4,11 +4,11 @@
 
    orion-food-estimate --text "<what he ate>" [--image <path>]... [--meal breakfast|lunch|dinner|snack] [--log] [--offer] [--json]
    orion-food-estimate --entry <FOOD-or-meal id|latest> [--offer] [--json]   estimate a meal already in the log (0 kcal) by its title
-   orion-food-estimate --revise "<his correction>" [--json]                 re-estimate the offered meal ("it was a small one")
+   orion-food-estimate --revise "<his correction>" [--pick "<words>"] [--json]                 re-estimate the offered meal ("it was a small one")
    orion-food-estimate log-pending [--pick "<words>"] [--json]              log the offered estimate (yes to "Log it?"); with several
                                                                             waiting and no --pick it asks which ("the burger", "both")
    orion-food-estimate pending [--json]                                     the offers waiting on a yes, if any
-   orion-food-estimate discard [--json]                                     drop the offers (no to "Log it?")
+   orion-food-estimate discard [--pick "<words>"] [--json]                  drop the offer he named, or the only one (no to "Log it?"); several and no name: asks
    orion-food-estimate undo <id> [--json]                                   remove an entry this tool wrote, or put a filled meal back
    orion-food-estimate inbox [--json]                                       estimate new food-inbox photos and offer each (lib/food/inbox.mjs)
 
@@ -28,7 +28,7 @@ import { clockNow } from "./lib/clock.mjs";
 import { estimateMeal } from "./lib/food/estimate.mjs";
 import { readImages } from "./lib/food/ollama.mjs";
 import { latestUncounted, logEstimate, undoEntry, healthLogPath } from "./lib/food/log.mjs";
-import { clearPending, livePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
+import { claimPending, clearPending, livePending, restorePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
 import { runInbox } from "./lib/food/inbox.mjs";
 import { readFileSync } from "node:fs";
 
@@ -95,9 +95,10 @@ async function entryCommand(which) {
 }
 
 async function reviseCommand(correction) {
-  const pending = readPending({ now });
-  if (!pending) finish({ ok: false, error: "no estimate is waiting to be corrected" }, "There's no estimate waiting, so there's nothing to correct. Tell me what you ate.");
+  const live = livePending({ now });
+  if (!live.length) finish({ ok: false, error: "no estimate is waiting to be corrected" }, "There's no estimate waiting, so there's nothing to correct. Tell me what you ate.");
   if (!correction.trim() || correction.length > 300) usage();
+  const pending = whichOffer(live, one("--pick"), "correct");
   let images = [];
   try { images = readImages(pending.photos ?? []); } catch { images = []; }
   const out = await estimateMeal({ text: pending.text ?? "", images, imagePaths: pending.photos ?? [], correction, previous: pending.summary });
@@ -110,6 +111,27 @@ async function reviseCommand(correction) {
 
 const kcalOf = (offer) => Math.round(offer.estimate?.totals?.kcal ?? 0);
 const listOf = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
+
+/** The one offer his words refer to: --pick names it, or it is the only one waiting. Several and no clear name: asks, and exits. */
+function whichOffer(live, pick, verb) {
+  const chosen = pick !== undefined ? pickOffers(live, pick) : live;
+  if (chosen.length === 1) return chosen[0];
+  const named = live.map((o) => `the ${o.name} (~${kcalOf(o)} kcal)`);
+  const say = pick !== undefined && !chosen.length
+    ? `I couldn't tell which one you meant. Waiting: ${listOf(named)}. Which one should I ${verb}?`
+    : `You have ${live.length} estimates waiting: ${listOf(named)}. Which one should I ${verb}?`;
+  return finish({ ok: true, discarded: 0, choose: live.map((o) => ({ id: o.id, name: o.name, kcal: kcalOf(o) })), say }, say);
+}
+
+/** no to "Log it?": drops the offer he named, the only one waiting, or "all of them"; with several and no name, asks. */
+function discardCommand() {
+  const live = livePending({ now });
+  if (!live.length) finish({ ok: true, discarded: 0 }, "No estimate was waiting.");
+  const pick = one("--pick");
+  const chosen = pick !== undefined && /\b(?:both|all|every|everything)\b/i.test(pick) ? live : [whichOffer(live, pick, "drop")];
+  clearPending({ ids: chosen.map((o) => o.id), now });
+  finish({ ok: true, discarded: chosen.length }, "Okay, not logged.");
+}
 
 /** Logs one offer; the result or a failure sentence. */
 function logOne(offer) {
@@ -130,12 +152,19 @@ function logPendingCommand() {
       : `You have ${live.length} estimates waiting: ${listOf(named)}. Which should I log? Say "the ${live[0].name.split(/[ ,]/)[0]}", or "all of them".`;
     finish({ ok: true, choose: live.map((o) => ({ id: o.id, name: o.name, kcal: kcalOf(o) })), say }, say);
   }
+  // Claim first: the offer leaves the file under the lock, so a second yes (the other process) finds nothing and cannot log it again.
+  const claimed = claimPending(chosen.map((o) => o.id), { now });
+  if (!claimed.length) finish({ ok: false, error: "no estimate is waiting to be logged" }, "There's no estimate waiting to log.");
   const done = [];
-  for (const offer of chosen) {
-    const logged = logOne(offer);
-    if (!logged.ok) { if (done.length) break; finish(logged, logged.error); }
+  for (const [i, offer] of claimed.entries()) {
+    let logged;
+    try { logged = logOne(offer); } catch (error) { logged = { ok: false, error: String(error?.message ?? error) }; }
+    if (!logged.ok) {
+      restorePending(claimed.slice(i), { now });   // the failed one and the rest wait for another yes
+      if (done.length) break;
+      finish(logged, logged.error);
+    }
     done.push({ offer, logged });
-    clearPending({ ids: [offer.id], now });
   }
   const last = done.at(-1).logged;
   const e = last.entry;
@@ -156,7 +185,7 @@ function notifier() {
 
 const [command] = argv;
 if (command === "log-pending") logPendingCommand();
-else if (command === "discard") { const live = livePending({ now }); clearPending({ now }); finish({ ok: true, discarded: live.length }, live.length ? "Okay, not logged." : "No estimate was waiting."); }
+else if (command === "discard") discardCommand();
 else if (command === "pending") { const live = livePending({ now }); const p = live.at(-1) ?? null; finish({ ok: true, pending: p, offers: live }, p ? live.map((o) => o.offerText).join("\n") : "No estimate is waiting."); }
 else if (command === "undo") {
   const r = undoEntry(argv[1], { now });

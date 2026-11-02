@@ -191,7 +191,8 @@ public struct SnapshotReader {
     }
 
     static func decodeWakePlan(_ data: Data) -> WakePlan? {
-        guard let plan = try? JSONDecoder().decode(WakePlan.self, from: data), plan.isNicks else { return nil }
+        guard var plan = try? JSONDecoder().decode(WakePlan.self, from: data), plan.isNicks else { return nil }
+        plan.alarms = plan.alarms.filter { $0.byNick == true }   // only alarms the writer marked as asked-for
         return plan
     }
 

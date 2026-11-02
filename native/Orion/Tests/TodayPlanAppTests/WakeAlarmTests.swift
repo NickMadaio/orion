@@ -27,9 +27,9 @@ final class WakeAlarmTests: XCTestCase {
 
     func testPlanParsesIsoAndClockForms() {
         let plan = """
-        {"generatedAt":"x","source":"nick","alarms":[{"date":"2027-01-15","at":"06:30","reason":"gym"},
-        {"date":"2027-01-16","at":"07:00","iso":"2027-01-16T07:05:00Z","reason":"iso wins"},
-        {"date":"bad","at":"06:00"},{"date":"2027-01-17","at":"25:00"}],"bedtimes":[]}
+        {"generatedAt":"x","source":"nick","alarms":[{"date":"2027-01-15","at":"06:30","reason":"gym","byNick":true},
+        {"date":"2027-01-16","at":"07:00","iso":"2027-01-16T07:05:00Z","reason":"iso wins","byNick":true},
+        {"date":"bad","at":"06:00","byNick":true},{"date":"2027-01-17","at":"25:00","byNick":true},{"date":"2027-01-18","at":"09:00","reason":"usual"}],"bedtimes":[]}
         """
         let entries = WakeAlarmPlan.entries(plan: Data(plan.utf8), override: nil, calendar: calendar)
         XCTAssertEqual(entries.count, 2)
@@ -52,7 +52,7 @@ final class WakeAlarmTests: XCTestCase {
 
     func testOverrideWinsForItsDateOnly() {
         let plan = """
-        {"source":"nick","alarms":[{"date":"2027-01-15","at":"06:30","reason":"plan"},{"date":"2027-01-16","at":"06:30","reason":"plan"}]}
+        {"source":"nick","alarms":[{"date":"2027-01-15","at":"06:30","reason":"plan","byNick":true},{"date":"2027-01-16","at":"06:30","reason":"plan","byNick":true}]}
         """
         let override = "{\"at\":\"2027-01-15T09:00:00.000Z\",\"setAt\":\"x\"}"
         let entries = WakeAlarmPlan.entries(plan: Data(plan.utf8), override: Data(override.utf8), calendar: calendar)

@@ -12,8 +12,10 @@ public struct WakePlan: Codable, Equatable, Sendable {
         public var at: String
         public var iso: String?
         public var reason: String?
-        public init(date: String, at: String, iso: String? = nil, reason: String? = nil) {
-            self.date = date; self.at = at; self.iso = iso; self.reason = reason
+        /// Set by the writer only on alarms Nick asked for; an alarm without it never rings.
+        public var byNick: Bool?
+        public init(date: String, at: String, iso: String? = nil, reason: String? = nil, byNick: Bool? = nil) {
+            self.date = date; self.at = at; self.iso = iso; self.reason = reason; self.byNick = byNick
         }
     }
     public struct Bedtime: Codable, Equatable, Sendable {
@@ -71,6 +73,7 @@ public struct WakePlan: Codable, Equatable, Sendable {
         guard isNicks else { return [:] }
         var byDay: [String: Wanted] = [:]
         for alarm in alarms {
+            guard alarm.byNick == true else { continue }
             guard let at = Self.parseISO(alarm.iso) ?? Self.clock(day: alarm.date, hhmm: alarm.at, calendar: calendar), at > now else { continue }
             byDay[alarm.date] = Wanted(fireAt: at, reason: alarm.reason)
         }
@@ -106,11 +109,12 @@ public enum AlarmPlanner {
 
     /// Tonight's computed wake (which already carries a wake request and a late-night shift), the request itself, and
     /// every upcoming entry of a plan Nick set: one alarm per wake day. The request wins for its own day, tonight's
-    /// computed wake for its own day, then the plan. Never a plan from defaults.
+    /// computed wake for its own day (only with a plan Nick set), then the plan. Never a plan from defaults.
     public static func wanted(tonight: Date?, wakeRequest: Date?, plan: WakePlan?, now: Date,
                               calendar: Calendar = .current) -> [WakePlan.Wanted] {
         var byDay = plan?.alarms(after: now, calendar: calendar) ?? [:]
-        if let tonight, tonight > now {
+        // Tonight's computed wake comes from defaults: it rings only with a plan Nick set (or his request, below).
+        if let tonight, tonight > now, plan?.isNicks == true {
             let day = WakePlan.dayKey(tonight, calendar: calendar)
             byDay[day] = WakePlan.Wanted(fireAt: tonight, reason: byDay[day]?.reason)
         }

@@ -12,9 +12,11 @@ final class WakePlanTests: XCTestCase {
 
     private func plan(source: String = "nick") -> WakePlan {
         WakePlan(source: source, generatedAt: "2026-11-02T20:00:00.123Z",
-                 alarms: [.init(date: "2026-11-03", at: "07:15", reason: "CS2100 at 09:00"),
-                          .init(date: "2026-11-04", at: "08:30", iso: "2026-11-04T13:30:00.000Z"),
-                          .init(date: "2026-11-01", at: "07:00")],
+                 alarms: [.init(date: "2026-11-03", at: "07:15", reason: "CS2100 at 09:00", byNick: true),
+                          .init(date: "2026-11-04", at: "08:30", iso: "2026-11-04T13:30:00.000Z", byNick: true),
+                          .init(date: "2026-11-01", at: "07:00", byNick: true),
+                          .init(date: "2026-11-05", at: "09:00", reason: "usual"),
+                          .init(date: "2026-11-06", at: "08:15", reason: "commitment", byNick: false)],
                  bedtimes: [.init(date: "2026-11-02", sleepBy: "23:15", nudgeAt: "22:45"),
                             .init(date: "2026-11-03", sleepBy: "00:30", nudgeAt: "00:00")])
     }
@@ -51,10 +53,13 @@ final class WakePlanTests: XCTestCase {
         XCTAssertEqual(wanted.map(\.fireAt), [request, WakePlan.parseISO("2026-11-04T13:30:00.000Z")!])
     }
 
-    func testTonightsWakeIsAddedEvenWithoutAPlanAndHorizonIsCapped() {
+    func testTonightsDefaultWakeNeedsANickPlanOrARequestAndHorizonIsCapped() {
         let tonight = at(2026, 11, 3, 8, 0)
-        XCTAssertEqual(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: nil, now: now, calendar: cal).map(\.fireAt), [tonight])
-        let far = WakePlan(source: "nick", alarms: [.init(date: "2026-12-25", at: "07:00")])
+        XCTAssertTrue(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: nil, now: now, calendar: cal).isEmpty)
+        XCTAssertTrue(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: plan(source: "default"), now: now, calendar: cal).isEmpty)
+        XCTAssertEqual(AlarmPlanner.wanted(tonight: tonight, wakeRequest: tonight, plan: nil, now: now, calendar: cal).map(\.fireAt), [tonight])
+        XCTAssertEqual(AlarmPlanner.wanted(tonight: tonight, wakeRequest: nil, plan: WakePlan(source: "nick"), now: now, calendar: cal).map(\.fireAt), [tonight])
+        let far = WakePlan(source: "nick", alarms: [.init(date: "2026-12-25", at: "07:00", byNick: true)])
         XCTAssertTrue(AlarmPlanner.wanted(tonight: nil, wakeRequest: nil, plan: far, now: now, calendar: cal).isEmpty)
     }
 

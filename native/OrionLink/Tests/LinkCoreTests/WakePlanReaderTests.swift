@@ -14,9 +14,10 @@ final class WakePlanReaderTests: XCTestCase {
     }
 
     func testANickPlanIsCarriedWithTheFileFields() throws {
-        try write(#"{"generatedAt":"2026-11-02T20:00:00.000Z","source":"nick","alarms":[{"date":"2026-11-03","at":"07:15","iso":"2026-11-03T12:15:00.000Z","reason":"class"}],"bedtimes":[{"date":"2026-11-02","sleepBy":"23:15","nudgeAt":"22:45","sleepByIso":"2026-11-03T04:15:00.000Z","nudgeAtIso":"2026-11-03T03:45:00.000Z"}]}"#)
+        try write(#"{"generatedAt":"2026-11-02T20:00:00.000Z","source":"nick","alarms":[{"date":"2026-11-03","at":"07:15","iso":"2026-11-03T12:15:00.000Z","reason":"class","byNick":true},{"date":"2026-11-04","at":"09:00","reason":"usual"}],"bedtimes":[{"date":"2026-11-02","sleepBy":"23:15","nudgeAt":"22:45","sleepByIso":"2026-11-03T04:15:00.000Z","nudgeAtIso":"2026-11-03T03:45:00.000Z"}]}"#)
         let plan = try XCTUnwrap(SnapshotReader(home: home).wakePlan())
         XCTAssertEqual(plan.alarms.first?.at, "07:15")
+        XCTAssertEqual(plan.alarms.count, 1, "an alarm without byNick is dropped")
         XCTAssertEqual(plan.bedtimes.first?.nudgeAt, "22:45")
     }
 

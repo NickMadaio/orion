@@ -96,10 +96,10 @@ test("week plan → wake-plan.json shape: alarms, bedtimes and lockdowns line up
   assert.equal(doc.source, "nick");
   assert.equal(wakePlanDoc({ now, days, config: base }).source, "default", "no plan of his: alarms must not ring from it");
   assert.equal(wakePlanDoc({ now, days, config: { ...base, sleepPlan: { firstClassLeadMin: 180 } } }).source, "nick", "a lead alone is his");
-  assert.equal(doc.alarms.length, 7);
-  assert.deepEqual(Object.keys(doc.alarms[0]), ["date", "at", "iso", "reason"]);
+  assert.equal(doc.alarms.length, 3, "only plan/class mornings ring (Tue 11-03 usual is not one)");
+  assert.deepEqual(Object.keys(doc.alarms[0]), ["date", "at", "iso", "reason", "byNick"]);
   assert.deepEqual(Object.keys(doc.bedtimes[0]), ["date", "sleepBy", "nudgeAt", "sleepByIso", "nudgeAtIso"]);
-  assert.deepEqual(doc.alarms.slice(0, 4).map((a) => a.at), ["09:00", "06:00", "06:00", "09:00"]);
+  assert.deepEqual(doc.alarms.map((a) => a.at), ["06:00", "06:00", "06:00"]);
   assert.deepEqual(doc.bedtimes[1], { date: "2026-11-03", sleepBy: "22:00", nudgeAt: "21:30",
     sleepByIso: new Date(2026, 10, 3, 22, 0).toISOString(), nudgeAtIso: new Date(2026, 10, 3, 21, 30).toISOString() });
   assert.deepEqual(doc.lockdowns[1], { date: "2026-11-03", at: "00:00", iso: new Date(2026, 10, 4, 0, 0).toISOString(), exception: null });
@@ -142,7 +142,7 @@ test("CLI: a preview saves nothing; set + lead write the eval config and eval-wa
   const plan = JSON.parse(readFileSync(join(dir, "eval-wake-plan.json"), "utf8"));
   assert.equal(plan.generatedAt, new Date(2026, 10, 2, 20, 0).toISOString(), "the sandbox clock");
   assert.equal(plan.source, "nick");
-  assert.deepEqual(plan.alarms.slice(0, 2).map((a) => [a.date, a.at, a.reason]), [["2026-11-03", "09:00", "usual"], ["2026-11-04", "06:00", "plan"]]);
+  assert.deepEqual(plan.alarms.slice(0, 1).map((a) => [a.date, a.at, a.reason]), [["2026-11-04", "06:00", "plan"]]);
   assert.equal(plan.bedtimes[1].sleepBy, "22:00");
 });
 
@@ -175,4 +175,21 @@ test("CLI: exceptions — a legit reason is kept for tonight, gaming is refused,
   assert.deepEqual(JSON.parse(readFileSync(join(dir, "eval-life-config.json"), "utf8")).sleepPlan.exceptions, []);
   assert.equal(run("set", "--days", "funday", "--wake", "06:00").code, 2);
   assert.equal(run("bogus").code, 2);
+});
+
+test("wake-plan.json alarms: only what he asked for (plan, class), each marked byNick; never usual/commitment/asked", () => {
+  const now = new Date(2026, 10, 2, 20, 0);
+  const sat = [{ title: "Dentist", start: 600, end: 660, fixed: true, source: "calendar", kind: "commitment" }];
+  const blocks = (d) => (d === "2026-11-07" ? sat : blocksOf(d));
+  const days = weekPlan({ now, config: nick, blocksOf: blocks, wakeRequest: { date: "2026-11-05", minute: 420 } });
+  assert.ok(days.some((d) => d.reason === "usual") && days.some((d) => d.reason === "commitment" || d.reason === "asked"), "fixture covers the other reasons");
+  const doc = wakePlanDoc({ now, days, config: nick });
+  assert.ok(doc.alarms.length > 0);
+  for (const a of doc.alarms) { assert.ok(["plan", "class"].includes(a.reason), a.reason); assert.equal(a.byNick, true); }
+  assert.equal(doc.bedtimes.length, days.length, "bedtimes still cover every night");
+});
+
+test("orion-sleepplan never copies a wake request into the plan", () => {
+  const src = readFileSync(SCRIPT, "utf8");
+  assert.ok(!/wakeRequest:\s*await readWakeRequest/.test(src));
 });

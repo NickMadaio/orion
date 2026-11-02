@@ -190,10 +190,24 @@ struct PhoneRootView: View {
     @State private var tab: String = {
         #if targetEnvironment(simulator)
         let arguments = ProcessInfo.processInfo.arguments
-        if let index = arguments.firstIndex(of: "--tab"), index + 1 < arguments.count { return arguments[index + 1] }
+        if let index = arguments.firstIndex(of: "--tab"), index + 1 < arguments.count {
+            let name = arguments[index + 1]
+            return ["chat", "home"].contains(name) ? "orion" : name   // full screens, not sheets
+        }
         #endif
         return "orion"
     }()
+    /// The full screen under the sheets: "home" (first, wave 16) or "chat". `--tab orion` or `--tab chat`
+    /// (Simulator only) starts on the chat, as the screenshot checks expect.
+    @State private var screen: String = {
+        #if targetEnvironment(simulator)
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--tab"), index + 1 < arguments.count,
+           ["orion", "chat"].contains(arguments[index + 1]) { return "chat" }
+        #endif
+        return "home"
+    }()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drawerOpen: Bool = {
         #if targetEnvironment(simulator)
         return ProcessInfo.processInfo.arguments.contains("--drawer")
@@ -213,16 +227,28 @@ struct PhoneRootView: View {
     private var shell: some View {
         PhoneDrawerHost(open: $drawerOpen) {
             NavigationStack {
-                ConversationView(remote: remote, conversationID: $conversationID, onMenu: { drawerOpen = true },
-                                 onLogFood: { loggingFood = true })
+                ZStack {
+                    if screen == "home" {
+                        PhoneHomeScreen(remote: remote, planner: planner, routine: routine, onMenu: { drawerOpen = true },
+                                        onOpenChat: { show("chat") }, onOpenSection: { tab = $0 })
+                            .transition(.opacity)
+                    } else {
+                        ConversationView(remote: remote, conversationID: $conversationID, onMenu: { drawerOpen = true },
+                                         onLogFood: { loggingFood = true }, onHome: { show("home") })
+                            .transition(.opacity)
+                    }
+                }
             }
         } drawer: {
             PhoneDrawer(chats: ChatSummary.list(from: remote.conversation), currentChat: conversationID,
                         waitingApprovals: remote.snapshot?.approvals.count ?? 0, online: remote.presence == .online,
                         appearance: $appearance,
-                        onNewChat: { conversationID = UUID().uuidString; drawerOpen = false },
-                        onOpenChat: { conversationID = $0; drawerOpen = false },
-                        onOpenSection: { tab = $0; drawerOpen = false },
+                        onNewChat: { conversationID = UUID().uuidString; show("chat"); drawerOpen = false },
+                        onOpenChat: { conversationID = $0; show("chat"); drawerOpen = false },
+                        onOpenSection: { section in
+                            if section == "home" { show("home") } else { tab = section }
+                            drawerOpen = false
+                        },
                         onLogFood: { drawerOpen = false; loggingFood = true })
         }
         .sheet(isPresented: $loggingFood) {
@@ -253,8 +279,8 @@ struct PhoneRootView: View {
         .sheet(isPresented: sheetOpen) { sheetContent }
         .tint(Phone.accent)
         .preferredColorScheme(colorScheme)
-        .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { _ in tab = "orion"; drawerOpen = false }
-        .onAppear { if ThreadTarget.pending != nil { tab = "orion" } }
+        .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { _ in tab = "orion"; show("chat"); drawerOpen = false }
+        .onAppear { if ThreadTarget.pending != nil { tab = "orion"; screen = "chat" } }
         .task {
             #if targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("--sample") { loadSample() }
@@ -345,7 +371,7 @@ struct PhoneRootView: View {
         .onOpenURL { url in
             // orion://show/<tab> from a widget or the lock screen.
             guard url.scheme == "orion" else { return }
-            if url.host == "listen" { tab = "orion"; return }
+            if url.host == "listen" { tab = "orion"; show("chat"); return }
             // orion://water/add: the lock-screen water ring, where iOS opened the app instead of running its button.
             if url.host == "water" {
                 if let directory = GlanceStore.directory, (try? WaterTap.record(in: directory)) != nil {
@@ -358,11 +384,18 @@ struct PhoneRootView: View {
             case "tasks", "calendar", "plan": tab = "plan"
             case "health": tab = "health"
             case "projects", "control": tab = "control"
-            case "orion", "chat": tab = "orion"
+            case "orion", "chat": tab = "orion"; show("chat")
+            case "home": tab = "orion"; show("home")
             default: tab = "today"
             }
             drawerOpen = false
         }
+    }
+
+    /// Home or chat, with a soft cross-fade (a plain swap under Reduce Motion).
+    private func show(_ target: String) {
+        guard screen != target else { return }
+        withAnimation(PhoneMotion.spring(PhoneMotion.enter, reduce: reduceMotion)) { screen = target }
     }
 
     private func publishGlance() {

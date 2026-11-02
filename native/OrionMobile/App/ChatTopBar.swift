@@ -11,6 +11,8 @@ struct ChatTopBar: View {
     @Binding var selectedModel: String?
     let onMenu: () -> Void
     let onNew: () -> Void
+    /// Back to Home; nil hides the button.
+    var onHome: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -18,6 +20,7 @@ struct ChatTopBar: View {
             HStack {
                 barButton("line.3.horizontal", label: "Menu", id: "openDrawer", action: onMenu)
                 Spacer()
+                if let onHome { barButton("house", label: "Home", id: "openHome", action: onHome) }
                 barButton("square.and.pencil", label: "New chat", id: "newChat", action: onNew)
             }
         }

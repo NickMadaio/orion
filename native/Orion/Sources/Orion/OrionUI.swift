@@ -77,9 +77,16 @@ enum OrionTheme {
         .system(size: size, weight: weight, design: .monospaced)
     }
 
-    /// Headlines and figures. Rounded, because the numbers are the personality.
-    static func display(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
+    /// Headlines and figures. Rounded, because the numbers are the personality. Medium, not semibold: light on
+    /// dark reads about a weight heavier than it is (wave 12, review #11). No manual tracking on big text.
+    static func display(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
         .system(size: size, weight: weight, design: .rounded)
+    }
+
+    /// The third voice, for things that are about Nick: his brief's own sentences, a node's title. The system
+    /// serif; Instrument Serif was considered and not bundled, so nothing new has to ship.
+    static func serif(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .serif)
     }
 }
 
@@ -228,15 +235,26 @@ struct RingMeter: View {
     var subcaption: String? = nil
     var tint: Color = OrionTheme.orange
     var diameter: CGFloat = 128
+    /// When set, the arc draws itself in and the figure counts up, starting after this many seconds, once.
+    var drawInAfter: Double? = nil
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.orionFrozenMotion) private var frozen
+    @State private var drawn = false
 
     private var clamped: Double { min(1, max(0, progress)) }
+    /// How much of the ring is showing: all of it unless it is mid draw-in.
+    private var reveal: Double {
+        guard drawInAfter != nil else { return 1 }
+        return frozen ?? (reduceMotion || drawn ? 1 : 0)
+    }
 
     var body: some View {
         ZStack {
             Circle()
                 .stroke(Color.white.opacity(0.07), lineWidth: 5)
             Circle()
-                .trim(from: 0, to: clamped)
+                .trim(from: 0, to: clamped * reveal)
                 .stroke(
                     AngularGradient(
                         colors: [tint.opacity(0.55), tint],
@@ -249,7 +267,7 @@ struct RingMeter: View {
                 .rotationEffect(.degrees(-90))
                 .shadow(color: tint.opacity(0.5), radius: 9)
             VStack(spacing: 2) {
-                Text(value)
+                centerFigure
                     .font(OrionTheme.display(diameter * 0.28))
                     .foregroundStyle(OrionTheme.text)
                 if let caption {
@@ -267,6 +285,19 @@ struct RingMeter: View {
         }
         .frame(width: diameter, height: diameter)
         .animation(.easeOut(duration: 0.5), value: clamped)
+        .onAppear {
+            guard let delay = drawInAfter, frozen == nil, !reduceMotion, !drawn else { return }
+            withAnimation(.spring(response: 0.9, dampingFraction: 0.9).delay(delay)) { drawn = true }
+        }
+    }
+
+    /// The figure: counts up with the arc during a draw-in, plain text otherwise.
+    @ViewBuilder private var centerFigure: some View {
+        if let delay = drawInAfter, let number = Int(value) {
+            CountUp(value: number, delay: delay)
+        } else {
+            Text(value)
+        }
     }
 }
 
@@ -378,7 +409,9 @@ private struct SparkPath: Shape {
 struct StatChip: View {
     let icon: String
     let value: String
-    var tint: Color = OrionTheme.textSoft
+    /// Neutral ink unless something is off-nominal: colour means "look at this" (wave 12, review #11).
+    var tint: Color = Color.white.opacity(0.6)
+    var valueTint: Color = Color.white.opacity(0.85)
 
     var body: some View {
         HStack(spacing: 6) {
@@ -387,7 +420,7 @@ struct StatChip: View {
                 .foregroundStyle(tint)
             Text(value)
                 .font(OrionTheme.mono(11, .medium))
-                .foregroundStyle(OrionTheme.textSoft)
+                .foregroundStyle(valueTint)
         }
     }
 }

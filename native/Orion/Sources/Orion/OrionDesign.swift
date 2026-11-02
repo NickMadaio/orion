@@ -1,3 +1,4 @@
+import OrionViews
 import SwiftUI
 
 /*
@@ -78,18 +79,8 @@ enum OrionMotion {
 
 // MARK: - Entrance
 
-private struct FrozenMotionKey: EnvironmentKey {
-    static let defaultValue: Double? = nil
-}
-
-extension EnvironmentValues {
-    /// Renders only: holds every `orionEntrance` at this progress (0…1) instead of animating, so ImageRenderer —
-    /// which draws one frame and never runs `onAppear` — can show a settled screen or a frame mid-animation.
-    var orionFrozenMotion: Double? {
-        get { self[FrozenMotionKey.self] }
-        set { self[FrozenMotionKey.self] = newValue }
-    }
-}
+// `orionFrozenMotion` (renders hold entrances still) now lives in OrionViews/SoftReveal.swift, beside the
+// shared SoftReveal it also drives.
 
 /// Fade and rise into place on first appearance, optionally staggered, instead of popping in.
 private struct OrionEntrance: ViewModifier {

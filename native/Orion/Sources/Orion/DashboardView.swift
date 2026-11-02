@@ -1,4 +1,5 @@
 import AppKit
+import OrionViews
 import SwiftUI
 
 /*
@@ -30,6 +31,10 @@ struct DashboardView: View {
         UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["orion.initialTab"]
             .flatMap { $0 as? String }.flatMap(DashboardTab.init(rawValue:)) ?? .home
     @Namespace private var navUnderline
+    /// Which way the last tab change travelled, and where the nav items sit, so the new page can slide in from
+    /// that side and grow out of the item that was clicked (Motion/PageTransition.swift).
+    @State private var travelForward = true
+    @State private var navCenters: [DashboardTab: CGFloat] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var quickOpenEditorVisible = false
@@ -253,7 +258,7 @@ struct DashboardView: View {
         .onChange(of: reminders.tasks) { _, _ in refreshPlanSources(); loadBrief() }
         .onChange(of: state.requestedTab) { _, tab in
             guard let tab else { return }
-            OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) { selectedTab = tab }
+            select(tab)
             state.requestedTab = nil
         }
         .onReceive(phoneTicker.$tick) { _ in
@@ -264,6 +269,8 @@ struct DashboardView: View {
         // Phase 52: what ORION is waiting on you for, and what it is running.
         .overlay(alignment: .topTrailing) { ApprovalsOverlay().padding(.top, 96).padding(.trailing, 22) }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
+        // Idle animation below this point pauses when the window is hidden or covered (Motion/AmbientClock).
+        .ambientPauseRules()
         .preferredColorScheme(.dark)
         .onAppear(perform: start)
         .onDisappear(perform: stop)
@@ -346,7 +353,8 @@ struct DashboardView: View {
                 Text("ORION")
                     .font(.system(size: 13, weight: .semibold))
                     .tracking(7)
-                    .foregroundStyle(OrionTheme.accent)
+                    // Neutral ink: the nav underline and the recovery ring are the screen's two jewels.
+                    .foregroundStyle(Color.white.opacity(0.85))
                 Text(greeting)
                     .font(.system(size: 12))
                     .foregroundStyle(OrionTheme.textSoft)
@@ -380,29 +388,28 @@ struct DashboardView: View {
 
     private var vitals: some View {
         HStack(spacing: 16) {
-            StatChip(icon: "drop.fill", value: "\(health.hydrationBottles)", tint: OrionTheme.blue)
+            StatChip(icon: "drop.fill", value: "\(health.hydrationBottles)")
             hairline
-            StatChip(icon: "pills.fill", value: "\(health.takenToday.count)", tint: OrionTheme.violet)
+            StatChip(icon: "pills.fill", value: "\(health.takenToday.count)")
             hairline
             StatChip(icon: "checkmark.circle",
-                     value: "\(reminders.doneCount)/\(reminders.tasks.count)",
-                     tint: OrionTheme.orange)
+                     value: "\(reminders.doneCount)/\(reminders.tasks.count)")
             if reminders.overdueCount > 0 {
                 hairline
                 StatChip(icon: "exclamationmark.triangle.fill",
                          value: "\(reminders.overdueCount) overdue",
-                         tint: OrionTheme.red)
+                         tint: OrionTheme.red, valueTint: OrionTheme.red)
             }
             if messages.unreadTotal > 0 {
                 hairline
                 StatChip(icon: "bubble.left.fill",
-                         value: "\(messages.unreadTotal)",
-                         tint: OrionTheme.accent)
+                         value: "\(messages.unreadTotal)")
             }
             hairline
             StatChip(icon: state.gatewayUp ? "bolt.fill" : "bolt.slash.fill",
                      value: state.gatewayAvailability.title,
-                     tint: state.gatewayUp ? OrionTheme.green : OrionTheme.orange)
+                     tint: state.gatewayUp ? Color.white.opacity(0.6) : OrionTheme.orange,
+                     valueTint: state.gatewayUp ? Color.white.opacity(0.85) : OrionTheme.orange)
         }
         .fixedSize()
     }
@@ -422,23 +429,16 @@ struct DashboardView: View {
     /// reads as one continuous movement instead of one marker vanishing and
     /// another appearing somewhere else.
     private var navigation: some View {
-        HStack(spacing: 30) {
-            ForEach(DashboardTab.allCases) { tab in
-                NavItem(
-                    tab: tab,
-                    isSelected: selectedTab == tab,
-                    namespace: navUnderline
-                ) {
-                    OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) {
-                        selectedTab = tab
-                    }
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 46)
-        .padding(.bottom, 2)
-        .overlay(alignment: .bottom) { FadingRule() }
+        DashboardNavBar(selected: selectedTab, namespace: navUnderline) { select($0) }
+            .onPreferenceChange(NavCentersKey.self) { navCenters = $0 }
+    }
+
+    /// Every tab change goes through here, so the direction of travel is set in the same transaction as the
+    /// change itself and the incoming page reads it.
+    private func select(_ tab: DashboardTab) {
+        guard tab != selectedTab else { return }
+        travelForward = PageTravel.isForward(from: selectedTab, to: tab)
+        OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) { selectedTab = tab }
     }
 
     // MARK: - Content
@@ -490,6 +490,9 @@ struct DashboardView: View {
         availableHeight: CGFloat,
         availableWidth: CGFloat? = nil
     ) -> some View {
+        // A ZStack, so the page leaving and the page arriving overlap in depth instead of stacking vertically
+        // inside the scroll view while the transition runs.
+        ZStack(alignment: .topLeading) {
         Group {
             switch selectedTab {
             case .home:
@@ -512,10 +515,14 @@ struct DashboardView: View {
                          calendar: calendarModel(state),
                          todayPlan: todayPlan,
                          refreshPlanSources: { agenda.refresh(); reminders.refresh(); refreshPlanSources() },
-                         onOpenChat: { OrionMotion.perform(OrionMotion.page, reduceMotion: reduceMotion) { state.chatMode = true; selectedTab = .home } })
+                         onOpenChat: { state.chatMode = true; select(.home) })
             case .project:
                 ProjectTab(agenda: agenda)
             case .knowledge:
+                // WAVE 12 / U1 HAND-OVER: the graph's state (simulation, pan, zoom) moves to an app-level
+                // object; inject it here, e.g. `.environmentObject(graphState)`, once U1's change lands.
+                // This tab is no longer rebuilt through `.id(selectedTab)`, so anything held outside the
+                // view (not in its @State) now survives a tab switch.
                 KnowledgeView(store: knowledge, availableHeight: availableHeight)
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
@@ -541,10 +548,14 @@ struct DashboardView: View {
                             onRecheckFocus: { state.recheckFocusShortcut() })
             }
         }
-        // Content rises slightly as it arrives, which is what makes the tabs
-        // feel like one surface changing rather than six screens swapping.
-        .transition(OrionMotion.rise(reduceMotion: reduceMotion))
-        .id(selectedTab)
+        // A page arrives with SoftReveal, slid 24 pt in the direction of travel and grown from the nav item that
+        // opened it. Not `.id(selectedTab)` any more: forcing a new identity rebuilt the tab on every switch
+        // and threw away whatever it held. The switch above already swaps branches, which is all the
+        // transition needs.
+        .transition(.orionPage(forward: travelForward,
+                               anchor: PageTravel.anchor(centerFraction: navCenters[selectedTab]),
+                               reduceMotion: reduceMotion))
+        }
     }
 
     // MARK: - Derived
@@ -566,62 +577,6 @@ struct DashboardView: View {
         if hour < 12 { return "Morning setup" }
         if hour < 17 { return "Active window" }
         return "Evening reset"
-    }
-}
-
-// MARK: - Navigation item
-
-private struct NavItem: View {
-    let tab: DashboardTab
-    let isSelected: Bool
-    let namespace: Namespace.ID
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                HStack(spacing: 7) {
-                    Image(systemName: tab.icon)
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(tab.title)
-                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
-                }
-                .foregroundStyle(tint)
-
-                // The underline is one view that moves between tabs, not one
-                // per tab being shown and hidden.
-                ZStack {
-                    // Hover previews where the underline would go: a faint
-                    // hairline that grows from the centre, so pointing at a tab
-                    // answers "is this clickable" before the click.
-                    Capsule()
-                        .fill(OrionTheme.textSoft.opacity(0.35))
-                        .frame(height: 1)
-                        .scaleEffect(x: hovering && !isSelected ? 1 : 0.2, anchor: .center)
-                        .opacity(hovering && !isSelected ? 1 : 0)
-                    if isSelected {
-                        Capsule()
-                            .fill(OrionTheme.accent)
-                            .frame(height: 2)
-                            .matchedGeometryEffect(id: "nav.underline", in: namespace)
-                            .shadow(color: OrionTheme.accent.opacity(0.7), radius: 5)
-                    }
-                }
-                .frame(height: 2)
-            }
-            .padding(.top, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .animation(OrionMotion.hover, value: hovering)
-    }
-
-    private var tint: Color {
-        if isSelected { return OrionTheme.text }
-        return hovering ? OrionTheme.textSoft : OrionTheme.textDim
     }
 }
 

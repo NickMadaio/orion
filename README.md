@@ -1,105 +1,102 @@
 # ORION
 
-**A personal AI assistant that works as external executive function.** ORION plans
-my day around my classes and deadlines, reminds me, notices when the plan slips,
-steps in, follows up and adapts. It runs across a native macOS app, an iPhone app
-with widgets and Screen Time integration, and a Discord/iMessage chat channel. It
-does all of this through a gated, audited set of tools rather than open-ended
-access.
+A personal assistant that works as external executive function. ORION plans my
+day around classes and deadlines, reminds me, notices when the plan slips, steps
+in and follows up. It is a native macOS app, an iPhone app with widgets and
+Screen Time integration, and a Discord/iMessage chat channel. It acts only
+through a gated, audited set of tools.
 
-> Plan → remind → observe → intervene → follow up → adapt.
+It runs fully local by default: Ollama on the Mac serves a small front-desk model
+(`qwen3.5:4b`) and a worker (`qwen3.5:9b`) behind an OpenClaw gateway. The cloud
+model is used only for scheduling change requests, and only if enabled.
+
+> Plan, remind, observe, intervene, follow up, adapt.
 
 ## What it does
 
 - **Plans the day around fixed commitments.** It reads calendar events, classes
-  and deadlines, then replans when something runs late. It fills empty time
-  according to priorities: classes, then sleep, gym, study, side projects, rest.
-  It ramps study time before exams, leaves a commute buffer around classes, and
-  adds a nap after a short night. Small changes move only what conflicts; if
-  the revised plan cannot fit, it rebuilds the remaining movable day around
-  fixed commitments, placing explicit must-haves before normal and optional
-  work. A complete replacement can clear stale non-class/deadline blocks first.
-  Every change is journaled so it can be undone.
-- **Talks naturally.** Voice uses a wake word, speaker verification and
-  self-echo guards, with local text-to-speech. Chat is available from the phone,
-  Discord and iMessage.
-- **Keeps itself honest.** A claim classifier catches replies that say
-  "done" or "can't" when no tool actually ran, and re-asks a stronger model. A
-  reply linter enforces spoken-style output. An eval harness replays scenarios
-  against the live brain with real sends blocked, then grades the replies.
-- **Watches the phone.** A DeviceActivity monitor nudges and then locks
-  distracting apps during work blocks and at night. The Focus lock, Live
-  Activity, time-sensitive notifications and home- and lock-screen widgets all
-  share one app group.
+  and deadlines, then replans when something runs late. Empty time is filled by
+  priority: classes, sleep, gym, study, side projects, rest. It ramps study time
+  before exams, leaves a commute buffer, and adds a nap after a short night.
+  Small changes move only what conflicts; if the result doesn't fit, it rebuilds
+  the movable part of the day around fixed commitments. Every change is
+  journaled and can be undone.
+- **Plans sleep.** A short interview sets wake times and a sleep target. ORION
+  schedules wake alarms on the Mac and the phone, nudges before bedtime, and
+  escalates slowly (nudge, firm, warn, dim) while I'm still up. Lockdown comes
+  only when the night is down to six hours or less.
+- **Talks naturally.** Voice uses a wake word, speaker verification and self-echo
+  guards, with local text-to-speech. Chat works from the phone, Discord and
+  iMessage. Proactive messages from the Mac and the phone are mirrored into the
+  phone chat, and a reply binds to the message it answers.
+- **Keeps itself honest.** A claim classifier catches replies that say "done" or
+  "can't" when no tool ran. A reply linter enforces spoken-style output. An eval
+  harness replays scenarios against the live brain with real sends blocked, then
+  grades the replies.
+- **Watches the phone.** A DeviceActivity monitor nudges and then blocks
+  distracting apps during work blocks and at night. Blocking is per group (for
+  example browsers), driven by what I'm doing. The Focus lock, Live Activity,
+  time-sensitive notifications and widgets share one app group.
 - **Connects to services through declarative connectors.** Connectors are
-  GET-only JSON specs, each pinned to a single HTTPS host, with secrets kept in
-  the Keychain. Existing ones cover TfL, Canvas LMS and more. ORION can write a
-  new connector itself when it lacks one. Finance summaries come from Plaid, and
-  ORION can run Shortcuts that are on an allowlist.
-- **Builds itself.** A local agentic dev loop turns a lint-checked work plan
-  into self-contained, tested modules. A local model (Qwen) writes them, a
-  reviewer checks them, and anything the reviewer isn't confident about is
-  escalated to a human.
+  GET-only JSON specs, each pinned to one HTTPS host, with secrets in the
+  Keychain. Existing ones cover TfL, Canvas LMS and more, and ORION can write a
+  new one when it lacks one. Finance summaries come from Plaid, and ORION can run
+  Shortcuts on an allowlist.
+- **Builds itself.** A local agentic dev loop turns a lint-checked work plan into
+  self-contained, tested modules. A local model writes them, a reviewer checks
+  them, and anything the reviewer isn't confident about goes to a human.
 
 ## Architecture
 
 | Layer | Stack | Path |
 |---|---|---|
-| Brain | OpenClaw agent on Claude (Haiku, escalating to Sonnet), tool allowlist + approval gate | `plugin/workspace/`, `plugin/orion-control/` |
-| Action catalog | TypeScript plugin — typed actions, executors, verifiers, redaction | `plugin/orion-control/src/` |
-| Account health | Plugin hooks that spot an unusable model account (no credit, usage cap, bad key), tell Nick once on his phone with the fix, and can answer turns at once instead of falling back to slow local models | `plugin/orion-control/src/account-health.ts` |
-| Mac app | SwiftUI — voice, dashboard, project runs, life watch, CloudKit link | `native/Orion/` |
+| Brain | OpenClaw agent on local Ollama models (4B front desk, 9B worker), tool allowlist and approval gate | `plugin/workspace/`, `plugin/orion-control/` |
+| Action catalog | TypeScript plugin: typed actions, executors, verifiers, redaction | `plugin/orion-control/src/` |
+| Account health | Plugin hooks that spot an unusable cloud account (no credit, usage cap, bad key) and tell me once on my phone | `plugin/orion-control/src/account-health.ts` |
+| Mac app | SwiftUI: voice, dashboard, project runs, life watch, CloudKit link | `native/Orion/` |
 | System bridge | Swift CLI over EventKit (calendar, reminders) | `native/OrionMacBridge/` |
-| iPhone | SwiftUI + WidgetKit + DeviceActivity + ActivityKit, CloudKit sync | `native/OrionMobile/`, `native/OrionWidgets/`, `native/OrionLink/` |
-| Life loop | Pure Node modules + CLIs (`orion-reschedule`, `orion-watch`, …) | `scripts/lib/life/`, `scripts/` |
+| iPhone | SwiftUI, WidgetKit, DeviceActivity, ActivityKit, CloudKit sync | `native/OrionMobile/`, `native/OrionWidgets/`, `native/OrionLink/` |
+| Life loop | Pure Node modules and CLIs (`orion-reschedule`, `orion-watch`, `orion-sleepplan`, ...) | `scripts/lib/life/`, `scripts/` |
 | Chat path | Truth checks, reply lint, eval mode, connectors | `scripts/lib/remote/`, `scripts/lib/eval/`, `scripts/lib/connect/` |
 | Agentic dev loop | Plan lint, briefs, worker/reviewer, recovery | `scripts/lib/agentic/`, `docs/agentic/` |
-| Policy & registry | Python policy engine, v2 schemas and capability registry — checked in CI never to be more permissive than the live gate | `orion/core/`, `scripts/orion_v2_*` |
-| Phone backend (v1) | Python device-pairing and sync service with P-256 device identity; superseded by CloudKit, still covered by its tests | `backend/` |
+| Policy and registry | Python policy engine, v2 schemas and capability registry, checked in CI never to be more permissive than the live gate | `orion/core/`, `scripts/orion_v2_*` |
+| Phone backend (v1) | Python device-pairing and sync service; superseded by CloudKit, still covered by its tests | `backend/` |
 
-`OrionMobile` exposes shared `MobileCore`, `ThinkingOrbsKit` and `OrionViews`
-packages. The 2026-10-02 integration connects Home chat and a compact composer
-in the Plan tab, shared history
-and model selection (with Back to Home retaining the conversation), the floating
-composer, persistent movable windows, orb
-phases, Flux turns with Apple fallback, finished-early actions, and schedule
-focus with named phone lists. Actual OpenClaw thinking is retained after the
-answer. Intrusive Mac actions still require the existing focus enforcement
-switch; phone restrictions require its Screen Time consent and opaque app
-selections. See `HANDOFF.md` for installed proof and checks still outstanding.
+The phone never answers on-device; every message goes to the Mac. `OrionMobile`
+shares the `MobileCore`, `ThinkingOrbsKit` and `OrionViews` packages.
 
-Schedule edits preserve explicit per-date times through cascades, reuse existing
-replacement tasks, apply saved minimums today, and support relative moves.
-Scheduling now runs locally as a fixed sequence (read the day, the 9B fills one
-form, code compiles it to an exact scheduler command); the local-model results
-and routing recommendation are in `docs/evals/v3/REPORT.md`.
+Scheduling runs locally as a fixed sequence: read the day, the 9B fills one form,
+and code compiles it to an exact scheduler command. Local-model results and the
+routing decision are in `docs/evals/v3/REPORT.md`. Scheduling preferences are in
+`plugin/workspace/SCHEDULING.md`.
 
 Roughly 79k lines of Swift, 27k of TypeScript, 29k of Node and 48k of Python,
 across about 400 commits since July 2026.
 
-Model usage is available in Mac **Settings → Model usage**, with Today, 7-day,
-30-day and retained-history filters. `node scripts/orion-usage --all --json`
-reports input/output/cache tokens, recorded gateway cost, current-rate equivalent,
-pricing coverage and configured ceilings without making model calls. Recorded
-costs are estimates, not invoices; zero-priced cloud records are not assumed free.
+**Model usage.** Mac Settings, Model usage shows Today, 7-day, 30-day and
+retained-history views. `node scripts/orion-usage --all --json` reports tokens,
+recorded gateway cost, current-rate equivalent and configured ceilings without
+making model calls. Recorded costs are estimates, not invoices.
 
-A later conversation comparison is prepared in
-[the benchmark guide](docs/evals/conversation/README.md). The 3B/9B/27B local
-and Haiku/Sonnet candidates share factual, conversational and tool-intent
-fixtures. The default is a dry run; explicit inference runs keep tools disabled
-and require blind human review before selecting a route.
+**Conversation benchmark.** [The benchmark guide](docs/evals/conversation/README.md)
+compares 3B/9B/27B local and Haiku/Sonnet candidates on shared factual,
+conversational and tool-intent fixtures. The default is a dry run; real inference
+runs keep tools disabled and need blind human review before a route is chosen.
 
-Canvas has request-based course snapshots and a scoped Obsidian refresh:
-`orion-brain canvas-courses` lists current courses using Nick's recorded
-exclusions; `orion-connect canvas-course <id>` reads syllabus and visible
-assessment/quiz settings with source URLs and retrieval times. On a course
-refresh request, `orion-brain canvas-refresh <id> <existing course note> --apply`
-updates the indexed `~/Documents/orionBrain` course and linked assessment notes.
-Omit `--apply` for a preview. Local timetables/study notes remain intact; source
-blocks are replaced with conflict checks and recoverable local backups. Due,
-unlock and lock times stay separate, missing fields remain unknown, and exam
-appointments are never inferred. No recurring polling or Canvas writes.
-See [the Canvas brain guide](docs/CANVAS_BRAIN.md) for limits and rollback.
+**Canvas.** `orion-brain canvas-courses` lists current courses, and
+`orion-connect canvas-course <id>` reads the syllabus and visible assessment
+settings with source URLs and retrieval times. `orion-brain canvas-refresh <id>
+<course note> --apply` updates the matching course notes in
+`~/Documents/orionBrain`; omit `--apply` to preview. Local notes stay intact,
+source blocks are replaced with conflict checks and backups, missing fields stay
+unknown, and exam dates are never inferred. There is no polling and no Canvas
+writes. See [the Canvas brain guide](docs/CANVAS_BRAIN.md).
+
+**Thinking Orion.** The Mac and phone share one Thinking Orbs view: a gold orb
+inside a light hologram shell, drawn in a single Canvas. The phone's Talk button
+opens it full screen with live state and audio response. Original Orion and Black
+Hole styles remain selectable. Typed replies stay in text; only replies to
+wake-word or push-to-talk input are spoken.
 
 ## Safety model
 
@@ -145,26 +142,5 @@ docs/        vision, phase plans, agent work plans — see docs/README.md
 
 ## Not in this repo
 
-This repo leaves out build outputs, `node_modules/`, the vendored Ollama
-runtime, local state and databases, and all secrets.
-
-Scheduling preferences live in `plugin/workspace/SCHEDULING.md`, installed into
-ORION's workspace and supplied to scheduling chat turns. Whole-day planning
-combines `day --todos --plan …`. The shared controlled settings hold Nick's
-five-minute transitions, 45-minute commute and protected minimums. “I'm out
-early” shortens the current class/task in an undoable transaction, with travel
-home preserved after the final class. Evaluation check-ins have a separate
-store and cannot produce live notification alerts.
-
-**Thinking Orion** puts the Thinking Orbs geometry in front, surrounded by a
-subtle original hologram shell: short edge filaments, latitude arcs, drifting
-chips and a restrained gold core/glow.
-Thinking stays gold and brings the larger, brighter twisting orb to the front
-of the shell. Motion runs at 45% speed; audio response remains immediate. The combined
-projection uses one Canvas with batched geometry, avoiding stacked blurred
-animation surfaces. The phone’s Talk button opens this same shared projection
-in a full-screen voice view, with live state/audio response and Back to chat
-and End conversation controls. Original Orion and
-Black Hole remain selectable. Thinking text is visible when available, including
-while a turn is pending. Typed replies, timers and focus feedback stay in text;
-only replies to wake-word or push-to-talk voice input are spoken.
+Build outputs, `node_modules/`, the vendored Ollama runtime, local state and
+databases, and all secrets are left out.

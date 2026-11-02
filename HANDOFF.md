@@ -581,6 +581,7 @@ the app from the hidden backup.
 - **Messages:** an added item that wasn't on his day says so. "push everything N min" runs in code.
 - **Hedges refused:** prolly, i suppose, i think, idek, or smth.
 - **Known:** four script tests are clock-dependent and fail at night: delivery-senders:95, proactive-dedupe-lines-checkin:62, proactive-review-fixes:216 and :323. The gate reads the real clock and ignores the test's `--at`. Fix the seam.
+- Host "Exec failed" warning: after a failed mutating exec the host shows it unless the final reply acknowledges the failure (couldn't/can't ... change/move). The plugin's honest lines now use that wording ("I couldn't make that change ..."), and `late N` is wrong for "push everything N min" (it only clears the next N minutes). (From NOTES.md, removed.)
 
 ### 2026-10-21 — Calendar intent layer (Claude, Opus worker)
 
@@ -709,6 +710,7 @@ Spec: `docs/design/2026-10-16-awareness-and-curiosity.md`. ORION now keeps one `
   confirm the geofences register; set the real home with `orion-awareness place set home --here`; check the first live `orion-awareness refresh`
   (real calendar, session socket, focus-activity.json); check a push arrives with the reply field and lands in the chat thread; check that
   an ask he answers shows `answered` in `curiosity.json`; watch the 22:00 day review once; confirm `qwen3.5:9b` stays resident and gpt-oss unloads.
+- Phone UI redesign (1ea09ad): chat is home, a drawer holds the sections as sheets; screenshots in `docs/design/phone-ui-2026-10-16/`. Builds and tests passed. Still open: `native/OrionMobile/AppUITests` still target the old tab bar. (From WP-NOTES.md, removed.)
 
 ### 2026-10-16 — Local speed fixes (Claude)
 

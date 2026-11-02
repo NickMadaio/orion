@@ -1,8 +1,8 @@
 # Learning ORION
 
-A complete study guide to this codebase lives in **[`docs/learn/`](docs/learn/00_START_HERE.md)**.
-It covers the architecture, every commit and why it happened, every prompt, memory store, tool and API call,
-and debugger-style walkthroughs of real requests through the code.
+A study guide to this codebase lives in **[`docs/learn/`](docs/learn/00_START_HERE.md)**.
+It covers the architecture, the commit history and why each change happened, the prompts, memory stores, tools
+and API calls, and debugger-style walkthroughs of real requests through the code.
 
 **Start here: [`docs/learn/00_START_HERE.md`](docs/learn/00_START_HERE.md).** It has the reading order and
 ready-to-paste prompts that turn any AI (Claude, ChatGPT/Codex, a local model) into a tutor for the guide.
@@ -17,7 +17,7 @@ ready-to-paste prompts that turn any AI (Claude, ChatGPT/Codex, a local model) i
 | `11_reference_index.md` | Lookup tables: API calls, prompts, memory, tools, config, glossary |
 | `12_decisions_and_lessons.md` | Decisions, reversals, recurring lessons, open findings |
 
-**Biggest change since the snapshot (read this before chapters 01, 05 and 02d).** On 2026-10-16,
+**Biggest change since the snapshot (read before chapters 01, 05 and 02d).** On 2026-10-16,
 `278d75e` made local routing **"local always"**: the acceptance gate and the 48-hour testing window
 were removed (Nick: he never wants the cloud model "unless necessary"), and the acceptance score is
 now just logged as a report. Wherever the guide describes local routing as "in shadow mode behind an

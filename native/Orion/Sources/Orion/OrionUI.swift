@@ -56,6 +56,9 @@ enum OrionTheme {
     static let red = Color(red: 1.00, green: 0.38, blue: 0.38)
     static let blue = Color(red: 0.36, green: 0.72, blue: 1.00)
     static let violet = Color(red: 0.70, green: 0.52, blue: 1.00)
+    /// Home card hues (wave 12): health and night. Only as kicker, rim and pill tints, never as fills.
+    static let rose = Color(red: 1.00, green: 0.47, blue: 0.62)
+    static let lavender = Color(red: 0.58, green: 0.62, blue: 1.00)
 
     /// A calendar's own colour, from `RRGGBB`.
     ///

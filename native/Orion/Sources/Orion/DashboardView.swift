@@ -30,17 +30,14 @@ struct DashboardView: View {
     @State private var selectedTab: DashboardTab =
         UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["orion.initialTab"]
             .flatMap { $0 as? String }.flatMap(DashboardTab.init(rawValue:)) ?? .home
-    @Namespace private var navUnderline
     /// Which way the last tab change travelled, and where the nav items sit, so the new page can slide in from
     /// that side and grow out of the item that was clicked (Motion/PageTransition.swift).
     @State private var travelForward = true
     @State private var navCenters: [DashboardTab: CGFloat] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var quickOpenEditorVisible = false
-    @State private var quickOpenAppPickerVisible = false
-
-    @StateObject private var quickOpen = QuickOpenSettings()
+    /// What the new Home reads beyond the brief (Home/HomeSignalsReader.swift), refreshed with the brief clock.
+    @State private var homeSignals = HomeSignals()
     /// The task list lives in Apple Reminders, not in AppState — see
     /// AppleRemindersSync for why a task Orion can only show on this Mac is a
     /// worse to-do list than the one already on your phone.
@@ -112,30 +109,16 @@ struct DashboardView: View {
             // readable over any wallpaper while the body of the window stays
             // as transparent as the slider says it is. That local trade is
             // what lets the default be genuinely see-through.
-            VStack(spacing: 0) {
-                header
-                navigation
-            }
-            .chromeScrim(edge: .top, strength: 0.5)
+            navigation
+                .chromeScrim(edge: .top, strength: 0.5)
 
             // Two content shapes, because the tabs are two different kinds of
             // thing. The reading tabs are documents: a column capped at a
             // comfortable measure and set against the left margin, so the eye
             // does not have to travel the width of a 6K display to find the
-            // next line. Home is a scene — the orb, and the apps in orbit
-            // around it — so it takes the whole window and centres in it.
-            //
-            // Giving Home the document treatment is what shrank it: the
-            // launcher field sizes itself from its container, so capping the
-            // width pulled every icon inward, and the left alignment slid the
-            // whole constellation off centre.
-            //
-            // Home is NOT vertically centred, and that was a wrong turn worth
-            // recording. Centring 600pt of content in 900pt of window splits
-            // the slack evenly — which puts 150pt of nothing between the
-            // navigation and the top of the orb. It sits at the top and the orb
-            // is sized from the height instead, so the space goes into the
-            // artwork rather than above it.
+            // next line. Home is a scene — greeting, card spread, composer —
+            // so it takes the whole window and lays out against its height:
+            // the composer sits at the bottom, not under the last card.
             GeometryReader { proxy in
                 ScrollView {
                     if selectedTab.fillsWindow {
@@ -231,7 +214,10 @@ struct DashboardView: View {
             // Clear a paragraph when a deadline passes or remaining time changes.
             // Clock-only drift does not warrant another model request.
             loadBrief(allowGeneration: current.needsSourceRefresh(after: previous) || previous.hour != current.hour)
+            refreshHomeSignals()
         }
+        // Back from a conversation: the question it answered should leave Home now, not on the next tick.
+        .onChange(of: state.chatMode) { _, chatting in if !chatting { refreshHomeSignals() } }
         .onChange(of: briefPresentation) { _, next in
             next.store(for: dayModel.day)
         }
@@ -267,25 +253,26 @@ struct DashboardView: View {
             glanceExport.tick()
         }
         // Phase 52: what ORION is waiting on you for, and what it is running.
-        .overlay(alignment: .topTrailing) { ApprovalsOverlay().padding(.top, 96).padding(.trailing, 22) }
+        .overlay(alignment: .topTrailing) { ApprovalsOverlay().padding(.top, 80).padding(.trailing, 22) }
         .dashboardSurface(opacity: surfaceOpacity, blur: surfaceBlur)
         // Idle animation below this point pauses when the window is hidden or covered (Motion/AmbientClock).
         .ambientPauseRules()
         .preferredColorScheme(.dark)
         .onAppear(perform: start)
         .onDisappear(perform: stop)
-        .sheet(isPresented: $quickOpenEditorVisible) { QuickOpenEditor(settings: quickOpen) }
-        .sheet(isPresented: $quickOpenAppPickerVisible) {
-            QuickOpenAppPicker(settings: quickOpen) { app in
-                quickOpen.addApplication(app)
-                quickOpenAppPickerVisible = false
-            }
-        }
     }
 
     // MARK: - Lifecycle
 
     private func refreshPlanSources() { todayPlan.refresh(agenda: agenda, reminders: reminders) }
+
+    /// A handful of small file reads; off the main thread so a slow disk never stalls a frame.
+    private func refreshHomeSignals() {
+        DispatchQueue.global(qos: .utility).async {
+            let next = HomeSignalsReader.load()
+            DispatchQueue.main.async { if next != homeSignals { homeSignals = next } }
+        }
+    }
 
     private func start() {
         briefClock = BriefClock(now: Date())
@@ -302,6 +289,7 @@ struct DashboardView: View {
         // Surfaces a paragraph already written for this day immediately, rather
         // than waiting for a client to publish something.
         loadBrief()
+        refreshHomeSignals()
 
         // Prompts for Reminders access the first time, then keeps the list live
         // off EKEventStoreChanged.
@@ -347,89 +335,16 @@ struct DashboardView: View {
 
     // MARK: - Header
 
-    private var header: some View {
-        HStack(alignment: .center, spacing: 20) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("ORION")
-                    .font(.system(size: 13, weight: .semibold))
-                    .tracking(7)
-                    // Neutral ink: the nav underline and the recovery ring are the screen's two jewels.
-                    .foregroundStyle(Color.white.opacity(0.85))
-                Text(greeting)
-                    .font(.system(size: 12))
-                    .foregroundStyle(OrionTheme.textSoft)
-            }
-
-            Spacer(minLength: 24)
-
-            // The handful of numbers that should be true on every tab, inline
-            // in the header rather than in a second strip of pills below it.
-            // Six capsules stacked under a title bar was two rows of chrome
-            // before any content had been reached.
-            vitals
-
-            Text(Date(), style: .time)
-                .font(OrionTheme.mono(12))
-                .foregroundStyle(OrionTheme.textSoft)
-
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(OrionTheme.textDim)
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 46)
-        .padding(.top, 20)
-        .padding(.bottom, 16)
-    }
-
-    private var vitals: some View {
-        HStack(spacing: 16) {
-            StatChip(icon: "drop.fill", value: "\(health.hydrationBottles)")
-            hairline
-            StatChip(icon: "pills.fill", value: "\(health.takenToday.count)")
-            hairline
-            StatChip(icon: "checkmark.circle",
-                     value: "\(reminders.doneCount)/\(reminders.tasks.count)")
-            if reminders.overdueCount > 0 {
-                hairline
-                StatChip(icon: "exclamationmark.triangle.fill",
-                         value: "\(reminders.overdueCount) overdue",
-                         tint: OrionTheme.red, valueTint: OrionTheme.red)
-            }
-            if messages.unreadTotal > 0 {
-                hairline
-                StatChip(icon: "bubble.left.fill",
-                         value: "\(messages.unreadTotal)")
-            }
-            hairline
-            StatChip(icon: state.gatewayUp ? "bolt.fill" : "bolt.slash.fill",
-                     value: state.gatewayAvailability.title,
-                     tint: state.gatewayUp ? Color.white.opacity(0.6) : OrionTheme.orange,
-                     valueTint: state.gatewayUp ? Color.white.opacity(0.85) : OrionTheme.orange)
-        }
-        .fixedSize()
-    }
-
-    private var hairline: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.10))
-            .frame(width: 1, height: 11)
-    }
-
-    // MARK: - Navigation
-
-    /// Left-aligned text navigation with a sliding underline, rather than a
-    /// filled bar of six equal buttons pinned to the bottom of the window.
-    ///
-    /// The underline travels with `matchedGeometryEffect`, so switching tabs
-    /// reads as one continuous movement instead of one marker vanishing and
-    /// another appearing somewhere else.
+    /// The wordmark, a few quiet links and a gear (DashboardNav.swift), replacing the eight-tab row and the status
+    /// strip. What used to be the strip survives only as a capsule that appears when something is wrong.
     private var navigation: some View {
-        DashboardNavBar(selected: selectedTab, namespace: navUnderline) { select($0) }
+        DashboardHeader(selected: selectedTab,
+                        issues: HomeStatus.issues(gatewayUp: state.gatewayUp, overdue: reminders.overdueCount,
+                                                  phoneLinkAlive: homeSignals.phoneLinkAlive),
+                        onSelect: { select($0) },
+                        onPreviewFocus: { sessionPreview = .focus },
+                        onPreviewBreak: { sessionPreview = .breakTime },
+                        onDismiss: onDismiss)
             .onPreferenceChange(NavCentersKey.self) { navCenters = $0 }
     }
 
@@ -497,16 +412,14 @@ struct DashboardView: View {
             switch selectedTab {
             case .home:
                 HomeTab(state: state,
-                        quickOpen: quickOpen,
+                        session: state.sessionTabModel,
                         writer: briefWriter,
-                        coreStyle: coreStyle,
                         brief: briefFacts,
+                        signals: homeSignals,
                         presentation: $briefPresentation,
                         availableHeight: availableHeight,
-                        onAddApp: { quickOpenAppPickerVisible = true },
-                        onManage: { quickOpenEditorVisible = true },
-                        onPreviewFocus: { sessionPreview = .focus },
-                        onPreviewBreak: { sessionPreview = .breakTime })
+                        onOpenTab: { select($0) },
+                        onMarkDone: { reminders.setComplete($0, true) })
             case .tasks:
                 TasksTab(state: state, reminders: reminders, agenda: agenda,
                          dayProgress: dayProgress, hoursLeft: hoursLeft,
@@ -561,8 +474,6 @@ struct DashboardView: View {
     // MARK: - Derived
 
     private var now: Date { Date() }
-
-    private var greeting: String { briefClock.greeting }
 
     private var dayProgress: Double {
         min(1, max(0.04, Double(Calendar.current.component(.hour, from: now)) / 24))

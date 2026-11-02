@@ -41,8 +41,7 @@ final class Wave12RenderTests: XCTestCase {
 }
 
 private struct NavRow: View {
-    @Namespace private var space
     var body: some View {
-        DashboardNavBar(selected: .home, namespace: space) { _ in }.padding(.top, 20)
+        DashboardHeader(selected: .home, issues: [], onSelect: { _ in })
     }
 }

@@ -19,18 +19,46 @@ final class Wave14HealthRenderTests: XCTestCase {
         })
     }
 
-    func testRendersHoverDetails() throws {
-        let size = CGSize(width: 760, height: 560)
+    /// The hover stage with each metric's hover forced on, at the narrow and wide window widths.
+    func testRendersForcedHoverStages() throws {
         let model = self.model
-        let view = VStack(alignment: .leading, spacing: 30) {
-            ForEach([HealthSection.recovery, .sleep, .activity, .energy], id: \.rawValue) { section in
-                if let part = model.parts([section]).first {
-                    HealthPartDetail(content: part, provenance: model.shortProvenance(part))
+        for window in [1280.0, 1728.0] {
+            let column = HealthStageLayout.mainColumn(window: window)
+            let size = CGSize(width: column + 80, height: 5 * 150 + 40)
+            let view = VStack(alignment: .leading, spacing: 18) {
+                ForEach([HealthSection.recovery, .sleep, .activity, .energy, .trends], id: \.rawValue) { section in
+                    HealthHoverStage(controller: HealthHoverController(), model: model, forced: section, column: column)
                 }
             }
+            .padding(40)
+            try UIRender.write("w14-e-health-hover-\(Int(window))", UIRender.onDesktop(view, light: false, size: size), size: size)
         }
-        .padding(40)
-        try UIRender.write("w14-e-health-hover", UIRender.onDesktop(view, light: false, size: size), size: size)
+    }
+
+    func testStageStaysInsideItsColumn() {
+        for window in [1280.0, 1728.0, 900.0] {
+            let column = HealthStageLayout.mainColumn(window: window)
+            let width = HealthStageLayout.width(column: column)
+            XCTAssertLessThanOrEqual(width, column)
+            XCTAssertLessThanOrEqual(width, HealthStageLayout.maxWidth)
+            XCTAssertGreaterThan(width, 0)
+        }
+        XCTAssertEqual(HealthStageLayout.width(column: .nan), 0)
+    }
+
+    func testHoverControllerHoldsBetweenNeighbours() async throws {
+        let controller = HealthHoverController(grace: .milliseconds(60))
+        controller.enter(.recovery)
+        controller.exit(.recovery)
+        controller.enter(.sleep)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(controller.hovered, .sleep, "moving to a neighbour inside the grace must not clear")
+        controller.exit(.recovery)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(controller.hovered, .sleep, "a stale exit must not clear the current part")
+        controller.exit(.sleep)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertNil(controller.hovered)
     }
 
     func testRingClampsAndPartsExist() {

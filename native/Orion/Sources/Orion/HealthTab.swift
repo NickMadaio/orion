@@ -16,9 +16,10 @@ struct HealthTab: View {
     let day: LogicalDay
     @ObservedObject var writer: NarrativeWriter
 
-    /// Phase 35. Owned here rather than injected because nothing else on the
-    /// Mac reads the journal yet; when Phase 36 does, it moves up.
-    @StateObject private var journal = JournalStore()
+    /// One hover stage per area: the rings under the main column, the week row, and the glance rail.
+    @StateObject private var ringHover = HealthHoverController()
+    @StateObject private var weekHover = HealthHoverController()
+    @StateObject private var railHover = HealthHoverController()
 
     @State private var workoutSheetVisible = false
     @State private var supplementSheetVisible = false
@@ -53,11 +54,12 @@ struct HealthTab: View {
                 VStack(alignment: .leading, spacing: 50) {
                     TimelineView(.periodic(from: .now, by: 60)) { context in
                         let model = sectionsModel(at: context.date)
-                        VStack(alignment: .leading, spacing: 44) {
-                            HealthTodayLine(model: model).deal(order: 0, rise: 10)
+                        VStack(alignment: .leading, spacing: 30) {
                             headline(model).deal(order: 1, rise: 12)
+                            // Fixed spot under the rings: the Today line until a ring is hovered.
+                            HealthHoverStage(controller: ringHover, model: model, rest: .today)
+                                .deal(order: 2, rise: 8)
                             if !whoop.week.isEmpty { week(model) }
-                            HealthSectionsView(model: model, journal: journal).deal(order: 4, rise: 12)
                         }
                     }
                 }
@@ -122,7 +124,7 @@ struct HealthTab: View {
             recentSleepHours: HealthSectionsModel.newestFirst(points.compactMap(\.sleepHours)),
             recentRecovery: HealthSectionsModel.newestFirst(
                 points.compactMap { $0.recovery.map(Double.init) }),
-            journalEntryCount: journal.entryCount(on: now)))
+            journalEntryCount: 0))
     }
 
     // MARK: - Headline
@@ -188,7 +190,7 @@ struct HealthTab: View {
             }
         }
         .padding(.top, drop)
-        .healthPartHover(model.parts([section]), model: model)
+        .healthHover(section, ringHover)
     }
 
     /// Morning: what you woke up with.
@@ -339,8 +341,8 @@ struct HealthTab: View {
                        tint: OrionTheme.orange, decimals: 1, drop: 0)
                 Spacer(minLength: 0)
             }
-            // The Trends part floats from the week it describes.
-            .healthPartHover(model.parts([.trends]), model: model, width: 340)
+            .healthHover(.trends, weekHover)
+            HealthHoverStage(controller: weekHover, model: model, height: 76)
         }
     }
 
@@ -360,7 +362,10 @@ struct HealthTab: View {
         let selection = writer.text(for: facts.narrativeKey)
         let takeaways = facts.takeaways(selection: selection)
         return VStack(alignment: .leading, spacing: 44) {
-            railDailyProgress(sectionsModel(at: Date()))
+            VStack(alignment: .leading, spacing: 10) {
+                railDailyProgress(sectionsModel(at: Date()))
+                HealthHoverStage(controller: railHover, model: sectionsModel(at: Date()), column: 300, height: 150)
+            }
             HairlineSection(title: "From your records", trailing: recordsOpen ? facts.dayKey : nil, hue: Color.white.opacity(0.28),
                             spacing: 6, order: 2, accessory: {
                 Button {
@@ -409,7 +414,7 @@ struct HealthTab: View {
             VStack(alignment: .leading, spacing: 0) {
                 logLine(label: "Water", value: "\(health.hydrationBottles)", unit: "of \(bottleTarget)",
                         progress: Double(health.hydrationBottles) / Double(bottleTarget), tint: OrionTheme.blue,
-                        part: model.parts([.energy]), model: model) {
+                        section: .energy) {
                     HStack(spacing: 8) {
                         RailCircleButton(symbol: "minus", tint: OrionTheme.textSoft, help: "One fewer bottle") { health.removeHydration() }
                         RailCircleButton(symbol: "plus", tint: OrionTheme.blue, help: "Drank one") { health.logHydration() }
@@ -419,20 +424,20 @@ struct HealthTab: View {
                 logLine(label: "Calories", value: health.caloriesToday > 0 ? "\(health.caloriesToday)" : "—",
                         unit: "of \(health.nutritionGoals.calories)",
                         progress: Double(health.caloriesToday) / Double(max(1, health.nutritionGoals.calories)), tint: OrionTheme.orange,
-                        part: model.parts([.energy]), model: model) {
+                        section: .energy) {
                     RailCircleButton(symbol: "arrow.up.right", tint: OrionTheme.orange, help: "Open the food log") { nutritionSheetVisible = true }
                 }
                 RowHairline()
                 logLine(label: "Supplements", value: health.supplements.isEmpty ? "—" : "\(health.takenToday.count)",
                         unit: health.supplements.isEmpty ? nil : "of \(health.supplements.count)",
                         progress: health.supplements.isEmpty ? 0 : Double(health.takenToday.count) / Double(health.supplements.count),
-                        tint: OrionTheme.violet, model: model) {
+                        tint: OrionTheme.violet) {
                     RailCircleButton(symbol: "chevron.right", tint: OrionTheme.violet, help: "Open the stack") { supplementSheetVisible = true }
                 }
                 RowHairline()
                 logLine(label: "Training", value: health.todaysWorkout.map { "\($0.totalSets)" } ?? "—",
                         unit: health.todaysWorkout == nil ? "not logged" : "sets",
-                        progress: health.todaysWorkout == nil ? 0 : 1, tint: OrionTheme.green, model: model) {
+                        progress: health.todaysWorkout == nil ? 0 : 1, tint: OrionTheme.green) {
                     RailCircleButton(symbol: "plus", tint: OrionTheme.green, help: "Log a session") { workoutSheetVisible = true }
                 }
             }
@@ -441,7 +446,7 @@ struct HealthTab: View {
 
     /// One log: a small ring (its count in the middle), the label and unit beside it, and the one round action.
     private func logLine<Action: View>(label: String, value: String, unit: String?, progress: Double, tint: Color,
-                                       part: [HealthSectionContent] = [], model: HealthSectionsModel,
+                                       section: HealthSection? = nil,
                                        @ViewBuilder action: () -> Action) -> some View {
         HStack(alignment: .center, spacing: 14) {
             HealthRing(progress: progress, tint: tint, diameter: 48, lineWidth: 3, delay: 0.3) {
@@ -458,11 +463,11 @@ struct HealthTab: View {
                     Text(unit).font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim)
                 }
             }
-            .healthPartHover(part, model: model, width: 280)
             Spacer(minLength: 8)
             action()
         }
         .padding(.vertical, 11)
+        .healthHover(section, railHover)
     }
 
     private var summaryFacts: HealthFacts {

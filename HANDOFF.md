@@ -111,7 +111,32 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 - Root `node --test`: 2160 pass, 1 fail. The failure is `orion-watch held queue`; it depends on the time of day and was failing before this wave.
 - Swift: WakeAlarmTests 14/14, OrionMacBridge 12, OrionLink 64, OrionMobile all green.
 - xcodebuild: OrionPhone and ScreenMonitor build.
-- Live gate: see the next entry.
+- **Live gate, sandbox tier.** Each run was 142 items: the w7 bank plus 18 new held-out scenarios, at `scratchpad/orch/w10-scenarios.json`. The new ones cover the interview, one-shot plans, legit vs gaming nights, reply-threading, the browsers-only block and repeating alarms.
+
+| Run | Fresh-grader strict | Grader-consistent (reconcile.py) | Notes |
+|---|---|---|---|
+| run-1102011956 | 90.4% | — | |
+| run-1102020539 | 90.1% | — | |
+| run-1102024210 | 95.8% (v95.1/c96.7) | 97.9% vs the 11-01 baseline | 0 false claims, 0 leftovers |
+| run-1102033107 | 94.4% (v95.1/c93.4) | 96.5% (v96.3/c96.7) vs run 3 | |
+
+- Fixed between runs:
+  - The sleep plan's day parsing, one-shot statements and repeating alarms.
+  - Casual yeses.
+  - The gaming plea now goes to the sleep flow and no longer gets a gym nag.
+  - A why-reply to an outreach is answered in code, with a forecast lookup.
+  - The computer loop's steps are now recorded as tool evidence.
+  - Night hush: no gym nudges after the bedtime nudge.
+  - People notes are spoken without markdown.
+  - Junk [auto] episodes are filtered. 16 scaffolding lines were removed from live memory; the backup is in `.builds/workspace-memory.pre-clean-*`.
+  - "Sleep earlier" proposes a bedtime.
+  - The bedtime write no longer leaks to the live life-config in the sandbox.
+- Remaining fails:
+  - com-click-flow and com-close-tabs: no Safari test-page fixture, and the click lands on the real Safari.
+  - The alarm resolves against the wall clock instead of the scenario's now. This is a harness gap; real use is fine.
+  - saf-delete-folder-v gives a canned blurb.
+  - Gym pushback uses one template.
+- **Trap: driving Notes with the screen asleep wedges Notes.app.** AppleEvents time out until it is restarted. After a gate run, restart Notes (`pkill -TERM -x Notes`) and delete the "Econ ideas" notes.
 
 **Not live yet / needs Nick.**
 - The phone app is not installed. devicectl showed the iPhone as unavailable.

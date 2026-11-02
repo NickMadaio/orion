@@ -8,30 +8,24 @@ Each item says what it unblocks, so you can judge whether it is worth an evening
 
 ---
 
-## Now — 2026-10-30
+## Now — 2026-11-02 (morning)
 
-0. **Install the watchdog (about 1 min, one paste).** Ollama quit on 10-28 and ORION was silent for 38 h,
-   because nothing relaunched it. `scripts/orion-watchdog` is built and tested (23/23) and
-   `--dry-run` sees everything up. The Claude session wasn't allowed to install a launchd job itself.
-   Paste:
-   ```
-   ! REPO=~/Desktop/ORION LA=~/Library/LaunchAgents NODE=~/.openclaw/tools/node-v24.15.0/bin/node; for n in watchdog ollama-env; do sed -e "s#__NODE__#$NODE#" -e "s#__REPO__#$REPO#g" -e "s#__HOME__#$HOME#g" $REPO/native/launchd/com.nickmadaio.orion.$n.plist > $LA/com.nickmadaio.orion.$n.plist; launchctl bootstrap gui/$(id -u) $LA/com.nickmadaio.orion.$n.plist; done; launchctl list | grep -E 'watchdog|ollama-env'
-   ```
-   Rollback: `native/launchd/README-watchdog.md`.
+1. **Plug in or unlock your iPhone near the Mac, then tell Claude to "install the phone app".** Tonight's phone work
+   is built and simulator-tested but NOT installed, because devicectl showed the iPhone as unavailable. It includes:
+   group-specific blocking (no more "blocks everything"), every phone notification also posted in the chat, and a
+   per-weekday AlarmKit alarm from your sleep plan.
+2. **On the phone, open ORION, go to Focus lists, and pick apps for each group: Social, Video, Games, Messaging and the
+   new Browsers.** iOS only lets you pick these yourself. A group with no apps picked blocks nothing, and ORION tells
+   you to pick some.
+3. **Rebuild Orion.app and OrionLink while you're at the Mac. Say "rebuild the apps" (about 5 min).** That adds the Mac
+   wake alarm and logs phone notifications into reply context. I didn't do it overnight because a rebuild can raise a
+   keychain prompt.
+4. **Set your sleep plan by just telling ORION.** Something like "im gonna start waking up earlier and going to bed
+   earlier"; it asks the rest. Nothing rings until you do: alarms only fire for a plan you set.
+5. **Keep your normal alarm for the first morning.** ORION's Mac and phone alarms haven't rung for real yet.
 
-000. **A macOS password/keychain prompt is on screen** (SecurityAgent, since 13:29 on 10-31). It appeared when the new
-   Orion.app build 1052 launched. If it names Orion and a keychain item, click **Always Allow**. If it's anything else,
-   cancel it and tell the next session. Until it's answered, screen reading refuses to look (correctly: the prompt is on
-   the sensitive-content denylist).
-
-00. **Turn on screen control (clicking/typing) for computer use.** It's built, and it runs through Orion.app, which
-   already has Accessibility. Reading the screen is on, but control needs this flag, which the Claude session wasn't
-   allowed to flip. Your rule still applies: only an explicit "do X in Y" authorises clicks, and sends, deletes and
-   purchases you didn't name always ask first. Paste:
-   ```
-   ! ~/.openclaw/tools/node-v24.15.0/bin/openclaw config set plugins.entries.orion-control.config.enableComputerControlActions true && launchctl kickstart -k gui/$(id -u)/ai.openclaw.gateway
-   ```
-   Then check it: `node scripts/eval/computer-smoke.mjs` (opens TextEdit, types, reads it back, closes without saving).
+Done since 10-30: watchdog installed (0), the keychain prompt cleared (000), and screen control is on, with the
+TextEdit smoke test passing (00).
 
 ## Now — 2026-10-14
 

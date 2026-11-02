@@ -32,7 +32,10 @@ final class ScreenMonitor: DeviceActivityMonitor {
         }
         let info = about(activity)
         if let list = info["list"] {
-            defaults?.set(event.rawValue == "nudge1" ? 10 : event.rawValue == "lock" ? 15 : event.rawValue == "cap" ? (list == "games" ? 90 : 120) : 0, forKey: "orion.focuslists.used." + list)
+            let reached = Self.minutes(forEvent: event.rawValue, list: list)
+            let today = Calendar.current.isDateInToday(Date(timeIntervalSince1970: defaults?.double(forKey: "orion.focuslists.usedAt." + list) ?? 0))
+            // Several windows watch the same group: keep the largest reading of the day, never a smaller one.
+            defaults?.set(max(reached, today ? defaults?.integer(forKey: "orion.focuslists.used." + list) ?? 0 : 0), forKey: "orion.focuslists.used." + list)
             defaults?.set(Date().timeIntervalSince1970, forKey: "orion.focuslists.usedAt." + list)
         }
         let kind = info["kind"] ?? "day"
@@ -52,6 +55,18 @@ final class ScreenMonitor: DeviceActivityMonitor {
                  until: Double(info["end"] ?? "") ?? Date().addingTimeInterval(1800).timeIntervalSince1970,
                  why: kind == "night" ? "until morning" : "until \(title) is over")
         default: break
+        }
+    }
+
+    /// Minutes of use an event stands for: the fixed nudges, and the "u<N>" steps ScreenWatch adds every few minutes.
+    static func minutes(forEvent name: String, list: String) -> Int {
+        if name.hasPrefix("u"), let n = Int(name.dropFirst()) { return n }
+        switch name {
+        case "nudge1": return 10
+        case "lock": return 15
+        case "long1": return list == "games" ? 80 : 110
+        case "cap": return list == "games" ? 90 : 120
+        default: return 0
         }
     }
 
@@ -77,23 +92,23 @@ final class ScreenMonitor: DeviceActivityMonitor {
         }
     }
 
-    /// Put the shield on the chosen apps; false when Focus lock is off or unset.
+    /// Put the shield on the blocked groups only; false when Focus lock is off or no group with apps is blocked.
+    /// There is no fallback to the combined selection: asked for one group, shielding all of them is the bug.
     private func shield() -> Bool {
         guard defaults?.bool(forKey: "orion.focuslock.enabled") == true else { store.clearAllSettings(); return false }
-        if let blocked = defaults?.stringArray(forKey: "orion.focuslists.blocked"), !blocked.isEmpty {
-            let selections = blocked.compactMap { name -> FamilyActivitySelection? in
-                guard let data = defaults?.data(forKey: "orion.focuslists." + name) else { return nil }
-                return try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data)
-            }
-            store.shield.applications = selections.reduce(into: Set<ApplicationToken>()) { $0.formUnion($1.applicationTokens) }
-            store.shield.applicationCategories = .specific(selections.reduce(into: Set<ActivityCategoryToken>()) { $0.formUnion($1.categoryTokens) })
-            return true
+        let blocked = defaults?.stringArray(forKey: "orion.focuslists.blocked") ?? []
+        let selections = blocked.compactMap { name -> FamilyActivitySelection? in
+            guard let data = defaults?.data(forKey: "orion.focuslists." + name) else { return nil }
+            return try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data)
         }
-        guard defaults?.bool(forKey: "orion.focuslock.enabled") == true else { return false }
-        guard let data = defaults?.data(forKey: "orion.focuslock.selection"),
-              let selection = try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data) else { return false }
-        store.shield.applications = selection.applicationTokens
-        store.shield.applicationCategories = .specific(selection.categoryTokens)
+        let apps = selections.reduce(into: Set<ApplicationToken>()) { $0.formUnion($1.applicationTokens) }
+        let categories = selections.reduce(into: Set<ActivityCategoryToken>()) { $0.formUnion($1.categoryTokens) }
+        let domains = selections.reduce(into: Set<WebDomainToken>()) { $0.formUnion($1.webDomainTokens) }
+        guard !apps.isEmpty || !categories.isEmpty || !domains.isEmpty else { store.clearAllSettings(); return false }
+        store.shield.applications = apps.isEmpty ? nil : apps
+        store.shield.applicationCategories = categories.isEmpty ? nil : .specific(categories)
+        store.shield.webDomains = domains.isEmpty ? nil : domains
+        store.shield.webDomainCategories = categories.isEmpty ? nil : .specific(categories)
         return true
     }
 
@@ -104,34 +119,27 @@ final class ScreenMonitor: DeviceActivityMonitor {
 
     private func lock(activity: String, kind: String, until: TimeInterval, why: String) {
         guard defaults?.bool(forKey: "orion.focuslock.enabled") == true else { notify("Still using distracting apps. Enable Focus lock to apply a shield."); return }
-        if let list = activity.split(separator: ".").last, ["feeds", "video", "games", "messaging"].contains(String(list)) {
-            var blocked = defaults?.stringArray(forKey: "orion.focuslists.blocked") ?? []
-            if !blocked.contains(String(list)) { blocked.append(String(list)) }
-            defaults?.set(blocked, forKey: "orion.focuslists.blocked")
-            defaults?.set(max(until, defaults?.double(forKey: "orion.focuslists.until." + String(list)) ?? 0), forKey: "orion.focuslists.until." + String(list))
-            defaults?.set(until, forKey: "orion.focuslock.until")
-            defaults?.set(kind, forKey: "orion.screen.lockWhy")
-            defaults?.set(activity, forKey: "orion.screen.lockedBy")
-            if (defaults?.double(forKey: "orion.screen.graceUntil") ?? 0) <= Date().timeIntervalSince1970 { _ = shield(); notify("Locked \(list) \(why).") }
+        // Every window ScreenWatch lays out is per group ("work.0.feeds", "night.video", "day.browsers"). A name that
+        // does not end in a group is one an old build left behind: it locks nothing (it used to lock every app).
+        guard let list = activity.split(separator: ".").last.map(String.init), Self.groups.contains(list) else { return }
+        guard let data = defaults?.data(forKey: "orion.focuslists." + list),
+              let picked = try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data),
+              !picked.applicationTokens.isEmpty || !picked.categoryTokens.isEmpty || !picked.webDomainTokens.isEmpty else {
+            notify("Still on \(Self.title(list)). Pick apps for \(Self.title(list)) in ORION and I can lock them next time.")
             return
         }
-        // Inside time ORION granted: note the lock's window, but do not lock yet.
-        let grace = defaults?.double(forKey: "orion.screen.graceUntil") ?? 0
-        // Which window locked, so the end of THAT window unlocks (it was never set before).
-        defaults?.set(activity, forKey: "orion.screen.lockedBy")
-        defaults?.set(kind, forKey: "orion.screen.lockWhy")
+        var blocked = defaults?.stringArray(forKey: "orion.focuslists.blocked") ?? []
+        if !blocked.contains(list) { blocked.append(list) }
+        defaults?.set(blocked, forKey: "orion.focuslists.blocked")
+        defaults?.set(max(until, defaults?.double(forKey: "orion.focuslists.until." + list) ?? 0), forKey: "orion.focuslists.until." + list)
         defaults?.set(until, forKey: "orion.focuslock.until")
-        if grace > Date().timeIntervalSince1970 { return }
-        guard defaults?.bool(forKey: "orion.focuslock.enabled") == true,
-              let data = defaults?.data(forKey: "orion.focuslock.selection"),
-              let selection = try? PropertyListDecoder().decode(FamilyActivitySelection.self, from: data) else {
-            notify("Still on your phone. (Turn on Focus lock in ORION if you want me to lock these apps next time.)")
-            return
-        }
-        store.shield.applications = selection.applicationTokens
-        store.shield.applicationCategories = .specific(selection.categoryTokens)
-        notify("Locked your distracting apps \(why). Tap Started on ORION's check-in or open ORION to unlock.")
+        defaults?.set(kind, forKey: "orion.screen.lockWhy")
+        defaults?.set(activity, forKey: "orion.screen.lockedBy")
+        if (defaults?.double(forKey: "orion.screen.graceUntil") ?? 0) <= Date().timeIntervalSince1970 { _ = shield(); notify("Locked \(Self.title(list)) \(why).") }
     }
+
+    static let groups: Set<String> = ["messaging", "feeds", "video", "games", "browsers"]
+    static func title(_ list: String) -> String { list == "feeds" ? "Social" : list.capitalized }
 
     private func notify(_ text: String) {
         let content = UNMutableNotificationContent()

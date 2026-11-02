@@ -274,6 +274,15 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
     public var earlyFinish: EarlyFinishContext?
     public var chatModels: [ModelChoice]?
     public var focusLists: [String]?
+    /// Per-group blocks from the Mac (2026-11-02): one entry per app group, each with its own end and reason, so
+    /// lifting one group never touches another. Optional: older Macs send only `focusLists` (names, no end).
+    public struct FocusListPlan: Codable, Equatable, Sendable {
+        public var name: String
+        public var until: Double?   // seconds since 1970; nil = only while the directive stays fresh
+        public var why: String?
+        public init(name: String, until: Double? = nil, why: String? = nil) { self.name = name; self.until = until; self.why = why }
+    }
+    public var focusPlan: [FocusListPlan]?
     /// The follow-up ORION is running now, for the phone's lock screen and widgets.
     public var checkin: OrionGlance.Checkin?
     /// One-off deadlines ahead (quizzes, presentations), from the Mac's calendar export.
@@ -300,14 +309,14 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
                 running: [RunningAction] = [], attention: Attention? = nil, health: [HealthDay]? = nil,
                 tracking: Tracking? = nil, plan: TodayPlan? = nil, planRequest: PlanRequest? = nil, wakeRequest: Date? = nil,
                 checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil,
-                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil,
+                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil, focusPlan: [FocusListPlan]? = nil,
                 knownPlaces: [KnownPlace]? = nil) {
         self.version = LinkSnapshot.currentVersion
         self.generatedAt = generatedAt; self.mac = mac; self.runs = runs; self.approvals = approvals
         self.running = running; self.attention = attention; self.health = health
         self.tracking = tracking; self.plan = plan; self.planRequest = planRequest; self.wakeRequest = wakeRequest
         self.checkin = checkin; self.deadlines = deadlines; self.lastInputAt = lastInputAt
-        self.screenGrant = screenGrant; self.night = night; self.earlyFinish = earlyFinish; self.chatModels = chatModels; self.focusLists = focusLists
+        self.screenGrant = screenGrant; self.night = night; self.earlyFinish = earlyFinish; self.chatModels = chatModels; self.focusLists = focusLists; self.focusPlan = focusPlan
         self.knownPlaces = knownPlaces
     }
 
@@ -466,7 +475,7 @@ public enum LinkLog: Codable, Equatable, Sendable {
             let time = { (value: String?) in value == nil || ISO8601DateFormatter().date(from: value!) != nil }
             guard ISO8601DateFormatter().date(from: at) != nil, time(until), time(graceUntil),
                   why == nil || ["night", "work", "checkin", "day"].contains(why!) else { throw LinkError.invalidCommand("not a screen state") }
-            guard usedMinutes == nil || usedMinutes!.allSatisfy({ ["messaging", "feeds", "video", "games"].contains($0.key) && (0...1440).contains($0.value) }) else { throw LinkError.invalidCommand("invalid app-list usage") }
+            guard usedMinutes == nil || usedMinutes!.allSatisfy({ ["messaging", "feeds", "video", "games", "browsers"].contains($0.key) && (0...1440).contains($0.value) }) else { throw LinkError.invalidCommand("invalid app-list usage") }
             return .screen(at: at, locked: locked, until: until, why: why, graceUntil: graceUntil, usedMinutes: usedMinutes)
         case .checkin(let action):
             guard ["started", "snooze", "done", "early-block", "early-out-of-class", DoneEarly.linkAction].contains(action) || DoneEarly.checkinID(fromLinkAction: action) != nil else { throw LinkError.invalidCommand("not a check-in answer") }

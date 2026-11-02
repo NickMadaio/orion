@@ -34,7 +34,10 @@ final class RemoteStore: ObservableObject {
         let clock = Timer(timeInterval: 10, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.now = Date()
-                if let self { FocusLists.shared.applyRemote(self.snapshot.flatMap { Date().timeIntervalSince($0.generatedAt) < 90 ? $0.focusLists : nil } ?? []) }
+                if let self {
+                    let fresh = self.snapshot.flatMap { Date().timeIntervalSince($0.generatedAt) < 90 ? $0 : nil }
+                    FocusLists.shared.applyRemote(fresh?.focusLists ?? [], plan: fresh?.focusPlan)
+                }
                 await self?.flushOutbox()
             }
         }
@@ -46,7 +49,7 @@ final class RemoteStore: ObservableObject {
         link.$snapshot.receive(on: RunLoop.main).sink { [weak self] value in
             guard let self else { return }
             self.snapshot = value
-            if let names = value?.focusLists { FocusLists.shared.applyRemote(names) }
+            if let names = value?.focusLists { FocusLists.shared.applyRemote(names, plan: value?.focusPlan) }
             // The widgets and lock screen follow the Mac even when no screen is showing.
             if !Self.fixture { GlanceWriter.publish(snapshot: value) }
             self.reconcile(self.link.messages)

@@ -24,7 +24,7 @@ describe("phone-lists", () => {
       escalation: "none",
     });
     assert.deepStrictEqual(result.block, ["feeds"]);
-    assert.deepStrictEqual(result.keep, ["messaging", "video", "games"]);
+    assert.deepStrictEqual(result.keep, ["messaging", "video", "games", "browsers"]);
   });
 
   it("carrying on in video after feeds is capped blocks video too", () => {
@@ -35,7 +35,7 @@ describe("phone-lists", () => {
       escalation: "none",
     });
     assert.deepStrictEqual(result.block, ["feeds", "video"]);
-    assert.deepStrictEqual(result.keep, ["messaging", "games"]);
+    assert.deepStrictEqual(result.keep, ["messaging", "games", "browsers"]);
   });
 
   it("a focus block at the block step leaves messaging open", () => {
@@ -46,7 +46,7 @@ describe("phone-lists", () => {
       escalation: "block",
     });
     assert.deepStrictEqual(result.block, ["feeds", "video", "games"]);
-    assert.deepStrictEqual(result.keep, ["messaging"]);
+    assert.deepStrictEqual(result.keep, ["messaging", "browsers"]);
   });
 
   it("messaging is blocked only when it is the distraction and not allowed", () => {
@@ -58,7 +58,7 @@ describe("phone-lists", () => {
       allowMessaging: false,
     });
     assert.deepStrictEqual(result.block, ["messaging", "feeds", "video", "games"]);
-    assert.deepStrictEqual(result.keep, []);
+    assert.deepStrictEqual(result.keep, ["browsers"]);
   });
 
   it("a nap or meal block never triggers the focus rule", () => {
@@ -81,7 +81,7 @@ describe("phone-lists", () => {
     });
     // All three capped lists should appear in LISTS order
     assert.deepStrictEqual(result.block, ["feeds", "video", "games"]);
-    assert.deepStrictEqual(result.keep, ["messaging"]);
+    assert.deepStrictEqual(result.keep, ["messaging", "browsers"]);
     // Verify no duplicates
     const blockSet = new Set(result.block);
     assert.strictEqual(blockSet.size, result.block.length);

@@ -3,6 +3,9 @@
 //   orion-phone-time status                          locked or not, until when, and why (as the phone last said)
 //   orion-phone-time grant <minutes|HH:MM> --because "<his reason>"   unlock until then; it re-locks by itself
 //   orion-phone-time revoke                          end extra time now (the lock returns at the next check)
+//   orion-phone-time block <group>[,<group>] [--minutes N] [--why "<text>"]   shut just those app groups
+//   orion-phone-time unblock <group>|all             open one group (the others stay shut) or every group ORION shut for him
+//   Groups: social (feeds), browsers, video, games, messaging. Never "everything": name what he is distracted by.
 // Nick asked ORION "can you pretty please unblock my apps just until 12:45" and
 // ORION answered that nothing was locked: the lock lives on the phone and the
 // Mac could not see it. The phone now reports its state before every message,
@@ -12,11 +15,18 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, rmSync } from "node
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { LISTS, groupName } from "./lib/focus/phone-lists.mjs";
 
 const CONTROLLED = process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled");
 const HEALTH = process.env.ORION_HEALTH_LOG || join(CONTROLLED, "health-log.json");
 const GRANT = join(CONTROLLED, "screen-grant.json");
+const USER_BLOCKS = join(CONTROLLED, "focus-phone-user.json");
 const MAX_MINUTES = 60;
+const DEFAULT_BLOCK_MINUTES = 60;
+const MAX_BLOCK_MINUTES = 480;
+const SHOWN = { feeds: "social" };
+const shown = (name) => SHOWN[name] ?? name;
+const GROUP_HELP = `Groups: ${LISTS.map((g) => (g === "feeds" ? "social" : g)).join(", ")}.`;
 const STALE_MINUTES = 15;
 const read = (file) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return null; } };
 const fail = (message, code = 2) => { console.error(message); process.exit(code); };
@@ -24,7 +34,22 @@ const clock = (date) => date.toLocaleTimeString("en-US", { hour: "numeric", minu
 const now = process.env.ORION_NOW ? new Date(process.env.ORION_NOW) : new Date();
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const [command, amount] = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--because");
+const VALUE_FLAGS = new Set(["--because", "--minutes", "--why"]);
+const [command, amount] = args.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.has(args[i - 1]));
+
+function userBlocks() {
+  const lists = read(USER_BLOCKS)?.lists;
+  return (Array.isArray(lists) ? lists : []).filter((l) => LISTS.includes(l?.name) && new Date(l.until) > now);
+}
+function saveUserBlocks(lists) {
+  mkdirSync(CONTROLLED, { recursive: true });
+  writeFileSync(`${USER_BLOCKS}.tmp`, JSON.stringify({ at: now.toISOString(), lists }, null, 2));
+  renameSync(`${USER_BLOCKS}.tmp`, USER_BLOCKS);
+}
+function blockSummary() {
+  const held = userBlocks();
+  return held.length ? ` ORION has shut: ${held.map((l) => `${shown(l.name)} until ${clock(new Date(l.until))}${l.why ? ` (${l.why})` : ""}`).join("; ")}.` : "";
+}
 
 function describe() {
   const state = read(HEALTH)?.phoneScreen;
@@ -53,7 +78,7 @@ function describe() {
 }
 
 if (!command || command === "status") {
-  console.log(describe());
+  console.log(describe() + blockSummary());
 } else if (command === "grant") {
   const because = (flag("--because") ?? "").trim();
   if (!because) fail('usage: orion-phone-time grant <minutes|HH:MM> --because "<his reason>"');
@@ -78,9 +103,45 @@ if (!command || command === "status") {
   } else {
     console.log(`Sent to his phone: apps unlock until ${clock(until)} (${minutes} min), then lock again by themselves. It lands within seconds while ORION is open on the phone, otherwise when the phone next checks in; \`status\` shows UNLOCKED once the phone confirms.`);
   }
+} else if (command === "block") {
+  const usage = 'usage: orion-phone-time block <group>[,<group>] [--minutes N] [--why "<text>"]';
+  const words = String(amount ?? "").split(",").map((w) => w.trim()).filter(Boolean);
+  if (!words.length) fail(`${usage}\n${GROUP_HELP}`);
+  const names = [];
+  for (const word of words) {
+    const name = groupName(word);
+    if (!name) fail(`NOT BLOCKED: "${word}" is not an app group. ${GROUP_HELP} Block groups, never everything and never single apps.`);
+    if (!names.includes(name)) names.push(name);
+  }
+  const rawMinutes = flag("--minutes");
+  const minutes = rawMinutes === undefined ? DEFAULT_BLOCK_MINUTES : Number(rawMinutes);
+  if (!Number.isInteger(minutes) || minutes < 1) fail(`NOT BLOCKED: --minutes must be a whole number of minutes. ${usage}`);
+  if (minutes > MAX_BLOCK_MINUTES) fail(`NOT BLOCKED: ${minutes} minutes is more than ${MAX_BLOCK_MINUTES}. Offer a shorter block.`, 1);
+  const until = new Date(now.getTime() + minutes * 60000);
+  const why = (flag("--why") ?? "").trim().slice(0, 120);
+  const kept = userBlocks().filter((l) => !names.includes(l.name));
+  saveUserBlocks([...kept, ...names.map((name) => ({ name, until: until.toISOString(), why: why || undefined, setAt: now.toISOString() }))]);
+  const others = kept.length ? ` Still shut from before: ${kept.map((l) => shown(l.name)).join(", ")}.` : "";
+  console.log(`Sent to his phone: ${names.map(shown).join(" and ")} blocked until ${clock(until)} (${minutes} min); every other group stays open. It lands within seconds while ORION is open on the phone, otherwise when the phone next checks in. If he never picked apps for a group, nothing is shielded and the phone asks him to pick them.${others}`);
+} else if (command === "unblock") {
+  const usage = "usage: orion-phone-time unblock <group>|all";
+  if (!amount) fail(`${usage}\n${GROUP_HELP}`);
+  const held = userBlocks();
+  if (String(amount).toLowerCase() === "all") {
+    saveUserBlocks([]);
+    console.log(held.length ? `Sent to his phone: ${held.map((l) => shown(l.name)).join(", ")} open again.` : "Nothing was shut by ORION on his behalf from here; nothing to open. (Locks from a work block or bedtime end on their own, or use grant for extra time.)");
+  } else {
+    const names = String(amount).split(",").map((w) => w.trim()).filter(Boolean).map((w) => groupName(w) ?? fail(`NOT UNBLOCKED: "${w}" is not an app group. ${GROUP_HELP}`));
+    const mine = held.filter((l) => names.includes(l.name));
+    saveUserBlocks(held.filter((l) => !names.includes(l.name)));
+    const left = held.filter((l) => !names.includes(l.name)).map((l) => shown(l.name));
+    console.log(mine.length
+      ? `Sent to his phone: ${mine.map((l) => shown(l.name)).join(", ")} open again.${left.length ? ` Still shut: ${left.join(", ")}.` : ""}`
+      : `${names.map(shown).join(", ")} was not shut from here, so nothing changed. (A work-block or bedtime lock ends on its own, or use grant for extra time.)${left.length ? ` Still shut: ${left.join(", ")}.` : ""}`);
+  }
 } else if (command === "revoke") {
   rmSync(GRANT, { force: true });
   console.log("Extra time withdrawn. The lock comes back when his phone next checks in, or when the granted time runs out.");
 } else {
-  fail("usage: orion-phone-time status | grant <minutes|HH:MM> --because \"<why>\" | revoke");
+  fail("usage: orion-phone-time status | grant <minutes|HH:MM> --because \"<why>\" | revoke | block <group>[,<group>] [--minutes N] [--why \"<text>\"] | unblock <group>|all");
 }

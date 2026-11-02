@@ -676,7 +676,7 @@ function phoneLock({ compact = false } = {}) {
     const line = (r.stdout ?? "").trim();
     // Compact (r8b2): the verb word itself would satisfy the authority gate, so point at --help instead.
     if (compact) return line ? `- His phone's app lock: ${line} Extra time for him: run orion-phone-time --help for the verb (max 60 min, needs his reason; it re-locks by itself). Mac focus sessions are orion-session, not the phone.` : null;
-    return line ? `- His phone's app lock: ${line} Extra time: orion-phone-time grant <minutes|HH:MM> --because "<his reason>" (max 60 min; it re-locks by itself). Mac focus sessions are orion-session, not the phone.` : null;
+    return line ? `- His phone's app lock: ${line} Extra time: orion-phone-time grant <minutes|HH:MM> --because "<his reason>" (max 60 min; it re-locks by itself). To shut only the apps he is stuck on: orion-phone-time block <social|browsers|video|games|messaging>[,..] [--minutes N] [--why "<text>"] (never everything); open one with unblock <group>. Mac focus sessions are orion-session, not the phone.` : null;
   } catch { return null; }
 }
 

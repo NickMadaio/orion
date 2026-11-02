@@ -28,7 +28,7 @@ const ladder = { blockId: null, offSince: null, lastStep: "none", snoozeUntil: n
 const step = nextStep(ladder, { now: minute, block, activity, phone: { minutesInUse: Math.max(...Object.values(usedToday)) }, allow });
 const lists = listsToBlock({ block, usedToday, current: null, escalation: step.phone });
 writeState(file, { ...state, ladder: step.state });
-const directive = { at: now.toISOString(), until: block ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, block.end).toISOString() : now.toISOString(), block: lists.block, why: lists.why };
+const directive = { at: now.toISOString(), until: block ? new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, block.end).toISOString() : now.toISOString(), block: lists.block, lists: lists.lists, why: lists.why };
 writeFileSync(join(root, "focus-phone.json.tmp"), JSON.stringify(directive)); renameSync(join(root, "focus-phone.json.tmp"), join(root, "focus-phone.json"));
 const alerts = [];
 if (step.phone === "warn") alerts.push(`Ten minutes on your phone during ${block?.title}. Put it down; distracting lists block at fifteen.`);

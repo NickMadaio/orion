@@ -13,6 +13,8 @@ import MobileCore
  schedules with usage thresholds, handled by the ScreenMonitor extension even
  when ORION is closed. The app only lays the schedules out:
 
+   Each of these runs once per app group (social, video, games, browsers), so a group's own minutes are reported
+   to ORION at 5, 10, 15 ... steps (events "u5", "u10"...), not one combined number.
    work.N   each class / study / deadline / side-project block today:
             nudge at 15 and 30 minutes on those apps, lock at 45 (until it ends)
    night    bedtime → wake: nudge at 10 and 20, lock at 30
@@ -60,21 +62,21 @@ enum ScreenWatch {
             let start = max(block.start, now)
             guard block.end.timeIntervalSince(start) >= 15 * 60 else { continue }
             try? center.startMonitoring(DeviceActivityName(name), during: schedule(start, block.end),
-                                        events: events(selection, [("nudge1", 10), ("lock", 15)]))
+                                        events: events(selection, [("u5", 5), ("nudge1", 10), ("lock", 15)]))
             about[name] = ["list": list.rawValue, "kind": "work", "title": block.title, "end": String(block.end.timeIntervalSince1970)]
         }
         if let night = glance.night, let alarm = night.alarm, alarm > now {
             let start = max(night.bed, now)
             if alarm.timeIntervalSince(start) >= 15 * 60 {
                 try? center.startMonitoring(DeviceActivityName("night." + list.rawValue), during: schedule(start, alarm),
-                                            events: events(selection, [("nudge1", 10), ("lock", 15)]))
+                                            events: events(selection, [("u5", 5), ("nudge1", 10), ("lock", 15)]))
                 about["night." + list.rawValue] = ["list": list.rawValue, "kind": "night", "title": "bedtime", "end": String(alarm.timeIntervalSince1970)]
             }
         }
         let endOfDay = calendar.date(bySettingHour: 23, minute: 59, second: 0, of: now) ?? now
         if endOfDay.timeIntervalSince(now) >= 15 * 60 {
             try? center.startMonitoring(DeviceActivityName("day." + list.rawValue), during: schedule(now, endOfDay),
-                                        events: events(selection, [("long1", list == .games ? 80 : 110), ("cap", list == .games ? 90 : 120)]))
+                                        events: events(selection, [("u5", 5), ("u10", 10), ("u15", 15), ("u30", 30), ("u60", 60), ("long1", list == .games ? 80 : 110), ("cap", list == .games ? 90 : 120)]))
             about["day." + list.rawValue] = ["list": list.rawValue, "kind": "day", "title": "today", "end": String(endOfDay.timeIntervalSince1970)]
         }
         }

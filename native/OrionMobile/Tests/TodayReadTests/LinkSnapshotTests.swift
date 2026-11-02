@@ -70,4 +70,23 @@ final class LinkSnapshotTests: XCTestCase {
         object["tracking"] = nil; object["plan"] = nil; object["planRequest"] = nil
         XCTAssertNoThrow(try LinkSnapshot.decode(try JSONSerialization.data(withJSONObject: object)))
     }
+
+    func testAPerGroupFocusPlanRoundTripsAndAnOldSnapshotWithoutOneDecodes() throws {
+        var snapshot = sample()
+        snapshot.focusLists = ["feeds"]
+        snapshot.focusPlan = [.init(name: "feeds", until: 1_800_000_000, why: "revision"), .init(name: "browsers")]
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        let back = try decoder.decode(LinkSnapshot.self, from: try encoder.encode(snapshot))
+        XCTAssertEqual(back.focusPlan, snapshot.focusPlan)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try encoder.encode(snapshot)) as? [String: Any])
+        object["focusPlan"] = nil
+        let old = try decoder.decode(LinkSnapshot.self, from: try JSONSerialization.data(withJSONObject: object))
+        XCTAssertNil(old.focusPlan)
+        XCTAssertEqual(old.focusLists, ["feeds"])
+    }
+
+    func testBrowsersUsageIsAValidScreenReport() throws {
+        XCTAssertNoThrow(try LinkLog.screen(at: "2030-10-03T09:00:00Z", locked: false, until: nil, why: nil, graceUntil: nil, usedMinutes: ["browsers": 12, "feeds": 5]).validated())
+    }
 }

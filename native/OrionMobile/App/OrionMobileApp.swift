@@ -123,7 +123,7 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         if let note = CKNotification(fromRemoteNotificationDictionary: userInfo) as? CKQueryNotification,
            note.recordFields?[LinkSchema.alertKind] as? String == "checkin",
            let level = note.recordFields?["level"] as? Int, level >= 3 {
-            Task { @MainActor in FocusLock.shared.engage(minutes: 45) }
+            Task { @MainActor in FocusLock.shared.engage(minutes: 45, lists: [.feeds, .video, .games]) }
         }
         // Keep the widgets, the lock screen and the night check current with the app closed.
         Task { @MainActor in

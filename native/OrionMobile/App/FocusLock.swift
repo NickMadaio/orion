@@ -48,7 +48,8 @@ final class FocusLock: ObservableObject {
     /// Copy the current choices where the extension can read them (on launch).
     func mirror() {
         Self.shared_defaults?.set(enabled, forKey: "orion.focuslock.enabled")
-        if FocusLists.shared.isEmpty(.feeds), hasApps { FocusLists.shared.set(selection, for: .feeds) }
+        // The combined selection is never copied into a named list: it is everything he ever picked, and a
+        // "block feeds" that shielded all of it was how one group turned into a blocked phone (2026-11-02).
         store.clearAllSettings()
         if let data = try? PropertyListEncoder().encode(selection) { Self.shared_defaults?.set(data, forKey: "orion.focuslock.selection") }
     }
@@ -83,11 +84,18 @@ final class FocusLock: ObservableObject {
         }
     }
 
-    /// An ignored check-in at level 3+: lock the chosen apps for a while.
-    func engage(minutes: Int) {
-        guard enabled, hasApps, AuthorizationCenter.shared.authorizationStatus == .approved else { return }
-        FocusLists.shared.block([.feeds, .video, .games])
+    /// An ignored check-in at level 3+: lock the named groups for a while. Only groups he picked apps for are
+    /// shielded; with none picked nothing is, and he is asked to pick (never a fallback to every app).
+    func engage(minutes: Int, lists: [AppList]) {
+        guard enabled, AuthorizationCenter.shared.authorizationStatus == .approved else { return }
+        let ready = lists.filter { !FocusLists.shared.isEmpty($0) }
+        guard !ready.isEmpty else {
+            FocusLists.shared.applyRemote([], plan: lists.map { LinkSnapshot.FocusListPlan(name: $0.rawValue) })
+            return
+        }
         let until = Date().addingTimeInterval(Double(minutes * 60))
+        for list in ready { Self.shared_defaults?.set(until.timeIntervalSince1970, forKey: "orion.focuslists.until." + list.rawValue) }
+        FocusLists.shared.block(Set(ready).union(FocusLists.shared.blocked))
         lockedUntil = until
         Self.shared_defaults?.set(until.timeIntervalSince1970, forKey: "orion.focuslock.until")
         Self.shared_defaults?.set("checkin", forKey: "orion.screen.lockWhy")

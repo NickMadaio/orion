@@ -261,7 +261,7 @@ final class LinkEngine: ObservableObject {
                                     planRequest: reader.planRequest(now: now), wakeRequest: reader.wakeRequest(now: now),
                                     checkin: reader.checkin(now: now), deadlines: calendar?.deadlines,
                                     lastInputAt: MacFacts.lastInput(now: now).map { Self.minute($0) },
-                                    screenGrant: reader.screenGrant(now: now), night: reader.night(), earlyFinish: earlyFinishContext(), chatModels: chatModelChoices(), focusLists: focusListsDirective(),
+                                    screenGrant: reader.screenGrant(now: now), night: reader.night(), earlyFinish: earlyFinishContext(), chatModels: chatModelChoices(), focusLists: focusDirective()?.names, focusPlan: focusDirective()?.plan,
                                     knownPlaces: knownPlaces())
         publishGlance(snapshot, now: now)
         // Compare without the clock, so an unchanged Mac is not re-sent every tick.
@@ -551,10 +551,10 @@ final class LinkEngine: ObservableObject {
         return .init(ok: process.terminationStatus == 0, reply: out.isEmpty ? "Noted." : early != nil ? DoneEarly.summary(from: out) : String(out.prefix(300)))
     }
 
-    private func focusListsDirective() -> [String]? {
-        let file = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/focus-phone.json")
-        guard let data = try? Data(contentsOf: file), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let at = object["at"] as? String, let date = ISO8601DateFormatter().date(from: at), Date().timeIntervalSince(date) < 90 else { return nil }
-        return object["block"] as? [String]
+    private func focusDirective() -> FocusDirective.Result? {
+        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled")
+        return FocusDirective.resolve(auto: try? Data(contentsOf: dir.appendingPathComponent("focus-phone.json")),
+                                      user: try? Data(contentsOf: dir.appendingPathComponent("focus-phone-user.json")))
     }
     private var chatArchive: ChatStore? { try? ChatStore(directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/chats")) }
     private func chatModelChoices() -> [ModelChoice] {

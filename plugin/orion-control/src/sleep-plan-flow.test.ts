@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { readException, readHabit, readSleepTurn, slotsOf, type SleepPending, type SleepTurn } from "./sleep-plan-read.js";
+import { readException, readHabit, readPlea, readSleepTurn, slotsOf, type SleepPending, type SleepTurn } from "./sleep-plan-read.js";
 import { draftArgs, runSleepTurn, SleepPlanPending, weekLine, type SleepRun } from "./sleep-plan-flow.js";
 import { registerLocalRouting } from "./local-routing.js";
 import type { Decision } from "./front-desk.js";
@@ -154,13 +154,13 @@ describe("the flow, multi-turn and one-shot", () => {
     expect(b.flow).toMatchObject({ text: "Got it, 6:00. Every day, or just some days?" });
     expect(cli.calls).toEqual([]);
     const c = await step(readSleepTurn("only mon wed thu", { held: b.pending!, now: EVENING })!);
-    expect(cli.calls[0]).toEqual(["plan", "--json", "--days", "mon,wed,thu", "--wake", "06:00", "--only"]);
+    expect(cli.calls[0]).toEqual(["plan", "--json", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--gym"]);   // "6am for the gym": these are his gym days
     expect(c.flow).toMatchObject({ text: "And how long before a class do you want to be up?" });
     const d = await step(readSleepTurn("at least 3 hours", { held: c.pending!, now: EVENING })!);
-    expect(cli.calls[1]).toEqual(["plan", "--json", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--lead", "180"]);
+    expect(cli.calls[1]).toEqual(["plan", "--json", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--lead", "180", "--gym"]);
     expect(d.flow).toMatchObject({ kind: "ask", text: "Mon 6:00 (class 9:00), Tue 9:00 (class 1:30), Wed 6:00 (class 9:00), Thu 6:00 (class 10:00), Fri 9:00 (class 10:00), weekend 9:00 — bed by 10pm the night before 6:00 days. Sound right?" });
     const e = await step(readSleepTurn("yeah perfect", { held: d.pending!, now: EVENING })!);
-    expect(cli.calls[2]).toEqual(["set", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--lead", "180", "--json"]);
+    expect(cli.calls[2]).toEqual(["set", "--days", "mon,wed,thu", "--wake", "06:00", "--only", "--lead", "180", "--gym", "--json"]);
     // The next alarm that really rings (Tue 9:00 is not his alarm): Wed 6:00, bed 10pm Tue.
     expect(e.flow).toMatchObject({ outcome: "done", reply: "Done, that's your plan now. Next alarm 6:00 Wed, so bed by 10pm Tue. I'll nudge you 30 min before bed." });
     expect(e.pending).toBeUndefined();
@@ -239,12 +239,12 @@ describe("the flow, multi-turn and one-shot", () => {
 const SCRIPT = fileURLToPath(new URL("../../../scripts/orion-sleepplan", import.meta.url));
 const dirs: string[] = [];
 afterEach(() => { dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })); });
-function sandboxRun(extra: Array<[number, number, number, number, string]> = []): { run: SleepRun; dir: string } {
+function sandboxRun(extra: Array<[number, number, number, number, string]> = [], now = EVENING): { run: SleepRun; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), "sleepflow-"));
   dirs.push(dir);
   writeFileSync(join(dir, "eval-mode"), "");
   const ev = (d: number, h: number, m: number, dur: number, title: string) => { const s = new Date(2026, 10, d, h, m); return { identifier: `${title}-${d}`, title, allDay: "false", start: s.toISOString(), end: new Date(s.getTime() + dur * 60000).toISOString() }; };
-  writeFileSync(join(dir, "eval-calendar.json"), JSON.stringify({ now: EVENING.toISOString(), events: [ev(3, 13, 30, 95, "MKTG2201 Lecture"), ev(4, 9, 0, 100, "CS1800 Lecture"), ev(5, 10, 0, 60, "CS2100 Lab"), ev(6, 13, 30, 95, "MKTG2201 Lecture"), ...extra.map((e) => ev(...e))] }));
+  writeFileSync(join(dir, "eval-calendar.json"), JSON.stringify({ now: now.toISOString(), events: [ev(3, 13, 30, 95, "MKTG2201 Lecture"), ev(4, 9, 0, 100, "CS1800 Lecture"), ev(5, 10, 0, 60, "CS2100 Lab"), ev(6, 13, 30, 95, "MKTG2201 Lecture"), ...extra.map((e) => ev(...e))] }));
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: dir, ORION_CONTROLLED_DIR: dir };
   for (const k of ["ORION_LIFE_CONFIG", "ORION_BRIDGE_BIN", "ORION_RESCHEDULE_NOW", "ORION_NOW", "ORION_EVAL_MARKER", "ORION_SANDBOX_CALENDAR"]) delete env[k];
   const run: SleepRun = (args) => new Promise((resolve) => execFile(process.execPath, [SCRIPT, ...args], { env }, (e, stdout, stderr) => resolve({ stdout: `${stdout}${e ? stderr : ""}`, code: e ? 1 : 0 })));
@@ -253,6 +253,7 @@ function sandboxRun(extra: Array<[number, number, number, number, string]> = [])
 
 // The routing hooks, as pending-reply-w5.test.ts drives them.
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
+const checkins: string[][] = [];
 function harness(run: SleepRun, now = EVENING, stateDir?: string) {
   const handlers = new Map<string, Handler[]>();
   const remembered: string[][] = [];
@@ -261,6 +262,7 @@ function harness(run: SleepRun, now = EVENING, stateDir?: string) {
     decideImpl: async (): Promise<Decision> => ({ move: "escalate", tier: "standard" }),
     rememberRun: async (args: string[]) => { remembered.push(args); return { stdout: "remembered", code: 0 }; },
     sleepPlanRun: run,
+    checkinRun: async (args: string[]) => { checkins.push(args); return { stdout: "ok ci-abc123", code: 0 }; },
   });
   const fire = async (name: string, event: Record<string, unknown>, ctx: Record<string, unknown>) => { const out: unknown[] = []; for (const fn of handlers.get(name) ?? []) out.push(await fn(event, ctx)); return out; };
   let n = 0;

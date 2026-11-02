@@ -16,6 +16,8 @@ export type Draft = {
   wake?: string; days?: string[]; rest?: string; also?: DayWake[]; lead?: number | null; sleep?: number;
   /** A standing alarm he asked for outright ("set a 6am alarm every mon wed thu"): saved without the interview. */
   direct?: boolean;
+  /** The early wake is for the gym ("6am for the gym", "up at 6 mon wed thu for lifting"): those days are his gym days. */
+  forGym?: boolean;
 };
 
 const pad = (n: number): string => String(n).padStart(2, "0");
@@ -26,6 +28,7 @@ export const num = (raw: string): number => NUM[raw] ?? Number(raw);
 // ── how long before class, how long asleep ────────────────────────────────────────────────────────────────────────────
 export const AMOUNT = String.raw`(\d+(?:\.\d+)?|an?|one|two|three|four|five|six)\s*(and a half\s*)?(h|hrs?|hours?|m|mins?|minutes?)?\s*(and a half\s*)?`;
 export const LEAD = new RegExp(String.raw`\b(?:at ?least |like |about |around |~)?${AMOUNT}(?:early\s+)?(?:before|ahead of|prior to|b4)\s+(?:my |a |the |any |each |every )?(?:first |1st )?(?:class|classes|lecture|lectures|lab|labs|school|uni)\b(?:\s+(?:min(?:imum)?|at least))?`);
+const FOR_GYM = /\bfor (?:the )?(?:gym|lifting|lift|a lift|workouts?|training)\b|\b(?:hit(?:ting)?|go(?:ing)? to|get(?:ting)? to) the gym\b|\bgym (?:first|in the morning|before)\b/;
 const SLEEP_HOURS = /\b(\d+(?:\.\d+)?)\s*(?:h|hrs?|hours?)\s+(?:of\s+)?sleep\b/;
 
 export function leadMinutes(m: RegExpMatchArray, bareIsHours: boolean): number | undefined {
@@ -157,5 +160,6 @@ export function slotsOf(message: string): Draft {
   if (wake) draft.wake = wake;
   if (mainDays.size) draft.days = [...mainDays];
   if (also.length) draft.also = also;
+  if (FOR_GYM.test(text)) draft.forGym = true;
   return draft;
 }

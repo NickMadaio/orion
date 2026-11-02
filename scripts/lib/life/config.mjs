@@ -61,7 +61,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** A whole sleepPlan, as stored (every field optional; unknown fields refused). */
 export function validSleepPlan(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions"];
+  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions", "gymDays"];
   if (Object.keys(v).some((k) => !known.includes(k))) return false;
   const byDay = v.byDay ?? {};
   if (typeof byDay !== "object" || Array.isArray(byDay)) return false;
@@ -77,7 +77,8 @@ export function validSleepPlan(v) {
   const ex = v.exceptions ?? [];
   const exOk = Array.isArray(ex) && ex.length <= 30 && ex.every((e) => e && DATE.test(e.date) && typeof e.reason === "string" && e.reason.length <= 30
     && (e.until === null || e.until === undefined || HHMM.test(e.until)));
-  return daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
+  const gymOk = v.gymDays === undefined || (Array.isArray(v.gymDays) && v.gymDays.every((d) => WEEKDAYS.includes(d)));
+  return gymOk && daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
 }
 
 /** The plan with every default filled in (never mutates the stored object). */

@@ -69,7 +69,9 @@ enum BackgroundRefresh {
         FocusLock.shared.releaseIfExpired(now: now)
         let today: String = { let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f.string(from: now) }()
         if snapshot?.night?.first(where: { $0.date == today })?.woke == true { FocusLock.shared.releaseNightLock(awakeAt: now) }
+        await PhoneNotificationMirror.sweepDelivered()
         let routine = NightRoutine.shared
+        if let snapshot { routine.setWakePlan(snapshot.wakePlan) }
         if routine.plan == nil { await routine.refresh(planner: planner, wakeRequest: snapshot?.wakeRequest, now: now) }
         await routine.checkNightSignals(planner: planner, macLastInput: snapshot?.lastInputAt, now: now)
         GlanceWriter.publish(planner: planner, snapshot: snapshot, night: routine.plan, now: now)

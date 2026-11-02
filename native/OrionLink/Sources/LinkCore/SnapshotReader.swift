@@ -183,6 +183,18 @@ public struct SnapshotReader {
         return at
     }
 
+    /// The per-day sleep plan from `wake-plan.json`. Only a plan Nick set (source "nick") is carried; a missing,
+    /// unreadable or default-sourced file is nil, so the phone never rings an alarm he did not ask for.
+    public func wakePlan() -> WakePlan? {
+        guard let data = try? Data(contentsOf: controlled.appendingPathComponent("wake-plan.json")) else { return nil }
+        return Self.decodeWakePlan(data)
+    }
+
+    static func decodeWakePlan(_ data: Data) -> WakePlan? {
+        guard let plan = try? JSONDecoder().decode(WakePlan.self, from: data), plan.isNicks else { return nil }
+        return plan
+    }
+
     /// Extra phone time from `scripts/orion-phone-time grant`, while it is still running.
     public func screenGrant(now: Date = Date()) -> LinkSnapshot.ScreenGrant? {
         guard let object = json(controlled.appendingPathComponent("screen-grant.json")) as? [String: Any],

@@ -64,13 +64,15 @@ struct NightPlan: Equatable {
     var shifted: String? = nil
     /// A plan running through bedtime (a night out): no bedtime nudges before it ends.
     var nightOut: String? = nil
+    /// When the wind-down starts, if the sleep plan Nick set says so; otherwise the routine's own lead.
+    var windDown: Date? = nil
 
     /// The night `now` belongs to: before 6 AM it is still last night.
     /// - lateFixed: tonight's plans that run through bedtime (title, end), e.g. a club until 02:00.
     /// - lastAwake: the latest moment he was seen awake after bedtime (app open, "Going to bed", arriving home).
     static func make(now: Date, settings: RoutineSettings, firstEvent: (Date) -> (title: String, start: Date)?,
                      wakeRequest: Date? = nil, lateFixed: (title: String, end: Date)? = nil, lastAwake: Date? = nil,
-                     calendar: Calendar = .current) -> NightPlan {
+                     wakePlan: WakePlan? = nil, calendar: Calendar = .current) -> NightPlan {
         let today = calendar.startOfDay(for: now)
         let nightStart = calendar.component(.hour, from: now) < 6 ? calendar.date(byAdding: .day, value: -1, to: today)! : today
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: nightStart)!
@@ -79,7 +81,10 @@ struct NightPlan: Equatable {
         // class must not mean sleeping until 12:15 (found by the scenario runs):
         // the routine stays the routine.
         let usual = tomorrow.addingTimeInterval(Double(settings.freeDayWakeMinute * 60))
-        let automatic = min(usual, event.map { $0.start.addingTimeInterval(-Double(settings.readyMinutes * 60)) } ?? usual)
+        let routineWake = min(usual, event.map { $0.start.addingTimeInterval(-Double(settings.readyMinutes * 60)) } ?? usual)
+        // A plan Nick set for that morning replaces the routine's guess (never a default-sourced plan: alarms() is empty then).
+        let planned = wakePlan?.alarm(forWakeDay: WakePlan.dayKey(tomorrow, calendar: calendar), after: now, calendar: calendar)
+        let automatic = planned?.fireAt ?? routineWake
         // "Wake me up at 7:30" (asked through ORION) wins for the morning it falls on.
         let requested = wakeRequest.flatMap { calendar.isDate($0, inSameDayAs: automatic) && $0 > now ? $0 : nil }
         let wake = requested ?? automatic
@@ -88,6 +93,11 @@ struct NightPlan: Equatable {
         let needed = wake.addingTimeInterval(-Double(settings.sleepMinutes * 60))
         let reason = event.map { "\($0.title) at \(Self.clock($0.start))" }
         var bed = min(target, needed)
+        // Likewise his own bedtime and wind-down for tonight.
+        var windDown: Date?
+        if let set = wakePlan?.bedtime(nightOf: WakePlan.dayKey(nightStart, calendar: calendar), calendar: calendar) {
+            bed = set.sleepBy; windDown = set.nudgeAt
+        }
         var nightOut: String?
         // A night out: bedtime is after it ends plus the trip home, not in the middle of it.
         if let late = lateFixed, late.end > bed {
@@ -109,7 +119,7 @@ struct NightPlan: Equatable {
                 finalWake = moved
             }
         }
-        return NightPlan(bed: bed, wake: finalWake, reason: reason, firstEvent: event?.start, shifted: shifted, nightOut: nightOut)
+        return NightPlan(bed: bed, wake: finalWake, reason: reason, firstEvent: event?.start, shifted: shifted, nightOut: nightOut, windDown: windDown)
     }
 
     func sleepLeft(at moment: Date) -> TimeInterval { max(0, wake.timeIntervalSince(max(moment, bed))) }
@@ -230,13 +240,27 @@ final class NightRoutine: ObservableObject {
         return (wake, bed)
     }
 
+    private static let wakePlanKey = "orion.routine.wakePlan"
+
+    /// The latest plan from the Mac, kept so a background launch with no snapshot still honours it.
+    /// Pass the snapshot's field every time a snapshot is read: nil there clears it (the Mac has no plan Nick set).
+    func setWakePlan(_ plan: WakePlan?) {
+        if let plan, plan.isNicks, let data = try? JSONEncoder().encode(plan) { UserDefaults.standard.set(data, forKey: Self.wakePlanKey) }
+        else { UserDefaults.standard.removeObject(forKey: Self.wakePlanKey) }
+    }
+
+    private var storedWakePlan: WakePlan? {
+        UserDefaults.standard.data(forKey: Self.wakePlanKey).flatMap { try? JSONDecoder().decode(WakePlan.self, from: $0) }.flatMap { $0.isNicks ? $0 : nil }
+    }
+
     func refresh(planner: PlannerStore, wakeRequest: Date? = nil, now: Date = Date()) async {
         if let wakeRequest { lastWakeRequest = wakeRequest }
+        let wakePlan = storedWakePlan
         // Forget a stale "last awake" from a previous night.
         if let seen = lastAwake, now.timeIntervalSince(seen) > 16 * 3600 { lastAwake = nil }
         let plan = NightPlan.make(now: now, settings: settings, firstEvent: { planner.firstTimedEvent(on: $0) },
                                   wakeRequest: wakeRequest ?? lastWakeRequest, lateFixed: planner.lateFixedEvent(around: now),
-                                  lastAwake: lastAwake)
+                                  lastAwake: lastAwake, wakePlan: wakePlan)
         self.plan = plan
         inBed = UserDefaults.standard.double(forKey: Self.bedKey) > plan.bed.addingTimeInterval(-10 * 3600).timeIntervalSince1970
         logWakeIfNeeded(plan: plan, now: now)
@@ -253,7 +277,7 @@ final class NightRoutine: ObservableObject {
         _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
         // Out tonight: no "wind down" while he's at the club; start at the new bedtime.
         var moments: [(Date, Int)] = plan.nightOut == nil
-            ? [(plan.bed.addingTimeInterval(-Double(settings.windDownMinutes * 60)), 0), (plan.bed, 1)]
+            ? [(plan.windDown ?? plan.bed.addingTimeInterval(-Double(settings.windDownMinutes * 60)), 0), (plan.bed, 1)]
             : [(plan.bed, 1)]
         moments += [15, 30, 45, 60, 90].enumerated().map { (plan.bed.addingTimeInterval(Double($0.element * 60)), $0.offset + 2) }
         // Already past bedtime (it's 3 AM): start from now instead of the past.
@@ -360,43 +384,42 @@ final class NightRoutine: ObservableObject {
         alarmBusy = false
     }
 
+    /// Every alarm to hold: tonight's wake, plus one per upcoming day of a plan Nick set (never from defaults).
+    /// A wake request still wins for its own date inside AlarmPlanner.
+    private func wantedAlarms(_ plan: NightPlan, now: Date) -> [WakePlan.Wanted] {
+        guard settings.wakeAlarm else { return [] }
+        return AlarmPlanner.wanted(tonight: plan.wake, wakeRequest: lastWakeRequest, plan: storedWakePlan, now: now)
+            .map { $0.fireAt == plan.wake ? WakePlan.Wanted(fireAt: $0.fireAt, reason: plan.reason ?? $0.reason) : $0 }
+    }
+
     private func scheduleAlarmOnce(_ plan: NightPlan, now: Date) async {
         guard #available(iOS 26.0, *) else { alarmState = "Needs iOS 26"; return }
         let manager = AlarmManager.shared
-        let wanted = settings.wakeAlarm && plan.wake > now
+        let wanted = wantedAlarms(plan, now: now)
         // The ringing or snoozed alarm is left alone; every other ORION alarm goes,
-        // unless it is already exactly the one wanted.
+        // unless it is already exactly one of those wanted.
         let existing = ((try? manager.alarms) ?? []).filter { $0.state == .scheduled || $0.state == .paused }
-        let keep = existing.first { alarm in
-            guard wanted, case .fixed(let at)? = alarm.schedule else { return false }
-            return abs(at.timeIntervalSince(plan.wake)) < 30
+        var unmatched = wanted
+        var keptIDs = Set<UUID>()
+        for alarm in existing {
+            guard case .fixed(let at)? = alarm.schedule,
+                  let index = unmatched.firstIndex(where: { abs(at.timeIntervalSince($0.fireAt)) < 30 }) else { continue }
+            unmatched.remove(at: index)
+            keptIDs.insert(alarm.id)
+            if abs(at.timeIntervalSince(plan.wake)) < 30 { UserDefaults.standard.set(alarm.id.uuidString, forKey: Self.alarmKey) }
         }
-        for alarm in existing where alarm.id != keep?.id { try? manager.cancel(id: alarm.id) }
-        if let keep {
-            UserDefaults.standard.set(keep.id.uuidString, forKey: Self.alarmKey)
-            alarmState = "Set for \(NightPlan.clock(plan.wake))"
-            return
-        }
-        UserDefaults.standard.removeObject(forKey: Self.alarmKey)
-        guard settings.wakeAlarm else { alarmState = "Off"; return }
-        guard plan.wake > now else { alarmState = "Not set"; return }
+        for alarm in existing where !keptIDs.contains(alarm.id) { try? manager.cancel(id: alarm.id) }
+        guard settings.wakeAlarm else { UserDefaults.standard.removeObject(forKey: Self.alarmKey); alarmState = "Off"; return }
+        guard !wanted.isEmpty else { UserDefaults.standard.removeObject(forKey: Self.alarmKey); alarmState = "Not set"; return }
         do {
-            if manager.authorizationState == .notDetermined { _ = try await manager.requestAuthorization() }
-            guard manager.authorizationState == .authorized else { alarmState = "Allow Alarms for ORION in Settings"; return }
-            let stop = AlarmButton(text: "I'm up", textColor: .white, systemImageName: "sun.max.fill")
-            let snooze = AlarmButton(text: "Snooze", textColor: .white, systemImageName: "zzz")
-            let title: LocalizedStringResource = plan.reason.map { "Time to get up — \($0)" } ?? "Time to get up"
-            let alert = AlarmPresentation.Alert(title: title, stopButton: stop, secondaryButton: snooze, secondaryButtonBehavior: .countdown)
-            let countdown = AlarmPresentation.Countdown(title: "Snoozing")
-            let attributes = AlarmAttributes<WakeMetadata>(presentation: AlarmPresentation(alert: alert, countdown: countdown),
-                                                           metadata: WakeMetadata(), tintColor: Phone.accent)
-            let configuration = AlarmManager.AlarmConfiguration<WakeMetadata>(
-                countdownDuration: Alarm.CountdownDuration(preAlert: nil, postAlert: 9 * 60),
-                schedule: .fixed(plan.wake), attributes: attributes)
-            let id = UUID()
-            _ = try await manager.schedule(id: id, configuration: configuration)
-            UserDefaults.standard.set(id.uuidString, forKey: Self.alarmKey)
-            alarmState = "Set for \(NightPlan.clock(plan.wake))"
+            if !unmatched.isEmpty, manager.authorizationState == .notDetermined { _ = try await manager.requestAuthorization() }
+            if !unmatched.isEmpty, manager.authorizationState != .authorized { alarmState = "Allow Alarms for ORION in Settings"; return }
+            for item in unmatched {
+                let id = try await schedule(item, manager: manager)
+                if abs(item.fireAt.timeIntervalSince(plan.wake)) < 30 { UserDefaults.standard.set(id.uuidString, forKey: Self.alarmKey) }
+            }
+            let first = wanted.first(where: { abs($0.fireAt.timeIntervalSince(plan.wake)) < 30 }) ?? wanted[0]
+            alarmState = "Set for \(NightPlan.clock(first.fireAt))" + (wanted.count > 1 ? " (+\(wanted.count - 1) more)" : "")
             // Kept for the morning card: he was asleep when this happened.
             if let shifted = plan.shifted {
                 UserDefaults.standard.set(shifted, forKey: Self.shiftKey)
@@ -405,6 +428,23 @@ final class NightRoutine: ObservableObject {
         } catch {
             alarmState = "Could not set the alarm"
         }
+    }
+
+    @available(iOS 26.0, *)
+    private func schedule(_ item: WakePlan.Wanted, manager: AlarmManager) async throws -> UUID {
+        let stop = AlarmButton(text: "I'm up", textColor: .white, systemImageName: "sun.max.fill")
+        let snooze = AlarmButton(text: "Snooze", textColor: .white, systemImageName: "zzz")
+        let title: LocalizedStringResource = item.reason.map { "Time to get up — \($0)" } ?? "Time to get up"
+        let alert = AlarmPresentation.Alert(title: title, stopButton: stop, secondaryButton: snooze, secondaryButtonBehavior: .countdown)
+        let countdown = AlarmPresentation.Countdown(title: "Snoozing")
+        let attributes = AlarmAttributes<WakeMetadata>(presentation: AlarmPresentation(alert: alert, countdown: countdown),
+                                                       metadata: WakeMetadata(), tintColor: Phone.accent)
+        let configuration = AlarmManager.AlarmConfiguration<WakeMetadata>(
+            countdownDuration: Alarm.CountdownDuration(preAlert: nil, postAlert: 9 * 60),
+            schedule: .fixed(item.fireAt), attributes: attributes)
+        let id = UUID()
+        _ = try await manager.schedule(id: id, configuration: configuration)
+        return id
     }
 
     /// The first open after the alarm time counts as getting up (logged once a night).

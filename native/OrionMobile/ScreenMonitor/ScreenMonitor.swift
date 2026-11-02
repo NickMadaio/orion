@@ -147,7 +147,31 @@ final class ScreenMonitor: DeviceActivityMonitor {
         content.body = text
         content.sound = .default
         content.interruptionLevel = .timeSensitive
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "orion.screen.\(UUID().uuidString)", content: content, trigger: nil))
+        let identifier = "orion.screen.\(UUID().uuidString)"
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+        mirrorToThread(identifier: identifier, text: text)
+    }
+
+    /// W10-E: a phone-only notification is also a message in the chat thread, so his reply has something to answer. The
+    /// same LinkCommand shape as MobileCore's PhoneMirror.record (the extension does not link MobileCore): device "orion",
+    /// status done, the thread's conversation, askId = "phone." + the notification id. Waits (up to 20 s) so the extension
+    /// is not torn down mid-save; on failure the app mirrors it from the notification center on its next sweep.
+    private func mirrorToThread(identifier: String, text: String) {
+        let id = String(("phone." + identifier).prefix(80))
+        let zone = CKRecordZone.ID(zoneName: "OrionLink", ownerName: CKCurrentUserDefaultName)
+        let record = CKRecord(recordType: "LinkCommand", recordID: CKRecord.ID(recordName: id, zoneID: zone))
+        record["text"] = "" as CKRecordValue
+        record["sentAt"] = Date() as CKRecordValue
+        record["device"] = "orion" as CKRecordValue
+        record["kind"] = "chat" as CKRecordValue
+        record["status"] = "done" as CKRecordValue
+        record["reply"] = text as CKRecordValue
+        record["conversationID"] = "phone-history" as CKRecordValue
+        record["askId"] = id as CKRecordValue
+        let done = DispatchSemaphore(value: 0)
+        CKContainer(identifier: "iCloud.com.nickmadaio.orion").privateCloudDatabase
+            .modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys, atomically: false) { _ in done.signal() }
+        _ = done.wait(timeout: .now() + 20)
     }
 
     /// The same LinkCommand the app's CloudLink.sendNow writes: a `LinkLog.sleep`

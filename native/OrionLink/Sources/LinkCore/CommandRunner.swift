@@ -39,6 +39,27 @@ public struct CommandRunner {
             + ["--", text]
     }
 
+    /// `orion-reach` beside orion-remote in the installed mirror.
+    public var reachScript: URL { remote.deletingLastPathComponent().appendingPathComponent("orion-reach") }
+
+    public func reachProcessArguments(_ arguments: [String]) -> [String] { [reachScript.path] + arguments }
+
+    /// Logs a message another route already delivered (`orion-reach --already-sent`). Blocking; true on exit 0.
+    public func reach(arguments: [String]) -> Bool {
+        let process = Process()
+        process.executableURL = node
+        process.arguments = reachProcessArguments(arguments)
+        var env = environment()
+        env["ORION_CONTROLLED_DIR"] = nil
+        process.environment = env
+        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
+        guard (try? process.run()) != nil else { return false }
+        if finished.wait(timeout: .now() + 20) == .timedOut { process.terminate(); return false }
+        return process.terminationStatus == 0
+    }
+
     static func safeReplyTo(_ id: String?) -> String? {
         guard let id, (1...80).contains(id.count),
               id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._:-".contains($0)) }) else { return nil }

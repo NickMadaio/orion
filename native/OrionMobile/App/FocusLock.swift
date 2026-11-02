@@ -117,6 +117,12 @@ final class FocusLock: ObservableObject {
     /// A new day: once he is up, the night lock comes off (2026-10-01: "my phone's
     /// been locked all night … it's a new day, so my phone shouldn't be locked").
     /// Only a NIGHT lock, only in the morning; work-block locks keep their own end.
+    /// One per day, so the thread mirror (deduped by id) shows every morning's message, not only the first.
+    static func morningNotificationID(_ moment: Date, calendar: Calendar = .current) -> String {
+        let p = calendar.dateComponents([.year, .month, .day], from: moment)
+        return String(format: "orion.screen.morning.%04d%02d%02d", p.year ?? 0, p.month ?? 0, p.day ?? 0)
+    }
+
     func releaseNightLock(awakeAt moment: Date = Date(), calendar: Calendar = .current) {
         let hour = calendar.component(.hour, from: moment)
         let why = Self.shared_defaults?.string(forKey: "orion.screen.lockWhy")
@@ -128,7 +134,8 @@ final class FocusLock: ObservableObject {
         let content = UNMutableNotificationContent()
         content.title = "ORION"
         content.body = "Morning. Your apps are unlocked."
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "orion.screen.morning", content: content, trigger: nil))
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: Self.morningNotificationID(moment), content: content, trigger: nil))
+        Task { @MainActor in await PhoneNotificationMirror.mirror(identifier: Self.morningNotificationID(moment), body: content.body, at: moment) }
     }
 
     /// What ORION on the Mac should know (2026-10-01: Nick asked for 20 more
@@ -167,6 +174,7 @@ final class FocusLock: ObservableObject {
         content.title = "ORION"
         content.body = "Apps unlocked until \(grant.until.formatted(date: .omitted, time: .shortened))."
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "orion.screen.grant.\(grant.id)", content: content, trigger: nil))
+        Task { @MainActor in await PhoneNotificationMirror.mirror(identifier: "orion.screen.grant.\(grant.id)", body: content.body, at: now) }
     }
 }
 

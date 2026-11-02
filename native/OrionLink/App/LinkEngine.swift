@@ -262,7 +262,7 @@ final class LinkEngine: ObservableObject {
                                     checkin: reader.checkin(now: now), deadlines: calendar?.deadlines,
                                     lastInputAt: MacFacts.lastInput(now: now).map { Self.minute($0) },
                                     screenGrant: reader.screenGrant(now: now), night: reader.night(), earlyFinish: earlyFinishContext(), chatModels: chatModelChoices(), focusLists: focusDirective()?.names, focusPlan: focusDirective()?.plan,
-                                    knownPlaces: knownPlaces())
+                                    knownPlaces: knownPlaces(), wakePlan: reader.wakePlan())
         publishGlance(snapshot, now: now)
         // Compare without the clock, so an unchanged Mac is not re-sent every tick.
         var probe = snapshot; probe.generatedAt = .distantPast
@@ -361,6 +361,7 @@ final class LinkEngine: ObservableObject {
 
     private func pollCommands() async {
         var pending: [CKRecord] = []
+        var mirrors: [CKRecord] = []
         var token = changeToken
         do {
             var more = true
@@ -372,6 +373,9 @@ final class LinkEngine: ObservableObject {
                     if record.recordType == LinkSchema.commandType,
                        (record[LinkSchema.commandStatus] as? String) == LinkCommandStatus.pending.rawValue {
                         pending.append(record)
+                    } else if record.recordType == LinkSchema.commandType, (record[LinkSchema.commandDevice] as? String) == "orion",
+                              PhoneMirror.isMirrorID(record[LinkSchema.commandAskID] as? String) {
+                        mirrors.append(record)
                     }
                 }
                 token = changes.changeToken
@@ -392,10 +396,25 @@ final class LinkEngine: ObservableObject {
         }
         let ordered = pending.sorted { ($0[LinkSchema.commandSentAt] as? Date ?? .distantPast) < ($1[LinkSchema.commandSentAt] as? Date ?? .distantPast) }
         for record in ordered { await handle(record) }
+        for record in mirrors { logPhoneMirror(record) }
         // Advanced only after every fetched command was handled: quitting
         // mid-command means it is fetched again, never silently skipped.
         // (orion-remote's replay guard refuses a second run of the same id.)
         changeToken = token
+    }
+
+    /// A notification only the phone sent, mirrored into the thread: log it as outreach (`orion-reach --already-sent phone`)
+    /// so Nick's reply binds to it. Once per id; the thread record already exists, and orion-reach's outbox line
+    /// (push:false) only rewrites it under the same name.
+    private func logPhoneMirror(_ record: CKRecord) {
+        let id = record.recordID.recordName
+        var logged = defaults.stringArray(forKey: "link.mirrorsLogged") ?? []
+        guard !logged.contains(id), let text = record[LinkSchema.commandReply] as? String,
+              let args = PhoneMirror.reachArguments(id: id, text: text) else { return }
+        let ok = runner.reach(arguments: args)
+        guard ok else { return }   // not marked: the next change feed retries
+        logged.append(id)
+        defaults.set(Array(logged.suffix(300)), forKey: "link.mirrorsLogged")
     }
 
     private func handle(_ record: CKRecord) async {

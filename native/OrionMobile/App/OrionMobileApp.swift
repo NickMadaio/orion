@@ -57,12 +57,19 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     /// Bedtime nudges show even while ORION is open: that is exactly when he is on the phone.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
-        -> UNNotificationPresentationOptions { [.banner, .sound, .list] }
+        -> UNNotificationPresentationOptions {
+        await PhoneNotificationMirror.mirror(notification)
+        return [.banner, .sound, .list]
+    }
 
     /// "Going to bed" and "15 more min" on a nudge; "Started", "10 more min", "Done" on a check-in.
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let action = response.actionIdentifier
+        // A phone-only notification he tapped or answered is in the thread before anything else happens.
+        await PhoneNotificationMirror.mirror(response.notification)
         let askID = Self.askID(in: response.notification.request.content.userInfo)
+            ?? (PhoneMirror.isPhoneLocal(identifier: response.notification.request.identifier)
+                ? PhoneMirror.id(forNotification: response.notification.request.identifier) : nil)
         // An ORION message he can answer: the inline reply goes into the thread as his message (replyTo = the ask),
         // "Not now" declines it, and a plain tap opens the thread at that message.
         if let reply = response as? UNTextInputNotificationResponse, action == Self.askReplyAction {
@@ -289,6 +296,8 @@ struct PhoneRootView: View {
                         + (plan.reason.map { " for \($0)" } ?? "")
                         + ". Going to sleep now gives \(NightPlan.duration(plan.sleepLeft(at: Date())))."
                 })
+            await PhoneNotificationMirror.sweepDelivered()
+            if let snapshot = remote.snapshot { routine.setWakePlan(snapshot.wakePlan) }
             await routine.refresh(planner: planner, wakeRequest: remote.snapshot?.wakeRequest)
             FocusLock.shared.releaseIfExpired()
             // Opening ORION in the morning is being up: the night lock comes off.
@@ -305,6 +314,10 @@ struct PhoneRootView: View {
         }
         .onChange(of: remote.snapshot?.wakeRequest) { _, request in
             Task { await routine.refresh(planner: planner, wakeRequest: request) }
+        }
+        .onChange(of: remote.snapshot?.wakePlan) { _, plan in
+            routine.setWakePlan(plan)
+            Task { await routine.refresh(planner: planner, wakeRequest: remote.snapshot?.wakeRequest) }
         }
         // The widgets, lock screen and Dynamic Island follow every change to the day.
         .onChange(of: remote.snapshot) { _, _ in publishGlance() }

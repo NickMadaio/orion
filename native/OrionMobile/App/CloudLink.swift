@@ -1,6 +1,7 @@
 import CloudKit
 import Foundation
 import MobileCore
+import UserNotifications
 
 /*
  The phone end of the link (2026-09-28).
@@ -280,5 +281,49 @@ final class CloudLink: ObservableObject {
             }
         }
         return error.localizedDescription
+    }
+}
+
+/// Phone-only notifications into the chat thread (W10-E). A scheduled local notification fires with the app closed, so
+/// it is mirrored whenever the app next sees it: on delivery (willPresent), on tap, and by sweeping what is already in
+/// the notification center on foreground and background refresh. Deduped by the notification's id, kept only after
+/// iCloud confirmed the save, so a failed send is retried by the next sweep. The Mac logs each as outreach.
+enum PhoneNotificationMirror {
+    @MainActor private static var inFlight = Set<String>()
+
+    private static var ledger: PhoneMirror.Ledger {
+        get { PhoneMirror.Ledger(ids: UserDefaults.standard.stringArray(forKey: PhoneMirror.ledgerKey) ?? []) }
+        set { UserDefaults.standard.set(newValue.ids, forKey: PhoneMirror.ledgerKey) }
+    }
+
+    @MainActor
+    static func mirror(_ notification: UNNotification) async {
+        await mirror(identifier: notification.request.identifier, body: notification.request.content.body, at: notification.date)
+    }
+
+    /// Mirror every delivered ORION-phone notification not yet in the thread.
+    @MainActor
+    static func sweepDelivered() async {
+        let delivered = await UNUserNotificationCenter.current().deliveredNotifications()
+        for note in delivered { await mirror(note) }
+    }
+
+    @MainActor
+    static func mirror(identifier: String, body: String, at date: Date) async {
+        guard PhoneMirror.isPhoneLocal(identifier: identifier), !body.isEmpty else { return }
+        let id = PhoneMirror.id(forNotification: identifier)
+        guard !ledger.contains(id), inFlight.insert(id).inserted else { return }
+        defer { inFlight.remove(id) }
+        let shape = PhoneMirror.record(id: id, text: body)
+        let zone = CKRecordZone.ID(zoneName: LinkSchema.zoneName, ownerName: CKCurrentUserDefaultName)
+        let record = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: shape.recordName, zoneID: zone))
+        for (key, value) in shape.fields { record[key] = value as CKRecordValue }
+        record[LinkSchema.commandSentAt] = date as CKRecordValue
+        do {
+            let (results, _) = try await CKContainer(identifier: LinkSchema.containerID).privateCloudDatabase
+                .modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys)
+            for result in results.values { _ = try result.get() }
+            ledger = ledger.adding(id)
+        } catch { /* left out of the ledger: the next sweep retries */ }
     }
 }

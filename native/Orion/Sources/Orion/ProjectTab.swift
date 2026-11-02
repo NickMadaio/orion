@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 /// project's state; every read and control is bound to the selected id.
 struct ProjectTab: View {
     @ObservedObject var agenda: AppleCalendarSync
+    /// Renders only: the list as a plain stack, since ImageRenderer draws a ScrollView empty.
+    var snapshot = false
     @AppStorage("orion.projects.selected") private var selectedID = ""
     @StateObject private var library = ProjectLibraryModel()
     @State private var query = ""
@@ -24,72 +26,32 @@ struct ProjectTab: View {
     private var selected: SavedProject? { projects.first { $0.id == selectedID } ?? projects.first }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 34) {
+            if !inFocus {
+                PageHeader(title: "Projects", subline: headline) { listControls }
+                    .padding(.horizontal, 14)
+            }
         HStack(alignment: .top, spacing: 0) {
             if !inFocus {
             VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    Text("Projects").font(.system(size: 22, weight: .semibold))
-                    Spacer()
-                    Button {
-                        library.refreshNow()
-                        withAnimation(.easeInOut(duration: 0.6)) { spin.toggle() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise").font(.system(size: 14, weight: .medium))
-                            .rotationEffect(.degrees(spin ? 360 : 0))
-                    }
-                    .buttonStyle(.plain).help("Refresh projects now (they also refresh on their own every few seconds)")
-                    .accessibilityLabel("Refresh projects")
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { queueMode.toggle(); queueOrder = [] }
-                    } label: {
-                        Image(systemName: queueMode ? "list.number" : "list.bullet").font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(queueMode ? Color.indigo : .secondary)
-                    }
-                    .buttonStyle(.plain).help("Run several projects in order: tap them in the order you want")
-                    .accessibilityLabel("Run projects in order")
-                    Button(action: importPlan) { Image(systemName: "plus").font(.system(size: 15, weight: .medium)) }
-                        .buttonStyle(.plain).help("Import a Markdown or JSON project plan").disabled(importing)
-                        .accessibilityLabel("Import project")
-                }
+                // An underline, not a filled field: the same hairline the Plan composer sits on.
                 TextField("Search projects", text: $query)
                     .textFieldStyle(.plain).font(.system(size: 13))
-                    .padding(10).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
-                ScrollView {
-                    LazyVStack(spacing: 6) {
-                        ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { project in
-                            Button {
-                                if queueMode {
-                                    if let i = queueOrder.firstIndex(of: project.id) { queueOrder.remove(at: i) } else { queueOrder.append(project.id) }
-                                } else { selectedID = project.id }
-                            } label: {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "folder").foregroundStyle(selected?.id == project.id ? Color.indigo : .secondary).padding(.top, 2)
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        Text(project.name).font(.system(size: 13, weight: .medium)).lineLimit(2)
-                                        Text(project.heartbeat?.isLive == true ? "Working now" : "\(project.taskCount) planned tasks")
-                                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                                    }
-                                    Spacer(minLength: 0)
-                                    if project.heartbeat?.isLive == true { Circle().fill(.green).frame(width: 6, height: 6).padding(.top, 5) }
-                                    if queueMode, let i = queueOrder.firstIndex(of: project.id) {
-                                        Text("\(i + 1)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                                            .frame(width: 20, height: 20).background(Color.indigo, in: Circle())
-                                            .transition(.scale.combined(with: .opacity))
-                                    }
-                                }
-                                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(selected?.id == project.id ? Color.white.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 12))
-                                .contentShape(Rectangle())
-                            }.buttonStyle(.plain)
-                        }
+                    .padding(.vertical, 9)
+                    .overlay(alignment: .bottom) { FadingRule() }
+                Group {
+                    if snapshot {
+                        VStack(spacing: 6) { projectRows }.frame(maxHeight: queueMode ? 460 : 520, alignment: .top).clipped()
+                    } else {
+                        ScrollView { LazyVStack(spacing: 6) { projectRows } }
                     }
                 }.frame(height: queueMode ? 460 : 520)
                 if queueMode {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(queueOrder.isEmpty ? "Tap projects in the order to run them." : "Each starts when the one before it finishes. Stopping one stops the queue.")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
-                        Button("Run \(queueOrder.count) in order", action: startQueue)
-                            .buttonStyle(.borderedProminent).tint(.indigo).disabled(queueOrder.count < 2)
+                        GlowPill(title: "Run \(queueOrder.count) in order", hue: .indigo, symbol: "list.number", action: startQueue)
+                            .disabled(queueOrder.count < 2)
                     }
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -98,9 +60,8 @@ struct ProjectTab: View {
                 Label("Saved on this Mac", systemImage: "internaldrive").font(.system(size: 11)).foregroundStyle(.secondary)
                 if let problem = error ?? library.error { Text(problem).font(.system(size: 12)).foregroundStyle(.orange) }
             }
-            .padding(22).frame(width: 254)
-            .background(.white.opacity(0.025))
-            Rectangle().fill(.white.opacity(0.07)).frame(width: 1)
+            .padding(.horizontal, 14).padding(.top, 4).padding(.bottom, 22).frame(width: 254)
+            FadingVerticalHairline(peak: 0.14).padding(.vertical, 10)
             }
             if let selected {
                 ProjectWorkspace(project: selected, agenda: agenda, manualRefresh: library.manualRefreshes,
@@ -111,20 +72,97 @@ struct ProjectTab: View {
             } else {
                 VStack(spacing: 16) {
                     Image(systemName: "square.stack.3d.up").font(.system(size: 36, weight: .light)).foregroundStyle(.indigo)
-                    Text("A place for your next idea").font(.system(size: 24, weight: .semibold))
+                    Text("A place for your next idea").font(OrionTheme.serif(24))
                     Text("Import a development plan to give ORION its next project.").font(.system(size: 14)).foregroundStyle(.secondary)
-                    Button("Import plan", action: importPlan).buttonStyle(.borderedProminent).tint(.indigo)
+                    GlowPill(title: "Import plan", hue: .indigo, symbol: "plus", action: importPlan)
                 }.frame(maxWidth: .infinity, minHeight: 620)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundStyle(Color.white.opacity(0.92))
-        .background(Color(red: 0.045, green: 0.05, blue: 0.068), in: RoundedRectangle(cornerRadius: 18))
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(.white.opacity(0.07), lineWidth: 1))
+        }
+        // Wave 13: no slab behind the page. It used to sit on an opaque rounded panel, the one tab that hid the
+        // window's real transparency; now the list and the workspace stand on the glass like Home.
         .onAppear { refresh() }
         .animation(.spring(response: 0.5, dampingFraction: 0.88), value: inFocus)
     }
+    /// The saved projects, filtered by the search line.
+    @ViewBuilder private var projectRows: some View {
+        ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { project in
+            Button {
+                if queueMode {
+                    if let i = queueOrder.firstIndex(of: project.id) { queueOrder.remove(at: i) } else { queueOrder.append(project.id) }
+                } else { selectedID = project.id }
+            } label: {
+                HStack(alignment: .top, spacing: 12) {
+                    // The selected project is marked by a glowing tick and brighter type, not a plate.
+                    Capsule().fill(selected?.id == project.id ? OrionTheme.accent : Color.white.opacity(0.12))
+                        .frame(width: 2, height: 30)
+                        .shadow(color: OrionTheme.accent.opacity(selected?.id == project.id ? 0.8 : 0), radius: 4)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(project.name).font(OrionTheme.serif(15))
+                            .foregroundStyle(selected?.id == project.id ? OrionTheme.text : OrionTheme.text.opacity(0.7))
+                            .lineLimit(2)
+                        Text(project.heartbeat?.isLive == true ? "WORKING NOW" : "\(project.taskCount) PLANNED TASKS")
+                            .font(OrionTheme.mono(8.5, .semibold)).tracking(1.6)
+                            .foregroundStyle(project.heartbeat?.isLive == true ? OrionTheme.green : Color.white.opacity(0.36))
+                    }
+                    Spacer(minLength: 0)
+                    if project.heartbeat?.isLive == true { Circle().fill(.green).frame(width: 6, height: 6).padding(.top, 5) }
+                    if queueMode, let i = queueOrder.firstIndex(of: project.id) {
+                        Text("\(i + 1)").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 20, height: 20).background(Color.indigo, in: Circle())
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }.buttonStyle(.plain)
+        }
+    }
+
+    /// Refresh, run-in-order and import: the controls that used to sit beside the old "Projects" title.
+    private var listControls: some View {
+        HStack(spacing: 18) {
+            Button {
+                library.refreshNow()
+                withAnimation(.easeInOut(duration: 0.6)) { spin.toggle() }
+            } label: {
+                Image(systemName: "arrow.clockwise").font(.system(size: 14, weight: .medium))
+                    .rotationEffect(.degrees(spin ? 360 : 0))
+            }
+            .buttonStyle(.plain).help("Refresh projects now (they also refresh on their own every few seconds)")
+            .accessibilityLabel("Refresh projects")
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { queueMode.toggle(); queueOrder = [] }
+            } label: {
+                Image(systemName: queueMode ? "list.number" : "list.bullet").font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(queueMode ? Color.indigo : .secondary)
+            }
+            .buttonStyle(.plain).help("Run several projects in order: tap them in the order you want")
+            .accessibilityLabel("Run projects in order")
+            GlowPill(title: "Import", hue: .indigo, symbol: "plus", working: importing, action: importPlan)
+                .disabled(importing)
+                .help("Import a Markdown or JSON project plan")
+                .accessibilityLabel("Import project")
+        }
+        .foregroundStyle(OrionTheme.textSoft)
+        .padding(.top, 4)
+    }
+
+    /// The header's one true line, read from every saved project's own state.
+    private var headline: String {
+        let readings = projects.map { project -> (live: Bool, state: ProjectAgentStatus?) in
+            let live = project.heartbeat?.isLive == true
+            if case .available(let run) = project.state { return (live, run) }
+            return (live, nil)
+        }
+        return ProjectHeadline.line(total: projects.count,
+                                    running: readings.filter(\.live).count,
+                                    review: readings.filter { !$0.live && $0.state?.status == .completed }.count,
+                                    needsYou: readings.filter { !$0.live && $0.state?.hasOpenEscalations == true && $0.state?.status != .completed }.count)
+    }
+
     private func refresh() { library.refresh() }
     private func startQueue() {
         let ids = queueOrder
@@ -187,6 +225,7 @@ struct ProjectWorkspace: View {
     @State private var launch: SavedProject.Launch?
     @State private var blocks: [ProjectPlanBlock] = []
     @State private var section = "Plan"
+    @Namespace private var sectionMark
     @State private var steering = ""
     @State private var busy = false
     @State private var error: String?
@@ -237,16 +276,24 @@ struct ProjectWorkspace: View {
                 header
                 HStack(spacing: 6) {
                     ForEach(["Plan", "Activity", "Reviews"], id: \.self) { tab in
-                        Button { section = tab } label: {
-                            Text(tab).font(.system(size: 13, weight: .medium)).padding(.horizontal, 16).padding(.vertical, 8)
-                                .background(section == tab ? Color.white.opacity(0.10) : .clear, in: Capsule())
+                        Button { withAnimation(OrionMotion.select) { section = tab } } label: {
+                            // The chosen section is underlined with a glowing hairline, as the nav marks its page.
+                            Text(tab).font(.system(size: 13, weight: .medium)).padding(.horizontal, 4).padding(.vertical, 8)
+                                .overlay(alignment: .bottom) {
+                                    if section == tab {
+                                        Capsule().fill(OrionTheme.accent).frame(height: 1.5)
+                                            .shadow(color: OrionTheme.accent.opacity(0.7), radius: 4)
+                                            .matchedGeometryEffect(id: "section", in: sectionMark)
+                                    }
+                                }
                         }.buttonStyle(.plain).foregroundStyle(section == tab ? .white : .gray)
+                            .padding(.trailing, 14)
                     }
                     Spacer()
                     Button { NSWorkspace.shared.open(project.planURL) } label: { Label("Open Markdown", systemImage: "arrow.up.right") }
                         .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
-                Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
+                FadingRule()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         if section == "Plan" { planContent }
@@ -325,41 +372,53 @@ struct ProjectWorkspace: View {
         return run == nil ? "Start project" : "Continue"
     }
 
+    /// The run, as a Home card (wave 13): its status as the coloured kicker, the project's name in serif, who is
+    /// working as the body, the task strip, and the controls as glow pills. The pulse orb sits at its corner.
+    private var runHue: Color { mood == .idle ? OrionTheme.accent : mood.tint }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 16) {
-                ProjectPulseOrb(mood: mood)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(status)
-                        .font(OrionTheme.display(22)).foregroundStyle(mood == .idle ? OrionTheme.textSoft : mood.tint)
-                        .id(status)
-                        .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                                                removal: .move(edge: .top).combined(with: .opacity)))
-                    Text(subline).font(.system(size: 12)).foregroundStyle(OrionTheme.textSoft).lineLimit(1)
-                }
-                .clipped()
-                Spacer()
-                if live || launching {
-                    Button { dismissedRun = nil; focused.wrappedValue = true } label: {
-                        Label("Watch run", systemImage: "rectangle.expand.vertical").font(.system(size: 12, weight: .medium))
+            OutlineCard(hue: runHue, tilt: -0.4, padding: 20, hoverLift: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(alignment: .top, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Kicker(text: status, hue: runHue)
+                                .id(status)
+                                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                                                        removal: .move(edge: .top).combined(with: .opacity)))
+                                .clipped()
+                                .padding(.bottom, 12)
+                            CardTitle(project.name, size: 27).padding(.bottom, 8)
+                            CardBody(subline)
+                        }
+                        Spacer(minLength: 8)
+                        VStack(alignment: .trailing, spacing: 12) {
+                            HStack(spacing: 14) {
+                                if live || launching {
+                                    Button { dismissedRun = nil; focused.wrappedValue = true } label: {
+                                        Label("Watch run", systemImage: "rectangle.expand.vertical").font(.system(size: 12, weight: .medium))
+                                    }
+                                    .buttonStyle(.plain).foregroundStyle(OrionTheme.accent).help("Open the run view")
+                                }
+                                Button { NSWorkspace.shared.activateFileViewerSelecting([project.root]) } label: { Image(systemName: "folder") }
+                                    .buttonStyle(.plain).foregroundStyle(OrionTheme.textDim).help("Reveal project files and run log")
+                            }
+                            ProjectPulseOrb(mood: mood)
+                        }
                     }
-                    .buttonStyle(.plain).foregroundStyle(OrionTheme.accent).help("Open the run view")
-                }
-                Button { NSWorkspace.shared.activateFileViewerSelecting([project.root]) } label: { Image(systemName: "folder") }
-                    .buttonStyle(.plain).foregroundStyle(OrionTheme.textDim).help("Reveal project files and run log")
-            }
-            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: status)
-
-            Text(project.name).font(.system(size: 27, weight: .semibold, design: .rounded)).tracking(-0.6)
-                .fixedSize(horizontal: false, vertical: true)
-            if let run {
-                VStack(alignment: .leading, spacing: 8) {
-                    ProjectTaskStrip(run: run)
-                    Text(run.progressLabel).font(OrionTheme.mono(11)).foregroundStyle(OrionTheme.textSoft)
+                    .animation(.spring(response: 0.45, dampingFraction: 0.85), value: status)
+                    if let run {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ProjectTaskStrip(run: run)
+                            Text(run.progressLabel).font(OrionTheme.mono(11)).foregroundStyle(OrionTheme.textSoft)
+                        }
+                        .padding(.top, 16)
+                    }
+                    controls.padding(.top, 18)
                 }
             }
+            .deal(order: 0, rise: 18)
 
-            controls
             if let intent { ProjectIntentTrail(intent: intent).transition(.move(edge: .top).combined(with: .opacity)) }
 
             if run?.isBlocked == true {
@@ -523,7 +582,8 @@ struct ProjectWorkspace: View {
                 }
                 if !activity.trace.isEmpty {
                     ScrollView { Text(activity.trace).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                        .frame(height: 150).padding(14).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+                        .frame(height: 150).padding(.leading, 16)
+                        .overlay(alignment: .leading) { FadingVerticalHairline(peak: 0.3) }
                 }
             }
             if let run {
@@ -541,8 +601,9 @@ struct ProjectWorkspace: View {
                         .font(.system(size: 11, design: .monospaced)).foregroundStyle(.white.opacity(0.72))
                         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(height: 190).padding(14)
-                .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 12))
+                // A well marked by a hairline at its edge, not a dark slab: the glass still shows through.
+                .frame(height: 190).padding(.leading, 16)
+                .overlay(alignment: .leading) { FadingVerticalHairline(peak: live ? 0.5 : 0.3) }
 
                 Text("TASKS").font(OrionTheme.mono(9, .semibold)).tracking(1.2).foregroundStyle(.secondary)
                 ForEach(run.tasks) { task in
@@ -568,21 +629,39 @@ struct ProjectWorkspace: View {
     }
     private func instructionBar(_ run: ProjectAgentStatus) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(run.openEscalations) { item in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(item.reason).font(.system(size: 12)).foregroundStyle(.orange)
-                    Button("Resolve with note below") { control(.resolve, escalationID: item.id) }
-                        .font(.system(size: 12)).disabled(steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
+            // Each open question is a discrete thing that needs him: a Home card, in the "needs you" hue.
+            ForEach(Array(run.openEscalations.enumerated()), id: \.element.id) { index, item in
+                OutlineCard(hue: OrionTheme.orange, tilt: index.isMultiple(of: 2) ? -0.5 : 0.6, padding: 16) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Kicker(text: "Needs you · escalation", hue: OrionTheme.orange).padding(.bottom, 10)
+                        CardBody(item.reason)
+                        GlowPill(title: "Resolve with note below", hue: OrionTheme.orange, symbol: "checkmark") {
+                            control(.resolve, escalationID: item.id)
+                        }
+                        .disabled(steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy)
+                        .padding(.top, 14)
+                    }
                 }
+                .padding(.bottom, 6)
             }
+            let canSteer = !(busy || steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || run.status == .completed)
             HStack(alignment: .bottom, spacing: 12) {
                 TextField("Guide this project…", text: $steering, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(1...4)
-                Button { control(.steer) } label: { Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold)).frame(width: 28, height: 28) }
-                    .buttonStyle(.borderedProminent).tint(.indigo)
-                    .disabled(busy || steering.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || run.status == .completed)
+                Button { control(.steer) } label: {
+                    Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(canSteer ? OrionTheme.accent : OrionTheme.textDim)
+                        .frame(width: 28, height: 28)
+                        .overlay(Circle().strokeBorder(canSteer ? OrionTheme.accent.opacity(0.7) : Color.white.opacity(0.2), lineWidth: 0.8))
+                        .shadow(color: OrionTheme.accent.opacity(canSteer ? 0.4 : 0), radius: 6)
+                        .contentShape(Circle())
+                }
+                    .buttonStyle(.plain)
+                    .disabled(!canSteer)
                     .accessibilityLabel("Send steering instruction")
-            }.padding(14).background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.vertical, 8)
+            .overlay(alignment: .bottom) { FadingRule(tint: OrionTheme.accent) }
             Text(run.steering.last.map { ($0.applied ? "Applied: " : "Queued: ") + $0.text } ?? "Instructions are delivered at the next task boundary.")
                 .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
         }

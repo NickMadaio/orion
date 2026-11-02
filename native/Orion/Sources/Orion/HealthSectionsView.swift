@@ -35,8 +35,7 @@ struct HealthSectionsView: View {
     @State private var draft = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            SectionRule(title: "In seven parts")
+        HairlineSection(title: "In seven parts", spacing: 30) {
             ForEach(model.sections(), id: \.section.rawValue) { content in
                 sectionBlock(content)
             }
@@ -46,21 +45,22 @@ struct HealthSectionsView: View {
     @ViewBuilder
     private func sectionBlock(_ content: HealthSectionContent) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(content.title)
-                .font(.system(size: 13, weight: .semibold))
-                .textCase(.uppercase)
-                .kerning(0.6)
-                .foregroundStyle(.secondary)
-
-            if [.today, .sleep, .recovery, .activity].contains(content.section) {
-                Text(model.readingStatus)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+            // Wave 13: the Home voices. The machine whispers the section in its hue, his day reads in serif.
+            HStack(spacing: 10) {
+                Kicker(text: content.title, hue: Self.hue(content.section))
+                if [.today, .sleep, .recovery, .activity].contains(content.section) {
+                    Text(model.readingStatus)
+                        .font(OrionTheme.mono(9.5))
+                        .foregroundStyle(Color.white.opacity(0.36))
+                        .lineLimit(1)
+                }
             }
 
             // What happened. Always present.
             Text(content.narrative.happened)
-                .font(.system(size: 15))
+                .font(OrionTheme.serif(18))
+                .foregroundStyle(OrionTheme.text)
+                .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let means = content.narrative.likelyMeans {
@@ -94,9 +94,9 @@ struct HealthSectionsView: View {
                     .buttonStyle(.borderless)
                     .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 10)
-            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
+            .padding(.vertical, 8)
+            // An underline, not a filled field: the same hairline the Plan composer sits on.
+            .overlay(alignment: .bottom) { FadingRule(tint: OrionTheme.rose) }
 
             if let question = journal.pendingClarification {
                 Text(question)
@@ -181,6 +181,19 @@ struct HealthSectionsView: View {
             }
         }
         .padding(.top, 2)
+    }
+
+    /// One hue per section, from the Home palette, so the column can be scanned by colour.
+    static func hue(_ section: HealthSection) -> Color {
+        switch section {
+        case .today: OrionTheme.accent
+        case .sleep: OrionTheme.lavender
+        case .recovery: OrionTheme.green
+        case .activity: OrionTheme.orange
+        case .energy: Color(red: 0.95, green: 0.80, blue: 0.40)
+        case .trends: OrionTheme.violet
+        case .journal: OrionTheme.rose
+        }
     }
 
     private func shortProvenance(_ content: HealthSectionContent) -> String {

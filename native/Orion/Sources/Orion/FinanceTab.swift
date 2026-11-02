@@ -26,7 +26,8 @@ struct FinanceTab: View {
     }
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 44) {
+            PageHeader(title: "Finances", subline: headline) { syncControl }
             if plaid.accounts.isEmpty {
                 emptyState
             } else {
@@ -40,68 +41,77 @@ struct FinanceTab: View {
         .onChange(of: plaid.lastSyncedAt) { _, _ in loadSummary() }
     }
 
+    // MARK: - Header
+
+    private var headline: String {
+        FinanceHeadline.line(netWorth: plaid.accounts.isEmpty ? nil : plaid.netWorth,
+                             spentThisMonth: Money.spending(plaid.transactions, since: monthStart),
+                             recurringMonthly: Money.recurring(plaid.transactions).reduce(0) { $0 + $1.amount },
+                             currency: plaid.currency, month: Date().formatted(.dateTime.month(.wide)))
+    }
+
+    /// Refresh, when it was last synced and from how many banks: top right, as quiet as the header's subline.
+    private var syncControl: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            if plaid.isWorking {
+                ProgressView().controlSize(.small)
+            } else {
+                InlineAction(title: "Refresh", systemImage: "arrow.clockwise") { plaid.refresh() }
+            }
+            if let synced = plaid.lastSyncedAt {
+                Text("synced \(synced.formatted(date: .omitted, time: .shortened))")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+            if !plaid.accounts.isEmpty {
+                Text("\(plaid.items.count) institution\(plaid.items.count == 1 ? "" : "s") · \(PlaidClient.environment)")
+                    .font(OrionTheme.mono(9))
+                    .foregroundStyle(OrionTheme.textDim)
+            }
+        }
+        .padding(.top, 6)
+    }
+
     // MARK: - Connected
 
+    /// Wave 13: no panels. The figures stand on the page, the recurring charges are the discrete things (cards,
+    /// laid down by hand), and everything else is grouped by space and a fading hairline. Unequal columns.
     private var connected: some View {
-        HStack(alignment: .top, spacing: 44) {
-            VStack(alignment: .leading, spacing: 42) {
-                OrionPanel(padding: 22) { hero }
-                OrionPanel(padding: 20) { flow }
-                OrionPanel(padding: 20) { spendingBreakdown }
-                OrionPanel(padding: 20) { accountsSection }
-                OrionPanel(padding: 20) { recent }
+        HStack(alignment: .top, spacing: 64) {
+            VStack(alignment: .leading, spacing: 50) {
+                hero.deal(order: 0, rise: 12)
+                flow.deal(order: 1, rise: 12)
+                recurringSpread
+                spendingBreakdown
+                accountsSection
+                recent
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            OrionPanel(padding: 18) { rail }
+            rail
                 .frame(width: 262)
-                .padding(.top, 44)
+                .padding(.top, 8)
         }
     }
 
     // MARK: - Hero
 
     private var hero: some View {
-        HStack(alignment: .top, spacing: 46) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("NET WORTH")
-                    .font(OrionTheme.mono(9, .semibold))
-                    .tracking(2.4)
-                    .foregroundStyle(OrionTheme.textDim)
-                Text(Money.format(plaid.netWorth, currency: plaid.currency))
-                    .font(OrionTheme.display(52))
-                    .foregroundStyle(plaid.netWorth >= 0 ? OrionTheme.text : OrionTheme.red)
-                HStack(spacing: 16) {
-                    Leg(label: "assets",
-                        value: Money.format(Money.assets(plaid.accounts), currency: plaid.currency),
-                        tint: OrionTheme.green)
-                    if Money.debts(plaid.accounts) > 0 {
-                        Rectangle().fill(OrionTheme.line).frame(width: 1, height: 24)
-                        Leg(label: "debts",
-                            value: Money.format(Money.debts(plaid.accounts), currency: plaid.currency),
-                            tint: OrionTheme.red)
-                    }
+        HStack(alignment: .bottom, spacing: 52) {
+            BigNumber(label: "Net worth", value: Money.format(plaid.netWorth, currency: plaid.currency),
+                      hue: OrionTheme.accent, valueTint: plaid.netWorth >= 0 ? OrionTheme.text : OrionTheme.red, size: 60)
+            HStack(spacing: 18) {
+                Leg(label: "assets",
+                    value: Money.format(Money.assets(plaid.accounts), currency: plaid.currency),
+                    tint: OrionTheme.green)
+                if Money.debts(plaid.accounts) > 0 {
+                    FadingVerticalHairline(peak: 0.22).frame(height: 26)
+                    Leg(label: "debts",
+                        value: Money.format(Money.debts(plaid.accounts), currency: plaid.currency),
+                        tint: OrionTheme.red)
                 }
-                .padding(.top, 4)
             }
-
-            Spacer(minLength: 0)
-
-            VStack(alignment: .trailing, spacing: 8) {
-                if plaid.isWorking {
-                    ProgressView().controlSize(.small)
-                } else {
-                    InlineAction(title: "Refresh", systemImage: "arrow.clockwise") { plaid.refresh() }
-                }
-                if let synced = plaid.lastSyncedAt {
-                    Text("synced \(synced.formatted(date: .omitted, time: .shortened))")
-                        .font(OrionTheme.mono(9))
-                        .foregroundStyle(OrionTheme.textDim)
-                }
-                Text("\(plaid.items.count) institution\(plaid.items.count == 1 ? "" : "s") · \(PlaidClient.environment)")
-                    .font(OrionTheme.mono(9))
-                    .foregroundStyle(OrionTheme.textDim)
-            }
+            .padding(.bottom, 10)
         }
     }
 
@@ -110,9 +120,7 @@ struct FinanceTab: View {
     /// In, out, and the shape of the spending. The sparkline is 30 days of
     /// daily totals — the point is the rhythm, not any one day.
     private var flow: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionRule(title: "This month",
-                        trailing: Date().formatted(.dateTime.month(.wide)))
+        HairlineSection(title: "This month", trailing: Date().formatted(.dateTime.month(.wide))) {
 
             if plaid.transactions.isEmpty {
                 Text("Plaid is still pulling your transaction history — this usually takes a minute or two after linking.")
@@ -168,10 +176,9 @@ struct FinanceTab: View {
     }
 
     private var flowDivider: some View {
-        Rectangle()
-            .fill(OrionTheme.line)
-            .frame(width: 1, height: 42)
-            .padding(.horizontal, 26)
+        FadingVerticalHairline(peak: 0.2)
+            .frame(height: 46)
+            .padding(.horizontal, 28)
             .padding(.top, 12)
     }
 
@@ -181,9 +188,8 @@ struct FinanceTab: View {
         let categories = Money.byCategory(plaid.transactions, since: monthStart)
         if !categories.isEmpty {
             let peak = categories.first?.total ?? 1
-            HStack(alignment: .top, spacing: 54) {
-                VStack(alignment: .leading, spacing: 14) {
-                    SectionRule(title: "Where it went")
+            HairlineSection(title: "Where it went", order: 3) {
+                VStack(alignment: .leading, spacing: 16) {
                     ForEach(categories, id: \.category) { entry in
                         CategoryBar(name: entry.category,
                                     amount: entry.total,
@@ -191,37 +197,52 @@ struct FinanceTab: View {
                                     currency: plaid.currency)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                subscriptions
-                    .frame(width: 300)
-                    .padding(.top, 30)
+                .frame(maxWidth: 560, alignment: .leading)
             }
         }
     }
 
     /// Found by pattern rather than bought from Plaid — see `Money.recurring`
     /// for why the rule is deliberately strict.
-    @ViewBuilder private var subscriptions: some View {
-        let found = Money.recurring(plaid.transactions)
-        VStack(alignment: .leading, spacing: 12) {
-            SectionRule(title: "Recurring",
+    ///
+    /// Wave 13: each charge is a discrete thing that costs him every month, so the largest few are cards, laid
+    /// down by hand like Home's; any beyond them are plain rows underneath.
+    @ViewBuilder private var recurringSpread: some View {
+        let found = Money.recurring(plaid.transactions).sorted { $0.amount > $1.amount }
+        let featured = Array(found.prefix(3))
+        let rest = Array(found.dropFirst(3))
+        HairlineSection(title: "Recurring",
                         trailing: found.isEmpty ? nil : Money.format(
-                            found.reduce(0) { $0 + $1.amount }, currency: plaid.currency) + "/mo")
+                            found.reduce(0) { $0 + $1.amount }, currency: plaid.currency) + "/mo",
+                        hue: OrionTheme.violet.opacity(0.8), spacing: 22, order: 2) {
             if found.isEmpty {
                 Text("Nothing charging monthly yet. Orion needs to see a charge three times before it will call it a subscription.")
                     .font(OrionTheme.mono(10))
                     .foregroundStyle(OrionTheme.textDim)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(found) { item in
-                        DataRow(label: item.name,
-                                sublabel: "seen \(item.occurrences)× · last \(item.lastSeen.formatted(date: .abbreviated, time: .omitted))",
-                                value: Money.format(item.amount, currency: plaid.currency),
-                                valueTint: OrionTheme.violet)
-                        if item.id != found.last?.id {
-                            Rectangle().fill(OrionTheme.line).frame(height: 1)
+                let slots = HomeSpreadGeometry.slots(count: featured.count, columns: 3)
+                HomeSpreadLayout(columnGap: 26, rowGap: 30) {
+                    ForEach(Array(featured.enumerated()), id: \.element.id) { index, item in
+                        OutlineCard(hue: OrionTheme.violet, padding: 18) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Kicker(text: "Monthly · seen \(item.occurrences)×", hue: OrionTheme.violet).padding(.bottom, 10)
+                                CardTitle(item.name, size: 20).padding(.bottom, 6)
+                                CardBody("\(Money.format(item.amount, currency: plaid.currency)) a month · last \(item.lastSeen.formatted(date: .abbreviated, time: .omitted))")
+                            }
+                        }
+                        .rotationEffect(.degrees(slots[index].rotation))
+                        .deal(order: 2 + index, rise: 22)
+                    }
+                }
+                if !rest.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(rest) { item in
+                            DataRow(label: item.name,
+                                    sublabel: "seen \(item.occurrences)× · last \(item.lastSeen.formatted(date: .abbreviated, time: .omitted))",
+                                    value: Money.format(item.amount, currency: plaid.currency),
+                                    valueTint: OrionTheme.violet)
+                            if item.id != rest.last?.id { RowHairline() }
                         }
                     }
                 }
@@ -232,8 +253,7 @@ struct FinanceTab: View {
     // MARK: - Accounts
 
     private var accountsSection: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SectionRule(title: "Accounts", trailing: "\(plaid.accounts.count) linked")
+        HairlineSection(title: "Accounts", trailing: "\(plaid.accounts.count) linked", spacing: 18, order: 4) {
             ForEach(institutions, id: \.self) { institution in
                 VStack(alignment: .leading, spacing: 0) {
                     Text(institution.uppercased())
@@ -247,7 +267,7 @@ struct FinanceTab: View {
                                     + (account.isLiability ? " · owed" : ""),
                                 value: Money.format(account.current ?? 0, currency: account.currency),
                                 valueTint: account.isLiability ? OrionTheme.red : OrionTheme.green)
-                        Rectangle().fill(OrionTheme.line).frame(height: 1)
+                        RowHairline()
                     }
                 }
             }
@@ -266,14 +286,11 @@ struct FinanceTab: View {
 
     @ViewBuilder private var recent: some View {
         if !plaid.transactions.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionRule(title: "Recent", trailing: "last \(min(12, plaid.transactions.count))")
+            HairlineSection(title: "Recent", trailing: "last \(min(12, plaid.transactions.count))", spacing: 12, order: 5) {
                 VStack(spacing: 0) {
                     ForEach(plaid.transactions.prefix(12)) { transaction in
                         TransactionRow(transaction: transaction, currency: plaid.currency)
-                        if transaction.id != plaid.transactions.prefix(12).last?.id {
-                            Rectangle().fill(OrionTheme.line).frame(height: 1)
-                        }
+                        if transaction.id != plaid.transactions.prefix(12).last?.id { RowHairline() }
                     }
                 }
             }
@@ -283,8 +300,7 @@ struct FinanceTab: View {
     // MARK: - Orion's read
 
     @ViewBuilder private var rail: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionRule(title: "Orion reads this as")
+        HairlineSection(title: "Orion reads this as", spacing: 14, order: 1) {
             if let text = writer.text {
                 let takeaways = Takeaway.parse(text)
                 if takeaways.isEmpty {
@@ -298,7 +314,7 @@ struct FinanceTab: View {
                         ForEach(Array(takeaways.enumerated()), id: \.element.id) { index, takeaway in
                             TakeawayRow(takeaway: takeaway)
                             if index != takeaways.count - 1 {
-                                Rectangle().fill(OrionTheme.line).frame(height: 1)
+                                RowHairline()
                             }
                         }
                     }
@@ -336,8 +352,7 @@ struct FinanceTab: View {
     // MARK: - Not connected
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SectionRule(title: "Accounts", trailing: connections.state(.plaid).label)
+        HairlineSection(title: "Accounts", trailing: connections.state(.plaid).label, spacing: 18) {
             if plaid.isWorking {
                 HStack(spacing: 12) {
                     ProgressView().controlSize(.small)
@@ -403,12 +418,9 @@ private struct Figure: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(label.uppercased())
-                .font(OrionTheme.mono(8, .semibold))
-                .tracking(1.6)
-                .foregroundStyle(tint.opacity(0.85))
+            Kicker(text: label, hue: tint.opacity(0.9))
             Text(value)
-                .font(OrionTheme.display(26))
+                .font(OrionTheme.display(28, .light))
                 .foregroundStyle(OrionTheme.text)
         }
         .padding(.top, drop)
@@ -433,18 +445,7 @@ private struct CategoryBar: View {
                     .font(OrionTheme.mono(12, .semibold))
                     .foregroundStyle(OrionTheme.textSoft)
             }
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.white.opacity(0.07))
-                        .frame(height: 2)
-                    Capsule()
-                        .fill(OrionTheme.orange)
-                        .frame(width: max(2, geometry.size.width * fraction), height: 2)
-                        .shadow(color: OrionTheme.orange.opacity(0.6), radius: 5)
-                }
-            }
-            .frame(height: 2)
+            LineMeter(progress: fraction, hue: OrionTheme.orange)
         }
         .animation(.easeOut(duration: 0.4), value: fraction)
     }

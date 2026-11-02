@@ -755,3 +755,14 @@ final class WhoopClient: ObservableObject {
         }
     }
 }
+
+#if DEBUG
+extension WhoopClient {
+    /// Renders only: put fixture readings in place without a network call. Same file, so it can reach the
+    /// private setters; compiled out of release builds.
+    func seedForRender(snapshot: WhoopSnapshot?, week: WhoopWeek) {
+        self.snapshot = snapshot
+        self.week = week
+    }
+}
+#endif

@@ -34,36 +34,47 @@ struct SettingsTab: View {
     @State private var expanded: Set<String> = []
 
     var body: some View {
-        HStack(alignment: .top, spacing: 54) {
-            VStack(alignment: .leading, spacing: 18) {
-                section("Permissions") { permissions }
-                section("Focus session") {
-                    FocusSettings(extras: focusExtras, focusControl: focusControl,
-                                  focusConfigured: focusConfigured, focusSetup: focusSetup,
-                                  onRecheckFocus: onRecheckFocus)
+        VStack(alignment: .leading, spacing: 46) {
+            PageHeader(title: "Settings", subline: summary)
+            HStack(alignment: .top, spacing: 64) {
+                VStack(alignment: .leading, spacing: 0) {
+                    section("Permissions", hint: "\(grantedCount) of \(states.count) granted", order: 0) { permissions }
+                    section("Focus session", hint: focusConfigured ? "focus mode ready" : "focus mode not set up", order: 1) {
+                        FocusSettings(extras: focusExtras, focusControl: focusControl,
+                                      focusConfigured: focusConfigured, focusSetup: focusSetup,
+                                      onRecheckFocus: onRecheckFocus)
+                    }
+                    section("Surface", hint: "\(transparencyPercent)% transparent\(surfaceBlur ? " · frosted" : "")", order: 2) { surface }
+                    section("Orion core", hint: "the hologram on Home", order: 3) { core }
+                    section("Quick open", hint: "icons at \(Int(iconScale * 100))%", order: 4) { quickOpen }
+                    section("Push to talk", hint: state.pushToTalk.enabled ? "on" : "off", order: 5) { PushToTalkSettingsView(state: state) }
+                    section("Voice timing", hint: "\(VoiceTuning.endpointingMs) ms before he answers", order: 6) { voice }
                 }
-                section("Surface") { surface }
-                section("Orion core") { core }
-                section("Quick open") { quickOpen }
-                section("Push to talk") { PushToTalkSettingsView(state: state) }
-                section("Voice timing") { voice }
-            }
-            .frame(width: 380)
-            .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 380)
+                .fixedSize(horizontal: true, vertical: false)
 
-            VStack(alignment: .leading, spacing: 18) {
-                section("Model usage") { ModelUsageView() }
-                section("iPhone") { PhoneLinkView() }
-                section("Calendars") { calendars }
-                section("Connections") { ConnectionsView(connections: connections) }
-                section("What Orion may do") {
-                    CapabilitiesView(model: capabilities)
+                // The longer column starts a step lower, so the two never read as one grid.
+                VStack(alignment: .leading, spacing: 0) {
+                    section("Model usage", hint: "what each model has cost", order: 1) { ModelUsageView() }
+                    section("iPhone", hint: "the phone link", order: 2) { PhoneLinkView() }
+                    section("Calendars", hint: agenda.access.isGranted ? "\(agenda.calendars.count) visible to macOS" : "no access yet", order: 3) { calendars }
+                    section("Connections", hint: "\(connectedCount) connected", order: 4) { ConnectionsView(connections: connections) }
+                    section("What Orion may do", hint: "his powers, not his permissions", order: 5) {
+                        CapabilitiesView(model: capabilities)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 28)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, 6)
         }
     }
+
+    /// The header's one true line: how much of what Orion needs he actually has.
+    private var summary: String {
+        SettingsHeadline.line(granted: grantedCount, permissions: states.count, connected: connectedCount)
+    }
+
+    private var connectedCount: Int { connections.states.values.filter(\.isConnected).count }
 
     /// A collapsible section.
     ///
@@ -73,42 +84,46 @@ struct SettingsTab: View {
     /// never touched. Collapsing is not decoration here; it is the difference
     /// between finding a toggle and scrolling past five others to reach it.
     ///
-    /// The inner sections keep their own SectionRule headers, so an open
-    /// section looks exactly like it did before.
+    /// Wave 13: no plate behind it any more. A closed section is its name in serif with a hairline under it that
+    /// fades off to the right; an open one keeps the same row and lets its content breathe below. Grouping is
+    /// spacing and that hairline, as on Home.
     @ViewBuilder
-    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+    private func section(_ title: String, hint: String, order: Int, @ViewBuilder content: () -> some View) -> some View {
         let isOpen = expanded.contains(title)
-        VStack(alignment: .leading, spacing: isOpen ? 14 : 0) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeOut(duration: 0.16)) {
                     if isOpen { expanded.remove(title) } else { expanded.insert(title) }
                 }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(title)
+                        .font(OrionTheme.serif(17))
+                        .foregroundStyle(isOpen ? OrionTheme.text : OrionTheme.text.opacity(0.78))
+                    Spacer(minLength: 12)
+                    Text(hint)
+                        .font(OrionTheme.mono(9.5))
+                        .foregroundStyle(Color.white.opacity(0.36))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(OrionTheme.textDim)
-                    Text(title.uppercased())
-                        .font(OrionTheme.mono(9, .semibold))
-                        .tracking(1.8)
-                        .foregroundStyle(isOpen ? OrionTheme.textSoft : OrionTheme.textDim)
-                    Spacer(minLength: 0)
+                        .foregroundStyle(isOpen ? OrionTheme.accent : OrionTheme.textDim)
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
                 }
+                .padding(.vertical, 13)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(isOpen ? [.isSelected] : [])
 
-            if isOpen { content() }
+            if isOpen {
+                content()
+                    .padding(.top, 6)
+                    .padding(.bottom, 22)
+            }
+            FadingRule(tint: isOpen ? OrionTheme.accent : .white)
         }
-        .padding(14)
-        .background {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(isOpen ? Color.white.opacity(0.055) : Color.white.opacity(0.025))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .strokeBorder(Color.white.opacity(isOpen ? 0.11 : 0.06), lineWidth: 0.75)
-                }
-        }
+        .deal(order: order, rise: 10)
     }
 
     // MARK: - Surface

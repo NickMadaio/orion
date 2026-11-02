@@ -40,19 +40,27 @@ struct HealthTab: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 44) {
-            VStack(alignment: .leading, spacing: 40) {
-                headline
-                if !whoop.week.isEmpty { week }
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    HealthSectionsView(model: sectionsModel(at: context.date), journal: journal)
-                }
+        VStack(alignment: .leading, spacing: 44) {
+            PageHeader(title: "Health", subline: HealthHeadline.line(recovery: whoop.snapshot?.recovery,
+                                                                      sleepHours: whoop.snapshot?.sleepHours,
+                                                                      strain: whoop.snapshot?.strain)) {
+                if let snapshot = whoop.snapshot { refreshControl(snapshot) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .top, spacing: 64) {
+                VStack(alignment: .leading, spacing: 50) {
+                    headline.deal(order: 0, rise: 12)
+                    if !whoop.week.isEmpty { week }
+                    TimelineView(.periodic(from: .now, by: 60)) { context in
+                        HealthSectionsView(model: sectionsModel(at: context.date), journal: journal)
+                    }
+                    .deal(order: 3, rise: 12)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            readingRail
-                .frame(width: 318)
-                .padding(.top, 44)
+                readingRail
+                    .frame(width: 300)
+                    .padding(.top, 8)
+            }
         }
         .onAppear {
             loadSummary()
@@ -122,53 +130,38 @@ struct HealthTab: View {
     }
 
     /// Raw available readings, without a fixed-score prescription.
+    ///
+    /// Wave 13: the three readings stand on the page as big light figures, each over a line-art meter, staggered
+    /// rather than three equal panels. The day they are about is the kicker over them.
     private func wellnessOverview(_ snapshot: WhoopSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 5) {
-                    phaseLabel("WHOOP · \(snapshot.dayLabel)")
-                    Text("Your available readings")
-                        .font(OrionTheme.display(30))
-                        .foregroundStyle(OrionTheme.text)
-                }
-                Spacer()
-                refreshControl(snapshot)
-            }
-
-            HStack(spacing: 14) {
-                wellnessMetric(title: "Recovery", value: snapshot.recovery.map(String.init) ?? "—",
-                              detail: snapshot.recovery == nil ? "not available" : "WHOOP recovery score",
-                              progress: Double(snapshot.recovery ?? 0) / 100, tint: recoveryTint(snapshot.recovery))
+        VStack(alignment: .leading, spacing: 18) {
+            Kicker(text: "WHOOP · \(snapshot.dayLabel)", hue: Color.white.opacity(0.4))
+            HStack(alignment: .top, spacing: 54) {
+                wellnessMetric(title: "Recovery", value: snapshot.recovery.map(String.init) ?? "—", unit: snapshot.recovery == nil ? nil : "%",
+                               detail: snapshot.recovery == nil ? "not available" : "WHOOP recovery score",
+                               progress: Double(snapshot.recovery ?? 0) / 100, tint: recoveryTint(snapshot.recovery), drop: 0)
                 wellnessMetric(title: "Sleep", value: snapshot.sleepHours.map { String(format: "%.1f", $0) } ?? "—",
-                              detail: snapshot.sleepHours == nil ? "not available" : "hours in bed",
-                              progress: Double(snapshot.sleepPerformance ?? 0) / 100, tint: OrionTheme.violet)
+                               unit: snapshot.sleepHours == nil ? nil : "h",
+                               detail: snapshot.sleepHours == nil ? "not available"
+                                   : "hours in bed" + (snapshot.sleepPerformance.map { " · \($0)% performance" } ?? ""),
+                               progress: Double(snapshot.sleepPerformance ?? 0) / 100, tint: OrionTheme.violet, drop: 22)
                 wellnessMetric(title: "Strain", value: snapshot.strain.map { String(format: "%.1f", $0) } ?? "—",
-                              detail: snapshot.strain == nil ? "not available" : "available cycle reading",
-                              progress: min(1, max(0, (snapshot.strain ?? 0) / 21)), tint: OrionTheme.orange)
-            }
-
-        }
-    }
-
-    private func wellnessMetric(title: String, value: String, detail: String,
-                                progress: Double, tint: Color) -> some View {
-        OrionPanel(padding: 19) {
-            HStack(spacing: 15) {
-                RingMeter(progress: progress, value: value, caption: title.lowercased(), tint: tint, diameter: 84)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title.uppercased())
-                        .font(OrionTheme.mono(9, .semibold))
-                        .tracking(1.5)
-                        .foregroundStyle(OrionTheme.textDim)
-                    Text(detail)
-                        .font(.system(size: 11))
-                        .foregroundStyle(OrionTheme.textSoft)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                               unit: snapshot.strain == nil ? nil : "of 21",
+                               detail: snapshot.strain == nil ? "not available" : "available cycle reading",
+                               progress: min(1, max(0, (snapshot.strain ?? 0) / 21)), tint: OrionTheme.orange, drop: 6)
                 Spacer(minLength: 0)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 122)
+    }
+
+    private func wellnessMetric(title: String, value: String, unit: String?, detail: String,
+                                progress: Double, tint: Color, drop: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            BigNumber(label: title, value: value, unit: unit, note: detail, hue: tint, size: 52)
+            LineMeter(progress: progress, hue: tint, width: 150)
+        }
+        .frame(minWidth: 150, alignment: .leading)
+        .padding(.top, drop)
     }
 
     /// Morning: what you woke up with.
@@ -301,8 +294,7 @@ struct HealthTab: View {
 
     /// Every reading with its own line and its distance from your baseline.
     private var week: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            SectionRule(title: "Your week", trailing: "\(whoop.week.points.count) days")
+        HairlineSection(title: "Your week", trailing: "\(whoop.week.points.count) days", order: 1) {
             HStack(alignment: .top, spacing: 0) {
                 Metric(label: "recovery", trend: whoop.week.recovery, unit: "%",
                        tint: OrionTheme.green, decimals: 0, drop: 0)
@@ -324,9 +316,8 @@ struct HealthTab: View {
     }
 
     private var metricDivider: some View {
-        Rectangle()
-            .fill(OrionTheme.line)
-            .frame(width: 1, height: 46)
+        FadingVerticalHairline(peak: 0.2)
+            .frame(height: 50)
             .padding(.horizontal, 22)
             .padding(.top, 14)
     }
@@ -339,126 +330,88 @@ struct HealthTab: View {
         let facts = summaryFacts
         let selection = writer.text(for: facts.narrativeKey)
         let takeaways = facts.takeaways(selection: selection)
-        return VStack(alignment: .leading, spacing: 14) {
+        return VStack(alignment: .leading, spacing: 44) {
             railDailyProgress
-            SectionRule(title: "From your records")
-            Text("Activity day \(facts.dayKey)")
-                .font(OrionTheme.mono(9))
-                .foregroundStyle(OrionTheme.textDim)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(takeaways.enumerated()), id: \.element.id) { index, takeaway in
-                    TakeawayRow(takeaway: takeaway)
-                    if index != takeaways.count - 1 {
-                        Rectangle().fill(OrionTheme.line).frame(height: 1)
+            HairlineSection(title: "From your records", trailing: facts.dayKey, spacing: 6, order: 2) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(takeaways.enumerated()), id: \.element.id) { index, takeaway in
+                        TakeawayRow(takeaway: takeaway)
+                        if index != takeaways.count - 1 { RowHairline() }
                     }
                 }
-            }
-            if facts.selectedDetail(selection) != nil {
-                Text("Highlight selected on this Mac · wording from your records")
-                    .font(OrionTheme.mono(9))
-                    .foregroundStyle(OrionTheme.textDim)
+                if facts.selectedDetail(selection) != nil {
+                    Text("Highlight selected on this Mac · wording from your records")
+                        .font(OrionTheme.mono(9))
+                        .foregroundStyle(OrionTheme.textDim)
+                }
             }
         }
     }
 
     /// The right side should answer the quick question — "how is the day
     /// going?" — while the main column remains the place to log the detail.
+    ///
+    /// Wave 13: four logs, each a line rather than a tile in a two-by-two grid: what it is, how far along, and the
+    /// one outline action that moves it on.
     private var railDailyProgress: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                SectionRule(title: "Today at a glance")
-                Spacer()
-                Button("Food log") { nutritionSheetVisible = true }
-                    .buttonStyle(.plain)
-                    .font(OrionTheme.mono(9, .semibold))
-                    .foregroundStyle(OrionTheme.orange)
-            }
-            HStack(spacing: 10) {
-                waterRailStat
-                railStat(icon: "flame.fill", label: "Calories",
-                         value: health.caloriesToday > 0 ? "\(health.caloriesToday)" : "—",
-                         tint: OrionTheme.orange, actionIcon: "arrow.up.right") { nutritionSheetVisible = true }
-            }
-            HStack(spacing: 10) {
-                railStat(icon: "pills.fill", label: "Supplements",
-                         value: health.supplements.isEmpty ? "—" : "\(health.takenToday.count)/\(health.supplements.count)",
-                         tint: OrionTheme.violet, actionIcon: "chevron.right") { supplementSheetVisible = true }
-                railStat(icon: "figure.strengthtraining.traditional", label: "Training",
-                         value: health.todaysWorkout.map { "\($0.totalSets) sets" } ?? "Not logged",
-                         tint: OrionTheme.green, actionIcon: "plus") { workoutSheetVisible = true }
+        HairlineSection(title: "Today at a glance", spacing: 4, order: 1, accessory: {
+            Button("Food log") { nutritionSheetVisible = true }
+                .buttonStyle(.plain)
+                .font(OrionTheme.mono(9, .semibold))
+                .foregroundStyle(OrionTheme.orange)
+        }) {
+            VStack(alignment: .leading, spacing: 0) {
+                logLine(label: "Water", value: "\(health.hydrationBottles)", unit: "of \(bottleTarget)",
+                        progress: Double(health.hydrationBottles) / Double(bottleTarget), tint: OrionTheme.blue) {
+                    HStack(spacing: 8) {
+                        RailCircleButton(symbol: "minus", tint: OrionTheme.textSoft, help: "One fewer bottle") { health.removeHydration() }
+                        RailCircleButton(symbol: "plus", tint: OrionTheme.blue, help: "Drank one") { health.logHydration() }
+                    }
+                }
+                RowHairline()
+                logLine(label: "Calories", value: health.caloriesToday > 0 ? "\(health.caloriesToday)" : "—",
+                        unit: "of \(health.nutritionGoals.calories)",
+                        progress: Double(health.caloriesToday) / Double(max(1, health.nutritionGoals.calories)), tint: OrionTheme.orange) {
+                    RailCircleButton(symbol: "arrow.up.right", tint: OrionTheme.orange, help: "Open the food log") { nutritionSheetVisible = true }
+                }
+                RowHairline()
+                logLine(label: "Supplements", value: health.supplements.isEmpty ? "—" : "\(health.takenToday.count)",
+                        unit: health.supplements.isEmpty ? nil : "of \(health.supplements.count)",
+                        progress: health.supplements.isEmpty ? 0 : Double(health.takenToday.count) / Double(health.supplements.count),
+                        tint: OrionTheme.violet) {
+                    RailCircleButton(symbol: "chevron.right", tint: OrionTheme.violet, help: "Open the stack") { supplementSheetVisible = true }
+                }
+                RowHairline()
+                logLine(label: "Training", value: health.todaysWorkout.map { "\($0.totalSets)" } ?? "Not logged",
+                        unit: health.todaysWorkout == nil ? nil : "sets",
+                        progress: health.todaysWorkout == nil ? 0 : 1, tint: OrionTheme.green) {
+                    RailCircleButton(symbol: "plus", tint: OrionTheme.green, help: "Log a session") { workoutSheetVisible = true }
+                }
             }
         }
     }
 
-    private func railStat(icon: String, label: String, value: String, tint: Color,
-                          actionIcon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            OrionPanel(padding: 13) {
-            VStack(alignment: .leading, spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(tint)
-                Text(value)
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundStyle(OrionTheme.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                HStack(alignment: .center) {
-                    Text(label.uppercased())
-                        .font(OrionTheme.mono(8, .semibold))
-                        .tracking(1)
-                        .foregroundStyle(OrionTheme.textDim)
-                    Spacer(minLength: 4)
-                    Image(systemName: actionIcon)
-                        .font(.system(size: actionIcon == "plus" ? 17 : 10, weight: .semibold))
-                        .foregroundStyle(tint)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(tint.opacity(0.13)))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, minHeight: 102)
-    }
-
-    private var waterRailStat: some View {
-        OrionPanel(padding: 13) {
-            VStack(alignment: .leading, spacing: 8) {
-                Image(systemName: "drop.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(OrionTheme.blue)
-                Text("\(health.hydrationBottles)/\(bottleTarget)")
-                    .font(.system(size: 17, weight: .semibold, design: .rounded))
-                    .foregroundStyle(OrionTheme.text)
-                HStack(alignment: .center) {
-                    Text("WATER")
-                        .font(OrionTheme.mono(8, .semibold))
-                        .tracking(1)
-                        .foregroundStyle(OrionTheme.textDim)
-                    Spacer(minLength: 4)
-                    Button { health.removeHydration() } label: {
-                        Image(systemName: "minus")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(OrionTheme.textSoft)
-                            .frame(width: 17, height: 17)
-                            .background(Circle().fill(.white.opacity(0.07)))
+    private func logLine<Action: View>(label: String, value: String, unit: String?, progress: Double, tint: Color,
+                                       @ViewBuilder action: () -> Action) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Kicker(text: label, hue: tint.opacity(0.9))
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(value)
+                        .font(OrionTheme.display(24, .light))
+                        .foregroundStyle(OrionTheme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                    if let unit {
+                        Text(unit).font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim)
                     }
-                    .buttonStyle(.plain)
-                    Button { health.logHydration() } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(OrionTheme.blue)
-                            .frame(width: 22, height: 22)
-                            .background(Circle().fill(OrionTheme.blue.opacity(0.13)))
-                    }
-                    .buttonStyle(.plain)
                 }
+                LineMeter(progress: progress, hue: tint, width: 120)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 8)
+            action()
         }
-        .frame(maxWidth: .infinity, minHeight: 102)
+        .padding(.vertical, 13)
     }
 
     private var summaryFacts: HealthFacts {
@@ -642,6 +595,33 @@ struct HealthTab: View {
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A small outline circle around one glyph: the rail's per-log action. Stroke, a whisper of fill, no plate.
+private struct RailCircleButton: View {
+    let symbol: String
+    let tint: Color
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(tint.opacity(hovering ? 0.14 : 0.05)))
+                .overlay(Circle().strokeBorder(tint.opacity(hovering ? 0.9 : 0.5), lineWidth: 0.8))
+                .shadow(color: tint.opacity(hovering ? 0.45 : 0), radius: 6)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(OrionMotion.hover, value: hovering)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 

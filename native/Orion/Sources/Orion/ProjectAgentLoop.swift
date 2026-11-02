@@ -465,17 +465,13 @@ struct ProjectWorkflowSidebar: View {
                     Text(live ? "LIVE" : "READY").font(OrionTheme.mono(8, .semibold)).tracking(0.8)
                 }
                 .padding(.horizontal, 9).padding(.vertical, 6)
-                .background(.white.opacity(0.05), in: Capsule())
+                .overlay(Capsule().strokeBorder((live ? OrionTheme.green : Color.white).opacity(live ? 0.6 : 0.16), lineWidth: 0.8))
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("PROGRESS").font(OrionTheme.mono(8, .semibold)).tracking(1.1)
-                        .foregroundStyle(OrionTheme.textDim)
-                    Spacer()
-                    Text(progressPercent).font(OrionTheme.mono(18, .semibold))
-                        .foregroundStyle(run?.finalReview == true ? OrionTheme.green : OrionTheme.text)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                BigNumber(label: "Progress", value: String(progressPercent.dropLast()), unit: "%",
+                          hue: run?.finalReview == true ? OrionTheme.green : OrionTheme.accent,
+                          valueTint: run?.finalReview == true ? OrionTheme.green : OrionTheme.text, size: 40)
                 if let run { ProjectTaskStrip(run: run, height: 5) }
                 else { Capsule().fill(.white.opacity(0.08)).frame(height: 5) }
                 Text(progressDetail).font(.system(size: 11)).foregroundStyle(OrionTheme.textDim)
@@ -487,14 +483,13 @@ struct ProjectWorkflowSidebar: View {
                         .lineLimit(2)
                 }
             }
-            .padding(12).background(.black.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
 
             Group {
                 if let run { ProjectAgentLoopDial(run: run, beat: beat) }
                 else { ProjectAgentLoopBlueprint() }
             }
 
-            Rectangle().fill(.white.opacity(0.08)).frame(height: 1)
+            FadingRule()
             HStack {
                 Label("Worker", systemImage: "hammer")
                 Spacer()
@@ -502,15 +497,9 @@ struct ProjectWorkflowSidebar: View {
             }
             .font(.system(size: 10, weight: .medium)).foregroundStyle(OrionTheme.textDim)
         }
-        .padding(16)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: 20).fill(Color.white.opacity(0.028))
-                RadialGradient(colors: [OrionTheme.accent.opacity(0.09), .clear],
-                               center: .topLeading, startRadius: 0, endRadius: 330)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-            })
-        .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.08), lineWidth: 1))
+        // Wave 13: no panel. The column stands on the glass, set off by a fading hairline at its edge.
+        .padding(.leading, 22).padding(.vertical, 6)
+        .overlay(alignment: .leading) { FadingVerticalHairline(peak: 0.14) }
     }
 
     private var progressPercent: String {

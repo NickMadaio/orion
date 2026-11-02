@@ -22,6 +22,9 @@ public enum OutreachThread {
         /// 2 shows time-sensitive on the phone (the notification extension honours it).
         public let level: Int
         public let kind: String
+        /// His words, when this is an exchange he had elsewhere (a reply typed into the Mac's proactive bubble, W16-d): the
+        /// thread shows it as his turn, answered by `text`, never as a new ORION message to answer.
+        public var said: String? = nil
     }
 
     /// The category a question gets (text reply); everything else keeps the check-in buttons.
@@ -36,8 +39,9 @@ public enum OutreachThread {
         let kind = item["kind"] as? String ?? "message"
         let wantsAsk = item["category"] as? String == askCategory || kind == "question" || item["askId"] != nil
         let urgent = (item["urgent"] as? Bool) == true || (item["timeSensitive"] as? Bool) == true
+        let said = (item["said"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return Entry(id: id, text: text, conversationID: LinkSchema.threadID, push: item["push"] as? Bool == true,
-                     category: wantsAsk ? askCategory : checkinCategory, level: urgent ? 2 : 1, kind: kind)
+                     category: wantsAsk && said == nil ? askCategory : checkinCategory, level: urgent ? 2 : 1, kind: kind, said: said)
     }
 
     /// A check-in tick or ORION-app alert (alerts-outbox.jsonl) is a message too, and answerable.

@@ -237,14 +237,15 @@ final class LinkEngine: ObservableObject {
     /// ORION's message as a chat record in the thread: no words from him, already answered, with the id a reply carries back.
     private func threadRecord(_ entry: OutreachThread.Entry, at: Date) -> CKRecord {
         let chat = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: entry.id, zoneID: zoneID))
-        chat[LinkSchema.commandText] = "" as CKRecordValue
+        // A bubble exchange (W16-d) is his turn from the Mac, answered: his words as the command, no askId to reply to.
+        chat[LinkSchema.commandText] = (entry.said ?? "") as CKRecordValue
         chat[LinkSchema.commandSentAt] = at as CKRecordValue
-        chat[LinkSchema.commandDevice] = "orion" as CKRecordValue
+        chat[LinkSchema.commandDevice] = (entry.said == nil ? "orion" : "mac") as CKRecordValue
         chat[LinkSchema.commandKind] = LinkCommandKind.chat.rawValue as CKRecordValue
         chat[LinkSchema.commandStatus] = LinkCommandStatus.done.rawValue as CKRecordValue
         chat[LinkSchema.commandReply] = entry.text as CKRecordValue
         chat[LinkSchema.commandConversation] = entry.conversationID as CKRecordValue
-        chat[LinkSchema.commandAskID] = entry.id as CKRecordValue
+        if entry.said == nil { chat[LinkSchema.commandAskID] = entry.id as CKRecordValue }
         return chat
     }
 

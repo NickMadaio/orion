@@ -531,8 +531,8 @@ final class AppState: ObservableObject {
 
     // MARK: ORION reaching out (orion-reach, 2026-10-07)
 
-    /// What ORION started saying, shown as a bubble on the summoned hologram.
-    @Published var reachMessage: String?
+    /// What ORION started saying, shown as a bubble on the summoned hologram: a mini-thread once he replies in it (W16-d).
+    @Published private(set) var bubble: BubbleThread?
     private var reachClear: DispatchWorkItem?
     /// Focus session phase changes go to the awareness core at once (PhaseHook).
     private let phaseHook = PhaseHook()
@@ -565,13 +565,10 @@ final class AppState: ObservableObject {
             saveChat(.orion, text: text)
             chatMode = true
         } else {
-            reachMessage = text
+            bubble = BubbleThread(message: text, reachID: reachID, shownAt: Date())
             onWantsSummon?()
         }
-        reachClear?.cancel()
-        let clear = DispatchWorkItem { [weak self] in self?.reachMessage = nil }
-        reachClear = clear
-        DispatchQueue.main.asyncAfter(deadline: .now() + keepFor, execute: clear)
+        scheduleBubbleClear(after: keepFor)
         OrionLog.write("[reach] \(aloud ? "aloud" : "silent bubble") — \(text.count) chars")
         // Only a short ORION question he is waiting on is asked once more. A brief, summary or any
         // narrative is never re-spoken (10-19), even when it listens and ends in a courtesy "?".
@@ -1435,6 +1432,11 @@ final class AppState: ObservableObject {
     // MARK: Phase
 
     private func setPhase(_ next: OrionPhase) {
+        // A turn that stops without an answer (cancelled, recovered, failed) never leaves the bubble shimmering.
+        if phase == .thinking, next != .thinking, let current = bubble, current.isThinking || current.state == .timedOut {
+            bubble = current.ended()
+            scheduleBubbleClear(after: bubble?.keepFor)
+        }
         phase = next
         if next != .thinking { voiceCompanion?.stop(); voiceCompanion = nil; progressReader.stop() }
         hologram.setState(next.hologramState)
@@ -2155,7 +2157,61 @@ final class AppState: ObservableObject {
         composer = ""
         chatMode = true
         if phase == .speaking { bargeIn() }
+        let inBubble = beginBubbleReply(text)
         send(text, typed: true)
+        if inBubble { bubbleTurnStarted() }
+    }
+
+    // MARK: Replying in the bubble (W16-d)
+
+    /// A typed reply while the bubble shows ORION's message answers that message: the message goes into the chat first (it
+    /// was only on the panel), and the reply is bound to it by id (the plugin gets the askId in the label). Returns whether it was.
+    private func beginBubbleReply(_ text: String) -> Bool {
+        let now = Date()
+        guard let current = bubble, current.acceptsReply(now: now) else { return false }
+        saveChat(.orion, text: current.message)
+        if let id = current.reachID { OutreachReplyTo.set(id, now: now) }
+        bubble = current.replied(text, now: now)
+        scheduleBubbleClear(after: nil)
+        OrionLog.write("[bubble] reply typed in the bubble — bound to \(current.reachID ?? "no id")")
+        return true
+    }
+
+    /// After `send`: the turn is running as `askGeneration`, so the bubble waits for that one, with an honest limit.
+    private func bubbleTurnStarted() {
+        guard let current = bubble, current.state == .sending, phase == .thinking else { return }
+        let generation = askGeneration
+        bubble = current.sent(generation: generation, now: Date())
+        DispatchQueue.main.asyncAfter(deadline: .now() + BubbleThread.answerLimit + 0.5) { [weak self] in
+            guard let self, let waiting = self.bubble, waiting.isWaiting(for: generation) else { return }
+            self.bubble = waiting.ticked(now: Date())
+            if self.bubble?.state == .timedOut {
+                OrionLog.write("[bubble] no answer in \(Int(BubbleThread.answerLimit)) s — said it will reply in chat")
+                self.scheduleBubbleClear(after: self.bubble?.keepFor)
+            }
+        }
+    }
+
+    /// The answer of the live turn: into the bubble that is owed it, and the exchange mirrored to the phone thread.
+    private func bubbleAnswerLanded(_ text: String) {
+        guard var current = bubble else { return }
+        if current.state == .sending { current = current.sent(generation: askGeneration, now: Date()) }   // answered without a gateway turn
+        guard current.isWaiting(for: askGeneration), let said = current.reply else { return }
+        bubble = current.answered(text, generation: askGeneration)
+        scheduleBubbleClear(after: bubble?.keepFor)
+        let reachID = current.reachID
+        DispatchQueue.global(qos: .utility).async { BubbleMirror.append(reachID: reachID, said: said, answer: text) }
+        OrionLog.write("[bubble] answer shown in the bubble — \(text.count) chars, mirrored to the phone thread")
+    }
+
+    /// Clears the bubble after `seconds`; nil keeps it (an answer is still owed).
+    private func scheduleBubbleClear(after seconds: TimeInterval?) {
+        reachClear?.cancel()
+        reachClear = nil
+        guard let seconds else { return }
+        let clear = DispatchWorkItem { [weak self] in self?.bubble = nil }
+        reachClear = clear
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: clear)
     }
 
     private func send(_ text: String, typed: Bool = false) {
@@ -2409,6 +2465,7 @@ final class AppState: ObservableObject {
         chatThinking = reply.thinking
         saveChat(.orion, text: reply.text, thinking: reply.thinking)
         append(.orion, reply.text)
+        bubbleAnswerLanded(reply.text)
         let (action, hold) = replyHold.landed(generation: askGeneration, text: reply.text, cuePlaying: voiceCue.isPlaying)
         replyHold = hold
         switch action {

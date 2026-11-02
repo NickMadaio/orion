@@ -105,7 +105,9 @@ enum OutreachContext {
         guard let ask = row.ask else {
             return "[ORION context: you messaged him first, \(minutes) min ago: \"\(row.text.prefix(200))\". This message MAY be his answer.]\n"
         }
-        return "[ORION context: \(minutes) min ago you asked \"\(row.text.prefix(200))\" (\(describe(ask))). If he says what he did or is doing, log it.]\n"
+        // The ask's id rides along (W16-d): the plugin binds the answer to it (bubble-reply.ts reads ", askId <id>.").
+        let askID = ask.askId.flatMap { $0.range(of: "^[A-Za-z0-9._:-]{1,80}$", options: .regularExpression) == nil ? nil : ", askId \($0)" } ?? ""
+        return "[ORION context: \(minutes) min ago you asked \"\(row.text.prefix(200))\" (\(describe(ask)))\(askID). If he says what he did or is doing, log it.]\n"
     }
 
     /// "blank ask about 14:00-now, he is away" / "finish resume, planned 14:00-16:00, not started".

@@ -35,6 +35,10 @@ final class KnowledgeStore: ObservableObject {
     @Published private(set) var rebuilding = false
     @Published var query = KnowledgeQuery()
     @Published var selectedID: String?
+    /// The graph's living model: layout, camera, blends. Deliberately not published (it changes every frame and is
+    /// drawn by a Canvas that reads it directly). It lives here because the dashboard owns this store across tab
+    /// switches, so the graph keeps its shape and camera and never replays its entrance.
+    let sky = KnowledgeSky()
 
     private var raw: KnowledgeGraph = .empty
     private let directory: URL?

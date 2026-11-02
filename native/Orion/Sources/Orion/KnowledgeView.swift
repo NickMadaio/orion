@@ -16,7 +16,6 @@ struct KnowledgeView: View {
     /// Renders only: the first frame of a selection made from the list, ring still on the row.
     var snapshotRingInList = false
 
-    @StateObject private var simulation = KnowledgeSimulation()
     @Namespace private var ring
     @State private var ringInList = false
     @Environment(\.colorScheme) private var scheme
@@ -30,7 +29,7 @@ struct KnowledgeView: View {
                     .frame(width: narrow ? 176 : 214)
                     .padding(.top, 6)
                 KnowledgeHairline(vertical: true, peak: 0.12).padding(.vertical, 30).padding(.horizontal, narrow ? 12 : 18)
-                KnowledgeGraphCanvas(store: store, simulation: simulation, ring: ring, ringInList: snapshot ? snapshotRingInList : ringInList, snapshot: snapshot)
+                KnowledgeGraphCanvas(store: store, ring: ring, ringInList: snapshot ? snapshotRingInList : ringInList, snapshot: snapshot)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 KnowledgeHairline(vertical: true, peak: 0.12).padding(.top, 70).padding(.bottom, 30).padding(.horizontal, narrow ? 12 : 18)
                 detailColumn

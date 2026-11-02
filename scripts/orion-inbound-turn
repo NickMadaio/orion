@@ -58,7 +58,7 @@ const INJECTED = "outreach-injected.json";
 const injectBy = Number(flag("--inject-by")) || Date.now() + 4000;   // wall clock: the caller waits in real time
 try {
   const turns = readTurns(DIR);
-  const row = pickOutreach(readDelivered(DIR), { replyTo, turns, now: now.getTime() });
+  const row = pickOutreach(readDelivered(DIR), { replyTo, turns, now: now.getTime(), channel: source });
   // Only a reply to a bedtime-family line (by its key), never to a line that only mentions bedtime (review 2026-10-23).
   if (row && isBedtimeRow(row)) ackBedtime(DIR, now);
   const key = row && sessionKey ? `${sessionKey}|${row.id}` : null;

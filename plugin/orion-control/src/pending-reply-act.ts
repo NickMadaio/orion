@@ -160,6 +160,18 @@ async function begin(c: Ctx, title: string, activity: string | undefined, back: 
   return c.done(`${opener} I couldn't start the focus session just now, so nothing is running — open ${title} and I'll check in that it's going.`, null);
 }
 
+/** A notice (weather, a mission event, a screen lock) asked nothing, so a short reply only needs to be taken as heard. Never an approval. */
+function notice(c: Ctx, o: Extract<Offer, { kind: "notice" }>, r: Reply): PendingOutcome | undefined {
+  if (o.topic === "mission" && o.approvalId && (r.kind === "accept" || r.kind === "decline")) {
+    return c.done(r.kind === "accept"
+      ? `That one needs your explicit word: say "approve ${o.approvalId}" and I'll run it. A plain yes isn't enough.`
+      : `Okay, I'll leave it waiting. Say "deny ${o.approvalId}" if you want it dropped.`, null);
+  }
+  if (r.kind === "decline") return c.done("Okay.", null);
+  if (r.kind === "accept" || r.kind === "indifferent" || r.kind === "done") return c.done("Got it.", null);
+  return undefined;
+}
+
 async function leave(c: Ctx, o: Extract<Offer, { kind: "leave" }>, r: Reply): Promise<PendingOutcome | undefined> {
   if (r.kind === "accept") return c.done("Good, go.", null);
   const minutes = r.kind === "defer" && r.minutes ? Math.min(r.minutes, 30) : 5;
@@ -370,5 +382,6 @@ export async function runTurn(turn: PendingTurn, deps: PendingDeps): Promise<Pen
     case "brief": return brief(c, o.items, r, false);
     case "session-done": return whatsNext(c, o.next);
     case "plan-check": return planCheck(c, o.title, r);
+    case "notice": return notice(c, o, r);
   }
 }

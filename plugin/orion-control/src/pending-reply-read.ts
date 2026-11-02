@@ -16,7 +16,9 @@ export type Offer =
   | { kind: "slipped"; title: string }
   | { kind: "brief"; items: string[]; stale?: boolean }
   | { kind: "session-done"; next?: string }
-  | { kind: "plan-check"; title: string };
+  | { kind: "plan-check"; title: string }
+  /** A message with no question in it that ORION sends anyway (weather, a mission event, a screen lock): a short reply is read against it, but only acknowledged. */
+  | { kind: "notice"; topic: "weather" | "mission" | "lock"; approvalId?: string };
 
 export type Part = "morning" | "afternoon" | "evening";
 /** What a counter-offer names: a day, a part of it, a clock time (minutes after midnight; meridiem when he said am/pm or a 24-hour time), a length, a block to follow. */
@@ -53,7 +55,13 @@ const SLIPPING = /(?:^|[.!?]\s+)([^.!?]+?) has been first on my list \d+ days ru
 const SESSION_DONE = /^session done\b/i;
 const NEXT_IN = /\bnext: (.+?) at (\d{1,2}:\d{2}\s*(?:am|pm)?)/i;
 const PLAN_CHECK = /\bis (.+?) still (?:happening|on)\b/i;
-const BEDTIME = /\b(?:bedtime|past bedtime|bed now|still up at|sleep now|go to (?:bed|sleep)|get to bed)\b/i;
+const WEATHER = /^weather (?:update|alert|heads[- ]?up)\b|\b(?:rain|snow|storm|thunderstorms?) (?:is )?(?:expected|coming|likely)\b/i;
+const MISSION = /^orion \|\s*[^|\n]+\|\s*\S+/i;
+const APPROVAL = /\bapprove ([A-Za-z0-9_-]{3,40})\b/i;
+const LOCKED = /\b(?:locked (?:your|the) (?:screen|mac|laptop)|(?:screen|mac|laptop) (?:is |was |got )?locked|locking (?:your|the) (?:screen|mac))\b/i;
+const CHECKING_IN = /^checking in on (.+?)\.\s*how is it going\b/i;
+const FOCUS_NUDGE = /^you planned (.+?) at \d{1,2}:\d{2}\s*(?:am|pm)?\.\s*want to start it now\b/i;
+const BEDTIME = /\b(?:wind(?:ing)?[- ]down|bedtime|past bedtime|bed now|still up at|sleep now|go to (?:bed|sleep)|get to bed)\b/i;
 
 const to24 = (h: number, m: number, mer?: string): number => {
   const hh = mer ? (h % 12) + (mer.toLowerCase() === "pm" ? 12 : 0) : h;
@@ -64,6 +72,11 @@ const to24 = (h: number, m: number, mer?: string): number => {
 export function offerOf(text: string): Offer | undefined {
   // A quoted line under a speaker tag ('ORION morning brief: "Top of your list: …"') is read as the line itself.
   const t = text.trim().replace(/^ORION\b[^:"]{0,30}:\s*/i, "").replace(/^"([\s\S]*)"$/, "$1").trim();
+  const checking = t.match(CHECKING_IN) ?? t.match(FOCUS_NUDGE);
+  if (checking) return { kind: "start", title: checking[1]!.trim() };
+  if (MISSION.test(t)) { const a = t.match(APPROVAL)?.[1]; return { kind: "notice", topic: "mission", ...(a ? { approvalId: a } : {}) }; }
+  if (WEATHER.test(t)) return { kind: "notice", topic: "weather" };
+  if (LOCKED.test(t)) return { kind: "notice", topic: "lock" };
   const leave = t.match(LEAVE);
   if (leave) return { kind: "leave", title: leave[2]!.trim(), leaveIn: Number(leave[1]), classAt: to24(Number(leave[3]), Number(leave[4]), leave[5]) };
   if (BEDTIME.test(t) && !/\bsession done\b/i.test(t.slice(0, 14)) || /\bsession done\b.*past bedtime/i.test(t)) return { kind: "bedtime" };

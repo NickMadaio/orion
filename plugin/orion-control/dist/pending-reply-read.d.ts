@@ -24,6 +24,12 @@ export type Offer = {
 } | {
     kind: "plan-check";
     title: string;
+}
+/** A message with no question in it that ORION sends anyway (weather, a mission event, a screen lock): a short reply is read against it, but only acknowledged. */
+ | {
+    kind: "notice";
+    topic: "weather" | "mission" | "lock";
+    approvalId?: string;
 };
 export type Part = "morning" | "afternoon" | "evening";
 /** What a counter-offer names: a day, a part of it, a clock time (minutes after midnight; meridiem when he said am/pm or a 24-hour time), a length, a block to follow. */

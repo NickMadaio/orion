@@ -78,5 +78,5 @@ const message = [
   day(0), day(1), day(2),
 ].join(" ");
 
-const sender = spawn(process.execPath, [join(root, "scripts/orion-discord-alert"), message], { stdio: "inherit" });
+const sender = spawn(process.execPath, [join(root, "scripts/orion-discord-alert"), message], { stdio: "inherit", env: { ...process.env, ORION_ALERT_KIND: "info", ORION_ALERT_WHY: "weather-alert" } });
 sender.once("exit", (code) => process.exit(code ?? 1));

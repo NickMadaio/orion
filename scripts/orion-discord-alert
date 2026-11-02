@@ -8,6 +8,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
+import { logSent } from "./lib/reach/log-sent.mjs";
 import { outboxed, toOutbox } from "./lib/clock.mjs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -70,6 +71,9 @@ curl.once("error", (cause) => {
 });
 curl.once("close", (code) => {
   if (code === 0) {
+    // It landed on Discord; also put it in the phone chat and Mac chat so his reply is read against it (no second alert).
+    // A caller that records it itself (orion-notify, orion-cron-deliver) sets ORION_ALERT_NO_LOG.
+    if (process.env.ORION_ALERT_NO_LOG !== "1") logSent({ text: message, channel: "discord", kind: process.env.ORION_ALERT_KIND || "update", why: process.env.ORION_ALERT_WHY || "discord alert" });
     console.log("Discord alert delivered.");
     return;
   }

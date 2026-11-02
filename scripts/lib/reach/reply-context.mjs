@@ -35,13 +35,25 @@ export function readDelivered(dir) {
   return existsSync(file) ? deliveredRows(readFileSync(file, "utf8")) : [];
 }
 
-const windowFor = (row) => (row.ask ? ASK_WINDOW_MS : PLAIN_WINDOW_MS);
+/** A push sent to his phone while he was away is answered when he is back: 2 h, if nothing newer happened. */
+export const AWAY_WINDOW_MS = 120 * 60_000;
+const windowFor = (row) => (row.ask ? ASK_WINDOW_MS : row.channel === "phone" ? AWAY_WINDOW_MS : PLAIN_WINDOW_MS);
+
+/** The surface a row belongs to: the phone's chat line, the Mac's, or null when it reached both (Discord, a banner, a check-in). */
+export function surfaceOf(row) {
+  const c = String(row?.channel ?? "");
+  if (c === "phone") return "phone";
+  if (c.startsWith("mac-") && c !== "mac-notification") return "mac";
+  return null;
+}
 
 /**
  * The outreach row this message answers, or null.
  * @param turns times (ms) of his EARLIER messages (not this one), any channel
+ * @param channel "phone" | "mac": the surface he is replying on; the newest row sent there (or to both) wins over a newer one sent
+ *   only to the other surface, unless that newer one is a question. Falls back to the newest row.
  */
-export function pickOutreach(rows, { replyTo = null, turns = [], now = Date.now() } = {}) {
+export function pickOutreach(rows, { replyTo = null, turns = [], now = Date.now(), channel = null } = {}) {
   const spokeSince = (row) => turns.some((t) => t > Date.parse(row.at) && t < now);
   const inWindow = (row) => { const age = now - Date.parse(row.at); return age >= 0 && age <= windowFor(row); };
   if (replyTo) {
@@ -55,9 +67,12 @@ export function pickOutreach(rows, { replyTo = null, turns = [], now = Date.now(
       return Date.parse(target.at) <= now && now - Date.parse(target.at) <= ASK_WINDOW_MS && !spokeSince(target) ? target : null;
     }
   }
-  const latest = rows.reduce((best, r) => (!best || Date.parse(r.at) > Date.parse(best.at) ? r : best), null);
-  if (!latest || !inWindow(latest) || spokeSince(latest)) return null;   // he already said something after it: not the answer
-  return latest;
+  const newest = (list) => list.reduce((best, r) => (!best || Date.parse(r.at) > Date.parse(best.at) ? r : best), null);
+  const latest = newest(rows.filter((r) => Date.parse(r.at) <= now));
+  const here = channel === "phone" || channel === "mac" ? newest(rows.filter((r) => Date.parse(r.at) <= now && (surfaceOf(r) === null || surfaceOf(r) === channel))) : null;
+  const pick = here && !latest?.ask ? here : latest;
+  if (!pick || !inWindow(pick) || spokeSince(pick)) return null;   // he already said something after it: not the answer
+  return pick;
 }
 
 /** What kind of message it was, for the reader of his reply. */

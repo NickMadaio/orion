@@ -40,6 +40,7 @@ import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { announced, markAnnounced } from "./lib/reach/announce.mjs";
 import { appendHeld } from "./lib/reach/held.mjs";
 import { gate, resolveAwareness } from "./lib/reach/gate.mjs";
+import { logCheckinAlerts } from "./lib/reach/log-outreach.mjs";
 import { controlledDir, clockNow, isolated, toOutbox } from "./lib/clock.mjs";
 // A watcher invoked by an evaluation must not mutate live state or queue alerts.
 if (evalMode()) { console.log(process.argv.includes("--json") ? "[]" : "Watcher paused during evaluation."); process.exit(0); }
@@ -303,6 +304,7 @@ if (alerts.length) {
   mkdirSync(CONTROLLED, { recursive: true });
   if (!dry) {
     for (const a of deliverNow) appendFileSync(OUTBOX, `${JSON.stringify({ ...a, kind: "checkin" })}\n`);
+    logCheckinAlerts(CONTROLLED, deliverNow, { now, why: "watch" });   // the Mac chat and reply-context see it too
     // in a state copy the copy's alerts-outbox is read by nothing; the isolated outbox is where a test looks
     if (isolated()) for (const a of deliverNow) toOutbox("phone", { id: a.id, text: a.text }, { by: "orion-watch" });
     for (const { a, v } of heldAlerts) appendHeld(CONTROLLED, { id: `held-${Date.now()}-${a.id}`, alertId: a.id, at: now.toISOString(), text: a.text, level: a.level, via: "alerts-outbox", heldFor: v.heldFor ?? "focus" });

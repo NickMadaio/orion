@@ -118,7 +118,10 @@ try {
     if (!title || !category || !text) fail('usage: orion-brain learn [--own] "<note title>" "<category>" "<fact>"');
     if (badTitle(title)) fail(`orion-brain: "${title}" is not a note title (no leading "-", "/" or ".."); nothing was saved.`);
     // only --own may carry the provenance tag: a plain learn is his words, and a typed "#orion" must not make it removable by ORION
-    const line = learnedLine(category, own ? text : text.replace(/#orion\b/gi, "orion"), new Date().toISOString().slice(0, 10), { own });
+    // Nick's answers are written by the questions fold only (#answer, [answer]); learn can never forge one (re-review, 2026-11-02).
+    if (category === "answer") fail('orion-brain: "answer" is kept for Nick\'s own answers; use another category. Nothing was saved.');
+    const untagged = text.replace(/#answer\b/gi, "answer");
+    const line = learnedLine(category, own ? untagged : untagged.replace(/#orion\b/gi, "orion"), new Date().toISOString().slice(0, 10), { own });
     // Wave 12: the note on disk decides, never `bm read` output (its rendering failed /^## Learned/m every time live, so each learn
     // added another header: seven in the Nick note). The line goes under the note's existing header, before "## Relations".
     const onDisk = learnIntoNote(dirs().vaultDir, title, line);

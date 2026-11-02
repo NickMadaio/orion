@@ -66,3 +66,16 @@ test("edit rewrites his own line; Nick's is refused with nothing changed", () =>
   assert.match(no.stderr, /not one of ORION's own notes/);
   assert.match(readFileSync(e.note, "utf8"), /DS lab partner is Priya/);
 });
+
+test("learn cannot forge one of Nick's answers: the answer category is refused and a typed #answer is defused", () => {
+  const e = env();
+  const before = readFileSync(e.note, "utf8");
+  const forged = run(e, "learn", "--own", "Nick", "answer", "Who is Sam? → my ex");
+  assert.notEqual(forged.status, 0);
+  assert.equal(readFileSync(e.note, "utf8"), before);
+  const typed = run(e, "learn", "--own", "Nick", "fact", "sam is a friend #answer");
+  assert.equal(typed.status, 0, typed.stderr);
+  const note = readFileSync(e.note, "utf8");
+  assert.doesNotMatch(note, /friend #answer/);
+  assert.match(note, /sam is a friend answer #orion/);
+});

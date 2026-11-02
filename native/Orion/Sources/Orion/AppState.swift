@@ -352,6 +352,8 @@ final class AppState: ObservableObject {
         music: musicControl, enforcer: enforcer, effects: sessionEffects
     )
     private let speakerVerifier = SpeakerVerifier()
+    /// Voice ID, level, timing and words for speech without his name (FollowUpAddressChecker.swift).
+    private lazy var addressChecker = FollowUpAddressChecker(verifier: speakerVerifier)
 
     /// Rolling mono window of what the microphone has heard, for verification.
     /// Two seconds is plenty for a wake word and small enough to be free.
@@ -1227,6 +1229,11 @@ final class AppState: ObservableObject {
             self.retainForVerification(buffer)
             self.wakeWord.observe(buffer, level: level)
             self.bargeInMonitor.observe(buffer, level: level)
+            // The turn being heard, in memory only: its level and voiced audio
+            // feed the follow-up address check.
+            if self.phase == .listening, self.speechInput.isRunning {
+                self.addressChecker.observe(buffer, level: level)
+            }
         }
         wakeWord.tolerance = wakeSensitivity.tolerance
         bargeInMonitor.currentlySpoken = { [weak self] in
@@ -1347,6 +1354,12 @@ final class AppState: ObservableObject {
     /// this — nothing here re-checks the route or the energy.
     private func handleSpokenBargeIn(_ heardText: String) {
         guard activeReplyOrigin.allowsSpeech else { return }
+        // Still deciding whether the last line was said to ORION: there is no
+        // turn to pause yet, and the room talking on is not a reason to start one.
+        guard !addressChecker.isChecking else {
+            OrionLog.write("[bargein] ignored — address check in progress")
+            return
+        }
         // Quiet: the room talking over a reply is not a reason to stop it or to listen.
         guard quietWindow.admits(heardText, opening: .bargeIn, at: Date()) else {
             OrionLog.write("[bargein] ignored — quiet until he says Orion")
@@ -1734,6 +1747,7 @@ final class AppState: ObservableObject {
         turnOpening = explicitOpening ?? (followUp
             ? (preservedTranscript.isEmpty ? .followUp(afterQuestion: lastReplyAskedSomething) : turnOpening)
             : (wantsHandsFree ? .wake : .pushToTalk))
+        addressChecker.turnStarted(followUpWindow: followUp, continuation: followUp && !preservedTranscript.isEmpty)
         if !followUp {
             preservedTranscript = ""
             continuationChainRemaining = AppState.maxContinuationChain
@@ -1834,6 +1848,7 @@ final class AppState: ObservableObject {
             // it means the user has begun speaking.
             if lastVoiceAt > handsFreeStartedAt {
                 awaitingFollowUp = false
+                addressChecker.heardSpeech(at: lastVoiceAt)
                 // Measure the lead-in from when they actually started, not from
                 // when the window opened, or the first words get clipped.
                 handsFreeStartedAt = lastVoiceAt
@@ -1972,13 +1987,40 @@ final class AppState: ObservableObject {
             return
         }
         quietWindow = quietWindow.after(text, opening: opening)
+        switch opening {
+        case .followUp, .bargeIn:
+            sendIfAddressed(text, opening: opening)
+            return
+        case .wake, .pushToTalk, .typed:
+            break
+        }
         let decision = AddressGate.classify(text, opening: opening, weakAdmitsInARow: weakAdmitsInARow)
         guard decision.addressed else {
             dropUnaddressed(text, reason: decision.reason)
             return
         }
+        if opening == .wake || opening == .pushToTalk { addressChecker.learnFromExplicitTurn() }
         weakAdmitsInARow = decision.isWeak ? weakAdmitsInARow + 1 : 0
         send(text)
+    }
+
+    /// Speech without his name (the follow-up window, a barge-in): the words,
+    /// his voice, how near it was, when it came and whether it follows on from
+    /// ORION's last turn all have a say (FollowUpAddressGate.swift). Refused
+    /// speech is dropped silently and the window closes, back to idle.
+    private func sendIfAddressed(_ text: String, opening: VoiceTurnOpening) {
+        addressChecker.check(text: text, opening: opening, weakAdmitsInARow: weakAdmitsInARow,
+                             orionLast: speechOutput.lastSpokenText) { [weak self] verdict, admitted in
+            guard let self else { return }
+            let why = verdict.reasons.joined(separator: "; ")
+            guard admitted else {
+                self.dropUnaddressed(text, reason: why)
+                return
+            }
+            OrionLog.write("[gate] follow-up admitted (\(why))")
+            self.weakAdmitsInARow = verdict.isWeak ? self.weakAdmitsInARow + 1 : 0
+            self.send(text)
+        }
     }
 
     /// Not said to ORION: nothing is sent, nothing is said, and the exchange

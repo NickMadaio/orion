@@ -15,7 +15,7 @@ import Foundation
 
 /// What a card is about. One accent hue per kind (HomeCardStyle).
 enum HomeCardKind: String, CaseIterable {
-    case question, event, tasks, focus, health, sleep
+    case question, event, tasks, focus, project, health, finance, sleep
 }
 
 /// What a card's buttons do. Every case maps to an action the app already has; see HomeTab.perform.
@@ -24,6 +24,9 @@ enum HomeCardAction: Equatable {
     case openPlan
     case openBrief
     case openHealth
+    /// The Projects tab, with this run selected when there is one.
+    case openProject(id: String?)
+    case openFinance
     case startFocus(task: String?)
     case resumeFocus
     case markDone(taskID: String)
@@ -81,6 +84,12 @@ struct HomeSignals: Equatable {
     var selfName: String?
     /// Nil when no phone link is set up at all, which is not a fault.
     var phoneLinkAlive: Bool?
+    // From the other sections (HomeSections.swift); empty or nil when that section has nothing.
+    var projects: [HomeProject] = []
+    var finance: HomeFinance?
+    /// Today's health-log row: the fallback when the brief has no WHOOP reading.
+    var healthDay: HomeHealthDay?
+    var focusMinutesToday: Int?
 }
 
 enum HomeCardBuilder {
@@ -98,8 +107,11 @@ enum HomeCardBuilder {
             brief.flatMap { event($0, leaveBy: signals.leaveBy, format: format) },
             brief.flatMap { tasks($0, format: format) },
             focus(brief: brief, live: signals.focus, leaveBy: signals.leaveBy, format: format),
-            brief.flatMap { health($0, format: format) },
-            sleep(bedtime: signals.bedtime, nextWake: signals.nextWake, format: format),
+            project(signals.projects, format: format),
+            health(readings(brief: brief, day: signals.healthDay), format: format),
+            finance(signals.finance, format: format),
+            sleep(bedtime: signals.bedtime, nextWake: signals.nextWake, lastNight: readings(brief: brief, day: signals.healthDay)?.sleepHours,
+                  format: format),
         ]
         let order = HomeCardKind.allCases
         return candidates.compactMap { $0 }
@@ -212,12 +224,29 @@ enum HomeCardBuilder {
 
     // MARK: Health
 
-    private static func health(_ brief: BriefFacts, format: HomeFormat) -> HomeCard? {
-        let readings = brief.readings
-        guard readings.recovery != nil || readings.sleepHours != nil else { return nil }
+    /// The brief's WHOOP readings, or today's health-log row when the brief has none.
+    static func readings(brief: BriefFacts?, day: HomeHealthDay?) -> HealthReadings? {
+        if let readings = brief?.readings, readings.recovery != nil || readings.sleepHours != nil {
+            return HealthReadings(readings: readings, source: "WHOOP")
+        }
+        guard let day, !day.isEmpty else { return nil }
+        return HealthReadings(readings: BriefFacts.Readings(recovery: day.recovery, sleepPerformance: day.sleepPerformance,
+                                                            sleepHours: day.sleepHours),
+                              source: "HEALTH LOG")
+    }
+
+    struct HealthReadings {
+        let readings: BriefFacts.Readings
+        let source: String
+        var sleepHours: Double? { readings.sleepHours }
+    }
+
+    private static func health(_ health: HealthReadings?, format: HomeFormat) -> HomeCard? {
+        guard let health else { return nil }
+        let readings = health.readings
         let low = (readings.recovery ?? 100) < 34
         guard format.hour < 14 || low else { return nil }
-        let kicker = [readings.recovery.map { "RECOVERY \($0)" }, readings.sleepPerformance.map { "SLEEP \($0)%" }, "WHOOP"].compactMap { $0 }
+        let kicker = [readings.recovery.map { "RECOVERY \($0)" }, readings.sleepPerformance.map { "SLEEP \($0)%" }, health.source].compactMap { $0 }
         let title: String
         switch readings.recovery {
         case let value? where value >= 67: title = "You're well recovered. Make it count."
@@ -235,8 +264,12 @@ enum HomeCardBuilder {
 
     // MARK: Sleep
 
-    private static func sleep(bedtime: Date?, nextWake: Date?, format: HomeFormat) -> HomeCard? {
-        guard let bedtime else { return nil }
+    /// Under this, last night was short enough to say so.
+    static let shortNightHours = 6.5
+
+    private static func sleep(bedtime: Date?, nextWake: Date?, lastNight: Double?, format: HomeFormat) -> HomeCard? {
+        let short = lastNight.flatMap { $0 < shortNightHours ? $0 : nil }
+        guard let bedtime else { return short.flatMap { shortNight($0, format: format) } }
         let minutes = format.minutes(until: bedtime)
         guard minutes > -120, minutes <= 8 * 60, format.hour >= 17 || minutes <= 300 else { return nil }
         let past = minutes < 0
@@ -244,7 +277,8 @@ enum HomeCardBuilder {
                         kicker: past ? ["PAST BEDTIME", format.duration(-minutes)]
                                      : ["BED BY \(format.spoken(bedtime).uppercased())", "IN \(format.duration(minutes))"],
                         title: past ? "You're past bedtime. Time to stop." : "Lights out by \(format.spoken(bedtime)) tonight.",
-                        body: [nextWake.map { "Alarm's set for \(format.time($0))." } ?? "Wind down for the last hour before it."],
+                        body: [short.map { "Last night was \(String(format: "%.1f", $0)) hours, so don't push it." },
+                               nextWake.map { "Alarm's set for \(format.time($0))." } ?? "Wind down for the last hour before it."].compactMap { $0 },
                         primary: HomeCardButton(title: "Look at tomorrow", action: .ask(prefill: "What does tomorrow look like?")),
                         details: HomeCardButton(title: "details", action: .openPlan),
                         rank: past || minutes <= 120 ? 1 : 4)

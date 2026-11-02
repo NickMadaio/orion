@@ -31,7 +31,8 @@ enum FinanceExport {
             "spentThisMonth": Money.spending(transactions, since: monthStart),
             "incomeThisMonth": Money.income(transactions, since: monthStart),
             "topCategoriesThisMonth": Money.byCategory(transactions, since: monthStart).map { ["category": $0.category, "total": $0.total] },
-            "recurring": Money.recurring(transactions).map { ["name": $0.name, "amount": $0.amount] },
+            // lastSeen (2026-11-02): Home's "renews on Thursday" card dates the next charge from it.
+            "recurring": Money.recurring(transactions).map { ["name": $0.name, "amount": $0.amount, "lastSeen": day.string(from: $0.lastSeen)] },
             "recent": transactions.prefix(25).map { item -> [String: Any] in
                 ["date": day.string(from: item.date), "name": item.title, "amount": item.amount,
                  "category": item.category, "pending": item.isPending]

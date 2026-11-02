@@ -13,7 +13,9 @@ enum HomeCardStyle {
         case .event: OrionTheme.blue
         case .tasks: OrionTheme.orange
         case .focus: OrionTheme.green
+        case .project: OrionTheme.accent
         case .health: OrionTheme.rose
+        case .finance: Color(red: 0.95, green: 0.80, blue: 0.40)
         case .sleep: OrionTheme.lavender
         }
     }

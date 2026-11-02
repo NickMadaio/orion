@@ -189,7 +189,11 @@ function fromSample(fixes, places, homeKnown, now, mac, macHome) {
   return { state, placeId: here?.id ?? null, cell, since, at: sample.at, source: "sample", homeKnown, expiresAt };
 }
 
-/** `phoneSignals` rows with an optional `audio: { route, headphones }`. */
+/**
+ * `phoneSignals` rows with an optional `audio`. The phone sends a bare route STRING ("bluetooth" | "wired" | "speaker" |
+ * "unknown": LinkLog.signal, stored as-is by TrackingLog); `{ route, headphones }` objects are also read. Until 2026-11-02
+ * only the object was read, so every real phone row was skipped and phone headphones were never seen.
+ */
 export function audioFacet(activity, phoneSignals, now) {
   const route = (r) => (["bluetooth", "wired", "speakers", "speaker", "airplay"].includes(r) ? r : "unknown");
   const hp = (r, given) => (r === "airplay" ? false : typeof given === "boolean" ? given : ["bluetooth", "wired"].includes(r) ? true : ["speakers", "speaker"].includes(r) ? false : null);
@@ -199,11 +203,13 @@ export function audioFacet(activity, phoneSignals, now) {
     const r = route(a.route);
     mac = { route: r, headphones: hp(r, a.headphones), device: a.device ?? null, at: activity.at };
   }
-  const row = [...(phoneSignals ?? [])].reverse().find((s) => s?.audio && typeof s.audio === "object");
+  const audioOf = (s) => (typeof s?.audio === "string" ? { route: s.audio } : s?.audio && typeof s.audio === "object" ? s.audio : null);
+  const row = [...(phoneSignals ?? [])].reverse().find((s) => audioOf(s));
   let phone = UNKNOWN.audio(row?.at ?? null);
   if (row && isFresh(row.at, LIMITS.audioPhone, now)) {
-    const r = route(row.audio.route);
-    phone = { route: r, headphones: hp(r, row.audio.headphones), device: row.audio.device ?? null, at: row.at };
+    const a = audioOf(row);
+    const r = route(a.route);
+    phone = { route: r, headphones: hp(r, a.headphones), device: a.device ?? null, at: row.at };
   }
   return { mac, phone };
 }

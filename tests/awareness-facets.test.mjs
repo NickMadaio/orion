@@ -219,3 +219,11 @@ test("location: a newer sample without a fix that shows him walking or leftAt en
   assert.equal(locationFacet([...home, { at: "2026-10-20T08:25:00Z", leftAt: 505 }], [], [SEEDED_HOME], t).state, "moving");
   assert.equal(locationFacet([{ ...walk, at: "2026-10-20T07:50:00Z" }, ...home], [], [SEEDED_HOME], t).state, "home", "an older walk sample does not");
 });
+
+test("audio.phone reads the bare route string the phone actually sends (LinkLog.signal -> TrackingLog)", () => {
+  assert.deepEqual([audioFacet(null, [{ at: ago(60), audio: "bluetooth" }], now).phone.route, audioFacet(null, [{ at: ago(60), audio: "bluetooth" }], now).phone.headphones], ["bluetooth", true]);
+  assert.equal(audioFacet(null, [{ at: ago(60), audio: "wired" }], now).phone.headphones, true);
+  assert.equal(audioFacet(null, [{ at: ago(60), audio: "speaker" }], now).phone.headphones, false);
+  assert.equal(audioFacet(null, [{ at: ago(60), audio: "unknown" }], now).phone.headphones, null);
+  assert.equal(audioFacet(null, [{ at: ago(60), audio: "" }], now).phone.route, "unknown", "an empty string is no audio row");
+});

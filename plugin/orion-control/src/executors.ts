@@ -2013,6 +2013,9 @@ export async function executeAction(
   if (definition.execution.kind === "selfdev") {
     return runSelfDevelopment(definition.execution.operation, step, idempotencyKey);
   }
+  if (definition.execution.kind === "bedtime_act") {
+    return runBedtimeAct(definition.execution, step, idempotencyKey);
+  }
   if (definition.execution.kind === "computer_observe") {
     return observeScreen(definition.execution.operation, idempotencyKey);
   }
@@ -2995,6 +2998,12 @@ export async function verifyAction(
         output?.verified === true ? "app_still_frontmost" : "unverified"
       }`,
     };
+  }
+  if (definition.execution.kind === "bedtime_act") {
+    // The bridge's own status is the only evidence there is; a quit that left the app open is not observed.
+    const status = (execution.output as { status?: unknown } | undefined)?.status;
+    const ok = status === "quit" || status === "not_running" || status === "locked" || status === "dimmed" || status === "restored" || status === "not_dimmed";
+    return { observed: ok, evidence: `bedtime_act:${definition.execution.operation}:${String(status ?? "unknown")}` };
   }
   if (definition.execution.kind === "media_control") {
     return verifyMedia(definition.execution, step, execution);
@@ -4136,6 +4145,27 @@ async function runTerminal(step: TaskStep, idempotencyKey: string, context: Exec
     child.on("error", () => finish(null));
     child.on("close", (code) => finish(code));
   });
+}
+
+const BEDTIME_COMMANDS = { quit_app: "quit-app", lock_screen: "lock-screen", dim: "dim", undim: "undim" } as const;
+
+/** The bedtime nudges: one script call, and the reply comes from what the bridge said. */
+async function runBedtimeAct(
+  policy: Extract<ExecutionPolicy, { kind: "bedtime_act" }>,
+  step: TaskStep,
+  idempotencyKey: string,
+): Promise<ExecutionResult> {
+  const bundleId = policy.bundleIdArgument ? String(step.arguments[policy.bundleIdArgument] ?? "") : "";
+  const argv = [BEDTIME_COMMANDS[policy.operation], ...(bundleId ? [bundleId] : [])];
+  const result = await runOrionScript("orion-bedtime-act", argv, 20_000);
+  if (result.code !== 0) throw new ActionExecutionError(result.output || "The bedtime action could not be performed.");
+  let output: Record<string, unknown>;
+  try {
+    output = JSON.parse(result.output.split("\n").at(-1) ?? "") as Record<string, unknown>;
+  } catch {
+    throw new ActionExecutionError("The bedtime action ran but returned no parseable result; refusing to claim success.");
+  }
+  return { mode: "controlled", idempotencyKey, target: bundleId || policy.operation, output };
 }
 
 async function controlScreen(

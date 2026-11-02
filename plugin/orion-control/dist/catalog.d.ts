@@ -256,6 +256,12 @@ export type ExecutionPolicy = {
  | {
     kind: "selfdev";
     operation: "queue" | "status";
+}
+/** 2026-11-02. Self-imposed bedtime nudges on the Mac, through scripts/orion-bedtime-act. */
+ | {
+    kind: "bedtime_act";
+    operation: "quit_app" | "lock_screen" | "dim" | "undim";
+    bundleIdArgument?: string;
 } | {
     kind: "computer_observe";
     operation: "screen_observe" | "screen_capture";

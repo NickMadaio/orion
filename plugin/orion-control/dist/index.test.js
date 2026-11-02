@@ -232,7 +232,7 @@ describe("orion-control plugin", () => {
         expect(tools?.every((tool) => tool.optional === true)).toBe(true);
         const taskRun = tools?.find((tool) => tool.name === "orion_task_run");
         expect(taskRun?.description).toContain("ONE graph/call");
-        expect(taskRun?.description.length).toBeLessThan(4_000);
+        expect(taskRun?.description.length).toBeLessThan(4_200);
     });
     // Phase 46: an optional argument the model cannot see is one it cannot use.
     it("shows optional arguments where the model reads its capabilities", () => {

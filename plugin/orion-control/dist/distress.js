@@ -80,7 +80,7 @@ export const OVERWHELMED_NOTE = "Nick is feeling overwhelmed. Answer with warmth
            meaning, no future. Ambiguous phrasings with no mundane cause stay here: a false alarm is cheaper than a miss.
    GENTLE  "hate my life / done with life / rather die / sleeping forever" said with a clearly mundane cause or a joking marker in the
            same message ("i hate my life rn the wifi is down", "honestly i'd rather die lol"). The turn runs as normal and the reply
-           opens with ONE short, warm check-in line (gentleCheckIn). Anything else in the message that reads as a signal keeps it FULL.
+           opens with ONE short, dry teasing line (gentleCheckIn; Nick asked for a joke, not a check-in). Anything else in the message that reads as a signal keeps it FULL.
    null    nothing; "i'd love to die on this hill" is an idiom. Preferences are still never saved near any of it (touchesLifeOrDeath).
 */
 const FULL_MORE = new RegExp([
@@ -107,7 +107,7 @@ const SOFTENABLE = new RegExp([
 const MUNDANE = /\b(?:lol+|lmao+|lmfao|haha\w*|hehe\w*|rn|jk|kidding|xd|bruh|smh|wifi|wi-fi|internet|connection|signal|printer|laptop|charger|battery|traffic|bus|train|tube|queue|line|weather|rain|coffee|boring|bored|so slow|lecture|class|seminar|meeting|group (?:project|meeting|chat)|homework|this assignment|monday|mondays|(?:on|this) (?:a )?(?:mon|tues|wednes|thurs|fri|satur|sun)day|weekend|sleep in|lie in|alarm|hangover|hungover|game|fifa|exam season|deadline)\b|[😂🤣💀🙃😭]/i;
 // "die on this hill" / "a hill to die on": an idiom, cleared before any check.
 const IDIOM = /\b(?:die|dying|died|dies) on (?:this|that|a|the|my|which|what|every|any) (?:\w+ )?hill\b|\bhills? (?:i['’]?(?:d|ll|m)? |i would |i will |to |worth )?(?:\w+ )?(?:die|dying) on\b/gi;
-/** Which tier this message is: the fixed reply (full), a normal turn with one warm check-in first (gentle), or nothing. Pure. */
+/** Which tier this message is: the fixed reply (full), a normal turn with one teasing line first (gentle), or nothing. Pure. */
 export function crisisTier(message) {
     const text = message.replace(IDIOM, " ");
     const soft = new RegExp(SOFTENABLE.source, "i").test(text);
@@ -122,14 +122,15 @@ const CAUSES = [
     [/\b(?:wifi|wi-fi|internet|connection|signal)\b/i, "the wifi"], [/\b(?:class|lecture|seminar)\b/i, "the class"], [/\bprinter\b/i, "the printer"],
     [/\b(?:bus|train|tube|traffic)\b/i, "the commute"], [/\b(?:meeting|group (?:project|meeting|chat))\b/i, "the meeting"], [/\bhomework|assignment\b/i, "the homework"],
 ];
+// Nick, 2026-11-01: he says these as slang and never means them, so a GENTLE line is a dry tease, not a check-in.
 const OPENERS = [
-    (c) => (c ? `You ok, or is it just ${c}?` : "You ok, or just one of those days?"),
-    (c) => (c ? `Rough one, or mostly ${c}?` : "Rough one, or mostly joking?"),
-    (c) => (c ? `Just ${c} being annoying, or more than that?` : "Just a bad moment, or more than that?"),
-    (c) => (c ? `Checking in: is it only ${c}?` : "Checking in: you doing alright?"),
-    () => "You good though?",
+    (c) => (c ? `Uh huh, sure. I don't think your life ends over ${c}, sir.` : "Uh huh, sure. You'll live, sir."),
+    (c) => (c ? `Dramatic. You'll survive ${c}.` : "Dramatic. You'll survive."),
+    (c) => (c ? `Noted. Pretty sure ${c} isn't how you go out, sir.` : "Noted. Pretty sure this isn't how you go out, sir."),
+    (c) => (c ? `Bold claim. You've outlasted worse than ${c}.` : "Bold claim. You've outlasted worse."),
+    () => "Okay, Shakespeare.",
 ];
-/** The one short, warm check-in that opens a GENTLE turn: names his cause when he gave one, varies by message, stable for the same one. */
+/** The one short, dry tease that opens a GENTLE turn: names his cause when he gave one, varies by message, stable for the same one. */
 export function gentleCheckIn(message) {
     const cause = CAUSES.find(([re]) => re.test(message))?.[1];
     let h = 0;

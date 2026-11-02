@@ -130,6 +130,15 @@ enum OrionMacBridge {
             return try ScreenAct.menuItems(payload: request.payload ?? [:], expectedBundleID: expected)
         case "screen_ocr":
             return try ScreenAct.ocr()
+        // 2026-11-02. Bedtime nudges (BedtimeActions.swift): graceful quit, lock, dim and undim.
+        case "quit_app":
+            return try BedtimeActions.quitApp(bundleId: try requirePayload(request, "bundle_id"))
+        case "lock_screen":
+            return try BedtimeActions.lockScreen()
+        case "dim":
+            return try BedtimeActions.dim(stateFile: BedtimeActions.stateFile)
+        case "undim":
+            return try BedtimeActions.undim(stateFile: BedtimeActions.stateFile)
         case "request_notifications":
             let granted = try await requestNotificationPermission()
             return ["granted": String(granted)]

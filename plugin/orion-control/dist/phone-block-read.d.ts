@@ -20,6 +20,7 @@ export type PhoneBlockRead = {
     apps: string[];
     span?: Span;
     all?: true;
+    distractions?: true;
 } | {
     kind: "unblock";
     groups: Group[] | "all";
@@ -32,6 +33,8 @@ export declare const MAX_MINUTES = 480;
 export declare const DEFAULT_MINUTES = 60;
 export declare const GROUP_LABEL: Record<Group, string>;
 export declare const LIST_NAME: Record<Group, string>;
+/** What "distracting stuff" means when he names no app: the feed, video and game groups. Browsers and messaging stay open (he may need them to study). */
+export declare const DISTRACTION_GROUPS: Group[];
 export declare const ASK_TEXT = "Which ones, social media, browsers, video, games or messaging?";
 /** How long he asked for; undefined when he did not say. */
 export declare function spanOf(text: string): Span | undefined;

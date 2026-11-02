@@ -14,7 +14,7 @@ export type Group = (typeof GROUPS)[number];
 /** How long: a length, a clock time as said, "the rest of the night" (until his wake alarm), or the rest of the day. */
 export type Span = { minutes: number } | { clock: { h: number; m: number; meridiem: boolean } } | { night: true } | { day: true };
 export type PhoneBlockRead =
-  | { kind: "block"; groups: Group[]; apps: string[]; span?: Span; all?: true }
+  | { kind: "block"; groups: Group[]; apps: string[]; span?: Span; all?: true; distractions?: true }
   | { kind: "unblock"; groups: Group[] | "all"; apps: string[] }
   | { kind: "ask"; text: string };
 
@@ -50,6 +50,8 @@ const NOT_PHONE = /\bblock\s+(?:off|out)\b|\bblock\s+of\b|\btime\s+block\b|\bstu
 const PHONE_CUE = /\b(?:phone|iphone|screen\s*time)\b/;
 const ALL_WORDS = /\b(?:everything|all\s+(?:of\s+)?(?:my\s+|the\s+)?(?:apps|groups|of\s+it|them)|every\s+app)\b/;
 const VAGUE_TARGET = /\b(?:it|that|this|them|those|my\s+apps|the\s+apps|apps|distractions?|distracting\s+(?:apps|stuff)|my\s+phone|the\s+phone|stuff)\b/;
+/** What "distracting stuff" means when he names no app: the feed, video and game groups. Browsers and messaging stay open (he may need them to study). */
+export const DISTRACTION_GROUPS: Group[] = ["social", "video", "games"];
 export const ASK_TEXT = "Which ones, social media, browsers, video, games or messaging?";
 
 const NUM_WORDS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, couple: 2, "a couple": 2, "a couple of": 2, few: 3, "a few": 3 };
@@ -161,6 +163,8 @@ export function readPhoneBlock(message: string): PhoneBlockRead | undefined {
   const span = spanOf(m);
   if (/\b(?:everything|all\s+(?:of\s+)?(?:my\s+|the\s+)?apps|every\s+app)\b/.test(tail)) return { kind: "block", groups: [...GROUPS], apps: [], ...(span ? { span } : {}), all: true };
   if (t.groups.length) return { kind: "block", groups: t.groups, apps: t.apps, ...(span ? { span } : {}) };
+  // "block my distracting stuff" names a kind of app, not a group: the usual three, said back as an assumption, beats a question.
+  if (/\bdistract/.test(tail) && !/\b(?:it|that|this|them|those)\s*$/.test(tail)) return { kind: "block", groups: [...DISTRACTION_GROUPS], apps: [], ...(span ? { span } : {}), distractions: true };
   const plainVerb = /^(?:block|shut|cut|kill|disable|ban)/.test(blk[0]);
   if (plainVerb && VAGUE_TARGET.test(tail) && (PHONE_CUE.test(m) || /^\s*(?:it|that|this|them|those)\b/.test(tail) || /\bapps\b|distract/.test(tail))) return { kind: "ask", text: ASK_TEXT };
   return undefined;

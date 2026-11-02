@@ -78,7 +78,7 @@ const READ_RE = /\b(?:what(?:'|’)?s|what is)\s+on\s+(?:my|the)\s+screen\b|\b(?
 const SUMMARY_RE = /\bsummari[sz]e|\bbullets?\b|\btl;?dr\b|\bgist\b|\bexplain\b/i;
 
 /** Where one request becomes several steps: commas, "then", and "and" before a step verb. */
-const STEP_VERBS = "open|launch|make|create|start|type|write|enter|put|click|press|hit|tap|close|quit|read|focus|switch|go|scroll|title|name|call|select|choose|use";
+const STEP_VERBS = "open|pull up|bring up|fire up|launch|make|create|start|type|write|enter|put|click|press|hit|tap|close|quit|read|focus|switch|go|scroll|title|name|call|select|choose|use";
 const SPLIT_RE = new RegExp(`\\s*,\\s*(?:and\\s+)?(?:then\\s+)?|\\s+(?:and\\s+)?then\\s+|\\s+and\\s+(?=(?:${STEP_VERBS})\\b)`, "i");
 
 function appIn(text: string): AppRef | undefined {
@@ -146,7 +146,7 @@ function parseClause(raw: string): Clause | "title" | null {
   if ((m = text.match(/^(?:click|press|hit|tap)\s+(?:on\s+)?(.+)$/i))) return { kind: "click", target: targetRef(m[1]!, "pressable") };
   if ((m = text.match(/^(?:switch|go|focus)\s+(?:to\s+|on\s+)?(?:the\s+)?(.+?)\s+window\b/i))) return { kind: "focus", title: m[1]!.trim().toLowerCase() };
   if ((m = text.match(/^scroll\s+(up|down)\b/i))) return { kind: "scroll", direction: m[1]!.toLowerCase() as "up" | "down" };
-  if ((m = text.match(/^(?:open|launch|start)\s+(?:up\s+)?(?:the\s+)?(.+?)(?:\s+app)?$/i))) {
+  if ((m = text.match(/^(?:open|launch|start|pull\s+up|bring\s+up|fire\s+up)\s+(?:up\s+)?(?:the\s+)?(.+?)(?:\s+app)?$/i))) {
     const app = appIn(m[1]!);
     return app ? { kind: "open", app } : null;
   }

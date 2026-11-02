@@ -24,6 +24,7 @@ export declare function blockGroups(opts: {
     apps: string[];
     span?: Span;
     all?: boolean;
+    distractions?: boolean;
     run: PhoneTimeRun;
     now: Date;
     wake?: () => Date | undefined;

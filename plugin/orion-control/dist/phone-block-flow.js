@@ -54,7 +54,8 @@ export async function blockGroups(opts) {
     const until = clockLabel(resolved.until);
     const assumed = resolved.note === "default" ? " (I went with an hour since you didn't say how long)" : resolved.note === "capped" ? ` (that's the ${MAX_MINUTES / 60}-hour limit, shorter than until your alarm)` : "";
     const none = saysNoneSet(out.stdout) ? ` Heads up: pick the apps for ${groups.length > 1 ? "those groups" : "that group"} in ORION on your phone, or nothing gets shielded.` : "";
-    const reply = `Blocked ${label} on your phone until ${until}${assumed}, ${opts.all ? "everything on your lists" : covers(groups, apps)}.${none}`;
+    const kinds = opts.distractions ? ` (I took "distracting" to mean ${label}; browsers and messaging are still open, tell me if you want those shut too)` : "";
+    const reply = `Blocked ${label} on your phone until ${until}${assumed}${kinds}, ${opts.all ? "everything on your lists" : covers(groups, apps)}.${none}`;
     return { flow: { outcome: "done", calls: [cmd(args)], outputs: [out.stdout], reply }, tools, wrote: true };
 }
 /** Opens groups again (or everything ORION shut). The reply says what the script said happened. */
@@ -85,5 +86,5 @@ export async function runPhoneBlock(read, deps) {
     const now = deps.now ?? pluginNow();
     if (read.kind === "unblock")
         return unblockGroups({ groups: read.groups, apps: read.apps, run: deps.run });
-    return blockGroups({ groups: read.groups.length ? read.groups : [...GROUPS], apps: read.apps, ...(read.span ? { span: read.span } : {}), ...(read.all ? { all: true } : {}), run: deps.run, now, wake: () => wakeAtFromPlan(deps.stateDir, now) });
+    return blockGroups({ groups: read.groups.length ? read.groups : [...GROUPS], apps: read.apps, ...(read.span ? { span: read.span } : {}), ...(read.all ? { all: true } : {}), ...(read.distractions ? { distractions: true } : {}), run: deps.run, now, wake: () => wakeAtFromPlan(deps.stateDir, now) });
 }

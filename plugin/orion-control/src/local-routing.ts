@@ -51,6 +51,7 @@ import { carriesNamedFlag, unnamedAnchorWrite } from "./anchor-write-guard.js";
 import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
 import { maybeRunComputerTask, type ComputerDeps } from "./computer-loop.js";
 import { detectComputerIntent } from "./computer-intent.js";
+import { stepsAsToolResults } from "./computer-evidence.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
@@ -1377,7 +1378,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (!run.flow && !run.cutOff && !run.hushed && !chatter && options.computer) {
         const cu = await maybeRunComputerTask({ message: run.message, ...(run.sessionKey ? { sessionKey: run.sessionKey } : {}) },
           { ...options.computer, progress: (line) => progress.stage(run.sessionKey, "using-tool", line) }).catch(() => null);
-        if (cu) { run.computer = true; run.flow = { outcome: "say", kind: "plain", text: cu.reply }; }
+        if (cu) {
+          run.computer = true; run.flow = { outcome: "say", kind: "plain", text: cu.reply };
+          stepsAsToolResults(cu.steps).forEach((t) => run.tools.push(t)); // the loop's steps are this turn's tool evidence
+        }
       }
       // Overwhelmed but not a crisis: warmth and one small step. Left to the worker it searched his brain,
       // read two agendas and read him a quiz schedule (16 s, 2026-10-16). A change he asks for still runs.

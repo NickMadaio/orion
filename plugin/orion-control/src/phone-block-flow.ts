@@ -50,7 +50,7 @@ const NOT_PICKED = /no apps|haven'?t picked|has not picked|not picked|nothing is
 const saysNoneSet = (stdout: string): boolean => NOT_PICKED.test(stdout.replace(/If he never picked apps for a group[^.]*\./i, ""));
 
 /** Blocks `groups` for a span. A length over the limit, or a run that fails, blocks nothing and says so. */
-export async function blockGroups(opts: { groups: Group[]; apps: string[]; span?: Span; all?: boolean; run: PhoneTimeRun; now: Date; wake?: () => Date | undefined }): Promise<PhoneOutcome> {
+export async function blockGroups(opts: { groups: Group[]; apps: string[]; span?: Span; all?: boolean; distractions?: boolean; run: PhoneTimeRun; now: Date; wake?: () => Date | undefined }): Promise<PhoneOutcome> {
   const { groups, apps, run } = opts;
   const resolved = resolveSpan(opts.span, opts.now, opts.wake);
   if ("tooLong" in resolved) return { flow: say(`I can only block for up to ${MAX_MINUTES / 60} hours at a time, so nothing is blocked yet. Want ${MAX_MINUTES / 60} hours, or a shorter stretch?`), tools: [], wrote: false };
@@ -64,7 +64,8 @@ export async function blockGroups(opts: { groups: Group[]; apps: string[]; span?
   const until = clockLabel(resolved.until);
   const assumed = resolved.note === "default" ? " (I went with an hour since you didn't say how long)" : resolved.note === "capped" ? ` (that's the ${MAX_MINUTES / 60}-hour limit, shorter than until your alarm)` : "";
   const none = saysNoneSet(out.stdout) ? ` Heads up: pick the apps for ${groups.length > 1 ? "those groups" : "that group"} in ORION on your phone, or nothing gets shielded.` : "";
-  const reply = `Blocked ${label} on your phone until ${until}${assumed}, ${opts.all ? "everything on your lists" : covers(groups, apps)}.${none}`;
+  const kinds = opts.distractions ? ` (I took "distracting" to mean ${label}; browsers and messaging are still open, tell me if you want those shut too)` : "";
+  const reply = `Blocked ${label} on your phone until ${until}${assumed}${kinds}, ${opts.all ? "everything on your lists" : covers(groups, apps)}.${none}`;
   return { flow: { outcome: "done", calls: [cmd(args)], outputs: [out.stdout], reply }, tools, wrote: true };
 }
 
@@ -94,5 +95,5 @@ export async function runPhoneBlock(read: PhoneBlockRead, deps: { run: PhoneTime
   if (read.kind === "ask") return { flow: { outcome: "say", kind: "ask", text: read.text }, tools: [], wrote: false };
   const now = deps.now ?? pluginNow();
   if (read.kind === "unblock") return unblockGroups({ groups: read.groups, apps: read.apps, run: deps.run });
-  return blockGroups({ groups: read.groups.length ? read.groups : [...GROUPS], apps: read.apps, ...(read.span ? { span: read.span } : {}), ...(read.all ? { all: true } : {}), run: deps.run, now, wake: () => wakeAtFromPlan(deps.stateDir, now) });
+  return blockGroups({ groups: read.groups.length ? read.groups : [...GROUPS], apps: read.apps, ...(read.span ? { span: read.span } : {}), ...(read.all ? { all: true } : {}), ...(read.distractions ? { distractions: true } : {}), run: deps.run, now, wake: () => wakeAtFromPlan(deps.stateDir, now) });
 }

@@ -38,7 +38,7 @@ const NOT_OURS = [
 const READ_RE = /\b(?:what(?:'|’)?s|what is)\s+on\s+(?:my|the)\s+screen\b|\b(?:look|glance)\s+at\s+(?:my|the)\s+screen\b|\bread\s+(?:me\s+)?(?:this|the|my)\s+(?:slide|page|screen|window|doc(?:ument)?|article)\b|\bwhat\s+am\s+i\s+looking\s+at\b|\bsummari[sz]e\s+(?:this|the|my)\s+(?:slide|page|screen|window)\b|\bwhat(?:'|’)?s\s+(?:this|on\s+this)\s+(?:slide|page|window)\b/i;
 const SUMMARY_RE = /\bsummari[sz]e|\bbullets?\b|\btl;?dr\b|\bgist\b|\bexplain\b/i;
 /** Where one request becomes several steps: commas, "then", and "and" before a step verb. */
-const STEP_VERBS = "open|launch|make|create|start|type|write|enter|put|click|press|hit|tap|close|quit|read|focus|switch|go|scroll|title|name|call|select|choose|use";
+const STEP_VERBS = "open|pull up|bring up|fire up|launch|make|create|start|type|write|enter|put|click|press|hit|tap|close|quit|read|focus|switch|go|scroll|title|name|call|select|choose|use";
 const SPLIT_RE = new RegExp(`\\s*,\\s*(?:and\\s+)?(?:then\\s+)?|\\s+(?:and\\s+)?then\\s+|\\s+and\\s+(?=(?:${STEP_VERBS})\\b)`, "i");
 function appIn(text) {
     const match = text.match(APP_RE);
@@ -111,7 +111,7 @@ function parseClause(raw) {
         return { kind: "focus", title: m[1].trim().toLowerCase() };
     if ((m = text.match(/^scroll\s+(up|down)\b/i)))
         return { kind: "scroll", direction: m[1].toLowerCase() };
-    if ((m = text.match(/^(?:open|launch|start)\s+(?:up\s+)?(?:the\s+)?(.+?)(?:\s+app)?$/i))) {
+    if ((m = text.match(/^(?:open|launch|start|pull\s+up|bring\s+up|fire\s+up)\s+(?:up\s+)?(?:the\s+)?(.+?)(?:\s+app)?$/i))) {
         const app = appIn(m[1]);
         return app ? { kind: "open", app } : null;
     }

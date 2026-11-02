@@ -303,6 +303,7 @@ struct SettingsTab: View {
                 Text("Thinking Orion").tag("thinkingOrion")
                 Text("Original Orion").tag("original")
                 Text("Black Hole").tag("blackHole")
+                Text("Blue Orion").tag("blueOrion")
             }
             .pickerStyle(.segmented)
             .labelsHidden()

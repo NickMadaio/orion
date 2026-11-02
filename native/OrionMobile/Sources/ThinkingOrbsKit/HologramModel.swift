@@ -37,23 +37,7 @@ import SwiftUI
 
 // MARK: - Palette
 
-/// Warm gold, matching the Age of Ultron projection: a white-hot core falling
-/// off through amber to a deep ember at the limb.
-struct HoloRGB {
-    var r: Double
-    var g: Double
-    var b: Double
-}
-
-enum HoloPalette {
-    static let core = HoloRGB(r: 255, g: 246, b: 214)
-    static let hot = HoloRGB(r: 255, g: 208, b: 112)
-    static let mid = HoloRGB(r: 255, g: 158, b: 38)
-    static let deep = HoloRGB(r: 214, g: 104, b: 12)
-    static let cool = HoloRGB(r: 120, g: 176, b: 255) // listening tint
-    static let thinking = HoloRGB(r: 192, g: 116, b: 255) // thinking tint
-    static let alarm = HoloRGB(r: 255, g: 92, b: 64)
-}
+// The colours themselves (HoloRGB, HoloPalette.gold / .blue) live in HoloPalette.swift.
 
 let tau = Double.pi * 2
 
@@ -359,7 +343,17 @@ public final class HologramModel {
     private var rampShading: [GraphicsContext.Shading] = []
     private var rampTint: Double = -1
     private var rampState: HologramState = .idle
-    private var hotShading: GraphicsContext.Shading = .color(holoColor(HoloPalette.hot, 1))
+    private var hotShading: GraphicsContext.Shading = .color(holoColor(HoloPalette.gold.hot, 1))
+
+    /// Gold by default; Blue Orion sets `.blue`. A change rebuilds the ramp once, so setting the same palette every
+    /// frame costs a comparison.
+    public var palette: HoloPalette = .gold {
+        didSet {
+            guard palette != oldValue else { return }
+            hotShading = .color(holoColor(palette.hot, 1))
+            rebuildRamp(force: true)
+        }
+    }
 
     public init() {
         build()
@@ -628,13 +622,13 @@ public final class HologramModel {
     /// Limb is deeper/cooler, front face is hot. `depth` is -1 (back) .. 1 (front).
     private func rampColor(_ depth: Double) -> HoloRGB {
         let t = holoClamp((depth + 1) / 2, 0, 1)
-        var c = holoMix(HoloPalette.deep, HoloPalette.hot, pow(t, 0.8))
+        var c = holoMix(palette.deep, palette.hot, pow(t, 0.8))
         if tint > 0.001 {
             let alt: HoloRGB
             switch state {
-            case .error: alt = HoloPalette.alarm
-            case .thinking: alt = batchGeometry ? HoloPalette.hot : HoloPalette.thinking
-            default: alt = HoloPalette.cool
+            case .error: alt = palette.alarm
+            case .thinking: alt = batchGeometry ? palette.hot : palette.thinking
+            default: alt = palette.cool
             }
             c = holoMix(c, alt, tint * 0.7)
         }
@@ -687,8 +681,8 @@ public final class HologramModel {
         ctx.blendMode = .normal
         ctx.opacity = 1
         let ambient = Gradient(stops: [
-            .init(color: holoColor(HoloPalette.mid, 0.10 * bloom), location: 0),
-            .init(color: holoColor(HoloPalette.deep, 0.045 * bloom), location: 0.45),
+            .init(color: holoColor(palette.mid, 0.10 * bloom), location: 0),
+            .init(color: holoColor(palette.deep, 0.045 * bloom), location: 0.45),
             .init(color: .clear, location: 1)
         ])
         ctx.fill(
@@ -934,19 +928,19 @@ public final class HologramModel {
         if tint > 0.01 {
             let alt: HoloRGB
             switch state {
-            case .error: alt = HoloPalette.alarm
-            case .thinking: alt = batchGeometry ? HoloPalette.hot : HoloPalette.thinking
-            default: alt = HoloPalette.cool
+            case .error: alt = palette.alarm
+            case .thinking: alt = batchGeometry ? palette.hot : palette.thinking
+            default: alt = palette.cool
             }
-            hot = holoMix(HoloPalette.core, alt, tint * 0.5)
+            hot = holoMix(palette.core, alt, tint * 0.5)
         } else {
-            hot = HoloPalette.core
+            hot = palette.core
         }
 
         let gradient = Gradient(stops: [
             .init(color: holoColor(hot, 0.95 * bloom), location: 0),
-            .init(color: holoColor(HoloPalette.hot, 0.55 * bloom), location: 0.18),
-            .init(color: holoColor(HoloPalette.mid, 0.20 * bloom), location: 0.48),
+            .init(color: holoColor(palette.hot, 0.55 * bloom), location: 0.18),
+            .init(color: holoColor(palette.mid, 0.20 * bloom), location: 0.48),
             .init(color: .clear, location: 1)
         ])
         ctx.opacity = 1
@@ -969,9 +963,9 @@ public final class HologramModel {
 
         let gradient = Gradient(stops: [
             .init(color: .clear, location: 0),
-            .init(color: holoColor(HoloPalette.mid, 0.10 * bloom), location: 0.34),
-            .init(color: holoColor(HoloPalette.core, 0.42 * bloom), location: 0.5),
-            .init(color: holoColor(HoloPalette.mid, 0.10 * bloom), location: 0.66),
+            .init(color: holoColor(palette.mid, 0.10 * bloom), location: 0.34),
+            .init(color: holoColor(palette.core, 0.42 * bloom), location: 0.5),
+            .init(color: holoColor(palette.mid, 0.10 * bloom), location: 0.66),
             .init(color: .clear, location: 1)
         ])
         ctx.opacity = 1

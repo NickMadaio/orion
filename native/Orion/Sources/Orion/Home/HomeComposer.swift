@@ -2,7 +2,7 @@ import OrionViews
 import SwiftUI
 
 /*
- The Home composer: wide, pinned to the bottom, with a soft multicolour rim that drifts slowly round it. The rim
+ The Home composer: wide, pinned to the bottom, with a soft blue rim that drifts slowly round it. The rim
  runs on the shared AmbientTimeline, so it stands still (holding its phase) when the window is hidden or covered,
  in Low Power Mode and under Reduce Motion. The bloom under it is static and blurred once, never per frame.
 
@@ -38,9 +38,11 @@ struct HomeComposerBar: View {
 
     private static let corner: CGFloat = 20
     private static let prompt = "Tell ORION what you need"
-    // ORION's own spectrum, cool to warm and back: cyan, violet, rose, amber, periwinkle.
-    static let spectrum: [Color] = [OrionTheme.accent, OrionTheme.violet, OrionTheme.rose,
-                                    Color(red: 1.0, green: 0.74, blue: 0.42), OrionTheme.lavender, OrionTheme.accent]
+    // Centred on blue (wave 13; Nick: "can we center that more blue rather than its dominant purple"): cyan, sky,
+    // deep electric blue, periwinkle, one short touch of violet, and back. No rose or amber.
+    private static let deepBlue = Color(red: 0.20, green: 0.42, blue: 1.0)
+    static let spectrum: [Color] = [OrionTheme.accent, OrionTheme.blue, deepBlue, OrionTheme.lavender,
+                                    OrionTheme.violet, deepBlue, OrionTheme.accent]
 
     var body: some View {
         VStack(spacing: 12) {

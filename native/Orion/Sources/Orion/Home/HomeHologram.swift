@@ -5,13 +5,15 @@ import ThinkingOrbsKit
 /*
  The hologram, back on Home as atmosphere (wave 12, U5). Nick: "lastly the hologram on the home page".
 
- The same orb-first projection the summon panel draws (BalancedOrionHologram), but on Home's terms:
-   · slow — a third of its normal motion, 20 frames a second;
-   · on the shared AmbientTimeline, so it stands still (holding its phase) when the window is hidden, minimised or
-     covered, in Low Power Mode and under Reduce Motion. BalancedOrionHologram pauses only for Reduce Motion;
-   · one Canvas, no blur, no compositing pass. The model is a plain class SwiftUI does not observe, so a frame
-     re-runs the Canvas closure and nothing else;
-   · it draws AppState's own model, so it follows ORION's state: it listens, thinks and speaks with him.
+ Whichever Visual Nick picked in Settings → Core (wave 13: Home used to ignore it and always drew Thinking Orion):
+   · Thinking Orion and Blue Orion: the summon panel's orb-first projection (BalancedOrionHologram), at its motion
+     and frame rate. Wave 12 slowed Home to 0.3 at 20 fps; Nick: "can we make the hologram move like it used to?";
+   · Original Orion: the full filament shell at 60 fps, as the panel draws it;
+   · Black Hole: BlackHoleHologramView.
+ All on the shared AmbientTimeline, so it stands still (holding its phase) when the window is hidden, minimised or
+ covered, in Low Power Mode and under Reduce Motion, and costs nothing in the background. One Canvas, no blur, no
+ compositing pass. The model is a plain class SwiftUI does not observe, so a frame re-runs the Canvas closure and
+ nothing else. It draws AppState's own model, so it follows ORION's state: it listens, thinks and speaks with him.
  Dimming and placement are HomeScene's job; this view only draws.
 */
 
@@ -19,56 +21,83 @@ struct HomeHologram: View {
     let model: HologramModel
     /// Renders only: draw this moment of the orb, without a timeline.
     var frozenTime: Double?
+    /// Renders and tests only: draw this style instead of the stored one.
+    var styleOverride: HologramStyle?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(HologramStyle.storageKey) private var storedStyle = HologramStyle.thinkingOrion.rawValue
 
-    static let fps: Double = 20
-    static let motionScale = 0.3
+    static let fps: Double = BalancedOrionHologram.fps
+    static let motionScale = BalancedOrionHologram.motionScale
+    /// The original shell's own rate, as HologramView draws it.
+    static let originalFps: Double = 60
+
+    private var style: HologramStyle { styleOverride ?? HologramStyle(stored: storedStyle) }
 
     var body: some View {
         Group {
-            if let frozenTime {
-                canvas(time: frozenTime, ticking: false)
-            } else {
-                AmbientTimeline(fps: Self.fps) { time in canvas(time: time, ticking: true) }
+            switch style {
+            case .blackHole:
+                BlackHoleHologramView(phase: Self.phase(model.state), frozenTime: frozenTime)
+            case .original:
+                clocked(fps: Self.originalFps) { time, ticking in original(ticking: ticking) }
+            case let thinking:
+                clocked(fps: Self.fps) { time, ticking in projection(time: time, ticking: ticking, palette: thinking.palette) }
             }
         }
         .accessibilityHidden(true)
         .allowsHitTesting(false)
     }
 
-    private func canvas(time: Double, ticking: Bool) -> some View {
+    @ViewBuilder
+    private func clocked<Content: View>(fps: Double, @ViewBuilder _ content: @escaping (Double, Bool) -> Content) -> some View {
+        if let frozenTime {
+            content(frozenTime, false)
+        } else {
+            AmbientTimeline(fps: fps) { time in content(time, true) }
+        }
+    }
+
+    private func projection(time: Double, ticking: Bool, palette: HoloPalette) -> some View {
         Canvas { context, size in
             let brightness = SummonSettings.brightness
             holoGain = brightness
             model.batchGeometry = true
+            model.palette = palette
             model.motionScale = reduceMotion ? 0 : Self.motionScale
             model.targetFrameInterval = 1 / Self.fps
             // Real time, not the ambient clock: the panel ticks this model too, and both must agree on dt. The model
             // clamps a long gap (a pause) to one short step, so resuming does not jump.
             if ticking { model.tick(Date()) }
-            model.draw(&context, size: size, cognitiveOnTop: true) { inner in
-                OrionThinkingHologram.draw(in: &inner, size: size, state: Self.orbState(model.state), level: model.audioLevel,
-                                           isError: model.state == .error, brightness: brightness, time: time,
-                                           reduceMotion: reduceMotion, geometryScale: model.state == .thinking ? 1 : 0.95,
-                                           opacity: model.state == .thinking ? 1 : 0.9)
-            }
+            BalancedOrionHologram.draw(model: model, in: &context, size: size, brightness: brightness, palette: palette,
+                                       time: time, reduceMotion: reduceMotion)
         }
     }
 
-    static func orbState(_ state: HologramState) -> OrbState {
-        switch state {
-        case .idle, .error: .breathing
-        case .listening: .listening
-        case .thinking: .solving
-        case .speaking: .composing
+    private func original(ticking: Bool) -> some View {
+        Canvas { context, size in
+            holoGain = SummonSettings.brightness
+            model.batchGeometry = false
+            model.palette = .gold
+            model.motionScale = reduceMotion ? 0 : 1
+            model.targetFrameInterval = 1 / Self.originalFps
+            if ticking { model.tick(Date()) }
+            model.draw(&context, size: size)
         }
     }
 
-    /// Renders only: a fresh model advanced `seconds` of slow Home motion, so two renders show two phases.
-    static func advanced(by seconds: Double, state: HologramState = .idle) -> HologramModel {
+    static func orbState(_ state: HologramState) -> OrbState { BalancedOrionHologram.orbState(state) }
+
+    static func phase(_ state: HologramState) -> OrionPhase {
+        switch state { case .idle: .idle; case .listening: .listening; case .thinking: .thinking; case .speaking: .speaking; case .error: .error }
+    }
+
+    /// Renders only: a fresh model advanced `seconds` of Home motion, so two renders show two phases.
+    static func advanced(by seconds: Double, state: HologramState = .idle, palette: HoloPalette = .gold) -> HologramModel {
         let model = HologramModel()
         model.setState(state)
+        model.batchGeometry = true
+        model.palette = palette
         model.motionScale = motionScale
         let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
         for frame in 0...Int(seconds * fps) { model.tick(start.addingTimeInterval(Double(frame) / fps)) }

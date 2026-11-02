@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// ORION's gold projection rendered from Thinking Orbs' semantic geometry.
+/// ORION's projection (gold, or any HoloPalette) rendered from Thinking Orbs' semantic geometry.
 /// The upstream engine remains unchanged; this painter adds colour, an orbital
 /// shell, depth and audio response at the full hologram size.
 public struct OrionThinkingHologram: View {
@@ -9,16 +9,16 @@ public struct OrionThinkingHologram: View {
     public var isError: Bool
     public var frameTime: Double?
     public var brightness: Double
+    public var palette: HoloPalette
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    public init(state: OrbState, level: Double = 0, isError: Bool = false, brightness: Double = 1, frameTime: Double? = nil) {
+    public init(state: OrbState, level: Double = 0, isError: Bool = false, brightness: Double = 1, frameTime: Double? = nil,
+                palette: HoloPalette = .gold) {
         self.state = state; self.level = level; self.isError = isError; self.brightness = brightness; self.frameTime = frameTime
+        self.palette = palette
     }
-    private static func accent(state: OrbState, isError: Bool) -> Color {
-        if isError { return Color(red: 1, green: 0.22, blue: 0.20) }
-        switch state {
-        case .listening: return Color(red: 1, green: 0.81, blue: 0.43)
-        default: return Color(red: 1, green: 0.69, blue: 0.27)
-        }
+    private static func accent(state: OrbState, isError: Bool, palette: HoloPalette) -> Color {
+        let c = palette.orbAccent(state: state, isError: isError)
+        return Color(.sRGB, red: c.r / 255, green: c.g / 255, blue: c.b / 255)
     }
     public var body: some View {
         Group {
@@ -29,17 +29,18 @@ public struct OrionThinkingHologram: View {
     private func frame(at time: Double) -> some View {
         Canvas { context, size in
             Self.draw(in: &context, size: size, state: state, level: level, isError: isError,
-                      brightness: brightness, time: time, reduceMotion: reduceMotion)
+                      brightness: brightness, time: time, reduceMotion: reduceMotion, palette: palette)
         }
     }
 
     /// Draw directly into a host projection: no second surface, blur or compositing pass.
     public static func draw(in context: inout GraphicsContext, size: CGSize, state: OrbState,
                             level: Double, isError: Bool, brightness: Double, time: Double,
-                            reduceMotion: Bool, geometryScale: Double = 1, opacity: Double = 1) {
+                            reduceMotion: Bool, geometryScale: Double = 1, opacity: Double = 1,
+                            palette: HoloPalette = .gold) {
         let t = reduceMotion ? 1.2 : time * 0.45
         let energy = level.isFinite ? min(1, max(0, level)) : 0
-        let accent = accent(state: state, isError: isError)
+        let accent = accent(state: state, isError: isError, palette: palette)
         let side = min(size.width, size.height) * geometryScale
         let centre = CGPoint(x: size.width / 2, y: size.height / 2)
         let pulse = reduceMotion ? 1 : 1 + 0.045 * sin(t * 1.5) + 0.09 * energy

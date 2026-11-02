@@ -12,6 +12,8 @@ export type Draft = {
     sleep?: number;
     /** A standing alarm he asked for outright ("set a 6am alarm every mon wed thu"): saved without the interview. */
     direct?: boolean;
+    /** The early wake is for the gym ("6am for the gym", "up at 6 mon wed thu for lifting"): those days are his gym days. */
+    forGym?: boolean;
 };
 export declare const clean: (m: string) => string;
 export declare const num: (raw: string) => number;

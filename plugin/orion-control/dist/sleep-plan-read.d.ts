@@ -1,7 +1,7 @@
 import { type Draft } from "./sleep-plan-slots.js";
 export type { Draft, DayWake } from "./sleep-plan-slots.js";
 export { slotsOf } from "./sleep-plan-slots.js";
-export type SleepStep = "wake" | "days" | "lead" | "confirm";
+export type SleepStep = "wake" | "days" | "lead" | "confirm" | "grace";
 export type SleepPending = {
     step: SleepStep;
     draft: Draft;
@@ -24,6 +24,8 @@ export type SleepTurn = {
 } | {
     kind: "noexcept";
     activity: string;
+    grace?: boolean;
+    again?: boolean;
 };
 /** The default lead when he waves the question off with a yes ("yeah", "sure", "sounds good"): 3 hours, what he asked for. */
 export declare const DEFAULT_LEAD = 180;
@@ -31,6 +33,8 @@ export declare const DEFAULT_LEAD = 180;
 export declare function readHabit(message: string): Draft | undefined;
 /** A night he is out or working (an exception), or idling (no exception). Evening only, unless he says "tonight". Pure. */
 export declare function readException(message: string, now: Date): SleepTurn | undefined;
+/** A late-night plea for more time: an exception when the reason is legit, else no exception with one short grace. Pure. */
+export declare function readPlea(message: string, now: Date): SleepTurn | undefined;
 /** His reply to the question ORION asked; undefined when it is not one (the pending interview is then dropped). */
 export declare function readAnswer(message: string, held: SleepPending): SleepTurn | undefined;
 /** This turn's part in the sleep plan, or undefined. A held interview reads the answer first; a new statement starts over. */

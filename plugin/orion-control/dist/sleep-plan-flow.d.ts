@@ -26,6 +26,8 @@ type PlanDay = {
     evening: string;
     sleepBy: string;
     lockdownAt: string;
+    wakeIso?: string;
+    nudgeAtIso?: string;
     exception: {
         reason: string;
         until: string | null;
@@ -42,9 +44,17 @@ export declare class SleepPlanPending {
 export declare function draftArgs(d: Draft): string[];
 /** "Mon 6:00, Tue 9:00 (class 1:30), … — bed by 10pm the night before 6:00 days." Built from the CLI's days only. */
 export declare function weekLine(days: PlanDay[]): string;
-/** One turn of the sleep plan, end to end. */
-export declare function runSleepTurn(turn: SleepTurn, { run }: {
+/** orion-checkin with fixed arguments: the one quiet check-back a grace promises. */
+export type SleepCheckin = (args: string[]) => Promise<{
+    stdout: string;
+    code: number;
+}>;
+export declare const GRACE_MIN = 10;
+/** One turn of the sleep plan, end to end. `now` is the plugin clock (pluginNow); checkin books the grace's check-back. */
+export declare function runSleepTurn(turn: SleepTurn, { run, now, checkin }: {
     run: SleepRun;
+    now?: Date;
+    checkin?: SleepCheckin;
 }): Promise<SleepOutcome>;
 /** The real script (no shell, fixed arguments), beside orion-wake (ORION_SCRIPTS_DIR for a replay). Wired in by index.ts only. */
 export declare const liveSleepPlanRun: SleepRun;

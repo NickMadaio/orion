@@ -1343,7 +1343,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         if (out) { run.flow = out.flow; run.tools.push(...out.tools); if (out.marks.length) recordChange(run.sessionKey, out.marks); }
       }
       if (!run.flow && !run.cutOff && run.sleepTurn && options.sleepPlanRun) {   // W10-B (sleep-plan-flow.ts)
-        const out = await runSleepTurn(run.sleepTurn, { run: options.sleepPlanRun });
+        const out = await runSleepTurn(run.sleepTurn, { run: options.sleepPlanRun, now: (options.now ?? pluginNow)(), ...(options.checkinRun ? { checkin: options.checkinRun } : {}) });
         run.flow = out.flow; run.tools.push(...out.tools); if (run.sessionKey) sleepPending.set(run.sessionKey, out.pending, Date.now());
       }
       if (!run.flow && !run.cutOff && run.phoneBlock && options.phoneTimeRun) {   // W10-G (phone-block-flow.ts)

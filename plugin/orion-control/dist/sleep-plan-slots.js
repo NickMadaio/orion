@@ -16,6 +16,7 @@ export const num = (raw) => NUM[raw] ?? Number(raw);
 // ── how long before class, how long asleep ────────────────────────────────────────────────────────────────────────────
 export const AMOUNT = String.raw `(\d+(?:\.\d+)?|an?|one|two|three|four|five|six)\s*(and a half\s*)?(h|hrs?|hours?|m|mins?|minutes?)?\s*(and a half\s*)?`;
 export const LEAD = new RegExp(String.raw `\b(?:at ?least |like |about |around |~)?${AMOUNT}(?:early\s+)?(?:before|ahead of|prior to|b4)\s+(?:my |a |the |any |each |every )?(?:first |1st )?(?:class|classes|lecture|lectures|lab|labs|school|uni)\b(?:\s+(?:min(?:imum)?|at least))?`);
+const FOR_GYM = /\bfor (?:the )?(?:gym|lifting|lift|a lift|workouts?|training)\b|\b(?:hit(?:ting)?|go(?:ing)? to|get(?:ting)? to) the gym\b|\bgym (?:first|in the morning|before)\b/;
 const SLEEP_HOURS = /\b(\d+(?:\.\d+)?)\s*(?:h|hrs?|hours?)\s+(?:of\s+)?sleep\b/;
 export function leadMinutes(m, bareIsHours) {
     const n = num(m[1]) + (m[2] || m[4] ? 0.5 : 0);
@@ -179,5 +180,7 @@ export function slotsOf(message) {
         draft.days = [...mainDays];
     if (also.length)
         draft.also = also;
+    if (FOR_GYM.test(text))
+        draft.forGym = true;
     return draft;
 }

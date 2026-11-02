@@ -13,7 +13,8 @@
 //   orion-sleepplan refresh [--json]                               rewrite wake-plan.json from the stored plan + calendar (the nudge tick does this daily)
 //   orion-sleepplan plan --json [--days … --wake … --only --rest …] [--lead N|off]   the coming week as data; the flags preview a change
 //                                                                 without saving it
-// Days: mon..sun, "weekdays", "weekends", "all", "gym" (his gym anchor's days). Every write also rewrites wake-plan.json (shape documented in
+// Days: mon..sun, "weekdays", "weekends", "all", "gym" (the days his plan ties to the gym — set with --gym on set — else the
+// calendar's Gym days when they are not every day, else gym days he set; unknown is an error naming it, so ORION asks). Every write also rewrites wake-plan.json (shape documented in
 // scripts/lib/life/sleep-plan.mjs) for the Mac alarm and bedtime-nudge engine. During a sandboxed evaluation it reads and
 // writes the eval copies (eval-life-config.json, eval-wake-plan.json), like scripts/lib/life/config.mjs, and the sandbox clock.
 // Add --json to any write for a machine-readable answer. Exit 2: bad arguments, nothing saved; exit 3: refused (a reason
@@ -59,22 +60,25 @@ const leadOf = (raw) => {
  "Gym days" (W10-B review): the weekdays with a Gym block on his calendar this coming week; else the gym days he set himself
  (anchors/gymDays saved in his config, not the every-day default). Unknown: an error that names it, so ORION asks which days.
 */
-function gymDays(blocksOf) {
+function gymDays(blocksOf, plan) {
+  // 1. The days his own plan ties to the gym ("up at 6 mon wed thu for gym"): the most specific thing he said.
+  if (Array.isArray(plan?.gymDays) && plan.gymDays.length) return WEEKDAYS.filter((d) => plan.gymDays.includes(d));
+  // 2. The calendar's Gym days, only when they single some days out: a Gym block every day (the daily anchor) names no days.
   const seen = new Set();
   for (let i = 0; i < 7; i += 1) {
     const date = addDays(now.toLocaleDateString("en-CA"), i);
     if (blocksOf(date).some((b) => b.kind === "gym")) seen.add(WEEKDAYS[new Date(`${date}T12:00:00`).getDay()]);
   }
-  if (seen.size) return WEEKDAYS.filter((d) => seen.has(d));
+  if (seen.size && seen.size <= 5) return WEEKDAYS.filter((d) => seen.has(d));
   let saved = {};
   try { saved = JSON.parse(readFileSync(CONFIG_FILE, "utf8")); } catch { /* none saved */ }
   const own = Array.isArray(saved.anchors) || Array.isArray(saved.gymDays) ? loadConfig().anchors.filter((a) => a.kind === "gym").flatMap((a) => a.days) : [];
   const days = [...new Set(own)].map((d) => WEEKDAYS[d % 7]);
   return days.length && days.length < 7 ? WEEKDAYS.filter((d) => days.includes(d)) : [];
 }
-const daysOf = (raw, blocksOf) => {
+const daysOf = (raw, blocksOf, plan) => {
   const words = String(raw ?? "").toLowerCase().split(/[\s,]+/);
-  const gym = words.includes("gym") ? gymDays(blocksOf) : [];
+  const gym = words.includes("gym") ? gymDays(blocksOf, plan) : [];
   if (words.includes("gym") && !gym.length) throw new TypeError("gym days unknown: no Gym block this week and no gym days set");
   return parseDays(raw, gym);
 };
@@ -88,15 +92,16 @@ function nextPlan(plan, blocksOf) {
     if (flag("--days") !== undefined) {
       const wake = normTime(flag("--wake"));
       if (!wake) throw new TypeError("--wake must be HH:MM");
-      const days = daysOf(flag("--days"), blocksOf);
+      const days = daysOf(flag("--days"), blocksOf, plan);
       next = withWake(next, days, wake, { only: has("--only") });
+      if (has("--gym")) next = { ...next, gymDays: days };   // "6am mon wed thu for gym": these are his gym days
       named.push(...days);
     }
     for (const also of flags("--also")) {   // "tue,fri=09:00": more days with their own time, in the same write
       const [rawDays, rawWake] = also.split("=");
       const wake = normTime(rawWake);
       if (!wake) throw new TypeError("--also must be DAYS=HH:MM");
-      const days = daysOf(rawDays, blocksOf);
+      const days = daysOf(rawDays, blocksOf, plan);
       next = withWake(next, days, wake);
       named.push(...days);
     }
@@ -111,7 +116,7 @@ function nextPlan(plan, blocksOf) {
     return next;
   }
   if (command === "unset") {
-    const days = daysOf(flag("--days"), blocksOf);
+    const days = daysOf(flag("--days"), blocksOf, plan);
     return { ...plan, byDay: Object.fromEntries(Object.entries(plan.byDay).filter(([d]) => !days.includes(d))) };
   }
   if (command === "lead") return { ...plan, firstClassLeadMin: leadOf(args[1]) };
@@ -137,7 +142,8 @@ function nextPlan(plan, blocksOf) {
 /** What is stored, without the defaults filled in (so a later default change still applies). */
 function storable(plan, saved) {
   const out = { byDay: plan.byDay, firstClassLeadMin: plan.firstClassLeadMin, nudgeBeforeMin: plan.nudgeBeforeMin,
-    lockdownBelowHours: plan.lockdownBelowHours, legitReasons: plan.legitReasons, exceptions: plan.exceptions };
+    lockdownBelowHours: plan.lockdownBelowHours, legitReasons: plan.legitReasons, exceptions: plan.exceptions,
+    ...(Array.isArray(plan.gymDays) && plan.gymDays.length ? { gymDays: plan.gymDays } : {}) };
   const sleepHours = flag("--sleep") !== undefined ? plan.sleepHours : saved?.sleepHours;
   return sleepHours !== undefined ? { ...out, sleepHours } : out;
 }

@@ -15,6 +15,7 @@
 import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { ORION_WAKE } from "./wake-flow.js";
+import { pluginNow } from "./plugin-clock.js";
 /** One interview per chat, for a few minutes; taken (and so cleared) by the next turn whatever it is. */
 export class SleepPlanPending {
     static TTL_MS = 15 * 60_000;
@@ -60,7 +61,8 @@ const listDays = (days) => { const c = days.map(cap); return c.length > 1 ? `${c
 export function draftArgs(d) {
     return [...(d.days && d.wake ? ["--days", d.days.join(","), "--wake", d.wake, ...(d.direct ? [] : ["--only"])] : []),
         ...(d.also ?? []).flatMap((a) => ["--also", `${a.days.join(",")}=${a.wake}`]), ...(d.rest ? ["--rest", d.rest] : []),
-        ...(d.lead !== undefined ? ["--lead", d.lead === null ? "off" : String(d.lead)] : []), ...(d.sleep !== undefined ? ["--sleep", String(d.sleep)] : [])];
+        ...(d.lead !== undefined ? ["--lead", d.lead === null ? "off" : String(d.lead)] : []), ...(d.sleep !== undefined ? ["--sleep", String(d.sleep)] : []),
+        ...(d.forGym && d.days && d.wake && !d.days.includes("gym") ? ["--gym"] : [])];
 }
 const nextStep = (d) => (!d.wake ? "wake" : !d.days ? "days" : undefined);
 const parse = (stdout) => { try {
@@ -150,15 +152,42 @@ async function except(reason, until, run) {
     return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout),
             reply: `Got it, no lockdown tonight${until ? ` till ${meridiem(until)}` : ""}. ${send}${alarm}` }, tools };
 }
-async function noExcept(activity, run) {
+export const GRACE_MIN = 10;
+const notFor = (activity) => (activity === "Staying up" ? "Not tonight" : `Not for ${activity.toLowerCase()}`);
+/*
+ No exception (gaming, scrolling, "another hour"). Built from his plan (orion-sleepplan plan --json), never from a nudge's text: the
+ bedtime is his (22:00 before a 6:00 day), the stakes are the hours to his alarm. A plea gets one short grace, and "I'll check in" is
+ said only when orion-checkin really booked it. A second plea inside the grace gets none. Before his nudge time it is not late yet.
+*/
+async function noExcept(turn, run, now, checkin) {
     const tools = [];
     const r = await call(run, ["plan", "--json"], tools);
-    const at = r.out?.days?.[0]?.lockdownAt;
-    const when = at ? `still kicks in at ${meridiem(at)}` : "still stands";
-    return { flow: say(`${activity} doesn't get you a pass, so the lockdown ${when}. Friends or schoolwork, I'd let it slide.`), tools };
+    const d = r.out?.days?.[0];
+    if (!turn.grace) {
+        const when = d?.lockdownAt ? `still kicks in at ${meridiem(d.lockdownAt)}` : "still stands";
+        return { flow: say(`${turn.activity} doesn't get you a pass, so the lockdown ${when}. Friends or schoolwork, I'd let it slide.`), tools };
+    }
+    if (!d?.wakeIso)
+        return { flow: say(`${notFor(turn.activity)}. Wrap it up and get to bed.`), tools };
+    if (d.nudgeAtIso && now.getTime() < Date.parse(d.nudgeAtIso)) {
+        return { flow: say(`You're fine till ${meridiem(d.sleepBy)}, then bed. You're up at ${clock(d.wake)}.`), tools };
+    }
+    const hours = Math.ceil((Date.parse(d.wakeIso) - now.getTime()) / 3_600_000);
+    const stakes = `you're up at ${clock(d.wake)}${hours > 0 ? `, that's under ${hours}h away` : ""}`;
+    if (turn.again)
+        return { flow: say(`That was the one. Bed now, ${stakes}.`), tools };
+    let back = "";
+    if (checkin) {
+        const args = ["add", String(GRACE_MIN), `Bed — up at ${clock(d.wake)}`, "--because", "one more before bed"];
+        const c = await checkin(args).catch(() => ({ stdout: "", code: 1 }));
+        tools.push({ canonical: `exec orion-checkin ${args.join(" ")}`, stdout: c.stdout, exit: c.code });
+        if (c.code === 0)
+            back = ` and I'll check in ${GRACE_MIN}`;
+    }
+    return { flow: say(`${notFor(turn.activity)}, ${stakes}. Finish this one${back}${back ? "" : ", then bed"}.`), pending: { step: "grace", draft: {} }, tools };
 }
-/** One turn of the sleep plan, end to end. */
-export async function runSleepTurn(turn, { run }) {
+/** One turn of the sleep plan, end to end. `now` is the plugin clock (pluginNow); checkin books the grace's check-back. */
+export async function runSleepTurn(turn, { run, now = pluginNow(), checkin }) {
     if (turn.kind === "decline")
         return { flow: say("Okay, I left your sleep plan as it was."), tools: [] };
     if (turn.kind === "interview")
@@ -167,7 +196,7 @@ export async function runSleepTurn(turn, { run }) {
         return save(turn.draft, run);
     if (turn.kind === "except")
         return except(turn.reason, turn.until, run);
-    return noExcept(turn.activity, run);
+    return noExcept(turn, run, now, checkin);
 }
 /** The real script (no shell, fixed arguments), beside orion-wake (ORION_SCRIPTS_DIR for a replay). Wired in by index.ts only. */
 export const liveSleepPlanRun = (args) => new Promise((resolve) => execFile(join(process.env.ORION_SCRIPTS_DIR || dirname(ORION_WAKE), "orion-sleepplan"), args, { timeout: 30000, maxBuffer: 1 << 20 }, (e, stdout, stderr) => resolve({ stdout: e ? `${String(stdout ?? "")}${String(stderr ?? "")}` : String(stdout ?? ""), code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));

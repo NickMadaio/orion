@@ -221,3 +221,20 @@ test("CLI: gym days are the days with a Gym block this week; unknown is an error
   assert.equal(none.code, 2);
   assert.match(JSON.parse(none.out).error, /gym days unknown/);
 });
+
+// W10-B review 2 (gate slp-alarm-v): a daily Gym block picked Mon–Sat. The days his plan ties to the gym come first; a Gym block on
+// (nearly) every day names no days, so ORION asks.
+test("CLI: gym days — his plan's --gym days first; a daily Gym block names no days", (t) => {
+  const daily = [2, 3, 4, 5, 6, 7, 8].map((d) => [d, 17, 0, 90, "Gym"]);
+  const { dir, run } = sandbox(t, daily);
+  const unknown = run("plan", "--json", "--days", "gym", "--wake", "06:00");
+  assert.equal(unknown.code, 2);
+  assert.match(JSON.parse(unknown.out).error, /gym days unknown/);
+  const set = run("set", "--days", "tue,thu,sat", "--wake", "06:15", "--only", "--gym", "--json");
+  assert.equal(set.code, 0, set.err);
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, "eval-life-config.json"), "utf8")).sleepPlan.gymDays, ["tue", "thu", "sat"]);
+  const later = run("set", "--days", "gym", "--wake", "05:45", "--json");
+  assert.equal(later.code, 0, later.err);
+  assert.deepEqual(JSON.parse(later.out).plan.byDay, { tue: { wake: "05:45" }, thu: { wake: "05:45" }, sat: { wake: "05:45" } });
+  assert.ok(validSleepPlan({ gymDays: ["mon"] }) && !validSleepPlan({ gymDays: ["monday"] }));
+});

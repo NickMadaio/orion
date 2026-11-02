@@ -1363,7 +1363,7 @@ export function registerLocalRouting(api, options) {
                 }
             }
             if (!run.flow && !run.cutOff && run.sleepTurn && options.sleepPlanRun) { // W10-B (sleep-plan-flow.ts)
-                const out = await runSleepTurn(run.sleepTurn, { run: options.sleepPlanRun });
+                const out = await runSleepTurn(run.sleepTurn, { run: options.sleepPlanRun, now: (options.now ?? pluginNow)(), ...(options.checkinRun ? { checkin: options.checkinRun } : {}) });
                 run.flow = out.flow;
                 run.tools.push(...out.tools);
                 if (run.sessionKey)

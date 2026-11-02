@@ -15,11 +15,12 @@
  a habit statement.
 */
 import { isNo, isYes } from "./schedule-pending.js";
+import { saysYes } from "./day-lighten.js";
 import { AMOUNT, clean, LEAD, leadMinutes, slotsOf, wakeTime, type Draft } from "./sleep-plan-slots.js";
 
 export type { Draft, DayWake } from "./sleep-plan-slots.js";
 export { slotsOf } from "./sleep-plan-slots.js";
-export type SleepStep = "wake" | "days" | "lead" | "confirm";
+export type SleepStep = "wake" | "days" | "lead" | "confirm" | "grace";
 export type SleepPending = { step: SleepStep; draft: Draft; reasked?: boolean };
 export type LegitReason = "friends" | "party" | "bar" | "schoolwork";
 export type SleepTurn =
@@ -27,7 +28,7 @@ export type SleepTurn =
   | { kind: "confirm"; draft: Draft }
   | { kind: "decline" }
   | { kind: "except"; reason: LegitReason; until?: string }
-  | { kind: "noexcept"; activity: string };
+  | { kind: "noexcept"; activity: string; grace?: boolean; again?: boolean };
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 const LEAD_ANSWER = new RegExp(String.raw`^(?:(?:like|about|around|at ?least|maybe|prob(?:ably)?|i'?d say|say|um+|uh+|hmm+|ok(?:ay)?|yeah|yea|ya|~)[,\s]+)*${AMOUNT}(?:\b|$)`);
@@ -109,8 +110,28 @@ export function readException(message: string, now: Date): SleepTurn | undefined
   return IDLE.test(m) ? { kind: "noexcept", activity: activityOf(m) } : undefined;
 }
 
+/*
+ W10-B review (gate, 23:20 before a 6:00 day): "one more game i swear" got "No. Bed at 11:45 PM." from the bedtime stall reply, and "im just
+ playing games, can i stay up another hour?" got a GYM nudge from the model. A plea for more time late at night is the sleep plan's:
+ no exception unless the reason is a legit one; one short grace at most. Late means 21:00-04:00 (the flow checks his own bedtime).
+*/
+const PLEA = /\b(?:one more (?:game|round|match|ep|episode|level|run|hour|vid(?:eo)?)|one last (?:game|round|match|ep|episode)|another (?:game|round|match|hour|ep|episode|half hour|\d+ ?(?:min|mins|minutes))|(?:stay|be) up (?:another|a bit|a little|longer|later|til|till|for)|(?:few|couple) more (?:min(?:ute)?s|games|rounds|eps|episodes)|\d+ more (?:min(?:ute)?s|games|rounds)|just (?:a bit|a little) longer|let me finish (?:this|the) (?:game|round|match|ep|episode))\b/;
+const LATE_HOURS = (now: Date): boolean => now.getHours() >= 21 || now.getHours() < 4;
+
+/** A late-night plea for more time: an exception when the reason is legit, else no exception with one short grace. Pure. */
+export function readPlea(message: string, now: Date): SleepTurn | undefined {
+  const m = clean(message);
+  if (!m || m.length > 160 || !LATE_HOURS(now) || !PLEA.test(m) || /\b(?:add|book|schedule|remind|move|cancel)\b/.test(m)) return undefined;
+  const reason: LegitReason | undefined = SCHOOL.test(m) ? "schoolwork" : PARTY.test(m) ? "party" : BAR.test(m) ? "bar" : FRIENDS.test(m) ? "friends" : undefined;
+  if (reason) return { kind: "except", reason };
+  return { kind: "noexcept", activity: IDLE.test(m) || /\bgame|round|match|level\b/.test(m) ? activityOf(m) : "Staying up", grace: true };
+}
+
 // ── answers inside the interview ───────────────────────────────────────────────────────────────────────────────────────
-const BARE_YES = /^(?:ya|yah|yeh|yuh|yup|yep|mhm|k|kk|ok(?:ay)?|yes|yeah|yea|sure|yh)(?: (?:pls|please|thx|thanks))?$/;
+const BARE_YES = /^(?:ye|yee|yea+h*|ya|yah|yeh|yuh|yup|yep|yh|mhm|k|kk|ok(?:ay)?|aight|alright|yes|sure|bet|word|fs|for sure|def(?:initely)?|sounds good|all good|do it|go ahead)(?: (?:pls|please|thx|thanks|ty|bro|man|dude))?$/;
+/** His yes with emoji and trailing punctuation off: "ye 👍", "bet!", "👍". */
+const yesText = (m: string): string => m.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, " ").replace(/[.!,\s]+$/, "").trim();
+const THUMBS = /^[\s.!]*(?:\u{1F44D}|\u{2705}|\u{1F44C}|\u{1F64F}|\u{1F4AF})+[\u{1F3FB}-\u{1F3FF}\s.!]*$/u;
 const CONFIRM = /^(?:(?:yes|yeah|yea|yep|yup|ya|ok(?:ay)?|sure)[,!\s]*)?(?:sounds? (?:right|good|great|perfect)|perfect|correct|exactly|bet|lgtm|looks (?:good|right)|that'?s (?:right|it|perfect)|do it|lock it in|save it|go for it|love it)\b/;
 const DECLINE = /^(?:nvm|never ?mind|forget it|cancel|stop|leave it|no thanks|nah forget it)\b/;
 const SHORT = (m: string): boolean => m.split(/\s+/).length <= 4;
@@ -132,7 +153,7 @@ export function readAnswer(message: string, held: SleepPending): SleepTurn | und
     if (SHORT(m) && !REQUEST.test(m) && !hasSlots(slots)) return { kind: "interview", draft: merge(held.draft, { lead: DEFAULT_LEAD }) };
   }
   if (held.step === "confirm") {
-    if (isYes(m) || CONFIRM.test(m) || BARE_YES.test(m)) return { kind: "confirm", draft: held.draft };
+    if (isYes(m) || saysYes(m) || CONFIRM.test(m) || BARE_YES.test(yesText(m)) || THUMBS.test(message)) return { kind: "confirm", draft: held.draft };
     if (isNo(m)) return { kind: "decline" };
     return hasSlots(slots) ? { kind: "interview", draft: merge(held.draft, slots) } : undefined;
   }
@@ -151,7 +172,7 @@ export function readAnswer(message: string, held: SleepPending): SleepTurn | und
 export function readSleepTurn(message: string, { held, now }: { held?: SleepPending | undefined; now: Date }): SleepTurn | undefined {
   const fresh = readHabit(message);
   if (fresh) return { kind: "interview", draft: held && held.step !== "confirm" ? merge(held.draft, fresh) : fresh };
-  const except = readException(message, now);
-  if (except) return except;
-  return held ? readAnswer(message, held) : undefined;
+  const except = readPlea(message, now) ?? readException(message, now);
+  if (except) return except.kind === "noexcept" && except.grace && held?.step === "grace" ? { ...except, again: true } : except;
+  return held && held.step !== "grace" ? readAnswer(message, held) : undefined;
 }

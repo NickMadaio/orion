@@ -219,14 +219,14 @@ test("CLI: --offer leaves a pending estimate; --revise re-asks with his correcti
     const env = { ORION_OLLAMA_URL: o.url, ORION_CONTROLLED_DIR: dir, ORION_NOW: "2026-11-02T13:00:00Z" };
     const offered = JSON.parse((await run(["--text", "chicken rice bowl", "--offer", "--json"], env)).stdout);
     assert.match(offered.offer.text, /Log it\?$/);
-    const pending = JSON.parse(readFileSync(join(dir, "food-pending.json"), "utf8"));
+    const pending = JSON.parse(readFileSync(join(dir, "food-pending.json"), "utf8")).offers.at(-1);   // offers kept by id (food-pending.test.mjs)
     assert.equal(pending.via, "chat"); assert.equal(pending.text, "chicken rice bowl");
     const revised = JSON.parse((await run(["--revise", "it was a small one", "--json"], env)).stdout);
     assert.match(o.bodies.at(-1).messages[1].content, /He corrected it: "it was a small one"/);
     assert.match(revised.summary, /a small bowl/);
     const logged = await run(["log-pending"], env);
     assert.equal(logged.code, 0);
-    assert.match(logged.stdout, /^Logged .* as lunch: 298 kcal/);
+    assert.match(logged.stdout, /^Logged the .*, ~298 kcal \(lunch · /);
     assert.equal(existsSync(join(dir, "food-pending.json")), false);
     assert.equal((await run(["log-pending"], env)).code, 1, "a second yes logs nothing");
     assert.equal(healthLog(dir).nutritionLog["2026-11-02"].length, 1);
@@ -256,7 +256,7 @@ test("CLI: --entry latest sizes a meal logged from chat with 0 kcal, and log-pen
     const revised = JSON.parse((await run(["--revise", "it was a small one", "--json"], env)).stdout);
     assert.match(revised.offer.text, /Add those numbers to your lunch\?$/);
     const filled = await run(["log-pending"], env);
-    assert.match(filled.stdout, /^Updated chicken burrito and a coke as lunch: 879 kcal/);
+    assert.match(filled.stdout, /^Updated the chicken burrito and coke, ~879 kcal \(lunch · /);
     const rows = healthLog(dir).nutritionLog["2026-11-02"];
     assert.equal(rows.length, 1); assert.equal(rows[0].id, "abc-1"); assert.equal(rows[0].calories, 879); assert.equal(rows[0].loggedAt, "2026-11-02T12:30:00Z");
   } finally { await o.close(); }
@@ -283,7 +283,7 @@ test("CLI: inbox estimates the fixture item once, writes its result, offers it i
     assert.equal(o.bodies[0].messages[1].images.length, 1);
     const result = JSON.parse(readFileSync(join(dir, "food-inbox", "meal-001.estimate.json"), "utf8"));
     assert.equal(result.ok, true);
-    const pending = JSON.parse(readFileSync(join(dir, "food-pending.json"), "utf8"));
+    const pending = JSON.parse(readFileSync(join(dir, "food-pending.json"), "utf8")).offers.at(-1);   // offers kept by id (food-pending.test.mjs)
     assert.equal(pending.via, "inbox"); assert.equal(pending.inboxId, "meal-001"); assert.equal(pending.eatenAt, "2026-11-02T12:40:00.000Z");
     const again = JSON.parse((await run(["inbox", "--json"], env)).stdout);
     assert.equal(again.items.length, 0, "each item is estimated once");

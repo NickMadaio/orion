@@ -5,11 +5,15 @@ export type MailRule = {
     value: string;
     label: string;
 };
+export type MailAsk = {
+    kind: "ask";
+    text: string;
+};
 export type MailMove = {
     kind: "rules";
     action: "mute" | "boost";
     rules: MailRule[];
-};
+} | MailAsk;
 export type MailPrefsRun = (args: string[]) => Promise<{
     stdout: string;
     code: number;
@@ -29,6 +33,8 @@ export type MailCtx = {
     } | null;
     alerts?: MailAlert[];
 };
+/** A copy of scripts/lib/mail/domains.mjs PROTECTED_DOMAINS (his school + freemail). Change both together. */
+export declare const PROTECTED_DOMAINS: readonly string[];
 /** What this message teaches about his mail, if anything. Reads only. */
 export declare function readMailMove(message: string, ctx: MailCtx): MailMove | undefined;
 /** Saves the rules through orion-mail-prefs and says what was saved, from its answers. */

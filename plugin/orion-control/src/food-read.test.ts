@@ -73,3 +73,43 @@ describe("undo right after a food log", () => {
     expect(read("undo")).toBeNull();
   });
 });
+
+describe("several offers waiting (wave 14 review): naming one is a pick", () => {
+  const several = { pending: { at: NOW.getTime() - 60_000, via: "inbox" as const, offerText: "Food photo: ~540 kcal. Log it?", count: 3, names: ["cheeseburger and fries", "caesar salad", "pasta bolognese"] }, bound: true };
+  it.each([
+    "the burger",
+    "log the burger",
+    // held out
+    "yeah the salad",
+    "just the pasta one",
+    "the caesar salad pls",
+    "both",
+    "all of them",
+    "log all 3",
+    "the first one",
+    "last one",
+  ])("%s", (m) => expect(read(m, several)).toEqual({ kind: "pick", which: m }));
+  it.each(["yes", "yeah log it"])("a bare yes is still a yes (the script asks which): %s", (m) => expect(read(m, several)).toEqual({ kind: "yes" }));
+  it.each(["it was a small one", "the gym", "nah"])("not a pick: %s", (m) => expect(read(m, several)?.kind).not.toBe("pick"));
+  it("with one offer waiting, a name is not a pick", () => expect(read("the burger", { ...several, pending: { ...several.pending, count: 1 } })?.kind).not.toBe("pick"));
+});
+
+describe("no and corrections that name one of several offers (wave 14 review)", () => {
+  const several = { pending: { at: NOW.getTime() - 60_000, via: "inbox" as const, offerText: "Food photo: ~540 kcal. Log it?", count: 3, names: ["cheeseburger and fries", "caesar salad", "pasta bolognese"] }, bound: true };
+  it.each(["nah not the salad", "no dont log the pasta", "nope skip the fries", "forget the burger lol", "dont log the salad", "no the caesar one"])("%s drops only the named one", (m) =>
+    expect(read(m, several)).toEqual({ kind: "no", which: m }));
+  it.each(["no", "nah", "dont log it", "skip it", "nope thanks"])("a bare %s with several waiting is a no with no name (the script asks)", (m) =>
+    expect(read(m, several)).toEqual({ kind: "no" }));
+  it("with one waiting, a no needs no name", () => {
+    expect(read("nah not the burger", { pending: { ...several.pending, count: 1, names: ["cheeseburger and fries"] }, bound: true })?.kind).toBe("no");
+  });
+  it("a correction that names an offer carries the name; one that does not, does not", () => {
+    expect(read("the burger was a small one", several)).toEqual({ kind: "revise", correction: "the burger was a small one", which: "the burger was a small one" });
+    expect(read("it was a small one", several)).toEqual({ kind: "revise", correction: "it was a small one" });
+  });
+  it("'no cheese on the burger' is a correction, not a no", () => expect(read("no cheese on the burger", several)?.kind).toBe("revise"));
+  it("undo carries every id logged together", () => {
+    const lastLogged = { id: "FOOD-b", ids: ["FOOD-a", "FOOD-b"], at: NOW.getTime() - 60_000 };
+    expect(read("undo", { lastLogged })).toEqual({ kind: "undo", id: "FOOD-b", ids: ["FOOD-a", "FOOD-b"] });
+  });
+});

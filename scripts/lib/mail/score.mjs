@@ -5,20 +5,23 @@
 //           money, bills or a security code, a reply in a thread he wrote in, someone in his knowledge graph, one of his course codes
 //   lower   newsletters and promotions, a List-Unsubscribe header, Gmail's promotions / social / forums tabs, social notifications
 // The sum puts it in one of three bands. "borderline" is the only band the local model is asked about (model.mjs).
-// `urgent` (a security code, a deadline today) lets an alert skip the 30-minute spacing; it never skips quiet hours or focus.
+// `urgent` (a security code from a known service, a deadline today) lets an alert skip the 30-minute spacing; it never skips quiet
+// hours or focus. A stranger's "verification code" is not urgent: that is what a phishing mail looks like (wave 14 fix).
 
 import { prefVerdict } from "./prefs.mjs";
+import { SECURITY } from "./sensitive.mjs";
+import { DEFAULT_SCHOOL_DOMAINS, KNOWN_SERVICE_DOMAINS, onDomain } from "./domains.mjs";
+
+export { DEFAULT_SCHOOL_DOMAINS };
 
 export const IMPORTANT_AT = 4;
 export const BORDERLINE_AT = 1;
-export const DEFAULT_SCHOOL_DOMAINS = Object.freeze(["northeastern.edu", "nulondon.ac.uk"]);
 
 const AUTOMATED_LOCAL = /^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|notify|news(?:letter)?s?|info|marketing|updates?|alerts?|support|hello|hi|team|mailer(?:-daemon)?|bounces?|digest|offers?|deals|promo(?:tions)?|account(?:s)?|billing|receipts?|orders?|service|automated|system|admin|jobs|careers|community|feedback|survey)(?:[-_.+].*)?$/;
 const MARKETING_DOMAIN = /(?:^|\.)(?:mailchimp|mcsv|sendgrid|mailgun|klaviyo|hubspot|marketo|constantcontact|substack|beehiiv|mail\.beehiiv|emails?\.[a-z0-9-]+|e\.[a-z0-9-]+|em\.[a-z0-9-]+|news\.[a-z0-9-]+|mkt\.[a-z0-9-]+)\./;
 const SOCIAL = /(?:^|\.)(?:linkedin|facebook|facebookmail|instagram|twitter|x|tiktok|reddit|redditmail|pinterest|snapchat|discord|quora|youtube|medium|strava|nextdoor)\.com$/;
 const PROMO_LABELS = ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS"];
 const NEWSLETTER = /\b(?:newsletter|digest|weekly (?:roundup|update|recap)|unsubscribe|\d+% off|sale|deal(?:s)? (?:of|for)|limited time|webinar|sponsored|promo code|free shipping|new arrivals|you might like|recommended for you|top picks|trending)\b/i;
-const SECURITY = /\b(?:verification code|security code|one[- ]time (?:code|password|passcode)|otp|sign[- ]?in code|login code|2fa|two[- ]factor|confirm your (?:email|sign[- ]?in)|password reset|reset your password|new sign[- ]?in|suspicious (?:sign[- ]?in|activity)|unusual activity)\b/i;
 const MONEY = /\b(?:payment (?:due|failed|declined|received)|bill(?:ing)? (?:is )?(?:due|ready)|invoice|overdue|overdrawn|direct debit|rent|refund|tuition|fee(?:s)? (?:due|owed)|statement is ready|low balance|charge(?:d)?|£\s?\d|\$\s?\d)\b/i;
 const DEADLINE = /\b(?:due|deadline|submit(?:ted|ssion)?|extension|exam|midterm|final|quiz|test|assignment|homework|problem set|pset|lab report|office hours|room change|cancel+ed|reschedul(?:ed|ing)|postponed|moved to|interview|appointment|meeting|by (?:mon|tues|wednes|thurs|fri|satur|sun)day|tomorrow|tonight|today|this (?:week|evening|afternoon|morning))\b/i;
 const TODAY = /\b(?:due (?:today|tonight)|deadline (?:is )?(?:today|tonight)|(?:today|tonight) (?:at|by) \d{1,2}(?::\d{2})?\s*(?:am|pm)?|by (?:end of )?(?:today|tonight)|in (?:an|one|1|two|2) hours?|this (?:morning|afternoon|evening)|cancel+ed (?:today|this)|starts in \d+ ?min)\b/i;
@@ -34,7 +37,11 @@ export function fromPerson(item) {
   return !item.listUnsubscribe && !item.precedenceBulk;
 }
 
-const onDomain = (domain, list) => list.some((d) => domain === d || domain.endsWith(`.${d}`));
+/** A sender whose security code may be urgent: a big sign-in or banking provider, or his school's single sign-on. */
+export const knownService = (item, ctx = {}) => onDomain(item.domain, [...KNOWN_SERVICE_DOMAINS, ...(ctx.schoolDomains ?? DEFAULT_SCHOOL_DOMAINS)]);
+
+/** A teacher in his knowledge graph, writing from his school's domain: the only sender an alert may call "Prof." */
+export const verifiedTeacher = (item, ctx = {}) => knownPerson(item, ctx.people)?.role === "teacher" && onDomain(item.domain, ctx.schoolDomains ?? DEFAULT_SCHOOL_DOMAINS);
 
 /** The knowledge-graph person this sender is, matched on a full name or a surname of 3+ letters. */
 export function knownPerson(item, people = []) {
@@ -58,7 +65,7 @@ const has = (re, item) => re.test(`${item.subject} ${item.snippet}`);
  */
 export function scoreMail(item, ctx = {}) {
   const rule = prefVerdict(ctx.prefs, item);
-  const urgentSignals = has(SECURITY, item) || (has(DEADLINE, item) && has(TODAY, item));
+  const urgentSignals = (has(SECURITY, item) && knownService(item, ctx)) || (has(DEADLINE, item) && has(TODAY, item));
   if (rule?.action === "boost") return { level: "important", score: 99, urgent: urgentSignals, reasons: [`he said to always tell him (${rule.kind}: ${rule.value})`], rule, topic: courseIn(item, ctx.courses) };
   if (rule?.action === "mute") return { level: "skip", score: -99, urgent: false, reasons: [`he said this isn't important (${rule.kind}: ${rule.value})`], rule, topic: null };
 

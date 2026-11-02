@@ -4,11 +4,12 @@
 
    orion-food-estimate --text "<what he ate>" [--image <path>]... [--meal breakfast|lunch|dinner|snack] [--log] [--offer] [--json]
    orion-food-estimate --entry <FOOD-or-meal id|latest> [--offer] [--json]   estimate a meal already in the log (0 kcal) by its title
-   orion-food-estimate --revise "<his correction>" [--json]                 re-estimate the offered meal ("it was a small one")
-   orion-food-estimate log-pending [--json]                                 log the offered estimate (yes to "Log it?")
-   orion-food-estimate pending [--json]                                     the offer waiting on a yes, if any
-   orion-food-estimate discard [--json]                                     drop the offer (no to "Log it?")
-   orion-food-estimate undo <FOOD-id> [--json]                              remove an entry this tool wrote
+   orion-food-estimate --revise "<his correction>" [--pick "<words>"] [--json]                 re-estimate the offered meal ("it was a small one")
+   orion-food-estimate log-pending [--pick "<words>"] [--json]              log the offered estimate (yes to "Log it?"); with several
+                                                                            waiting and no --pick it asks which ("the burger", "both")
+   orion-food-estimate pending [--json]                                     the offers waiting on a yes, if any
+   orion-food-estimate discard [--pick "<words>"] [--json]                  drop the offer he named, or the only one (no to "Log it?"); several and no name: asks
+   orion-food-estimate undo <id> [--json]                                   remove an entry this tool wrote, or put a filled meal back
    orion-food-estimate inbox [--json]                                       estimate new food-inbox photos and offer each (lib/food/inbox.mjs)
 
  Nick (2026-11-02): "when tracking calories i can give a description or pictures of my food and Local AIs can try to come up
@@ -27,7 +28,7 @@ import { clockNow } from "./lib/clock.mjs";
 import { estimateMeal } from "./lib/food/estimate.mjs";
 import { readImages } from "./lib/food/ollama.mjs";
 import { latestUncounted, logEstimate, undoEntry, healthLogPath } from "./lib/food/log.mjs";
-import { clearPending, offerLine, readPending, writePending } from "./lib/food/pending.mjs";
+import { claimPending, clearPending, livePending, restorePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
 import { runInbox } from "./lib/food/inbox.mjs";
 import { readFileSync } from "node:fs";
 
@@ -46,6 +47,9 @@ function finish(result, line) {
 }
 const usage = () => { console.error(USAGE); process.exit(2); };
 const failLine = (error) => `Couldn't estimate that: ${error}.`;
+const EVAL_NOTE = "not kept: ORION is in an evaluation run, so a yes will not log it";
+/** What the JSON says about an offer: its id and line, or that an evaluation kept it from being saved. */
+const offerJson = (offer) => ({ id: offer.id, text: offer.offerText, ...(offer.saved === false ? { note: EVAL_NOTE } : {}) });
 
 async function estimateCommand() {
   const text = one("--text") ?? "";
@@ -66,7 +70,7 @@ async function estimateCommand() {
   }
   if (argv.includes("--offer")) {
     const offer = writePending({ via: "chat", offerText: offerLine(out.summary), summary: out.summary, estimate: out.estimate, ...(meal ? { meal } : {}), ...(text ? { text } : {}), ...(paths.length ? { photos: paths } : {}) }, { now });
-    result.offer = { id: offer.id, text: offer.offerText };
+    result.offer = offerJson(offer);
   }
   return finish(result, out.summary);
 }
@@ -85,35 +89,90 @@ async function entryCommand(which) {
   const result = { ok: true, summary: out.summary, estimate: out.estimate, ms: out.ms, entry: { id: entry.id, title: entry.title, meal: entry.meal } };
   if (argv.includes("--offer")) {
     const offer = writePending({ via: "chat", offerText: `${out.summary}. Add those numbers to your ${String(entry.meal ?? "meal").toLowerCase()}?`, summary: out.summary, estimate: out.estimate, text, target: { entryId: entry.id }, ...(entry.meal ? { meal: entry.meal } : {}) }, { now });
-    result.offer = { id: offer.id, text: offer.offerText };
+    result.offer = offerJson(offer);
   }
   return finish(result, out.summary);
 }
 
 async function reviseCommand(correction) {
-  const pending = readPending({ now });
-  if (!pending) finish({ ok: false, error: "no estimate is waiting to be corrected" }, "There's no estimate waiting, so there's nothing to correct. Tell me what you ate.");
+  const live = livePending({ now });
+  if (!live.length) finish({ ok: false, error: "no estimate is waiting to be corrected" }, "There's no estimate waiting, so there's nothing to correct. Tell me what you ate.");
   if (!correction.trim() || correction.length > 300) usage();
+  const pending = whichOffer(live, one("--pick"), "correct");
   let images = [];
   try { images = readImages(pending.photos ?? []); } catch { images = []; }
   const out = await estimateMeal({ text: pending.text ?? "", images, imagePaths: pending.photos ?? [], correction, previous: pending.summary });
   if (!out.ok) finish(out, failLine(out.error));
   const question = pending.target ? `Add those numbers to your ${pending.meal ? pending.meal.toLowerCase() : "meal"}?` : "Log it?";
   const offer = writePending({ ...pending, offerText: `${out.summary}. ${question}`, summary: out.summary, estimate: out.estimate,
-    text: [pending.text, `(${correction})`].filter(Boolean).join(" ") }, { now });
-  return finish({ ok: true, summary: out.summary, estimate: out.estimate, ms: out.ms, offer: { id: offer.id, text: offer.offerText } }, out.summary);
+    text: [pending.text, `(${correction})`].filter(Boolean).join(" ") }, { now, replaces: pending.id });
+  return finish({ ok: true, summary: out.summary, estimate: out.estimate, ms: out.ms, offer: offerJson(offer) }, out.summary);
 }
 
+const kcalOf = (offer) => Math.round(offer.estimate?.totals?.kcal ?? 0);
+const listOf = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
+
+/** The one offer his words refer to: --pick names it, or it is the only one waiting. Several and no clear name: asks, and exits. */
+function whichOffer(live, pick, verb) {
+  const chosen = pick !== undefined ? pickOffers(live, pick) : live;
+  if (chosen.length === 1) return chosen[0];
+  const named = live.map((o) => `the ${o.name} (~${kcalOf(o)} kcal)`);
+  const say = pick !== undefined && !chosen.length
+    ? `I couldn't tell which one you meant. Waiting: ${listOf(named)}. Which one should I ${verb}?`
+    : `You have ${live.length} estimates waiting: ${listOf(named)}. Which one should I ${verb}?`;
+  return finish({ ok: true, discarded: 0, choose: live.map((o) => ({ id: o.id, name: o.name, kcal: kcalOf(o) })), say }, say);
+}
+
+/** no to "Log it?": drops the offer he named, the only one waiting, or "all of them"; with several and no name, asks. */
+function discardCommand() {
+  const live = livePending({ now });
+  if (!live.length) finish({ ok: true, discarded: 0 }, "No estimate was waiting.");
+  const pick = one("--pick");
+  const chosen = pick !== undefined && /\b(?:both|all|every|everything)\b/i.test(pick) ? live : [whichOffer(live, pick, "drop")];
+  clearPending({ ids: chosen.map((o) => o.id), now });
+  finish({ ok: true, discarded: chosen.length }, "Okay, not logged.");
+}
+
+/** Logs one offer; the result or a failure sentence. */
+function logOne(offer) {
+  const at = offer.eatenAt ? new Date(offer.eatenAt) : now;
+  return logEstimate(offer.estimate, { meal: offer.meal, at, now, ...(offer.target ? { target: offer.target } : {}) });
+}
+
+/** yes to "Log it?". One offer waiting: logged and named. Several and no --pick: listed and asked. --pick: the ones he named. */
 function logPendingCommand() {
-  const pending = readPending({ now });
-  if (!pending) finish({ ok: false, error: "no estimate is waiting to be logged" }, "There's no estimate waiting to log.");
-  const at = pending.eatenAt ? new Date(pending.eatenAt) : now;
-  const logged = logEstimate(pending.estimate, { meal: pending.meal, at, now, ...(pending.target ? { target: pending.target } : {}) });
-  if (!logged.ok) finish(logged, logged.error);
-  clearPending();
-  const e = logged.entry;
-  return finish({ ok: true, logged: { id: e.id, day: logged.day, filled: logged.filled, dayCalories: logged.dayCalories, undo: `orion-food-estimate undo ${e.id}` }, entry: e, summary: pending.summary },
-    `${logged.filled ? "Updated" : "Logged"} ${e.title.toLowerCase()} as ${e.meal.toLowerCase()}: ${e.calories} kcal, ${e.protein}P ${e.carbohydrates}C ${e.fat}F. ${logged.dayCalories} kcal today.`);
+  const live = livePending({ now });
+  if (!live.length) finish({ ok: false, error: "no estimate is waiting to be logged" }, "There's no estimate waiting to log.");
+  const pick = one("--pick");
+  const chosen = pick !== undefined ? pickOffers(live, pick) : live.length === 1 ? live : [];
+  if (!chosen.length) {
+    const named = live.map((o) => `the ${o.name} (~${kcalOf(o)} kcal)`);
+    const say = pick !== undefined
+      ? `I couldn't tell which one you meant. Waiting: ${listOf(named)}. Say which, or "all of them".`
+      : `You have ${live.length} estimates waiting: ${listOf(named)}. Which should I log? Say "the ${live[0].name.split(/[ ,]/)[0]}", or "all of them".`;
+    finish({ ok: true, choose: live.map((o) => ({ id: o.id, name: o.name, kcal: kcalOf(o) })), say }, say);
+  }
+  // Claim first: the offer leaves the file under the lock, so a second yes (the other process) finds nothing and cannot log it again.
+  const claimed = claimPending(chosen.map((o) => o.id), { now });
+  if (!claimed.length) finish({ ok: false, error: "no estimate is waiting to be logged" }, "There's no estimate waiting to log.");
+  const done = [];
+  for (const [i, offer] of claimed.entries()) {
+    let logged;
+    try { logged = logOne(offer); } catch (error) { logged = { ok: false, error: String(error?.message ?? error) }; }
+    if (!logged.ok) {
+      restorePending(claimed.slice(i), { now });   // the failed one and the rest wait for another yes
+      if (done.length) break;
+      finish(logged, logged.error);
+    }
+    done.push({ offer, logged });
+  }
+  const last = done.at(-1).logged;
+  const e = last.entry;
+  const say = done.length === 1
+    ? `${last.filled ? "Updated" : "Logged"} the ${done[0].offer.name}, ~${e.calories} kcal (${e.meal.toLowerCase()} · ${e.protein}P ${e.carbohydrates}C ${e.fat}F). ${last.dayCalories} kcal today.`
+    : `Logged ${listOf(done.map(({ offer, logged }) => `the ${offer.name} (~${logged.entry.calories} kcal)`))}. ${last.dayCalories} kcal today.`;
+  return finish({ ok: true, say, logged: { id: e.id, ids: done.map((d) => d.logged.entry.id), day: last.day, filled: last.filled, dayCalories: last.dayCalories, undo: `orion-food-estimate undo ${e.id}` },
+    entry: e, summary: done[0].offer.summary }, say);
 }
 
 function notifier() {
@@ -126,11 +185,12 @@ function notifier() {
 
 const [command] = argv;
 if (command === "log-pending") logPendingCommand();
-else if (command === "discard") { const p = readPending({ now }); clearPending(); finish({ ok: true, discarded: !!p }, p ? "Okay, not logged." : "No estimate was waiting."); }
-else if (command === "pending") { const p = readPending({ now }); finish({ ok: true, pending: p }, p ? p.offerText : "No estimate is waiting."); }
+else if (command === "discard") discardCommand();
+else if (command === "pending") { const live = livePending({ now }); const p = live.at(-1) ?? null; finish({ ok: true, pending: p, offers: live }, p ? live.map((o) => o.offerText).join("\n") : "No estimate is waiting."); }
 else if (command === "undo") {
   const r = undoEntry(argv[1], { now });
-  finish(r, r.ok ? `Removed ${r.removed.title} (${r.removed.calories} kcal). ${r.dayCalories} kcal on ${r.day}.` : r.error);
+  const line = !r.ok ? r.error : r.restored ? `Put ${r.entry.title} back as it was (${r.entry.calories} kcal). ${r.dayCalories} kcal on ${r.day}.` : `Removed ${r.removed.title} (${r.removed.calories} kcal). ${r.dayCalories} kcal on ${r.day}.`;
+  finish(r, line);
 } else if (command === "inbox") {
   const r = await runInbox({ now, notify: notifier() });
   finish({ ok: true, ...r }, r.ran ? `${r.items.length} food photo(s) estimated.` : `Inbox not run: ${r.why}.`);

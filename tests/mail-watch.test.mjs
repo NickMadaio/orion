@@ -177,7 +177,7 @@ test("urgent mail skips the spacing; a reach that refuses keeps the mail waiting
   await mailTick({ ...deps, now: new Date(NOW.getTime() + 11 * 60_000) });
   inbox = [mail(1), mail(2, { fromName: "Barclays", fromAddress: "no-reply@barclays.co.uk", domain: "barclays.co.uk", subject: "Your security code", snippet: "one-time passcode 123456" })];
   const urgent = await mailTick({ ...deps, now: new Date(NOW.getTime() + 22 * 60_000) });
-  assert.equal(urgent.said, "Barclays emailed about your security code");
+  assert.equal(urgent.said, "Barclays sent a sign-in code");
   assert.equal(said.at(-1).urgent, true);
   accept = false;
   inbox = [...inbox, mail(3)];

@@ -1306,7 +1306,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const out = await withTimeout(runFoodTurn(food, { run: options.foodRun, stateDir: options.stateDir, now: (options.now ?? pluginNow)() }).catch(() => undefined), 55000);
       run.ownText = out?.text ?? "I couldn't estimate that just now, so nothing was logged. Tell me again in a bit.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
-      if (out?.logged) foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime());
+      if (out?.logged) foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime(), out.logged.ids ?? [out.logged.id]);
       if (food.kind === "undo") foodMemory.forgetLog(sessionKey);
     }
     if (sessionKey && !cutOff && !quietTurn && options.lateFlow) { const late = lateTurn(sessionKey, message); if (late) run.late = late; }

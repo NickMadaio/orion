@@ -6,10 +6,14 @@
    boost  "this matters" / "always tell me when prof smith emails" / "anything from my landlord is important"
 
  A bare reply ("not important", "this matters") is about the mail alert that is still the last thing ORION sent (mail-alerts.ts), and
- becomes one rule per mail it named: a person's address, or an automated sender's domain. A reply that names something ("stop telling
- me about job alerts") is taken when it talks about mail, or when what it names is in that alert; anything else ("stop telling me about
- the gym") is left to the other flows. Every write goes through scripts/orion-mail-prefs (fixed argument lists, no shell); every reply
- is built from what it said.
+ only when that alert named ONE mail: it becomes a rule on that sender's exact address. A bare reply to a digest is asked back ("Which
+ one, the registrar one or the TA one?"); naming one ("the registrar one isn't important") answers it. A reply that names something
+ ("stop telling me about job alerts") is taken when it talks about mail, or when what it names is in that alert; anything else ("stop
+ telling me about the gym") is left to the other flows. Every write goes through scripts/orion-mail-prefs (fixed argument lists, no
+ shell); every reply is built from what it said.
+
+ Domain rules (wave 14 review: one "not important" on a northeastern.edu registrar no-reply muted every professor): only on an explicit
+ "everything from <domain>", and never for his school or a freemail provider (PROTECTED_DOMAINS, a copy of scripts/lib/mail/domains.mjs).
 */
 import { execFile } from "node:child_process";
 import { scriptPath } from "./tool-guards.js";
@@ -27,7 +31,7 @@ const NAMED_MUTE = [
     /\b(?:stop|quit|no more) (?:telling|alerting|pinging|notifying|flagging|bugging|sending|messaging|texting|showing)(?: me)? (?:about |abt |re |with |on )?(.{2,60})$/,
     new RegExp(`\\b(?:dont|do not|no need to|never) ${TELL} (?:about |abt |re |when |if )?(.{2,60})$`),
     /\b(?:dont|do not) (?:need|want) (?:any )?(?:more )?(?:e-?mails?|mails?|alerts?|updates?|notifications?) (?:from|about|abt) (.{2,60})$/,
-    /\b(?:ignore|mute|skip|filter out|forget about) (?:all )?(?:the )?(?:e-?mails?|mails?|anything|stuff|messages) (?:from|by|about) (.{2,60})$/,
+    /\b(?:ignore|mute|skip|filter out|forget about) (?:all )?(?:the )?(?:e-?mails?|mails?|anything|everything|stuff|messages) (?:from|by|about) (.{2,60})$/,
     /\b(?:ignore|mute) (.{2,60}?)(?: e-?mails?| mails?)?$/,
     /\bi (?:really )?(?:dont|do not) (?:really )?care (?:about|abt) (?:e-?mails? (?:from|about) )?(.{2,60})$/,
     /\bidc (?:about|abt) (?:e-?mails? (?:from|about) )?(.{2,60})$/,
@@ -53,7 +57,37 @@ function cleanTarget(raw) {
     return low(raw).replace(FILLER, " ").replace(/\b(?:e-?mails?|mails?|stuff|ones|notifications?|alerts? from)\b/g, " ")
         .replace(/^(?:\s*(?:the|my|all|any|those|these|them|that|this|from|about)\b)+/g, " ").replace(/[!?,]+/g, " ").replace(/\.+(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
 }
-const itemRule = (action, i) => i.person || !i.domain ? { action, kind: "sender", value: i.fromAddress, label: i.who } : { action, kind: "domain", value: i.domain, label: i.who };
+/** A copy of scripts/lib/mail/domains.mjs PROTECTED_DOMAINS (his school + freemail). Change both together. */
+export const PROTECTED_DOMAINS = ["northeastern.edu", "nulondon.ac.uk", "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "hotmail.co.uk",
+    "live.com", "live.co.uk", "msn.com", "yahoo.com", "yahoo.co.uk", "ymail.com", "icloud.com", "me.com", "mac.com", "aol.com", "proton.me", "protonmail.com", "gmx.com",
+    "gmx.co.uk", "mail.com", "zoho.com", "fastmail.com"];
+const isProtected = (domain) => { const d = domain.toLowerCase().replace(/^@/, ""); return PROTECTED_DOMAINS.some((p) => d === p || d.endsWith(`.${p}`)); };
+/** A bare name that stands for a protected domain ("northeastern", "gmail"): never muted as a word either. */
+const PROTECTED_NAMES = new Set(PROTECTED_DOMAINS.map((d) => d.split(".")[0]).concat(["neu", "nu", "northeastern university"]));
+/** "everything from X", "all emails from X", "anything by X": the only phrasing that may become a domain rule. */
+const EVERYTHING_FROM = /\b(?:everything|anything|all (?:the |of the |of )?(?:e-?mails?|mails?|messages|stuff)|any e-?mails?|every e-?mail) (?:from|by)\b/;
+/** One alert item as a rule: always the exact sender address, never its domain. */
+const itemRule = (action, i) => ({ action, kind: "sender", value: i.fromAddress, label: i.who });
+const refuseDomain = (domain) => ({ kind: "ask", text: `I won't rule on everything from ${domain}: that would cover everyone who writes from it, like your professors. Tell me which sender you mean and I'll do just that one.` });
+const confirmDomain = (action, domain) => ({ kind: "ask",
+    text: `Everything from ${domain}? Say "${action === "mute" ? "ignore everything from" : "always tell me about everything from"} ${domain}" and I'll ${action === "mute" ? "stop flagging all of it" : "flag all of it"}, or name the sender.` });
+/** "the Indeed one or the LinkedIn one" for the digest question. */
+function whichOne(alert) {
+    const names = alert.items.slice(0, 4).map((i) => `the ${i.who} one`);
+    const list = names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`;
+    return { kind: "ask", text: `Which one, ${list}? Say something like "${names[0]} isn't important".` };
+}
+/** The items of the alert this message mentions by sender name, brand or address. */
+function mentioned(m, alert) {
+    const said = new Set(words(m));
+    return alert.items.filter((i) => [...words(i.who), ...words(i.domain.split(".")[0] ?? ""), ...words(i.fromAddress.split("@")[0] ?? "")]
+        .some((w) => w.length >= 3 && !/^(?:noreply|no-reply|reply|mail|info|news|alert|alerts|messages)$/.test(w) && said.has(w)));
+}
+const MUTE_CUE = /\b(?:not (?:that |really |very |super )?(?:important|urgent|relevant|needed)|(?:isnt|arent|wasnt) (?:that |really )?(?:important|urgent|relevant)|unimportant|irrelevant|spam|junk|who cares|idc|dont (?:really )?care|dont need|not worth)\b/;
+const BOOST_CUE = /\b(?:(?:is|was|are|really|actually|super|very|def|definitely) (?:important|urgent)|matters?|good catch|keep (?:em|them) coming|good to know)\b/;
+/** Words that tie a sentence to the mail alert: the mail itself, "these", "the X one", or a mute phrase about messages. */
+const MAIL_REFERENCE = /\b(?:alerts?|these|those|ones?|stop (?:telling|alerting|pinging|notifying) me|dont (?:alert|ping|notify|tell|bother) me|not important)\b/;
+const refersToMail = (m, directReply) => directReply || MAIL_WORD.test(m) || MAIL_REFERENCE.test(m);
 /** The item of the current alert that what he named points at (its sender's name or brand, or its topic). */
 function itemNamed(target, alert) {
     const want = words(target);
@@ -64,16 +98,24 @@ function itemNamed(target, alert) {
         return want.every((w) => have.some((h) => h.startsWith(w) || w.startsWith(h)));
     });
 }
-function namedRule(action, target, alert, bySender) {
+function namedRule(action, target, alert, bySender, everything) {
     if (ADDRESS.test(target))
         return { action, kind: "sender", value: target, label: target };
-    if (DOMAIN.test(target))
-        return { action, kind: "domain", value: target.replace(/^@/, ""), label: target };
+    if (DOMAIN.test(target)) {
+        const domain = target.replace(/^@/, "");
+        if (isProtected(domain))
+            return refuseDomain(domain);
+        return everything ? { action, kind: "domain", value: domain, label: target } : confirmDomain(action, domain);
+    }
     const item = itemNamed(target, alert);
+    if (item && everything && item.domain)
+        return isProtected(item.domain) ? refuseDomain(item.domain) : { action, kind: "domain", value: item.domain, label: item.who };
     if (item)
         return itemRule(action, item);
     if (target.length < 2 || target.split(" ").length > 6)
         return undefined;
+    if (action === "mute" && PROTECTED_NAMES.has(target))
+        return refuseDomain(target);
     return { action, kind: bySender ? "sender" : "topic", value: target, label: target };
 }
 /** What this message teaches about his mail, if anything. Reads only. */
@@ -84,8 +126,17 @@ export function readMailMove(message, ctx) {
     const alerts = ctx.alerts ?? readMailAlerts(mailAlertsFile(ctx.stateDir));
     const alert = currentMailAlert(alerts, ctx.now, { ...(ctx.label !== undefined ? { label: ctx.label } : {}), lastPush: ctx.lastPush ?? null });
     for (const [action, bare] of [["mute", BARE_MUTE], ["boost", BARE_BOOST]]) {
-        if (alert && bare.test(m))
-            return { kind: "rules", action, rules: alert.items.slice(0, 3).map((i) => itemRule(action, i)) };
+        if (!alert || !bare.test(m))
+            continue;
+        // A bare reply binds only to an alert that named one mail; a digest is asked back.
+        return alert.items.length === 1 ? { kind: "rules", action, rules: [itemRule(action, alert.items[0])] } : whichOne(alert);
+    }
+    if (alert && alert.items.length > 1 && !EVERYTHING_FROM.test(m)) { // "the registrar one isn't important": one named item of a digest
+        const hit = mentioned(m, alert);
+        const action = MUTE_CUE.test(m) ? "mute" : BOOST_CUE.test(m) ? "boost" : undefined;
+        // Only when it clearly refers to the mail: "i dont care what sam thinks" is about Sam, not his email.
+        if (action && hit.length === 1 && refersToMail(m, ctx.label !== undefined))
+            return { kind: "rules", action, rules: [itemRule(action, hit[0])] };
     }
     for (const [action, patterns] of [["mute", NAMED_MUTE], ["boost", NAMED_BOOST]]) {
         for (const p of patterns) {
@@ -93,14 +144,17 @@ export function readMailMove(message, ctx) {
             if (!hit?.[1])
                 continue;
             const target = cleanTarget(hit[1]);
-            const named = namedRule(action, target, alert, aboutSender(hit[0]));
+            const named = namedRule(action, target, alert, aboutSender(hit[0]), EVERYTHING_FROM.test(m));
             if (!named)
                 continue;
+            const aboutMail = MAIL_WORD.test(m) || (!!alert && !!itemNamed(target, alert));
+            if (!(aboutMail || ADDRESS.test(target) || DOMAIN.test(target)))
+                continue;
+            if ("text" in named)
+                return named;
             // "my landlord" is "your landlord" when ORION says it back.
             const rule = named.label === target && /^\s*my\s/.test(hit[1]) ? { ...named, label: `your ${target}` } : named;
-            const aboutMail = MAIL_WORD.test(m) || (!!alert && !!itemNamed(target, alert));
-            if (aboutMail || ADDRESS.test(target) || DOMAIN.test(target))
-                return { kind: "rules", action, rules: [rule] };
+            return { kind: "rules", action, rules: [rule] };
         }
     }
     return undefined;
@@ -132,6 +186,8 @@ function saidText(action, saved) {
 }
 /** Saves the rules through orion-mail-prefs and says what was saved, from its answers. */
 export async function runMailMove(move, run) {
+    if (move.kind === "ask")
+        return { text: move.text, calls: [], outputs: [] }; // a question back: nothing is saved
     const log = { text: "", calls: [], outputs: [] };
     const saved = [];
     for (const r of move.rules) {

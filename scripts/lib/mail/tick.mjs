@@ -13,18 +13,23 @@ import { classifyGmailError } from "../gmail-status.mjs";
 import { appendLines, mailFile, readSeen, readState, writeState } from "./files.mjs";
 import { readJson } from "../awareness/io.mjs";
 import { emptyPrefs } from "./prefs.mjs";
-import { scoreMail, fromPerson } from "./score.mjs";
-import { alertRow, digestLine, planAlert } from "./alert.mjs";
+import { scoreMail, fromPerson, verifiedTeacher } from "./score.mjs";
+import { alertRow, digestLine, planAlert, recentUrgent } from "./alert.mjs";
+import { isSensitive, redactSensitive } from "./sensitive.mjs";
 
 export const POLL_EVERY_MS = 10 * 60_000;
+/** After failed polls the wait doubles (10, 20, 40 min), up to an hour, so a hanging or broken gog is not retried every tick. */
+export const MAX_BACKOFF_MS = 60 * 60_000;
+export const pollWaitMs = (failures = 0) => Math.min(POLL_EVERY_MS * 2 ** Math.max(0, (failures | 0) - 1), MAX_BACKOFF_MS);
 /** Below the important band but this close: kept when the model has no opinion. */
 const FALLBACK_KEEP_AT = 3;
 /** Model calls per poll: 4 x the 15 s timeout stays well inside orion-watches' 2-minute budget for this tick. */
 export const MAX_MODEL_CALLS = 4;
 export const RECONNECT_TEXT = "Gmail needs reconnecting, so I can't watch your inbox right now. Running gog auth add nmadaio08@gmail.com in Terminal fixes it.";
 
-const QUEUE_FIELDS = ["key", "threadId", "messageId", "fromName", "fromAddress", "domain", "subject", "snippet", "urgent", "person", "foundAt"];
-const queued = (item) => Object.fromEntries(QUEUE_FIELDS.filter((k) => item[k] !== undefined).map((k) => [k, item[k]]));
+const QUEUE_FIELDS = ["key", "threadId", "messageId", "fromName", "fromAddress", "domain", "subject", "snippet", "sensitive", "urgent", "person", "verifiedTeacher", "foundAt"];
+/** What waits in mail-state.json. Sensitive mail is redacted first: its subject and snippet are never stored. */
+const queued = (item) => { const safe = redactSensitive(item); return Object.fromEntries(QUEUE_FIELDS.filter((k) => safe[k] !== undefined).map((k) => [k, safe[k]])); };
 
 /** The verdict for one item: rules, then the model for borderline ones, then the rules' fallback. */
 async function judgeItem(item, { ctx, prefs, askModel, budget }) {
@@ -32,7 +37,7 @@ async function judgeItem(item, { ctx, prefs, askModel, budget }) {
   if (rules.level !== "borderline") return { ...rules, by: rules.rule ? "his rule" : "rules" };
   const ask = askModel && budget.left > 0;
   if (ask) budget.left -= 1;   // a per-poll counter, local to this tick
-  const opinion = ask ? await askModel(item, { prefs, reasons: rules.reasons }) : null;
+  const opinion = ask ? await askModel(redactSensitive(item), { prefs, reasons: rules.reasons }) : null;
   if (opinion) return { ...rules, level: opinion.important ? "important" : "skip", by: "local model", modelWhy: opinion.why };
   return { ...rules, level: rules.score >= FALLBACK_KEEP_AT ? "important" : "skip", by: "rules (model had no answer)" };
 }
@@ -55,16 +60,19 @@ export async function mailTick(deps) {
   const { dir, now, sandboxed = false, ctx = {}, fetchInbox, askModel = null, reach, force = false } = deps;
   const files = { seen: mailFile(dir, "seen", { sandboxed }), state: mailFile(dir, "state", { sandboxed }), prefs: mailFile(dir, "prefs", { sandboxed }), alerts: mailFile(dir, "alerts", { sandboxed }) };
   const state = readState(files.state);
-  if (!force && state.lastPollAt && now.getTime() - Date.parse(state.lastPollAt) < POLL_EVERY_MS) return { polled: false, reason: "polled under 10 min ago" };
+  const wait = pollWaitMs(state.failures);
+  if (!force && state.lastPollAt && now.getTime() - Date.parse(state.lastPollAt) < wait) return { polled: false, reason: `polled under ${Math.round(wait / 60_000)} min ago` };
   const today = localDate(now);
   const seen = readSeen(files.seen);
   const polledState = { ...state, lastPollAt: now.toISOString() };
+  // Claimed before gog runs: if this process is killed mid-fetch (orion-watches' budget), the next tick still waits.
+  writeState(files.state, polledState);
 
   let items;
   try {
     items = await fetchInbox({ isSeen: (key) => !!seen?.has(key), firstPoll: seen === null });
   } catch (error) {
-    const out = await reportFailure(error, { state: polledState, today, reach });
+    const out = await reportFailure(error, { state: { ...polledState, failures: (state.failures ?? 0) + 1 }, today, reach });
     writeState(files.state, out.state);
     return { polled: true, reason: `gmail ${out.state.problem}`, said: out.said };
   }
@@ -72,7 +80,7 @@ export async function mailTick(deps) {
   const fresh = items.filter((i) => i.key && !seen?.has(i.key));
   if (seen === null) {
     appendLines(files.seen, fresh.map((i) => ({ key: i.key, threadId: i.threadId, messageId: i.messageId, at: now.toISOString(), level: "seeded" })));
-    writeState(files.state, { ...polledState, problem: null });
+    writeState(files.state, { ...polledState, problem: null, failures: 0 });
     return { polled: true, reason: "first poll: learned what is already there", fresh: 0, said: null };
   }
 
@@ -84,20 +92,21 @@ export async function mailTick(deps) {
     level: verdict.level, by: verdict.by, why: verdict.reasons.slice(0, 6) })));
 
   const important = verdicts.filter((v) => v.verdict.level === "important")
-    .map(({ item, verdict }) => queued({ ...item, urgent: verdict.urgent, person: fromPerson(item), foundAt: now.toISOString() }));
-  const plan = planAlert({ queue: state.queue ?? [], fresh: important, lastAlertAt: state.lastAlertAt ?? null, now });
-  let next = { ...polledState, problem: null, queue: plan.keep };
+    .map(({ item, verdict }) => queued({ ...item, urgent: verdict.urgent, person: fromPerson(item), ...(verifiedTeacher(item, ctx) ? { verifiedTeacher: true } : {}), foundAt: now.toISOString() }));
+  const urgentSentAt = recentUrgent(state.urgentSentAt ?? [], now);
+  const plan = planAlert({ queue: state.queue ?? [], fresh: important, lastAlertAt: state.lastAlertAt ?? null, urgentSentAt, now });
+  let next = { ...polledState, problem: null, failures: 0, queue: plan.keep, urgentSentAt };
   let said = null;
   if (plan.send.length) {
     const text = digestLine(plan.send);
-    const urgent = plan.send.some((x) => x.urgent);
+    const urgent = plan.urgent;
     const sent = await reach(text, { why: `mail: ${plan.send.length} important${urgent ? " (urgent)" : ""}`, urgent });
     if (sent.ok) {
       appendLines(files.alerts, [alertRow({ id: sent.id ?? `mail-${now.getTime()}`, text, items: plan.send, now })]);
-      next = { ...next, lastAlertAt: now.toISOString(), queue: [] };
+      next = { ...next, lastAlertAt: now.toISOString(), queue: [], urgentSentAt: urgent ? [...urgentSentAt, now.toISOString()] : urgentSentAt };
       said = text;
     } else next = { ...next, queue: plan.send };   // not sent (a cap): tried again next poll, until it is 12 h old
   }
   writeState(files.state, next);
-  return { polled: true, fresh: fresh.length, said, reason: plan.reason, verdicts: verdicts.map(({ item, verdict }) => ({ subject: item.subject, from: item.fromAddress, level: verdict.level, by: verdict.by, score: verdict.score })) };
+  return { polled: true, fresh: fresh.length, said, reason: plan.reason, verdicts: verdicts.map(({ item, verdict }) => ({ subject: isSensitive(item) ? "(hidden: it holds a code)" : item.subject, from: item.fromAddress, level: verdict.level, by: verdict.by, score: verdict.score })) };
 }

@@ -73,3 +73,23 @@ describe("undo right after a food log", () => {
     expect(read("undo")).toBeNull();
   });
 });
+
+describe("several offers waiting (wave 14 review): naming one is a pick", () => {
+  const several = { pending: { at: NOW.getTime() - 60_000, via: "inbox" as const, offerText: "Food photo: ~540 kcal. Log it?", count: 3, names: ["cheeseburger and fries", "caesar salad", "pasta bolognese"] }, bound: true };
+  it.each([
+    "the burger",
+    "log the burger",
+    // held out
+    "yeah the salad",
+    "just the pasta one",
+    "the caesar salad pls",
+    "both",
+    "all of them",
+    "log all 3",
+    "the first one",
+    "last one",
+  ])("%s", (m) => expect(read(m, several)).toEqual({ kind: "pick", which: m }));
+  it.each(["yes", "yeah log it"])("a bare yes is still a yes (the script asks which): %s", (m) => expect(read(m, several)).toEqual({ kind: "yes" }));
+  it.each(["it was a small one", "the gym", "nah"])("not a pick: %s", (m) => expect(read(m, several)?.kind).not.toBe("pick"));
+  it("with one offer waiting, a name is not a pick", () => expect(read("the burger", { ...several, pending: { ...several.pending, count: 1 } })?.kind).not.toBe("pick"));
+});

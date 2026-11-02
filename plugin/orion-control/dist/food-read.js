@@ -13,6 +13,22 @@ const CORRECTION = /\b(?:it was|was (?:a|an|just|only|more|less|about|like)|actu
 const NOT_A_CORRECTION = /\b(?:remind|move|schedule|book|cancel|calendar|gym|class|alarm|timer|lights?|text|call|email|weather|focus|session|tomorrow|tonight|at \d)\b|\?$/i;
 const UNDO = /^(?:undo|undo (?:that|it)|remove (?:it|that)|delete (?:it|that)|take (?:it|that) (?:off|out)|scratch that|un-?log (?:it|that))$/i;
 const PHOTO_WORDS = /^(?:|log (?:this|that|it)|track (?:this|that)|this|that|food|meal|breakfast|lunch|dinner|snack|how many (?:calories|cals) (?:is|in|was) (?:this|that)|macros\??|calories\??|estimate (?:this|that|it)|what about this)$/i;
+const PICK_ALL = /^(?:both|all(?: of (?:them|em|those))?|all (?:three|3|two|2)|every one|everything|(?:the )?(?:first|second|third|last|1st|2nd|3rd)(?: one)?)$/;
+const PICK_STOP = new Set(["the", "one", "ones", "log", "add", "just", "only", "please", "pls", "that", "this"]);
+/** Which of several waiting offers he named, or null. Names come from food-pending.json ("cheeseburger and fries"). */
+function picked(said, names) {
+    const rest = said.replace(/^(?:(?:yes|yeah|yea|yep|ok|okay|sure)[, ]+)/, "").replace(/^(?:(?:log|add|just|only)\s+)+/, "").replace(/\s+(?:please|pls)$/, "").trim();
+    if (rest.length > 40)
+        return false;
+    if (PICK_ALL.test(rest))
+        return true;
+    const want = rest.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !PICK_STOP.has(w));
+    if (!want.length || want.length > 4)
+        return false;
+    const have = names.flatMap((n) => n.toLowerCase().split(/[^a-z0-9]+/)).filter((w) => w.length >= 3);
+    const stem = (w) => w.replace(/(?:es|s)$/, "");
+    return want.every((w) => have.some((h) => stem(h) === stem(w) || (stem(w).length >= 4 && h.includes(stem(w)))));
+}
 const tidy = (s) => s.trim().replace(/\s+/g, " ").replace(/^[,.:;\-–—\s]+|[?.!,\s]+$/g, "");
 const flat = (s) => s.toLowerCase().replace(/[’]/g, "'").replace(/[.!?…,]+$/g, "").replace(/\s+/g, " ").trim();
 /** The food in a calorie question: what follows the ask, else what came before it ("i had X, how many calories is that"). "" when neither. */
@@ -31,6 +47,8 @@ export function readFoodTurn(message, c) {
     if (m.length > 200)
         return null;
     if (c.pending && c.bound) {
+        if ((c.pending.count ?? 1) >= 2 && picked(said, c.pending.names ?? []))
+            return { kind: "pick", which: m };
         if (YES.test(said))
             return { kind: "yes" };
         if (THAT.test(said))

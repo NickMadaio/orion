@@ -20,14 +20,17 @@ const PHOTO_REUSE_MS = 30 * 60_000;
 const RUN_TIMEOUT_MS = 50_000;
 /** The real script with the plugin's state dir. Wired in by index.ts only. */
 export const liveFoodRun = (stateDir) => (args) => new Promise((resolve) => execFile(scriptPath("orion-food-estimate"), args, { timeout: RUN_TIMEOUT_MS, maxBuffer: 1 << 20, env: { ...process.env, ...(stateDir ? { ORION_CONTROLLED_DIR: stateDir } : {}) } }, (e, stdout) => resolve({ stdout: String(stdout ?? ""), code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
-/** The live offer in food-pending.json, or undefined. */
+/** The newest live offer in food-pending.json ({ offers: [...] }, or the older single object), with how many wait and their names. */
 export function readFoodPending(stateDir, now) {
     try {
-        const row = JSON.parse(readFileSync(join(stateDir, "food-pending.json"), "utf8"));
-        const at = Date.parse(String(row.at)), expires = Date.parse(String(row.expiresAt));
-        if (!Number.isFinite(at) || !(expires > now.getTime()) || typeof row.offerText !== "string")
+        const raw = JSON.parse(readFileSync(join(stateDir, "food-pending.json"), "utf8"));
+        const rows = Array.isArray(raw.offers) ? raw.offers : [raw];
+        const live = rows.filter((row) => Number.isFinite(Date.parse(String(row?.at))) && Date.parse(String(row?.expiresAt)) > now.getTime() && typeof row?.offerText === "string");
+        const newest = live.at(-1);
+        if (!newest)
             return undefined;
-        return { at, via: row.via === "inbox" ? "inbox" : "chat", offerText: row.offerText };
+        const view = { at: Date.parse(String(newest.at)), via: newest.via === "inbox" ? "inbox" : "chat", offerText: String(newest.offerText) };
+        return Array.isArray(raw.offers) ? { ...view, count: live.length, names: live.map((row) => String(row.name ?? "")) } : view;
     }
     catch {
         return undefined;
@@ -62,6 +65,8 @@ async function call(run, args) {
     return { j: parse(r.stdout), call: `orion-food-estimate ${args.join(" ")}`, out: r.stdout.trim().slice(0, 2000) };
 }
 function loggedLine(j) {
+    if (typeof j.say === "string")
+        return `${j.say} Say "undo" to take it off.`; // the script names what it logged
     const e = (j.entry ?? {});
     const l = (j.logged ?? {});
     return `${l.filled ? "Updated" : "Logged"} ${lower(e.title)} as ${lower(e.meal)}: ${e.calories} kcal, ${e.protein}P ${e.carbohydrates}C ${e.fat}F. ${l.dayCalories} kcal today. Say "undo" to take it off.`;
@@ -81,10 +86,15 @@ export async function runFoodTurn(turn, deps) {
             const l = (j.logged ?? {});
             return l.error ? `${String(j.summary)}. ${l.error}` : `${String(j.summary)}. Logged (${l.dayCalories} kcal today). Say "undo" to take it off.`;
         });
-        case "yes": return one(["log-pending", "--json"], loggedLine, (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
+        case "yes": return one(["log-pending", "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
+        case "pick": return one(["log-pending", "--pick", turn.which, "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
         case "no": return one(["discard", "--json"], () => "Okay, not logged.", () => "Okay, not logged.");
         case "revise": return one(["--revise", turn.correction, "--json"], offerOf);
         case "undo": return one(["undo", turn.id, "--json"], (j) => {
+            if (j.restored) {
+                const e = (j.entry ?? {});
+                return `Put ${lower(e.title)} back as it was (${e.calories} kcal). ${j.dayCalories} kcal today.`;
+            }
             const r = (j.removed ?? {});
             return `Took ${lower(r.title)} off (${r.calories} kcal). ${j.dayCalories} kcal today.`;
         }, (e) => `I couldn't take it off: ${e ?? "the health log didn't answer"}.`);

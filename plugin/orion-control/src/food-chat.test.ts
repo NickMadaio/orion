@@ -71,6 +71,34 @@ describe("runFoodTurn", () => {
   });
 });
 
+describe("several offers and a filled meal (wave 14 review)", () => {
+  const CHOOSE = { ok: true, choose: [{ id: "a", name: "cheeseburger and fries", kcal: 1138 }, { id: "b", name: "caesar salad", kcal: 318 }], say: 'You have 2 estimates waiting: the cheeseburger and fries (~1138 kcal) and the caesar salad (~318 kcal). Which should I log? Say "the cheeseburger", or "all of them".' };
+  const SAID = { ...LOGGED, say: "Logged the cheeseburger and fries, ~1138 kcal (lunch · 49P 117C 54F). 1450 kcal today." };
+  it("a yes with several waiting asks which, and logs nothing", async () => {
+    const out = await runFoodTurn({ kind: "yes" }, { run: fakeRun({ "log-pending": CHOOSE }), stateDir: dir(), now: NOW });
+    expect(out.text).toBe(CHOOSE.say);
+    expect(out.logged).toBeUndefined();
+  });
+  it("a pick logs the one he named and says which", async () => {
+    const calls: string[][] = [];
+    const out = await runFoodTurn({ kind: "pick", which: "the burger" }, { run: fakeRun({ "log-pending": SAID }, calls), stateDir: dir(), now: NOW });
+    expect(calls[0]).toEqual(["log-pending", "--pick", "the burger", "--json"]);
+    expect(out.text).toBe('Logged the cheeseburger and fries, ~1138 kcal (lunch · 49P 117C 54F). 1450 kcal today. Say "undo" to take it off.');
+    expect(out.logged?.id).toBe(LOGGED.logged.id);
+  });
+  it("undo of a filled meal says it was put back", async () => {
+    const restored = { ok: true, restored: true, entry: { id: "abc-1", title: "Burger and fries", calories: 0 }, day: "2026-11-02", dayCalories: 5 };
+    const out = await runFoodTurn({ kind: "undo", id: "abc-1" }, { run: fakeRun({ undo: restored }), stateDir: dir(), now: NOW });
+    expect(out.text).toBe("Put burger and fries back as it was (0 kcal). 5 kcal today.");
+  });
+  it("readFoodPending reads the keyed file: the newest live offer, with how many wait and their names", () => {
+    const d = dir();
+    const row = (id: string, name: string, minutes: number) => ({ id, name, at: new Date(NOW.getTime() - minutes * 60_000).toISOString(), expiresAt: new Date(NOW.getTime() + 3600_000).toISOString(), via: "inbox", offerText: `Food photo: ${name}. Log it?`, estimate: {} });
+    writeFileSync(join(d, "food-pending.json"), JSON.stringify({ offers: [row("a", "cheeseburger and fries", 20), row("b", "caesar salad", 10), { ...row("c", "old toast", 300), expiresAt: new Date(NOW.getTime() - 1000).toISOString() }] }));
+    expect(readFoodPending(d, NOW)).toEqual({ at: NOW.getTime() - 10 * 60_000, via: "inbox", offerText: "Food photo: caesar salad. Log it?", count: 2, names: ["cheeseburger and fries", "caesar salad"] });
+  });
+});
+
 describe("readFoodPending and FoodMemory", () => {
   it("reads a live offer and ignores an expired one", () => {
     const d = dir();

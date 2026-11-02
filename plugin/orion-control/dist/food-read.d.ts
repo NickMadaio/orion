@@ -15,6 +15,9 @@ export type FoodTurn = {
 } | {
     kind: "yes";
 } | {
+    kind: "pick";
+    which: string;
+} | {
     kind: "no";
 } | {
     kind: "revise";
@@ -28,6 +31,8 @@ export type FoodPendingView = {
     at: number;
     via: "chat" | "inbox";
     offerText: string;
+    count?: number;
+    names?: string[];
 };
 export type FoodContext = {
     now: Date;

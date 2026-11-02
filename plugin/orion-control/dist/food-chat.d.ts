@@ -14,7 +14,7 @@ export type FoodOutcome = {
 export declare const PHOTO_LINE = "I can't see photos sent in this chat yet. Send it with the food button on the phone and I'll estimate it, or tell me what it was.";
 /** The real script with the plugin's state dir. Wired in by index.ts only. */
 export declare const liveFoodRun: (stateDir?: string) => FoodRun;
-/** The live offer in food-pending.json, or undefined. */
+/** The newest live offer in food-pending.json ({ offers: [...] }, or the older single object), with how many wait and their names. */
 export declare function readFoodPending(stateDir: string, now: Date): FoodPendingView | undefined;
 /** Per chat: when a non-food turn last happened, and the last food entry logged here (for "undo"). */
 export declare class FoodMemory {

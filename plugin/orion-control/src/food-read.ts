@@ -10,6 +10,7 @@
    meal    "had a chicken burrito and a coke for lunch" (health-log.ts readMeal, with a real food): logged at once, then sized
    photo   an image attached in chat: the plugin is given only that an image exists, never its bytes, so the food inbox it is
    yes / no / revise   a short reply to a live offer ("yeah log it", "nah", "it was a small one"), only while it is bound
+   pick    with several offers waiting, the one he names ("the burger", "both", "the first one"); a bare yes asks which
    undo    "undo" within ten minutes of a food log in this chat
 */
 import type { MealRead } from "./health-log.js";
@@ -22,12 +23,13 @@ export type FoodTurn =
   | { kind: "meal"; read: MealRead }
   | { kind: "photo" }
   | { kind: "yes" }
+  | { kind: "pick"; which: string }
   | { kind: "no" }
   | { kind: "revise"; correction: string }
   | { kind: "undo"; id: string };
 
 /** The offer waiting in food-pending.json, as the plugin sees it. */
-export type FoodPendingView = { at: number; via: "chat" | "inbox"; offerText: string };
+export type FoodPendingView = { at: number; via: "chat" | "inbox"; offerText: string; count?: number; names?: string[] };
 
 export type FoodContext = {
   now: Date;
@@ -55,6 +57,20 @@ const NOT_A_CORRECTION = /\b(?:remind|move|schedule|book|cancel|calendar|gym|cla
 const UNDO = /^(?:undo|undo (?:that|it)|remove (?:it|that)|delete (?:it|that)|take (?:it|that) (?:off|out)|scratch that|un-?log (?:it|that))$/i;
 const PHOTO_WORDS = /^(?:|log (?:this|that|it)|track (?:this|that)|this|that|food|meal|breakfast|lunch|dinner|snack|how many (?:calories|cals) (?:is|in|was) (?:this|that)|macros\??|calories\??|estimate (?:this|that|it)|what about this)$/i;
 
+const PICK_ALL = /^(?:both|all(?: of (?:them|em|those))?|all (?:three|3|two|2)|every one|everything|(?:the )?(?:first|second|third|last|1st|2nd|3rd)(?: one)?)$/;
+const PICK_STOP = new Set(["the", "one", "ones", "log", "add", "just", "only", "please", "pls", "that", "this"]);
+/** Which of several waiting offers he named, or null. Names come from food-pending.json ("cheeseburger and fries"). */
+function picked(said: string, names: readonly string[]): boolean {
+  const rest = said.replace(/^(?:(?:yes|yeah|yea|yep|ok|okay|sure)[, ]+)/, "").replace(/^(?:(?:log|add|just|only)\s+)+/, "").replace(/\s+(?:please|pls)$/, "").trim();
+  if (rest.length > 40) return false;
+  if (PICK_ALL.test(rest)) return true;
+  const want = rest.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !PICK_STOP.has(w));
+  if (!want.length || want.length > 4) return false;
+  const have = names.flatMap((n) => n.toLowerCase().split(/[^a-z0-9]+/)).filter((w) => w.length >= 3);
+  const stem = (w: string) => w.replace(/(?:es|s)$/, "");
+  return want.every((w) => have.some((h) => stem(h) === stem(w) || (stem(w).length >= 4 && h.includes(stem(w)))));
+}
+
 const tidy = (s: string) => s.trim().replace(/\s+/g, " ").replace(/^[,.:;\-–—\s]+|[?.!,\s]+$/g, "");
 const flat = (s: string) => s.toLowerCase().replace(/[’]/g, "'").replace(/[.!?…,]+$/g, "").replace(/\s+/g, " ").trim();
 
@@ -73,6 +89,7 @@ export function readFoodTurn(message: string, c: FoodContext): FoodTurn | null {
   if (c.attachments?.some((a) => a.kind === "image") && PHOTO_WORDS.test(said)) return { kind: "photo" };
   if (m.length > 200) return null;
   if (c.pending && c.bound) {
+    if ((c.pending.count ?? 1) >= 2 && picked(said, c.pending.names ?? [])) return { kind: "pick", which: m };
     if (YES.test(said)) return { kind: "yes" };
     if (THAT.test(said)) return { kind: "that" };
     if (CORRECTION.test(said) && !NOT_A_CORRECTION.test(said) && said.length <= 140) return { kind: "revise", correction: m };

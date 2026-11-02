@@ -6,6 +6,7 @@ import { loadAgentPlan, briefsDirectory } from './plan.mjs';
 import { inspectLease } from './lease.mjs';
 import { auditContractScope } from './boundary.mjs';
 import { validateAwakeOptions } from './awake.mjs';
+import { validateProjectModels } from './project-models.mjs';
 
 export const PROJECT_HOME = join(homedir(), '.openclaw/orion-controlled/project-agent');
 export function projectRoot(id, home = PROJECT_HOME) {
@@ -25,7 +26,10 @@ export async function readProject(id, home = PROJECT_HOME) {
   let launchOptions;
   try { launchOptions = validateAwakeOptions(p.launchOptions ?? undefined); }
   catch (e) { throw new Error(`Invalid project launch options: ${e.message}`); }
-  return { ...p, launchOptions, root, planPath: join(root, p.planFile) };
+  let models;
+  try { models = validateProjectModels(p.models); }
+  catch (e) { throw new Error(`Invalid project models: ${e.message}`); }
+  return { ...p, launchOptions, models, root, planPath: join(root, p.planFile) };
 }
 // Saved by `launch` so the next launch — from the app or the CLI — starts from
 // the same choices. Written to a temporary file and renamed, so the app, which

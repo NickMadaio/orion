@@ -234,6 +234,7 @@ struct ProjectWorkspace: View {
     @State private var stopAt = ProjectRunStopRule.defaultTime
     @State private var confirmingKill = false
     @State private var launchOptions = ProjectLaunchOptions()
+    @StateObject private var modelStore = ProjectModelStore()
     /// Remembered separately so switching the nudge off and on keeps the interval.
     @State private var nudgeInterval = 5
     @State private var preflight: ProjectPreflight?
@@ -328,9 +329,12 @@ struct ProjectWorkspace: View {
             launchOptions = ProjectLaunchOptions.read(projectRoot: project.root)
             if launchOptions.nudgeMinutes > 0 { nudgeInterval = launchOptions.nudgeMinutes }
             refresh(loadPlan: true)
+            // Ollama is asked every time the project opens, so a model pulled since is already in the list.
+            modelStore.bind(project.id)
         }
+        .onChange(of: project.id) { _, id in modelStore.bind(id) }
         .onChange(of: ticker.tick) { _, _ in refresh() }
-        .onChange(of: manualRefresh) { _, _ in refresh(loadPlan: true) }
+        .onChange(of: manualRefresh) { _, _ in refresh(loadPlan: true); modelStore.refresh() }
         .confirmationDialog("Exterminate the model call in flight?", isPresented: $confirmingKill) {
             Button("Exterminate", role: .destructive) { halt(.exterminate) }
             Button("Cancel", role: .cancel) {}
@@ -488,6 +492,7 @@ struct ProjectWorkspace: View {
                                        checking: checkingPower, enabled: enabled)
                     .disabled(busy)
                     .transition(.opacity.combined(with: .move(edge: .top)))
+                ProjectModelSection(store: modelStore).padding(.top, 26).disabled(busy)
             }
         }
     }

@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { listProjects, registerProject, readProject, refreshProject, rebriefProject, saveProjectLaunchOptions, prepareProjectContinuation, PROJECT_HOME } from './lib/agentic/projects.mjs';
 import { acquireLease, releaseLease, inspectLease } from './lib/agentic/lease.mjs';
 import { loadAgenticConfig, CONFIG_PATH } from './lib/agentic/models.mjs';
+import { discoverModels, saveProjectModel } from './lib/agentic/project-models.mjs';
 import { readProjectAgent, steerProjectAgent } from './lib/orion-project-agent.mjs';
 import { sendDiscordAlert } from './lib/agentic/escalation.mjs';
 import { loadAgentPlan } from './lib/agentic/plan.mjs';
@@ -155,6 +156,15 @@ try {
         }
       } finally { await releaseLease(lock); }
     }
-  } else throw new Error('usage: orion-projects list | add PLAN [NAME] | refresh ID | rebrief ID | preflight | ' +
+  } else if (command === 'models' && !args.length) {
+    // Live from Ollama on every call: a model pulled a minute ago is in it.
+    const config = await loadAgenticConfig();
+    out({ endpoint: config.endpoint, models: await discoverModels(config.endpoint),
+      defaults: Object.fromEntries(Object.entries(config.roles).map(([role, spec]) => [role, spec.model])) });
+  } else if (command === 'set-model' && args.length === 3) {
+    // `default` clears the override so the project follows the global role again.
+    const project = await readProject(args[0]);
+    out({ projectID: project.id, models: await saveProjectModel(project.root, args[1], args[2]) });
+  } else throw new Error('usage: orion-projects list | add PLAN [NAME] | refresh ID | rebrief ID | preflight | models | set-model ID worker|reviewer MODEL|default | ' +
     'launch ID (--until ISO_TIME | --until-stopped) [--enable] [--keep-display-on] [--nudge-minutes N] [--no-keep-awake]');
 } catch(e) { console.error(e.message); process.exitCode=1; }

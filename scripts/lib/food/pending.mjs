@@ -159,5 +159,7 @@ export function loggedLine(entry, estimate, verb = "Logged") {
   return `${verb} ~${kcal} kcal — ${what || entry.title.toLowerCase()}: ${entry.protein}P ${entry.carbohydrates}C ${entry.fat}F. Fix anything?`;
 }
 
-/** The newest live offer that is an already-logged photo, if it is also the newest offer of all (a bare reply is about it). */
-export const newestLogged = (live) => (live.at(-1)?.logged ? live.at(-1) : null);
+/** The newest live offer that is an already-logged photo: what a correction is about, wherever it sits among the open offers. */
+export const loggedOffer = (live) => live.findLast((o) => o.logged) ?? null;
+/** The offers still waiting on a yes or no (not already logged): what a bare yes or no answers. */
+export const openOffers = (live) => live.filter((o) => !o.logged);

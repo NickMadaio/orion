@@ -30,10 +30,15 @@ export function readFoodPending(stateDir, now) {
         if (!newest)
             return undefined;
         const view = { at: Date.parse(String(newest.at)), via: newest.via === "inbox" ? "inbox" : "chat", offerText: String(newest.offerText) };
-        const loggedId = typeof newest.logged?.id === "string" ? newest.logged.id : undefined;
+        // A photo already logged ("Fix anything?") is not an open question: count and names are the offers still waiting on a yes,
+        // and the logged entry rides apart, so a correction goes to it while yes / no / the picks go to the open question.
+        const loggedId = [...live].reverse().map((row) => row.logged?.id).find((id) => typeof id === "string");
         if (loggedId)
             view.loggedId = loggedId;
-        return Array.isArray(raw.offers) ? { ...view, count: live.length, names: live.map((row) => String(row.name ?? "")) } : view;
+        if (!Array.isArray(raw.offers))
+            return view;
+        const open = live.filter((row) => !row.logged);
+        return { ...view, count: open.length, names: open.map((row) => String(row.name ?? "")) };
     }
     catch {
         return undefined;

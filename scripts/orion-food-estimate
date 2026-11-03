@@ -28,7 +28,7 @@ import { clockNow } from "./lib/clock.mjs";
 import { estimateMeal } from "./lib/food/estimate.mjs";
 import { readImages } from "./lib/food/ollama.mjs";
 import { latestUncounted, logEstimate, undoEntry, healthLogPath } from "./lib/food/log.mjs";
-import { claimPending, clearPending, livePending, loggedLine, newestLogged, restorePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
+import { claimPending, clearPending, livePending, loggedLine, loggedOffer, openOffers, restorePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
 import { runInbox } from "./lib/food/inbox.mjs";
 import { readFileSync } from "node:fs";
 
@@ -98,7 +98,7 @@ async function reviseCommand(correction) {
   const live = livePending({ now });
   if (!live.length) finish({ ok: false, error: "no estimate is waiting to be corrected" }, "There's no estimate waiting, so there's nothing to correct. Tell me what you ate.");
   if (!correction.trim() || correction.length > 300) usage();
-  const logged = one("--pick") === undefined ? newestLogged(live) : null;
+  const logged = one("--pick") === undefined ? loggedOffer(live) : null;
   const pending = logged ?? whichOffer(live, one("--pick"), "correct");
   let images = [];
   try { images = readImages(pending.photos ?? []); } catch { images = []; }
@@ -141,9 +141,11 @@ function whichOffer(live, pick, verb) {
 
 /** no to "Log it?": drops the offer he named, the only one waiting, or "all of them"; with several and no name, asks. */
 function discardCommand() {
-  const live = livePending({ now });
-  if (!live.length) finish({ ok: true, discarded: 0 }, "No estimate was waiting.");
-  const keep = one("--pick") === undefined ? newestLogged(live) : null;
+  const everything = livePending({ now });
+  if (!everything.length) finish({ ok: true, discarded: 0 }, "No estimate was waiting.");
+  const open = openOffers(everything);
+  const live = open.length ? open : everything;   // a no answers the open question; with none, it is the "Fix anything?" no
+  const keep = one("--pick") === undefined && !open.length ? loggedOffer(everything) : null;
   if (keep) {   // "no" to "Fix anything?": nothing to fix, it stays logged
     clearPending({ ids: [keep.id], now });
     finish({ ok: true, discarded: 1, kept: true, say: "Okay, it stays logged." }, "Okay, it stays logged.");
@@ -162,9 +164,11 @@ function logOne(offer) {
 
 /** yes to "Log it?". One offer waiting: logged and named. Several and no --pick: listed and asked. --pick: the ones he named. */
 function logPendingCommand() {
-  const live = livePending({ now });
+  const everything = livePending({ now });
+  const open = openOffers(everything);
+  const live = open.length ? open : everything;   // a yes answers the open question; with none, it is the "Fix anything?" yes
   if (!live.length) finish({ ok: false, error: "no estimate is waiting to be logged" }, "There's no estimate waiting to log.");
-  const keep = one("--pick") === undefined ? newestLogged(live) : null;
+  const keep = one("--pick") === undefined && !open.length ? loggedOffer(everything) : null;
   if (keep) {   // "yes" to "Fix anything?": it is already logged; nothing is added
     clearPending({ ids: [keep.id], now });
     const say = `It's already logged (~${kcalOf(keep)} kcal).`;

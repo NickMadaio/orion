@@ -51,7 +51,8 @@ export function update(file, now, change) {
       if (error.code !== "ENOENT") throw new Error("the health log isn't readable JSON, so nothing was written");
       log = { schema: "orion.health.v3", supplements: [], supplementLog: {}, workouts: [] };
     }
-    const { next, result } = change(log);
+    const { next, result, noWrite } = change(log);
+    if (noWrite) return result;
     const at = stamp(now);
     const scratch = join(dirname(file), `.health-log.${randomUUID()}.tmp`);
     writeFileSync(scratch, JSON.stringify({ ...next, updatedAt: at }, null, 2)); chmodSync(scratch, 0o600); renameSync(scratch, file);
@@ -98,8 +99,8 @@ const refused = () => ({ ok: false, refused: true, error: "Not logged: ORION is 
 
 /**
  Appends an estimate, or fills an existing entry (target.entryId: a meal logged earlier with 0 kcal) with its numbers.
- target.replace: the entry is one this tool wrote and Nick corrected; it is rewritten in place (new title and numbers, same id) and not journaled,
- so undo removes it instead of restoring the first guess.
+ target.replace: the entry is one this tool wrote and Nick corrected; it is rewritten in place (new title and numbers, same id). The entry it replaced is journaled, so the first undo puts it back and a second removes it;
+ with no such entry nothing is written (never a duplicate).
  Resolves { ok, entry, day, dayCalories } / { ok: false, error }.
 */
 export function logEstimate(estimate, { meal, at, now = at, target, env = process.env } = {}) {
@@ -111,6 +112,7 @@ export function logEstimate(estimate, { meal, at, now = at, target, env = proces
       const day = located?.day ?? dayKey(at);
       const existing = log.nutritionLog?.[day] ?? [];
       const prior = located ? existing[located.index] : null;
+      if (target?.replace && !prior) return { next: log, noWrite: true, result: { ok: false, error: "that entry is no longer in the health log" } };
       const entry = prior && target.replace
         ? entryFor(estimate, { meal: prior.meal ?? meal, at: new Date(prior.loggedAt ?? at), id: prior.id })
         : prior
@@ -120,7 +122,7 @@ export function logEstimate(estimate, { meal, at, now = at, target, env = proces
       const next = withDayTotal(log, day, entries, now);
       return { next, result: { ok: true, entry, day, filled: !!prior, before: prior, dayCalories: next.days[day].calories } };
     });
-    if (out.ok && out.before && !target?.replace) writeJournal([...readJournal(env).filter((r) => r.id !== out.entry.id), { id: out.entry.id, day: out.day, before: out.before, at: stamp(now) }], env);
+    if (out.ok && out.before) writeJournal([...readJournal(env).filter((r) => r.id !== out.entry.id), { id: out.entry.id, day: out.day, before: out.before, at: stamp(now) }], env);
     const { before: _before, ...result } = out;
     return result;
   } catch (error) { return { ok: false, error: error.message }; }

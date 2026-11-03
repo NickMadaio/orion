@@ -120,13 +120,26 @@ describe("a reply to a photo that was already logged", () => {
   it.each(["ya thats fine", "yep", "ok"])("%s is yes: it stays logged", (m) => expect(read(m, logged)).toEqual({ kind: "yes" }));
   it.each(["nah thats right", "no"])("%s is no: nothing to fix, it stays", (m) => expect(read(m, logged)).toEqual({ kind: "no" }));
   it.each(["undo", "nvm delete that", "remove it pls", "scratch that", "take it off"])("%s takes the entry off", (m) => expect(read(m, logged)).toEqual({ kind: "undo", id: ID }));
-  it.each(["it was 2 slices", "no pineapple tho", "more like 800", "nah that was a veggie one", "i only ate half", "forgot the garlic bread"])("%s edits it in place", (m) =>
+  it.each(["it was 2 slices", "no pineapple tho", "more like 800", "nah that was a veggie one", "i only ate half", "forgot the garlic bread", "was a small one", "make it 3 slices"])("%s edits it in place", (m) =>
     expect(read(m, logged)).toEqual({ kind: "revise", correction: m }));
-  it("chatter, questions and other requests are not edits", () => {
-    for (const m of ["lol thanks", "cool", "whats the weather", "remind me to call mom at 5", "move gym to 6"]) expect(read(m, logged)).toBeNull();
+  it.each([["also had a coffee", "a coffee"], ["then i had a bagel", "a bagel"]])("%s is a new log, never an overwrite", (m, text) => expect(read(m, logged)).toEqual({ kind: "log", text }));
+  it("chatter and other requests are neither an edit nor a log", () => {
+    for (const m of ["lol thanks", "cool", "im not hungry", "i had a long day", "that was great", "just got home", "whats the weather", "remind me to call mom at 5", "move gym to 6"]) expect(read(m, logged), m).toBeNull();
   });
   it("is not an edit once another conversation came in between", () => expect(read("it was 2 slices", { ...logged, bound: false })).toBeNull());
-  it("with older offers also waiting, the logged photo still answers a bare reply", () => {
-    expect(read("it was 2 slices", { ...logged, pending: { ...logged.pending, count: 2, names: ["burger", "pizza slice"] } })).toEqual({ kind: "revise", correction: "it was 2 slices" });
+  describe("with an older open 'Log it?' offer too", () => {
+    const both = { ...logged, pending: { ...logged.pending, count: 1, names: ["burger"] } };
+    it("a yes or no answers the open question", () => {
+      expect(read("yeah", both)).toEqual({ kind: "yes" });
+      expect(read("nah", both)).toEqual({ kind: "no" });
+    });
+    it("a correction and an undo go to the logged entry", () => {
+      expect(read("it was 2 slices", both)).toEqual({ kind: "revise", correction: "it was 2 slices" });
+      expect(read("undo", both)).toEqual({ kind: "undo", id: ID });
+    });
+    it("with two open offers a bare yes still asks which (pick path), naming one picks it", () => {
+      const two = { ...logged, pending: { ...logged.pending, count: 2, names: ["burger", "salad"] } };
+      expect(read("the burger", two)).toEqual({ kind: "pick", which: "the burger" });
+    });
   });
 });

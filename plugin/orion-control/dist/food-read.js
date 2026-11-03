@@ -16,17 +16,31 @@ const PHOTO_WORDS = /^(?:|log (?:this|that|it)|track (?:this|that)|this|that|foo
 /** Replies to "Logged … Fix anything?" (a photo already in his log): the entry is edited in place, so almost any short food-ish reply is a fix. */
 const LOGGED_OK = /^(?:(?:ya|yeah|yep|yes|ok|okay|nah|nope|no)[, ]+)?(?:that'?s |thats |it'?s |its )?(?:fine|good|right|correct|perfect|all good|looks good|about right|close enough)$/;
 const LOGGED_UNDO = /^(?:(?:nvm|nevermind|never mind|ok|okay|actually|pls|please)[, ]+)*(?:undo|remove|delete|take|scratch|un-?log|get rid of)(?: (?:it|that|this|that one|that entry|the entry))?(?: (?:off|out))?(?: (?:pls|please))?$/;
-const FIX_HINT = /\b(?:\d+|no|not|without|more|less|like|about|around|instead|slices?|pieces?|bites?|cups?|bowls?|plates?|portion|serving|extra|add|plus|forgot|missing|wrong|half|quarter|whole|veggie|vegan|diet|zero|ate|had|was|were|only|just|too|bigger|smaller)\b/;
-function readLogged(said, m, id) {
+/** A correction to the item that was logged: a count or amount, a removal, "more like 800", "that was X instead", a missing item. Not a new food, not chatter. */
+const FIX_ONLY = new RegExp([
+    String.raw `\b\d+(?:\.\d+)?\s*(?:slices?|pieces?|bites?|cups?|bowls?|plates?|servings?|portions?|g|grams?|ml|oz|cal|cals|kcal|calories)\b`,
+    String.raw `\b(?:more|less|closer|around|about|like)\s+(?:like\s+)?\d+`,
+    String.raw `^(?:(?:nah|nope|no)[, ]+)?(?:no|without|minus|hold the|skip the) [a-z]+`,
+    String.raw `\b(?:instead|(?:it|that) was (?:a|an|\d|only|just|more|less|about|like|half|small|large|big|veggie|vegan|diet|the|actually)|was (?:a|an|only|just|more|less|about|like|half|small|large|big)|only (?:ate|had)|just (?:the|a|an|half|one|two)|half|double|small(?:er)?|bigger|large|tiny|huge|extra|veggie|vegan|diet|zero|forgot|missing|wrong|make it \d+)\b`,
+].join("|"), "i");
+/** "also had a coffee", "then i had a bagel": more food, so a new log (never an overwrite of the logged photo). */
+const MORE_FOOD = /^(?:i )?(?:also|then|and)(?: i)? (?:had|ate|drank|got) (.{2,80})$/;
+/** Replies to "Logged … Fix anything?" (a photo already in his log). `open`: older offers still wait on a yes (they own yes, no and the picks). */
+function readLogged(said, m, id, open) {
     if (LOGGED_UNDO.test(said))
         return { kind: "undo", id };
-    if (LOGGED_OK.test(said))
-        return /^(?:nah|nope|no)\b/.test(said) ? { kind: "no" } : { kind: "yes" };
-    if (YES.test(said))
-        return { kind: "yes" };
-    if (NO.test(said))
-        return { kind: "no" };
-    if (said.length <= 140 && !NOT_A_CORRECTION.test(said) && (CORRECTION.test(said) || FIX_HINT.test(said)))
+    if (!open) {
+        if (LOGGED_OK.test(said))
+            return /^(?:nah|nope|no)\b/.test(said) ? { kind: "no" } : { kind: "yes" };
+        if (YES.test(said))
+            return { kind: "yes" };
+        if (NO.test(said))
+            return { kind: "no" };
+    }
+    const more = MORE_FOOD.exec(said);
+    if (more)
+        return { kind: "log", text: tidy(more[1]) };
+    if (said.length <= 140 && !NOT_A_CORRECTION.test(said) && FIX_ONLY.test(said) && !(open && NO.test(said)))
         return { kind: "revise", correction: m };
     return null;
 }
@@ -83,13 +97,14 @@ export function readFoodTurn(message, c) {
         return { kind: "photo" };
     if (m.length > 200)
         return null;
+    const open = c.pending ? (c.pending.loggedId ? (c.pending.count ?? 0) : (c.pending.count ?? 1)) : 0;
     if (c.pending?.loggedId && c.bound) {
-        const t = readLogged(said, m, c.pending.loggedId);
+        const t = readLogged(said, m, c.pending.loggedId, open > 0);
         if (t)
             return t;
     }
-    if (c.pending && c.bound) {
-        const count = c.pending.count ?? 1, names = c.pending.names ?? [];
+    if (c.pending && c.bound && open > 0) {
+        const count = open, names = c.pending.names ?? [];
         const no = readNo(said, m, names, count);
         if (no)
             return no;
@@ -99,7 +114,7 @@ export function readFoodTurn(message, c) {
             return { kind: "yes" };
         if (THAT.test(said))
             return { kind: "that" };
-        if (CORRECTION.test(said) && !NOT_A_CORRECTION.test(said) && said.length <= 140)
+        if (CORRECTION.test(said) && !NOT_A_CORRECTION.test(said) && said.length <= 140 && !c.pending.loggedId)
             return { kind: "revise", correction: m, ...(count >= 2 && mentions(said, names) ? { which: m } : {}) };
         if (NO.test(said))
             return { kind: "no" };

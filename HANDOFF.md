@@ -88,6 +88,7 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 - **Phone widgets:** blue hologram stills and palette, Home-style widgets, and a food photo pill on the phone Home.
 - **Projects:** the model picker sizes itself to the longest name.
 - Allowlisted orion-apps and orion-mouse.
+- **Scroll:** the mouse wheel is reversed in the event tap (discrete events only), so the trackpad stays natural. Setting `reverseWheel` defaults to always.
 - **Evening:** typed summon overlay (⌃⌥Space, orion://type): the composer sits bottom-centre and the hologram slides left when the answer comes. On-demand "game ready" runs `orion-apps game-prep --now`. Mouse setup and Type to ORION are in the menu bar. The Swift voice test in the 211 suite is flaky.
 - **Later the same day:** ORION speaks in the first person: self-voice.ts guards it at finalize, the prompts were rewritten, and the live IDENTITY.md too. Phrasings like "pull up the mouse mapper again" now reopen the popup. "open spotify" is a code-chosen app_open. Stage Manager is toggled through the Control Center AX checkbox, because the defaults key is ignored on macOS 26. Game sessions pause every mouse binding, and `orion-apps game-prep` closes non-essentials and unloads idle models. The Razer's third button sends no HID input over Bluetooth (checked live). Flaky: mail-hardening "gog is killed…" timing test, about 1 run in 2.
 

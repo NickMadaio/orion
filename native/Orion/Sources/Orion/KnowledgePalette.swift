@@ -23,6 +23,30 @@ struct KnowledgePalette {
         return Color(.sRGB, red: r * k, green: g * k, blue: b * k, opacity: 1)
     }
 
+    /// A node's hue: its vault folder in the Brain view, its kind everywhere else.
+    func tint(_ node: KnowledgeNode) -> Color {
+        node.isBrainNote ? folderColor(node.group) : color(node.kind)
+    }
+
+    /// One hue per numbered vault folder (00 Inbox … 90 System); the unnumbered root and unresolved links get their own.
+    func folderColor(_ group: String?) -> Color {
+        let table: [(Double, Double, Double)] = [
+            (0.62, 0.68, 0.80),  // 00 Inbox: slate
+            (0.70, 0.52, 1.00),  // 10 Projects: violet
+            (0.36, 0.92, 0.60),  // 20 Areas: green
+            (0.36, 0.72, 1.00),  // 30 Resources: blue
+            (1.00, 0.80, 0.38),  // 40 Daily: amber
+            (1.00, 0.52, 0.80),  // 50 Concepts: rose
+            (0.18, 0.83, 1.00),  // 60 Sources: cyan
+            (0.82, 0.84, 0.94),  // 90 System: pale steel
+            (0.84, 0.95, 0.42),  // the root: lime
+            (0.55, 0.58, 0.68),  // unresolved: dim steel
+        ]
+        let (r, g, b) = table[BrainVault.slot(of: group)]
+        let k = isDark ? 1.0 : 0.68
+        return Color(.sRGB, red: r * k, green: g * k, blue: b * k, opacity: 1)
+    }
+
     private static func rgb(_ type: KnowledgeNodeType) -> (Double, Double, Double) {
         switch type {
         case .person: (0.18, 0.83, 1.00)      // OrionTheme.accent

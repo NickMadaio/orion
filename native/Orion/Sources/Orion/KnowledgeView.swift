@@ -25,23 +25,37 @@ struct KnowledgeView: View {
     private static let headerHeight: CGFloat = 92
 
     private var headline: String {
-        KnowledgeHeadline.line(nodes: store.graph.nodes.filter { $0.id != "person:self" }.count, edges: store.graph.edges.count)
+        if store.mode == .brain {
+            return "\(store.brain.noteCount) notes · \(store.brain.graph.edges.count) links · your vault, read-only"
+        }
+        return KnowledgeHeadline.line(nodes: store.graph.nodes.filter { $0.id != "person:self" }.count, edges: store.graph.edges.count)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            PageHeader(title: "Knowledge", subline: headline)
+            PageHeader(title: "Knowledge", subline: headline) {
+                KnowledgeModeSwitch(mode: $store.mode).padding(.top, 8)
+            }
                 .padding(.leading, 14)
                 .frame(height: Self.headerHeight, alignment: .top)
             columns
         }
         .frame(height: max(420 + Self.headerHeight, availableHeight))
         .environment(\.knowledgePalette, KnowledgePalette(scheme: scheme))
-        .onAppear { store.load() }
+        .onAppear { store.load(); if store.mode == .brain { store.brain.load() } }
+        .onChange(of: store.mode) { _, mode in if mode == .brain { store.brain.load() } }
         .onExitCommand { store.selectedID = nil }
     }
 
-    private var columns: some View {
+    @ViewBuilder private var columns: some View {
+        if store.mode == .brain {
+            BrainView(brain: store.brain, ring: ring, snapshot: snapshot)
+        } else {
+            knowsColumns
+        }
+    }
+
+    private var knowsColumns: some View {
         GeometryReader { proxy in
             // A narrow window gives the graph the space: the side columns tighten before it does.
             let narrow = proxy.size.width < 1060

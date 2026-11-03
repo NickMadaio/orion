@@ -63,10 +63,13 @@ enum SkyLabels {
         let selected = f.sky.selectedID == node.id
         let focus = f.sky.hovered ?? f.sky.selectedID.flatMap { f.sky.index[$0] }
         let near = focus.map { $0 == i || f.sky.neighbours[$0].contains(i) } ?? false
-        let prominent = node.isSelf || selected || near || f.sky.degree[i] >= 4 || f.sky.camera.zoom > 1.35 || f.style.searchActive
+        let touched = selected || near || f.sky.hovered == i
+        // A vault is far too big to name at once: names arrive with zoom, busiest notes first.
+        if f.sky.isBrain, !touched, !f.style.searchActive, f.sky.degree[i] < brainMinDegree(zoom: f.sky.camera.zoom) { return nil }
+        let prominent = node.isSelf || node.isHub || selected || near || f.sky.degree[i] >= 4 || f.sky.camera.zoom > 1.35 || f.style.searchActive
         guard prominent || f.sky.camera.zoom >= 0.8 else { return nil }
-        let size: CGFloat = node.isSelf ? 13 : (selected ? 12 : (prominent ? 10.5 : 9.5))
-        let weight: Font.Weight = node.isSelf || selected ? .semibold : .medium
+        let size: CGFloat = node.isSelf ? 13 : (node.isHub ? 11.5 : (selected ? 12 : (prominent ? 10.5 : 9.5)))
+        let weight: Font.Weight = node.isSelf || node.isHub || selected ? .semibold : .medium
         let full = selected || f.sky.hovered == i || node.label.count <= 20
         let title = full ? node.label : String(node.label.prefix(18)) + "…"
         let key = "\(title)|\(size)|\(weight == .semibold)"
@@ -91,9 +94,20 @@ enum SkyLabels {
         let rect = CGRect(x: p.x - measured.width / 2, y: top, width: measured.width, height: measured.height)
         let padded = rect.insetBy(dx: -3, dy: -1)
         guard !taken.contains(where: { $0.intersects(padded) }),
-              !stars.contains(where: { $0.0 != i && $0.1.intersects(padded) }) else { return nil }
+              node.isHub || (f.sky.isBrain && f.sky.degree[i] >= 12) || !stars.contains(where: { $0.0 != i && $0.1.intersects(padded) }) else { return nil }
         taken.append(padded)
         return Placed(text: resolved ?? context.resolve(text), at: CGPoint(x: drawn.x, y: drawn.y + gap), opacity: f.sky.light[i] * f.sky.appear(i))
+    }
+
+    /// The fewest links a note needs to be named at this zoom (Brain only).
+    static func brainMinDegree(zoom: CGFloat) -> Int {
+        switch zoom {
+        case ..<0.85: 9
+        case ..<1.2: 4
+        case ..<1.7: 3
+        case ..<2.4: 2
+        default: 0
+        }
     }
 
     // MARK: Hover card
@@ -114,17 +128,21 @@ enum SkyLabels {
         guard let i = f.sky.cardIndex, f.sky.card > 0.01, f.sky.visible[i] else { return nil }
         let node = f.sky.nodes[i]
         let palette = f.style.palette
-        let tint = palette.color(node.kind)
-        let kind = context.resolve(Text(node.kind.singular.uppercased()).font(OrionTheme.mono(9, .semibold)).tracking(2).foregroundColor(tint))
+        let tint = palette.tint(node)
+        let kind = context.resolve(Text(node.cardKind.uppercased()).font(OrionTheme.mono(9, .semibold)).tracking(2).foregroundColor(tint))
         let title = context.resolve(Text(node.label).font(.system(size: 16, weight: .medium, design: .serif)).foregroundColor(palette.text))
         let bound = CGSize(width: cardWidth, height: 120)
         let kindSize = kind.measure(in: bound), titleSize = title.measure(in: bound)
         let kindHeight = kindSize.height, titleHeight = titleSize.height
         let lines = (node.subtitle.map { [$0] } ?? []) + node.facts.prefix(2).map(\.text)
-        let facts = lines.prefix(2).map { line -> (GraphicsContext.ResolvedText, CGSize) in
+        var facts = lines.prefix(2).map { line -> (GraphicsContext.ResolvedText, CGSize) in
             let short = line.count > 90 ? String(line.prefix(88)) + "…" : line
             let text = context.resolve(Text(short).font(.system(size: 11.5)).foregroundColor(palette.textSoft))
             return (text, text.measure(in: CGSize(width: cardWidth, height: 32)))
+        }
+        if node.openURL != nil {
+            let open = context.resolve(Text("CLICK TO OPEN IN OBSIDIAN").font(OrionTheme.mono(8.5, .medium)).tracking(1.4).foregroundColor(tint.opacity(0.9)))
+            facts.append((open, open.measure(in: CGSize(width: cardWidth, height: 20))))
         }
         // Left-aligned always; on the left of a node the block is as wide as its widest line, so it ends near the node.
         let width = min(cardWidth, max(150, kindSize.width, titleSize.width, facts.map(\.1.width).max() ?? 0))

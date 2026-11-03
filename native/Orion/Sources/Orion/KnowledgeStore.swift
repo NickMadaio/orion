@@ -39,6 +39,10 @@ final class KnowledgeStore: ObservableObject {
     /// drawn by a Canvas that reads it directly). It lives here because the dashboard owns this store across tab
     /// switches, so the graph keeps its shape and camera and never replays its entrance.
     let sky = KnowledgeSky()
+    /// Which graph the tab shows: what ORION knows, or the whole Obsidian vault.
+    @Published var mode: KnowledgeMode = .knows
+    /// The vault graph (wave 17): read-only, parsed off the main thread, with its own sky.
+    let brain: BrainStore
 
     private var raw: KnowledgeGraph = .empty
     private let directory: URL?
@@ -49,14 +53,16 @@ final class KnowledgeStore: ObservableObject {
     }
 
     /// `directory` nil is a preview or a render: nothing is read from or written to disk.
-    init(directory: URL? = KnowledgeStore.defaultDirectory, rebuildCommand: [String]? = KnowledgeStore.installedRebuild()) {
+    init(directory: URL? = KnowledgeStore.defaultDirectory, rebuildCommand: [String]? = KnowledgeStore.installedRebuild(),
+         brain: BrainStore? = nil) {
+        self.brain = brain ?? BrainStore(vault: directory == nil ? nil : BrainVault.vaultURL())
         self.directory = directory
         self.rebuildCommand = rebuildCommand
     }
 
     /// A store over a fixed graph (previews, renders, tests).
-    convenience init(graph: KnowledgeGraph, overrides: KnowledgeOverrides = KnowledgeOverrides()) {
-        self.init(directory: nil, rebuildCommand: nil)
+    convenience init(graph: KnowledgeGraph, overrides: KnowledgeOverrides = KnowledgeOverrides(), brain: BrainStore? = nil) {
+        self.init(directory: nil, rebuildCommand: nil, brain: brain)
         raw = graph
         self.overrides = overrides
         self.graph = overrides.applied(to: graph)
@@ -92,7 +98,7 @@ final class KnowledgeStore: ObservableObject {
             overrides = decoded
         }
         graph = overrides.applied(to: raw)
-        if let id = selectedID, graph.node(id) == nil { selectedID = nil }
+        if let id = selectedID, graph.node(id) == nil, !id.hasPrefix(KnowledgeHubGraph.prefix) { selectedID = nil }
     }
 
     private func save() {
@@ -136,7 +142,7 @@ final class KnowledgeStore: ObservableObject {
         if let changedRaw { raw = changedRaw }
         overrides = next
         graph = next.applied(to: raw)
-        if let id = selectedID, graph.node(id) == nil { selectedID = nil }
+        if let id = selectedID, graph.node(id) == nil, !id.hasPrefix(KnowledgeHubGraph.prefix) { selectedID = nil }
         save()
         rebuild()
     }

@@ -35,6 +35,7 @@ const WRAPPERS = [
     "orion-trace", "orion-selfdoc", "orion-project", "orion-session",
     "orion-daily", "orion-note", "orion-skill", "orion-sleepplan",
     "orion-bedtime-act", "orion-questions", "orion-mail-prefs", "orion-food-estimate", "orion-workout-log",
+    "orion-mouse",
 ];
 /** Catalog action names. These belong inside `orion_task_run`, not the shell. */
 export const TYPED_ACTIONS = /^(messages_\w+|calendar_\w+|apple_reminder_\w+|desktop_\w+|browser_\w+|screen_\w+|atlas_\w+|self_\w+|app_(open|quit)|volume_\w+|media_\w+|system_status|waiting_\w+|automation_\w+|supplement_\w+|workout_\w+)$/;

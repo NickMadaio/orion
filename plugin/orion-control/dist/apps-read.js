@@ -1,0 +1,57 @@
+const flat = (s) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
+const VERB = String.raw `(?:close|quit|shut ?down|shut|kill|exit|force quit|force close|get rid of|ditch|clear out|clean up|cleanup)`;
+const FILLER = /^(?:the|my|all|some|these|those|that|this|app|apps|application|applications|program|programs|please|pls|for me|real quick|rn|now|out|off)$/;
+// Words that make "close X" / "quit X" something other than an app.
+const NOT_APP = /\b(?:smoking|vaping|job|school|work|uni|class|tab|tabs|window|windows|door|deal|eyes|chat|conversation|loop|account|day|gap|issue|ticket|pr|file|folder|document|doc|it|that|this|them|one|everything|anything|something|stuff|apps?|programs?|processes|session|focus|call|meeting|ring|rings|bar|menu|popup|pop up|notification|notifications|dock|screen|lid|laptop|volume|sound)\b/;
+const ASK = /^(?:how|what|why|when|where|who|which|can't|cant|cannot|is|are|does|do|did|should|would|could|will|am i|have i)\b|\?\s*$/;
+const cleanName = (raw) => raw.split(" ").filter((w) => w && !FILLER.test(w)).join(" ").replace(/[.!,]+$/, "").trim();
+const splitNames = (text) => text.split(/\s*(?:,|&|\band\b|\bplus\b|\bn\b|\bas well as\b|\bthen\b)\s*/).map(cleanName).filter((n) => n.length >= 2);
+const appish = (n) => n.split(" ").length <= 3 && !NOT_APP.test(n) && !/^(?:i|im|i'm|you|ur|it|he|she|they)\b/.test(n);
+const LIST = [
+    /\b(?:what|which)\s+(?:apps?|programs?|applications?|stuff)\b.*\b(?:open|running|up|on)\b/,
+    /\b(?:what|whats|what's)\s+(?:do i have\s+|have i got\s+|is\s+|all\s+)?(?:open|running)\b(?!\s+(?:source|ai|house|hours))/,
+    /\b(?:show|list|tell|give)\s+(?:me\s+)?(?:all\s+)?(?:my\s+|the\s+)?(?:open|running)\s+(?:apps?|programs?|applications?)\b/,
+    /\b(?:show|list)\s+(?:me\s+)?(?:my\s+|the\s+|all\s+)?apps\b.*\b(?:open|running)\b/,
+    /\bhow many apps\b.*\b(?:open|running)\b/,
+];
+const UNUSED = new RegExp(String.raw `\b${VERB}\b.*\b(?:apps?|programs?|applications?|stuff|things|windows)\b.*\b(?:not using|not in use|dont need|don't need|not needed|aint using|ain't using|isnt using|not gonna use|dont use|don't use|not usin|unused|idle|extra|i dont|im not|i'm not|i am not|that arent|that aren't|nobody)\b|\b${VERB}\b.*\b(?:unused|idle|extra|unneeded)\s+(?:apps?|programs?|applications?|stuff)\b|\b${VERB}\s+(?:everything|all(?: of)? (?:it|that|them)|the rest|the rest of (?:them|it))\b.*\b(?:not using|dont need|don't need|im not|i'm not)\b|\b(?:close|quit|clean up|cleanup|clear out)\s+(?:some|a few|a bunch|most)\s+(?:of\s+)?(?:my\s+|the\s+)?(?:open\s+)?(?:apps?|programs?)\b|\b(?:clean up|cleanup|tidy|declutter)\s+(?:my\s+|the\s+)?(?:open\s+|running\s+)?(?:apps?|programs?|mac|computer|laptop)\b|\b(?:i have|theres|there's|there are|got)\s+(?:too many|a bunch of|way too many|so many|a lot of)\s+(?:apps?|programs?)\b.*\b(?:open|running)\b`);
+const EXCEPT = /\b(?:close|quit|shut ?down|shut|kill|exit)\s+(?:all|all of|every|everything|all my|all the|all open|every app|all apps)\b(?:\s+(?:apps?|programs?|else))?\s*(?:except|but|besides|other than|apart from|aside from|just keep|leave|keeping|and keep)\s+(.+)$/;
+const EXCEPT2 = /\b(?:keep|leave)\s+(.+?)\s+(?:open|running|on)?\s*(?:,|and|but|then)?\s*(?:and\s+)?(?:close|quit|shut|kill)\s+(?:the\s+)?(?:rest|everything else|all the others|everything|all of the others|the others)\b/;
+const LIKE = /\b(?:things? like|stuff like|such as|like|e\.?g\.?|for example|especially|mainly|including)\s+(.+)$/;
+const QUIT = new RegExp(String.raw `^(?:(?:can you|could you|will you|would you|please|pls|hey|ok|okay|orion|yo|just|go ahead and|go|now|also|and)[,\s]+)*${VERB}\s+(?:out of\s+)?(.+)$`);
+const HIDE = /^(?:(?:can you|could you|please|pls|hey|orion|just)[,\s]+)*(?:hide|minimi[sz]e)\s+(?:the\s+|my\s+)?(.+?)(?:\s+(?:app|window))?$/;
+export function readAppsTurn(message) {
+    const m = flat(message).replace(/[.!]+$/, "");
+    if (!m || m.length > 220)
+        return null;
+    const asks = ASK.test(m);
+    if (LIST.some((re) => re.test(m)) && !/\b(?:close|quit|kill)\b/.test(m))
+        return { kind: "list" };
+    if (asks)
+        return null;
+    const ex = EXCEPT.exec(m) ?? EXCEPT2.exec(m);
+    if (ex) {
+        const keep = splitNames(ex[1] ?? "").filter(appish);
+        if (keep.length)
+            return { kind: "except", keep };
+    }
+    if (UNUSED.test(m)) {
+        const like = LIKE.exec(m);
+        const also = like ? splitNames(like[1] ?? "").filter(appish) : [];
+        return { kind: "unused", also };
+    }
+    const h = HIDE.exec(m);
+    if (h) {
+        const name = cleanName(h[1] ?? "");
+        if (name && appish(name) && !/\band\b/.test(name))
+            return { kind: "hide", name };
+    }
+    const q = QUIT.exec(m);
+    if (q) {
+        const body = (q[1] ?? "").replace(/\s+(?:for me|please|pls|real quick|rn|right now|now)$/, "");
+        const names = splitNames(body);
+        if (names.length && names.every(appish))
+            return { kind: "quit", names };
+    }
+    return null;
+}

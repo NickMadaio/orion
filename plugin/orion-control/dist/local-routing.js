@@ -99,6 +99,8 @@ import { liveQuestionsRun, readQuestionsMove, runQuestionsMove } from "./questio
 import { readFoodTurn } from "./food-read.js"; // w14 g-food
 import { FoodMemory, readFoodPending, runFoodTurn } from "./food-chat.js"; // w14 g-food
 import { readWorkoutTurn } from "./workout-read.js"; // w17 g-workout
+import { readAppsTurn } from "./apps-read.js"; // w18 apps
+import { runAppsTurn } from "./apps-chat.js"; // w18 apps
 import { WorkoutMemory, readWorkoutPending, runWorkoutTurn } from "./workout-chat.js"; // w17 g-workout
 import { answeredCardLine } from "./questions-store.js";
 import { liveMailPrefsRun, readMailMove, runMailMove } from "./mail-flow.js"; // wave 14 f-mail
@@ -1185,8 +1187,10 @@ export function registerLocalRouting(api, options) {
             ...(workoutMemory.lastLogged(sessionKey) ? { lastLogged: workoutMemory.lastLogged(sessionKey) } : {}) }) ?? undefined : undefined;
         if (!workout && !quietTurn)
             workoutMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
-        const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout;
+        // w18 apps (apps-read.ts): "close the apps im not using", "quit spotify and discord", "what apps do i have open": orion-apps does it and says what it did.
+        const appsTurn = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
+        const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout || !!appsTurn;
         // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
         const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
         const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1213,7 +1217,7 @@ export function registerLocalRouting(api, options) {
         }
         const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
         const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
-        const knowledge = on && !quietTurn && !kmove && !food && !workout && isKnowledgeAsk(message);
+        const knowledge = on && !quietTurn && !kmove && !food && !workout && !appsTurn && isKnowledgeAsk(message);
         const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
         const pendingAt = (options.now ?? pluginNow)();
         const prior = sessionKey ? pendingMemory.beginTurn(sessionKey, pendingAt.getTime(), { crisis: isCrisis(message), replied: !hushed }, options.stateDir) : undefined;
@@ -1250,7 +1254,7 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
         // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
         // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-        const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+        const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
             ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
                 chatSurface: CHAT_SURFACE.test(sessionKey) })
@@ -1323,6 +1327,11 @@ export function registerLocalRouting(api, options) {
             }
             if (workout.kind === "undo")
                 workoutMemory.forgetLog(sessionKey);
+        }
+        if (appsTurn && options.appsRun) { // w18 apps: the reply is orion-apps' own sentence
+            const out = await withTimeout(runAppsTurn(appsTurn, { run: options.appsRun }).catch(() => undefined), 70000);
+            run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Try again in a bit.";
+            out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
         }
         if (sessionKey && !cutOff && !quietTurn && options.lateFlow) {
             const late = lateTurn(sessionKey, message);

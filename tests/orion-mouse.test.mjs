@@ -157,3 +157,29 @@ test("a corrupt bindings file is refused, not overwritten; bad usage exits 2", (
   const st = s.run("status");
   assert.equal(st.code, 1); assert.match(st.out.say, /unreadable/);
 });
+
+test("wheel: games | always | never writes reverseWheel, validated, and status says it", () => {
+  const s = sandbox();
+  assert.equal(emptyBindings().reverseWheel, "always");
+  assert.match(s.run("wheel", "always").out.say, /everywhere/i);
+  assert.equal(s.bindingsNow().reverseWheel, "always");
+  assert.match(s.run("wheel", "never").out.say, /as macOS has it/i);
+  assert.equal(s.bindingsNow().reverseWheel, "never");
+  assert.match(s.run("wheel", "games").out.say, /game/i);
+  assert.equal(s.bindingsNow().reverseWheel, "games");
+  assert.equal(s.run("wheel", "sideways").code, 1);
+  assert.equal(s.run("wheel").code, 2);
+  assert.equal(s.bindingsNow().reverseWheel, "games");
+  s.run("wheel", "always");
+  assert.match(s.run("status").out.say, /wheel/i);
+  assert.throws(() => assertBindings({ ...emptyBindings(), reverseWheel: "sideways" }));
+  assert.doesNotThrow(() => assertBindings({ ...emptyBindings(), reverseWheel: "never" }));
+});
+
+test("wheel: other bindings survive a wheel change, and a fresh bindings file defaults to always", () => {
+  const s = sandbox({ bindings: { version: 1, enabled: true, default: { 3: { kind: "system", name: "stageManager" } }, apps: {}, passthroughApps: [], autoPassthroughGames: true } });
+  s.run("wheel", "always");
+  const b = s.bindingsNow();
+  assert.equal(b.reverseWheel, "always");
+  assert.deepEqual(b.default["3"], { kind: "system", name: "stageManager" });
+});

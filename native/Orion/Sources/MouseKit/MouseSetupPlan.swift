@@ -2,6 +2,11 @@ import Foundation
 
 /// The pure parts of the setup popup: suggested defaults, row titles, the confirmation line, and the outreach tail.
 public enum MouseSetupPlan {
+    /// The pill labels for "Normal mouse wheel".
+    public static func wheelTitle(_ mode: ReverseWheelMode) -> String {
+        switch mode { case .games: return "In games"; case .always: return "Always"; case .never: return "Never" }
+    }
+
     public static let intro = "Okay, let me help. Tell me what you want the buttons to do, or set them here:"
 
     /// Side buttons by convention: 3 is back, 4 is front (forward). Back opens Mission Control, front toggles Stage Manager.

@@ -47,6 +47,8 @@ final class MouseController: ObservableObject {
     private var bindingsStamp: Date?
     private var lastBundle: String?
     private var lastGame = false
+    private var ticks = 0
+    private var naturalScrolling = true
 
     init(store: MouseStore = MouseStore(controlledDir: MouseStore.defaultControlledDir())) {
         self.store = store
@@ -55,6 +57,7 @@ final class MouseController: ObservableObject {
     func start() {
         devices = store.loadDevices()
         outreachOffset = (try? Data(contentsOf: outreachURL))?.count ?? 0   // old lines are history
+        refreshNaturalScrolling()
         loadBindingsFromDisk()
         autoPrep = prepConfig.autoPrep()
         remapper.onAction = { [weak self] action, _ in
@@ -89,6 +92,7 @@ final class MouseController: ObservableObject {
     func setApp(_ bundleId: String, button: Int, _ action: MouseAction?) { change { $0.settingApp(bundleId, button: button, action) }; markConfigured() }
     func togglePassthrough(_ bundleId: String) { change { $0.togglingPassthrough(bundleId) } }
     func setAutoGames(_ on: Bool) { change { var b = $0; b.autoPassthroughGames = on; return b } }
+    func setReverseWheel(_ mode: ReverseWheelMode) { change { var b = $0; b.reverseWheel = mode; return b } }
     func setAutoPrep(_ on: Bool) {
         do { try prepConfig.setAutoPrep(on) } catch { OrionLog.write("[game] could not save the auto-prep setting: \(error.localizedDescription)") }
         autoPrep = prepConfig.autoPrep()
@@ -170,10 +174,13 @@ final class MouseController: ObservableObject {
     private func pushBindings() {
         let copy = bindings
         remapper.update { var s = $0; s.bindings = copy; return s }
+        remapper.updateWheel { var w = $0; w.mode = copy.reverseWheel; return w }
     }
 
     private func tick() {
         checkSetupRequests()
+        ticks += 1
+        if ticks % Self.naturalRefreshTicks == 1 { refreshNaturalScrolling() }
         let stamp = modified(store.bindingsURL)
         if stamp != bindingsStamp { loadBindingsFromDisk() }
         let trusted = Permissions.accessibilityTrusted
@@ -185,6 +192,19 @@ final class MouseController: ObservableObject {
         let new = prepConfig.autoPrep(); if new != autoPrep { autoPrep = new }
         let disk = store.loadDevices()
         if disk != devices { devices = disk }
+    }
+
+    /// The system's natural-scrolling switch, read from the global default (never written) every ~15 s, not per event.
+    private static let naturalRefreshTicks = 15
+
+    private func refreshNaturalScrolling() {
+        let key = "com.apple.swipescrolldirection" as CFString
+        CFPreferencesAppSynchronize(kCFPreferencesAnyApplication)
+        let value = CFPreferencesCopyAppValue(key, kCFPreferencesAnyApplication)
+        let natural = ScrollWheelPolicy.naturalScrolling(fromDefault: value)
+        guard natural != naturalScrolling || ticks == 0 else { return }
+        naturalScrolling = natural
+        remapper.updateWheel { var w = $0; w.natural = natural; return w }
     }
 
     private func refreshTap() {
@@ -228,6 +248,7 @@ final class MouseController: ObservableObject {
         gameSession = next
         do { try sessionStore.save(next) } catch { OrionLog.write("[game] could not save the session: \(error.localizedDescription)") }
         remapper.update { var s = $0; s.gameSession = next.active; return s }
+        remapper.updateWheel { var w = $0; w.gameSession = next.active; return w }
         switch effect {
         case .started(let game): gameStarted(game)
         case .ended: gameEnded()

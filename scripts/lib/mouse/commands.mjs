@@ -1,6 +1,6 @@
 // The orion-mouse subcommands as functions: each returns { ok, say, ...} (or { ok, asking, ask, say } when a piece is missing).
 import { actionLabel, appNameOf, buttonLabel, parseAction, parseButton, resolveApp } from "./names.mjs";
-import { changeBindings, readBindings, readDevices, requestSetupPopup } from "./store.mjs";
+import { WHEEL_MODES, changeBindings, readBindings, readDevices, requestSetupPopup } from "./store.mjs";
 
 const ASK = {
   button: "Which button, the front or the back side button?",
@@ -96,6 +96,19 @@ export function games({ state }, { env = process.env } = {}) {
     : "Done: I won't leave the mouse alone in games automatically any more; only the apps on your list." };
 }
 
+const WHEEL_SAY = {
+  games: "Done: your mouse wheel scrolls normally in games. Everywhere else I leave it as it is.",
+  always: "Done: your mouse wheel scrolls normally everywhere, in games and out. The trackpad is untouched.",
+  never: "Done: I'll leave the mouse wheel exactly as macOS has it, in games too.",
+};
+
+/** `wheel games|always|never`: normal (not inverted) mouse-wheel direction; the Mac app reverses mouse wheels only, never the trackpad. */
+export function wheel({ mode }, { env = process.env } = {}) {
+  if (!WHEEL_MODES.includes(mode)) return fail("wheel takes games, always or never");
+  changeBindings((b) => ({ ...b, reverseWheel: mode }), env);
+  return { ok: true, reverseWheel: mode, say: WHEEL_SAY[mode] };
+}
+
 const joinList = (items) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items[0] ?? "");
 const suggestMap = (map) => Object.entries(map).sort(([a], [b]) => a - b).map(([k, a]) => `the ${buttonLabel(Number(k))} on ${actionLabel(a, appNameOf)}`);
 const describeMap = (map) => Object.entries(map).sort(([a], [b]) => a - b).map(([k, a]) => `${buttonLabel(Number(k))}: ${actionLabel(a, appNameOf)}`);
@@ -116,6 +129,7 @@ export function status({ env = process.env } = {}) {
   for (const [id, map] of Object.entries(bindings.apps)) lines.push(`In ${appNameOf(id)}: ${describeMap(map).join("; ")}.`);
   if (bindings.passthroughApps.length) lines.push(`Left alone in: ${joinList(bindings.passthroughApps.map(appNameOf))}.`);
   lines.push(`Games are ${bindings.autoPassthroughGames ? "left alone automatically" : "not left alone automatically"}.`);
+  lines.push(`Normal mouse wheel: ${{ games: "in games only", always: "always", never: "never" }[bindings.reverseWheel] ?? "always"}.`);
   if (!bindings.enabled) lines.push("Mouse remapping is switched off in settings.");
   return { ok: true, devices, bindings, say: lines.join(" ") };
 }

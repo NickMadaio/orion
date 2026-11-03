@@ -10,12 +10,12 @@ import MobileCore
  support, because `SectionNarrative` refuses to hold one. Confidence is shown with every part.
 */
 
-/// The "Today" part as a single serif line: what the hover stage rests on when nothing is hovered.
+/// The "Today" read as a single serif line: what the hover stage rests on when nothing is hovered.
 struct HealthTodayText: View {
-    let part: HealthSectionContent
+    let line: String
 
     var body: some View {
-        Text(part.narrative.happened)
+        Text(line)
             .font(OrionTheme.serif(21))
             .foregroundStyle(OrionTheme.text.opacity(0.92))
             .lineSpacing(3)

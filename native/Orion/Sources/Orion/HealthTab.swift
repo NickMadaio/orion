@@ -57,7 +57,9 @@ struct HealthTab: View {
                         VStack(alignment: .leading, spacing: 30) {
                             headline(model).deal(order: 1, rise: 12)
                             // Fixed spot under the rings: the Today line until a ring is hovered.
-                            HealthHoverStage(controller: ringHover, model: model, rest: .today)
+                            HealthHoverStage(controller: ringHover, model: model,
+                                             rest: HealthTodayLine.line(recovery: whoop.snapshot?.recovery,
+                                                                        sleepHours: whoop.snapshot?.sleepHours))
                                 .deal(order: 2, rise: 8)
                             if !whoop.week.isEmpty { week(model) }
                         }

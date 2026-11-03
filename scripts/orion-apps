@@ -1,0 +1,46 @@
+#!/usr/bin/env node
+/*
+ orion-apps: see and close the apps running on the Mac (2026-11-03).
+
+   orion-apps list [--json]                               every running app, Dock or menu-bar/background: frontmost, window count, audio, how recent
+   orion-apps quit <app...> [--json]                      close the named apps until they are really gone (fuzzy: "team view" is TeamViewer)
+   orion-apps quit-unused [--keep a,b] [--dry-run] [--all] [--json]   close everything not in use and not protected
+                                                          --all: "everything except": also closes recent and audible apps
+   orion-apps hide <app> [--json]
+
+ Nick: "he should have these abilities, why are we limiting him." / "things like epic games stay open and i want them closed closed."
+ Closing escalates only as far as it must (lib/apps/escalate.mjs): the app's own quit (a save prompt can show) and a ~5 s look, then
+ SIGTERM to the app's own tree (its helpers too), then SIGKILL after ~3 s. A document app still showing a save prompt is left alone and
+ named ("Word is asking to save"). Never touched: Finder, ORION, system processes, anything outside the target app's own tree, and the
+ process tree this script runs in. quit-unused skips terminals, editors, call/recording apps and System Settings; `quit` closes them when named.
+ "Unused" = see lib/apps/policy.mjs: macOS keeps no last-used time, so the window stack stands in for it.
+ Exit 0 ok, 1 failed, 2 usage.*/
+import { liveSource } from "./lib/apps/live.mjs";
+import { hideApp, listApps, quitNamed, quitUnused } from "./lib/apps/run.mjs";
+
+const argv = process.argv.slice(2);
+const json = argv.includes("--json");
+const [command, ...rest] = argv.filter((a) => a !== "--json");
+const USAGE = "usage: orion-apps list | quit <app...> | quit-unused [--keep a,b] [--dry-run] [--all] | hide <app>   [--json]";
+const flagValue = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] ?? "" : undefined; };
+
+function finish(result) {
+  console.log(json ? JSON.stringify(result) : result.say);
+  process.exit(result.ok ? 0 : 1);
+}
+
+const src = liveSource();
+try {
+  if (command === "list") finish(listApps(src));
+  else if (command === "quit") {
+    const names = rest.filter((a) => !a.startsWith("--")).flatMap((a) => a.split(/\s*,\s*/)).filter(Boolean);
+    if (!names.length) { console.error(USAGE); process.exit(2); }
+    finish(await quitNamed(src, names));
+  } else if (command === "quit-unused") {
+    const keep = (flagValue("--keep") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    finish(await quitUnused(src, { keep, dryRun: rest.includes("--dry-run"), all: rest.includes("--all") }));
+  } else if (command === "hide" && rest[0]) finish(hideApp(src, rest.join(" ")));
+  else { console.error(USAGE); process.exit(2); }
+} catch (e) {
+  finish({ ok: false, error: String(e?.message ?? e), say: `I couldn't do that with your apps just now (${String(e?.message ?? e)}).` });
+}

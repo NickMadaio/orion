@@ -34,7 +34,7 @@ const WRAPPERS = [
     "orion-discord-alert", "orion-doctor", "orion-permissions", "orion-messages",
     "orion-trace", "orion-selfdoc", "orion-project", "orion-session",
     "orion-daily", "orion-note", "orion-skill", "orion-sleepplan",
-    "orion-bedtime-act", "orion-questions", "orion-mail-prefs", "orion-food-estimate", "orion-workout-log",
+    "orion-bedtime-act", "orion-questions", "orion-mail-prefs", "orion-food-estimate", "orion-workout-log", "orion-apps",
 ];
 /** Catalog action names. These belong inside `orion_task_run`, not the shell. */
 export const TYPED_ACTIONS = /^(messages_\w+|calendar_\w+|apple_reminder_\w+|desktop_\w+|browser_\w+|screen_\w+|atlas_\w+|self_\w+|app_(open|quit)|volume_\w+|media_\w+|system_status|waiting_\w+|automation_\w+|supplement_\w+|workout_\w+)$/;
@@ -94,6 +94,15 @@ export function routeForDoomedExec(command) {
     if (TOOL_IDS.has(base)) {
         return {
             reason: `\`${base}\` is a tool you already have, not a shell command. Call the tool directly.`,
+        };
+    }
+    // 2026-11-03: "close the apps im not using" made the model call the bedtime wrapper's quit-app, which only runs inside tonight's window and
+    // only for distraction apps. Closing apps is orion-apps' job, and it is allowed.
+    if (base === "orion-bedtime-act" && /\bquit-app\b/.test(trimmed)) {
+        return {
+            reason: "`orion-bedtime-act quit-app` is only for the bedtime nudge. To see or close apps, use the full path to " +
+                "`/Users/nickmadaio/Desktop/ORION/scripts/orion-apps`: `list`, `quit <app...>`, `quit-unused [--keep a,b]`, `hide <app>`. " +
+                "It closes them until they are really gone, and you do not need to ask first.",
         };
     }
     // A wrapper called by bare name. It is allowlisted by ABSOLUTE PATH, so the

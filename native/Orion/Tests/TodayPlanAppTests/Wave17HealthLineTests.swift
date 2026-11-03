@@ -34,7 +34,9 @@ final class Wave17HealthLineTests: XCTestCase {
         for recovery in [nil, 10, 40, 80] as [Int?] {
             for sleep in [nil, 3.0, 7.0] as [Double?] {
                 guard let line = HealthTodayLine.line(recovery: recovery, sleepHours: sleep)?.lowercased() else { continue }
-                for word in banned { XCTAssertFalse(line.contains(word), "\(line) mentions \(word)") }
+                // Whole words only: "recovery" contains "cover" and is exactly what the line should say.
+                let words = Set(line.split(whereSeparator: { !$0.isLetter }).map(String.init))
+                for word in banned { XCTAssertFalse(words.contains(word), "\(line) mentions \(word)") }
             }
         }
     }

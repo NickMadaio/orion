@@ -1,0 +1,173 @@
+import XCTest
+@testable import MouseKit
+
+final class MouseKitTests: XCTestCase {
+    private func bindings() -> BindingsFile {
+        BindingsFile()
+            .settingDefault(3, .system("stageManager"))
+            .settingDefault(4, .shortcut("cmd+shift+4"))
+            .settingApp("com.apple.Safari", button: 3, .system("missionControl"))
+    }
+
+    // MARK: lookup order
+
+    func testDefaultResolvesOnDesktop() {
+        XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: bindings()), .system("stageManager"))
+    }
+    func testAppOverrideBeatsDefault() {
+        XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.Safari", isGame: false, bindings: bindings()), .system("missionControl"))
+    }
+    func testOverrideOnlyCoversItsButton() {
+        XCTAssertEqual(MouseResolver.resolve(button: 4, bundleId: "com.apple.Safari", isGame: false, bindings: bindings()), .shortcut("cmd+shift+4"))
+    }
+    func testGamePassesThrough() {
+        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "x.game", isGame: true, bindings: bindings()))
+    }
+    func testGameStillMappedWhenAutoOff() {
+        var b = bindings(); b.autoPassthroughGames = false
+        XCTAssertNotNil(MouseResolver.resolve(button: 3, bundleId: "x.game", isGame: true, bindings: b))
+    }
+    func testPassthroughAppListWinsOverOverride() {
+        let b = bindings().settingApp("com.mojang.minecraftlauncher", button: 3, .system("showDesktop")).togglingPassthrough("com.mojang.minecraftlauncher")
+        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "com.mojang.minecraftlauncher", isGame: false, bindings: b))
+    }
+    func testUnboundAndBuiltinButtonsPass() {
+        XCTAssertNil(MouseResolver.resolve(button: 7, bundleId: nil, isGame: false, bindings: bindings()))
+        XCTAssertNil(MouseResolver.resolve(button: 2, bundleId: nil, isGame: false, bindings: bindings()))
+    }
+    func testDisabledPassesEverything() {
+        var b = bindings(); b.enabled = false
+        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: nil, isGame: false, bindings: b))
+    }
+    func testExplicitPassthroughActionPasses() {
+        let b = bindings().settingApp("com.apple.Safari", button: 3, .passthrough)
+        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "com.apple.Safari", isGame: false, bindings: b))
+    }
+
+    // MARK: game classification
+
+    func testGameCategory() {
+        XCTAssertTrue(GameClassifier.isGame(.init(bundleId: "a.b", category: "public.app-category.action-games")))
+    }
+    func testMinecraftJava() {
+        XCTAssertTrue(GameClassifier.isGame(.init(bundleId: "net.java", name: "java", isJavaProcess: true, windowTitle: "Minecraft 1.21")))
+    }
+    func testJavaIdeIsNotGame() {
+        XCTAssertFalse(GameClassifier.isGame(.init(bundleId: "net.java", name: "java", isJavaProcess: true, windowTitle: "IntelliJ")))
+    }
+    func testFullscreenUnknownIsGame() {
+        XCTAssertTrue(GameClassifier.isGame(.init(bundleId: "com.some.engine", isFullscreen: true)))
+    }
+    func testFullscreenSafariAndCategorisedAreNot() {
+        XCTAssertFalse(GameClassifier.isGame(.init(bundleId: "com.apple.Safari", isFullscreen: true)))
+        XCTAssertFalse(GameClassifier.isGame(.init(bundleId: "a.b", category: "public.app-category.productivity", isFullscreen: true)))
+    }
+    func testVSCodeWindowedIsNot() {
+        XCTAssertFalse(GameClassifier.isGame(.init(bundleId: "com.microsoft.VSCode")))
+    }
+    func testMinecraftLauncherKnown() {
+        XCTAssertTrue(GameClassifier.isGame(.init(bundleId: "com.mojang.minecraftlauncher")))
+    }
+
+    // MARK: contract encode/decode
+
+    func testRoundTrip() throws {
+        var b = bindings(); b.passthroughApps = ["com.mojang.minecraftlauncher"]
+        let back = MouseCodec.decodeBindings(try MouseCodec.encode(b))
+        XCTAssertEqual(back, b)
+    }
+    func testDecodesContractLiteral() {
+        let json = #"{"version":1,"enabled":true,"default":{"3":{"kind":"system","name":"stageManager"},"4":{"kind":"orion","command":"summon"}},"apps":{"com.apple.Safari":{"3":{"kind":"openApp","bundleId":"com.apple.Notes"}}},"passthroughApps":["a"],"autoPassthroughGames":false}"#
+        let b = MouseCodec.decodeBindings(Data(json.utf8))
+        XCTAssertEqual(b.default["4"], .orion("summon"))
+        XCTAssertEqual(b.apps["com.apple.Safari"]?["3"], .openApp("com.apple.Notes"))
+        XCTAssertFalse(b.autoPassthroughGames)
+    }
+    func testGarbageDecodesToDefaults() {
+        let b = MouseCodec.decodeBindings(Data("nope".utf8))
+        XCTAssertTrue(b.enabled); XCTAssertTrue(b.default.isEmpty)
+    }
+    func testPartialFileKeepsDefaults() {
+        let b = MouseCodec.decodeBindings(Data(#"{"default":{"3":{"kind":"passthrough"}}}"#.utf8))
+        XCTAssertTrue(b.autoPassthroughGames); XCTAssertEqual(b.default["3"], .passthrough)
+    }
+    func testDevicesEncodeContractKeys() throws {
+        let file = DeviceRegistry.attached(basilisk, into: DevicesFile(), now: "t")
+        let text = String(data: try MouseCodec.encode(file), encoding: .utf8)!
+        for key in ["\"vendorId\"", "\"extraButtons\"", "\"setupState\" : \"new\"", "\"firstSeen\""] { XCTAssertTrue(text.contains(key), key) }
+    }
+
+    // MARK: shortcuts
+
+    func testShortcutParse() {
+        XCTAssertEqual(ShortcutParser.parse("cmd+shift+4"), ParsedShortcut(keyCode: 21, flags: ShortcutParser.cmd | ShortcutParser.shift))
+        XCTAssertEqual(ShortcutParser.parse("ctrl+left")?.keyCode, 123)
+        XCTAssertEqual(ShortcutParser.parse(" Opt + Space ")?.flags, ShortcutParser.opt)
+        XCTAssertEqual(ShortcutParser.parse("f3")?.flags, 0)
+    }
+    func testShortcutRejects() {
+        for bad in ["", "cmd+", "cmd+shift", "a+b", "cmd+nonsense", "++"] { XCTAssertNil(ShortcutParser.parse(bad), bad) }
+    }
+
+    // MARK: devices
+
+    private let basilisk = AttachedMouse(vendorId: 5426, productId: 153, name: "Razer Basilisk V3", transport: "USB", buttonCount: 11)
+
+    func testNewDeviceIsNewWithExtras() {
+        let f = DeviceRegistry.attached(basilisk, into: DevicesFile(), now: "t")
+        XCTAssertEqual(f.devices.first?.setupState, .new)
+        XCTAssertEqual(f.devices.first?.extraButtons, Array(3..<11))
+        XCTAssertEqual(f.devices.first?.id, "5426:153")
+    }
+    func testThreeButtonMouseNotAsked() {
+        let m = AttachedMouse(vendorId: 1, productId: 2, name: "Plain", transport: "USB", buttonCount: 3)
+        XCTAssertEqual(DeviceRegistry.attached(m, into: DevicesFile(), now: "t").devices.first?.setupState, .configured)
+    }
+    func testReattachKeepsStateAndFirstSeen() {
+        var f = DeviceRegistry.attached(basilisk, into: DevicesFile(), now: "t1")
+        f = DeviceRegistry.setting(.declined, id: "5426:153", into: f)
+        f = DeviceRegistry.detached(id: "5426:153", into: f, now: "t2")
+        XCTAssertFalse(f.devices[0].connected)
+        f = DeviceRegistry.attached(basilisk, into: f, now: "t3")
+        XCTAssertEqual(f.devices[0].setupState, .declined); XCTAssertEqual(f.devices[0].firstSeen, "t1")
+        XCTAssertTrue(f.devices[0].connected); XCTAssertEqual(f.devices.count, 1)
+    }
+    func testAppleTrackpadIgnored() {
+        let t = AttachedMouse(vendorId: 1452, productId: 832, name: "Apple Internal Keyboard / Trackpad", transport: "SPI", buttonCount: 1)
+        XCTAssertTrue(DeviceRegistry.attached(t, into: DevicesFile(), now: "t").devices.isEmpty)
+        let magic = AttachedMouse(vendorId: 1452, productId: 804, name: "Magic Trackpad", transport: "Bluetooth", buttonCount: 1)
+        XCTAssertTrue(DeviceRegistry.isIgnored(magic))
+    }
+    func testObservedButtonWidens() {
+        var f = DeviceRegistry.attached(AttachedMouse(vendorId: 9, productId: 9, name: "M", transport: "USB", buttonCount: 5), into: DevicesFile(), now: "t")
+        f = DeviceRegistry.observed(button: 9, into: f)
+        XCTAssertEqual(f.devices[0].extraButtons, [3, 4, 9])
+    }
+    func testAskText() {
+        let d = DeviceRegistry.attached(basilisk, into: DevicesFile(), now: "t").devices[0]
+        XCTAssertTrue(DeviceRegistry.askText(for: d).contains("Razer Basilisk V3 with 8 extra buttons"))
+    }
+
+    func testLabels() {
+        XCTAssertEqual(MouseActionLabel.label(.system("stageManager")), "Stage Manager")
+        XCTAssertEqual(MouseActionLabel.label(nil), "Does nothing special")
+        XCTAssertEqual(MouseActionLabel.label(.openApp("com.apple.Safari")), "Open Safari")
+        XCTAssertEqual(MouseActionLabel.presets.count, 11)
+    }
+
+    // MARK: store
+
+    func testStoreAtomicRoundTripAndMerge() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("mousekit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = MouseStore(controlledDir: dir)
+        XCTAssertTrue(store.loadBindings().default.isEmpty)
+        try store.updateBindings { $0.settingDefault(3, .system("stageManager")) }
+        try store.updateBindings { $0.settingDefault(4, .orion("talk")) }   // re-reads: keeps button 3
+        XCTAssertEqual(store.loadBindings().default.count, 2)
+        try store.updateDevices { DeviceRegistry.attached(self.basilisk, into: $0, now: "t") }
+        XCTAssertEqual(store.loadDevices().devices.count, 1)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: store.directory.path).filter { $0.hasSuffix(".tmp") }
+        XCTAssertTrue(leftovers.isEmpty)
+    }
+}

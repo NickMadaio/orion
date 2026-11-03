@@ -55,6 +55,11 @@ final class HologramPanel: NSPanel {
     }
 }
 
+/// While the new-mouse question's Set up / Not now pills show, the strip just above the composer is clickable too.
+enum PanelHitRegion {
+    nonisolated(unsafe) static var bubbleActionReach: CGFloat = 0
+}
+
 /// Hosts the orb and decides what the mouse is allowed to touch.
 ///
 /// The panel covers a square but only ever draws inside the disc inscribed in
@@ -81,7 +86,7 @@ private final class OrbContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         // `point` arrives in the superview's coordinates.
         let local = convert(point, from: superview)
-        if local.y < 100 { return super.hitTest(point) }
+        if local.y < 100 + PanelHitRegion.bubbleActionReach { return super.hitTest(point) }
         let radius = min(bounds.width, bounds.height - 100) / 2
         let dx = local.x - bounds.midX
         let dy = local.y - (100 + (bounds.height - 100) / 2)

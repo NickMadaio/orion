@@ -9,10 +9,19 @@ import SwiftUI
 struct BubbleThreadView: View {
     let thread: BubbleThread
     var width: CGFloat = 260
+    /// Called with true for "Set up", false for "Not now" (the new-mouse question).
+    var onMouseAnswer: ((Bool) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             orionLine(thread.message, lines: thread.reply == nil ? 8 : 2, dim: thread.reply != nil)
+            if thread.offersMouseSetup, thread.state == .shown, let onMouseAnswer {
+                HStack(spacing: 8) {
+                    ProjectBubble(text: "Set up", symbol: "computermouse", action: { onMouseAnswer(true) })
+                    ProjectBubble(text: "Not now", hue: OrionTheme.textSoft, action: { onMouseAnswer(false) })
+                }
+                .padding(.leading, 12)
+            }
             if let reply = thread.reply {
                 HStack { Spacer(minLength: 40); BubbleReplyPill(text: reply) }
             }

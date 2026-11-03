@@ -88,6 +88,7 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 - **Phone widgets:** blue hologram stills and palette, Home-style widgets, and a food photo pill on the phone Home.
 - **Projects:** the model picker sizes itself to the longest name.
 - Allowlisted orion-apps and orion-mouse.
+- **⌥Tab palette:** PaletteKit (fuzzy, frecency, prefix modes, calc) plus Palette/* views. Inline ask via submitTyped; close-unused shows a plan first. **Mouse gate:** MouseGate is off while a game is frontmost, and ⌃⌥M flips the same gate. Flaky wall-clock tests in the 211 suite: VoiceFluid and AppWedgeFollowUp.
 - **Mouse toggle:** ⌃⌥M flips bindings.enabled (quiet bubble). The game session is restored on launch, and java Minecraft is found by executable path with a libproc scan every 3 s. Root cause of "front button works in Minecraft": the session was never reloaded after the relaunch, and java had no window title without Screen Recording.
 - **Scroll:** the mouse wheel is reversed in the event tap (discrete events only), so the trackpad stays natural. Setting `reverseWheel` defaults to always.
 - **Evening:** typed summon overlay (⌃⌥Space, orion://type): the composer sits bottom-centre and the hologram slides left when the answer comes. On-demand "game ready" runs `orion-apps game-prep --now`. Mouse setup and Type to ORION are in the menu bar. The Swift voice test in the 211 suite is flaky.

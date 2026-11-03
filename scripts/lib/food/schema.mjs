@@ -75,9 +75,9 @@ export function overallConfidence(items) {
 
 /** Validates a parsed model answer. { ok: true, estimate } or { ok: false, error }. */
 export function validateEstimate(parsed) {
-  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items)) return { ok: false, error: "the model's answer had no items list" };
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.items)) return { ok: false, error: "the model's answer had no items list", noFood: true };
   const cleaned = parsed.items.slice(0, LIMITS.items).map(cleanItem).filter(Boolean);
-  if (!cleaned.length) return { ok: false, error: "the model named no food it could size" };
+  if (!cleaned.length) return { ok: false, error: "the model named no food it could size", noFood: true };
   const items = cleaned.map((x) => x.item);
   const flags = cleaned.flatMap((x) => x.notes);
   const assumptions = (Array.isArray(parsed.assumptions) ? parsed.assumptions : []).map((a) => text(a, LIMITS.assumption)).filter(Boolean).slice(0, 8);

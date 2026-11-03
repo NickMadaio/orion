@@ -8,8 +8,6 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInbox } from "../scripts/lib/food/inbox.mjs";
 import { estimateMeal } from "../scripts/lib/food/estimate.mjs";
-import { livePending, claimPending } from "../scripts/lib/food/pending.mjs";
-import { logEstimate } from "../scripts/lib/food/log.mjs";
 
 const photo = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "food-inbox", "pizza-photo.jpg");
 const MODEL = { items: [
@@ -31,7 +29,7 @@ function inboxWith(id, note) {
   return dir;
 }
 
-test("a real JPEG in the inbox is sent to the model as base64, offered, and logged in the Health tab's shape", async () => {
+test("a real JPEG in the inbox is sent to the model as base64, logged at once, in the Health tab's shape", async () => {
   const dir = inboxWith("p-1", "just one slice");
   const env = { ORION_CONTROLLED_DIR: dir };
   const seen = [], told = [];
@@ -42,11 +40,8 @@ test("a real JPEG in the inbox is sent to the model as base64, offered, and logg
   assert.equal(sent.images.length, 1);
   assert.deepEqual(Buffer.from(sent.images[0], "base64"), readFileSync(photo), "the model gets the exact JPEG bytes");
   assert.match(sent.content, /just one slice/);
-  assert.match(told[0], /^Food photo: ~\d+ kcal · \d+P \d+C \d+F .*Log it\?$/);
+  assert.match(told[0], /^Logged ~\d+ kcal — pizza slice, chicken topping: \d+P \d+C \d+F\. Fix anything\?$/);
 
-  const [offer] = claimPending(livePending({ now: NOW, env }).map((o) => o.id), { now: NOW, env });
-  const logged = logEstimate(offer.estimate, { meal: offer.meal, at: new Date(offer.eatenAt), now: NOW, env });
-  assert.equal(logged.ok, true);
   const log = JSON.parse(readFileSync(join(dir, "health-log.json"), "utf8"));
   const [entry] = log.nutritionLog["2026-11-03"];
   for (const key of ["id", "title", "meal", "calories", "protein", "carbohydrates", "fat", "fiber", "notes", "loggedAt"]) assert.ok(key in entry, key);

@@ -3,7 +3,9 @@
 // CONTRACT: <controlled dir>/food-pending.json = { offers: [offer, …] }, oldest first, each kept by its own id (wave 14 review:
 // one slot meant three phone photos overwrote each other). An offer:
 //   { id, at: ISO offered, expiresAt: ISO, via: "chat"|"inbox", inboxId?, name, offerText, summary, meal?, target?: { entryId },
-//     text?, photos?: [path], eatenAt?, estimate }
+//     text?, photos?: [path], eatenAt?, estimate, logged?: { id } }
+// `logged` marks an offer that is not waiting on a yes: the photo was already written to the health log (entry `id`) and the offer only
+// stays so a reply in the next 30 minutes edits that entry in place ("Logged ~630 kcal — …. Fix anything?"). yes keeps it, no leaves it.
 // The older single-object file is read as one offer. The plugin (food-chat.ts) reads it to bind "yes" / "the burger" / "no" /
 // "it was a small one", and runs `orion-food-estimate log-pending [--pick "<words>"]`, `discard` or `--revise`; nothing else writes it.
 // Every change is read-modify-write under food-pending.json.lock (O_EXCL, stale after 15 s, the same scheme as health-log.json's lock in
@@ -20,6 +22,8 @@ export const PENDING_FILE = "food-pending.json";
 export const CHAT_OFFER_MS = 30 * 60_000;
 /** A photo from the phone is answered when he next looks, so its offer waits longer. */
 export const INBOX_OFFER_MS = 3 * 3600_000;
+/** A photo already logged for him stays open to a correction this long ("it was 2 slices", "undo"). */
+export const LOGGED_OFFER_MS = 30 * 60_000;
 /** More than this many waiting offers is a backlog nobody will answer: the oldest go. */
 const MAX_OFFERS = 6;
 export const pendingPath = (env = process.env) => join(controlledDir(env), PENDING_FILE);
@@ -69,7 +73,7 @@ function writeAll(offers, env) {
  * during an evaluation nothing is written and the row carries `saved: false`.
  */
 export function writePending(offer, { now = new Date(), env = process.env, replaces = null } = {}) {
-  const ttl = offer.via === "inbox" ? INBOX_OFFER_MS : CHAT_OFFER_MS;
+  const ttl = offer.logged ? LOGGED_OFFER_MS : offer.via === "inbox" ? INBOX_OFFER_MS : CHAT_OFFER_MS;
   const { id: _id, at: _at, expiresAt: _exp, saved: _saved, ...rest } = offer;   // a revised offer is a new offer, with its own id and clock
   const row = { ...rest, name: mealName(offer.estimate), id: `fp-${randomUUID().slice(0, 8)}`, at: now.toISOString(), expiresAt: new Date(now.getTime() + ttl).toISOString() };
   if (evalMode()) return { ...row, saved: false };
@@ -146,3 +150,14 @@ export function pickOffers(offers, said) {
 
 /** "~650 kcal · … Log it?" — the line that goes to Nick. */
 export const offerLine = (summary, prefix = "") => `${prefix}${summary}. Log it?`;
+
+/** "Logged ~630 kcal — pizza slice, pineapple topping: 36P 64C 25F. Fix anything?" (verb "Updated" after a correction). */
+export function loggedLine(entry, estimate, verb = "Logged") {
+  const kcal = entry.calories >= 100 ? Math.round(entry.calories / 10) * 10 : entry.calories;
+  const names = [...new Set((estimate?.items ?? []).map((i) => String(i.name).toLowerCase()))];
+  const what = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3} more` : names.join(", ");
+  return `${verb} ~${kcal} kcal — ${what || entry.title.toLowerCase()}: ${entry.protein}P ${entry.carbohydrates}C ${entry.fat}F. Fix anything?`;
+}
+
+/** The newest live offer that is an already-logged photo, if it is also the newest offer of all (a bare reply is about it). */
+export const newestLogged = (live) => (live.at(-1)?.logged ? live.at(-1) : null);

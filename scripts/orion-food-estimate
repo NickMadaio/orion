@@ -28,7 +28,7 @@ import { clockNow } from "./lib/clock.mjs";
 import { estimateMeal } from "./lib/food/estimate.mjs";
 import { readImages } from "./lib/food/ollama.mjs";
 import { latestUncounted, logEstimate, undoEntry, healthLogPath } from "./lib/food/log.mjs";
-import { claimPending, clearPending, livePending, restorePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
+import { claimPending, clearPending, livePending, loggedLine, newestLogged, restorePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
 import { runInbox } from "./lib/food/inbox.mjs";
 import { readFileSync } from "node:fs";
 
@@ -98,15 +98,31 @@ async function reviseCommand(correction) {
   const live = livePending({ now });
   if (!live.length) finish({ ok: false, error: "no estimate is waiting to be corrected" }, "There's no estimate waiting, so there's nothing to correct. Tell me what you ate.");
   if (!correction.trim() || correction.length > 300) usage();
-  const pending = whichOffer(live, one("--pick"), "correct");
+  const logged = one("--pick") === undefined ? newestLogged(live) : null;
+  const pending = logged ?? whichOffer(live, one("--pick"), "correct");
   let images = [];
   try { images = readImages(pending.photos ?? []); } catch { images = []; }
   const out = await estimateMeal({ text: pending.text ?? "", images, imagePaths: pending.photos ?? [], correction, previous: pending.summary });
   if (!out.ok) finish(out, failLine(out.error));
+  if (pending.logged) return reviseLogged(pending, out, correction);
   const question = pending.target ? `Add those numbers to your ${pending.meal ? pending.meal.toLowerCase() : "meal"}?` : "Log it?";
   const offer = writePending({ ...pending, offerText: `${out.summary}. ${question}`, summary: out.summary, estimate: out.estimate,
     text: [pending.text, `(${correction})`].filter(Boolean).join(" ") }, { now, replaces: pending.id });
   return finish({ ok: true, summary: out.summary, estimate: out.estimate, ms: out.ms, offer: offerJson(offer) }, out.summary);
+}
+
+/** A correction to a photo already logged: the same entry is rewritten in place, and the offer stays open for the next fix. */
+function reviseLogged(pending, out, correction) {
+  const at = pending.eatenAt ? new Date(pending.eatenAt) : now;
+  const logged = logEstimate(out.estimate, { meal: pending.meal, at, now, target: { entryId: pending.logged.id, replace: true } });
+  if (!logged.ok || !logged.filled) {
+    clearPending({ ids: [pending.id], now });
+    finish({ ok: false, error: logged.error ?? "that entry is no longer in the health log" }, "That one's no longer in your log (it was taken off), so I changed nothing. Tell me what you ate if you want it logged.");
+  }
+  const offerText = loggedLine(logged.entry, out.estimate, "Updated");
+  const offer = writePending({ ...pending, offerText, summary: out.summary, estimate: out.estimate, text: [pending.text, `(${correction})`].filter(Boolean).join(" ") }, { now, replaces: pending.id });
+  return finish({ ok: true, summary: out.summary, estimate: out.estimate, ms: out.ms, offer: offerJson(offer),
+    logged: { id: logged.entry.id, day: logged.day, filled: true, dayCalories: logged.dayCalories, undo: `orion-food-estimate undo ${logged.entry.id}` }, entry: logged.entry }, offerText);
 }
 
 const kcalOf = (offer) => Math.round(offer.estimate?.totals?.kcal ?? 0);
@@ -127,6 +143,11 @@ function whichOffer(live, pick, verb) {
 function discardCommand() {
   const live = livePending({ now });
   if (!live.length) finish({ ok: true, discarded: 0 }, "No estimate was waiting.");
+  const keep = one("--pick") === undefined ? newestLogged(live) : null;
+  if (keep) {   // "no" to "Fix anything?": nothing to fix, it stays logged
+    clearPending({ ids: [keep.id], now });
+    finish({ ok: true, discarded: 1, kept: true, say: "Okay, it stays logged." }, "Okay, it stays logged.");
+  }
   const pick = one("--pick");
   const chosen = pick !== undefined && /\b(?:both|all|every|everything)\b/i.test(pick) ? live : [whichOffer(live, pick, "drop")];
   clearPending({ ids: chosen.map((o) => o.id), now });
@@ -143,6 +164,12 @@ function logOne(offer) {
 function logPendingCommand() {
   const live = livePending({ now });
   if (!live.length) finish({ ok: false, error: "no estimate is waiting to be logged" }, "There's no estimate waiting to log.");
+  const keep = one("--pick") === undefined ? newestLogged(live) : null;
+  if (keep) {   // "yes" to "Fix anything?": it is already logged; nothing is added
+    clearPending({ ids: [keep.id], now });
+    const say = `It's already logged (~${kcalOf(keep)} kcal).`;
+    finish({ ok: true, kept: true, say }, say);
+  }
   const pick = one("--pick");
   const chosen = pick !== undefined ? pickOffers(live, pick) : live.length === 1 ? live : [];
   if (!chosen.length) {
@@ -189,6 +216,7 @@ else if (command === "discard") discardCommand();
 else if (command === "pending") { const live = livePending({ now }); const p = live.at(-1) ?? null; finish({ ok: true, pending: p, offers: live }, p ? live.map((o) => o.offerText).join("\n") : "No estimate is waiting."); }
 else if (command === "undo") {
   const r = undoEntry(argv[1], { now });
+  if (r.ok) clearPending({ ids: livePending({ now }).filter((o) => o.logged?.id === argv[1]).map((o) => o.id), now });
   const line = !r.ok ? r.error : r.restored ? `Put ${r.entry.title} back as it was (${r.entry.calories} kcal). ${r.dayCalories} kcal on ${r.day}.` : `Removed ${r.removed.title} (${r.removed.calories} kcal). ${r.dayCalories} kcal on ${r.day}.`;
   finish(r, line);
 } else if (command === "inbox") {

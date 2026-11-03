@@ -277,7 +277,7 @@ test("CLI: inbox estimates the fixture item once, writes its result, offers it i
     assert.equal(first.items.length, 1);
     assert.equal(first.items[0].notified, true);
     const args = JSON.parse(readFileSync(sent, "utf8").trim());
-    assert.match(args[0], /^Food photo: ~600 kcal .* Log it\?$/);
+    assert.match(args[0], /^Logged ~600 kcal — white rice, grilled chicken breast, olive oil: 52P 56C 16F\. Fix anything\?$/);
     assert.deepEqual(args.slice(1), ["--kind", "question", "--why", "food: meal-001"]);
     assert.match(o.bodies[0].messages[1].content, /chicken rice bowl from the canteen/);
     assert.equal(o.bodies[0].messages[1].images.length, 1);
@@ -287,9 +287,10 @@ test("CLI: inbox estimates the fixture item once, writes its result, offers it i
     assert.equal(pending.via, "inbox"); assert.equal(pending.inboxId, "meal-001"); assert.equal(pending.eatenAt, "2026-11-02T12:40:00.000Z");
     const again = JSON.parse((await run(["inbox", "--json"], env)).stdout);
     assert.equal(again.items.length, 0, "each item is estimated once");
-    // the yes, two hours later in the phone chat, logs it at the time the photo was taken
-    const yes = await run(["log-pending"], { ...env, ORION_NOW: "2026-11-02T15:00:00Z" });
-    assert.equal(yes.code, 0);
+    // already logged, at the time the photo was taken; two hours on the correction window is closed and a late yes adds nothing
+    const late = await run(["log-pending"], { ...env, ORION_NOW: "2026-11-02T15:00:00Z" });
+    assert.equal(late.code, 1);
+    assert.equal(healthLog(dir).nutritionLog["2026-11-02"].length, 1);
     const row = healthLog(dir).nutritionLog["2026-11-02"][0];
     assert.equal(row.loggedAt, "2026-11-02T12:40:00Z"); assert.match(row.photo, /meal-001\.jpg$/);
   } finally { await o.close(); }

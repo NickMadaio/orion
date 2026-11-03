@@ -51,7 +51,7 @@ export async function estimateMeal(input, deps = {}) {
   const parsed = extractJson(asked.content);
   if (!parsed) return { ok: false, error: "the local model's answer wasn't JSON", ms: asked.ms };
   const checked = validateEstimate(parsed);
-  if (!checked.ok) return { ok: false, error: checked.error, ms: asked.ms };
+  if (!checked.ok) return { ok: false, error: checked.error, ...(checked.noFood ? { noFood: true } : {}), ms: asked.ms };
   const estimate = {
     ...(deps.ground === false ? checked.estimate : ground(checked.estimate, deps.table)),
     input: { ...(text ? { text } : {}), ...(input.imagePaths?.length ? { photos: input.imagePaths } : {}), ...(input.correction ? { correction: input.correction } : {}) },

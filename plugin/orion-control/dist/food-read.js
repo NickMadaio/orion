@@ -13,6 +13,23 @@ const CORRECTION = /\b(?:it was|was (?:a|an|just|only|more|less|about|like)|actu
 const NOT_A_CORRECTION = /\b(?:remind|move|schedule|book|cancel|calendar|gym|class|alarm|timer|lights?|text|call|email|weather|focus|session|tomorrow|tonight|at \d)\b|\?$/i;
 const UNDO = /^(?:undo|undo (?:that|it)|remove (?:it|that)|delete (?:it|that)|take (?:it|that) (?:off|out)|scratch that|un-?log (?:it|that))$/i;
 const PHOTO_WORDS = /^(?:|log (?:this|that|it)|track (?:this|that)|this|that|food|meal|breakfast|lunch|dinner|snack|how many (?:calories|cals) (?:is|in|was) (?:this|that)|macros\??|calories\??|estimate (?:this|that|it)|what about this)$/i;
+/** Replies to "Logged … Fix anything?" (a photo already in his log): the entry is edited in place, so almost any short food-ish reply is a fix. */
+const LOGGED_OK = /^(?:(?:ya|yeah|yep|yes|ok|okay|nah|nope|no)[, ]+)?(?:that'?s |thats |it'?s |its )?(?:fine|good|right|correct|perfect|all good|looks good|about right|close enough)$/;
+const LOGGED_UNDO = /^(?:(?:nvm|nevermind|never mind|ok|okay|actually|pls|please)[, ]+)*(?:undo|remove|delete|take|scratch|un-?log|get rid of)(?: (?:it|that|this|that one|that entry|the entry))?(?: (?:off|out))?(?: (?:pls|please))?$/;
+const FIX_HINT = /\b(?:\d+|no|not|without|more|less|like|about|around|instead|slices?|pieces?|bites?|cups?|bowls?|plates?|portion|serving|extra|add|plus|forgot|missing|wrong|half|quarter|whole|veggie|vegan|diet|zero|ate|had|was|were|only|just|too|bigger|smaller)\b/;
+function readLogged(said, m, id) {
+    if (LOGGED_UNDO.test(said))
+        return { kind: "undo", id };
+    if (LOGGED_OK.test(said))
+        return /^(?:nah|nope|no)\b/.test(said) ? { kind: "no" } : { kind: "yes" };
+    if (YES.test(said))
+        return { kind: "yes" };
+    if (NO.test(said))
+        return { kind: "no" };
+    if (said.length <= 140 && !NOT_A_CORRECTION.test(said) && (CORRECTION.test(said) || FIX_HINT.test(said)))
+        return { kind: "revise", correction: m };
+    return null;
+}
 const PICK_ALL = /^(?:both|all(?: of (?:them|em|those))?|all (?:three|3|two|2)|every one|everything|(?:the )?(?:first|second|third|last|1st|2nd|3rd)(?: one)?)$/;
 const PICK_STOP = new Set(["the", "one", "ones", "log", "add", "just", "only", "please", "pls", "that", "this"]);
 /** Which of several waiting offers he named, or null. Names come from food-pending.json ("cheeseburger and fries"). */
@@ -66,6 +83,11 @@ export function readFoodTurn(message, c) {
         return { kind: "photo" };
     if (m.length > 200)
         return null;
+    if (c.pending?.loggedId && c.bound) {
+        const t = readLogged(said, m, c.pending.loggedId);
+        if (t)
+            return t;
+    }
     if (c.pending && c.bound) {
         const count = c.pending.count ?? 1, names = c.pending.names ?? [];
         const no = readNo(said, m, names, count);

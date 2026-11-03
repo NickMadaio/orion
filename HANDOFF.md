@@ -80,6 +80,15 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-03 afternoon: wave 18 (Claude, orchestrator)
+
+- **Apps:** scripts/orion-apps (list, quit, quit-unused, hide) and apps-read/chat.ts. Root cause of "can't close apps": the model called the bedtime-only `orion-bedtime-act quit-app`, which was off the allowlist. Quit escalates: graceful, then SIGTERM of the app tree, then SIGKILL. Launchers, game, chat and music apps escalate fully. Apps showing a save or question prompt are left and reported. Pids are re-checked by comm and start time before each signal. Ollama, openclaw and orion processes are never signalled.
+- **Mouse:** MouseKit plus Sources/Orion/Mouse (IOHID watcher, otherMouse-only CGEventTap, per-app bindings, game pass-through, settings section, setup popup). scripts/orion-mouse plus mouse-read/chat.ts. Files live in orion-controlled/mouse/{devices,bindings}.json. The `{"kind":"mouse","event":"setup-open"}` outreach line opens the popup. Not yet tried with a real mouse.
+- **Food:** a phone photo auto-logs and replies "Logged … Fix anything?". Corrections edit the same entry with a journal, and undo restores it. Link kicks `orion-food-estimate inbox` right after a write.
+- **Phone widgets:** blue hologram stills and palette, Home-style widgets, and a food photo pill on the phone Home.
+- **Projects:** the model picker sizes itself to the longest name.
+- Allowlisted orion-apps and orion-mouse.
+
 ### 2026-11-03 afternoon: wave 17b (Claude, orchestrator)
 
 - **Workouts by chat:** scripts/orion-workout-log plus workout-read/chat.ts. At most 2 follow-up questions; WKT- ids with undo.

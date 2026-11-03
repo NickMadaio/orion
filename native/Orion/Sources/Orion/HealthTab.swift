@@ -2,10 +2,11 @@ import MobileCore
 import SwiftUI
 
 /*
- Health shows available readings and the owner's activity-day logs.
- WHOOP values stay in the local UI; the optional model sees only source
- availability/periods and manual log facts, and can select emphasis only.
- The seven sections retain explicit source and history-confidence boundaries.
+ Health shows today's WHOOP rings and the owner's activity-day logs. WHOOP values stay in the local UI.
+
+ Wave 18: nothing on this page describes where a number came from. The ring captions, the hover details and the
+ Today line are reads of the day (HealthReads, HealthTodayLine); the "From your records" rail, which was a list of
+ source statements ("RECOVERY SOURCE: A recovery reading is available…"), is gone.
 */
 
 struct HealthTab: View {
@@ -14,7 +15,6 @@ struct HealthTab: View {
     @ObservedObject var health: HealthLog
     @ObservedObject var connections: ConnectionsModel
     let day: LogicalDay
-    @ObservedObject var writer: NarrativeWriter
 
     /// One hover stage per area: the rings under the main column, the week row, and the glance rail.
     @StateObject private var ringHover = HealthHoverController()
@@ -25,23 +25,8 @@ struct HealthTab: View {
     @State private var supplementSheetVisible = false
     @State private var nutritionSheetVisible = false
     @State private var calorieDraft = ""
-    /// "From your records" starts folded: it is reference, not the day's headline.
-    @State private var recordsOpen = false
 
     private let bottleTarget = 9
-
-    /// Where the day is, measured from when it actually began.
-    private enum Phase { case morning, day, evening }
-
-    private var phase: Phase {
-        let hoursUp = day.elapsed / 3600
-        // Falls back to the clock when the day start is only the 4am floor and
-        // the hours-up figure would be fiction.
-        let hour = Calendar.current.component(.hour, from: Date())
-        if hoursUp < 4 && hour < 14 { return .morning }
-        if hour >= 20 || hoursUp > 14 { return .evening }
-        return .day
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 44) {
@@ -51,34 +36,28 @@ struct HealthTab: View {
                 if let snapshot = whoop.snapshot { refreshControl(snapshot) }
             }
             HStack(alignment: .top, spacing: 64) {
-                VStack(alignment: .leading, spacing: 50) {
-                    TimelineView(.periodic(from: .now, by: 60)) { context in
-                        let model = sectionsModel(at: context.date)
-                        VStack(alignment: .leading, spacing: 30) {
-                            headline(model).deal(order: 1, rise: 12)
-                            // Fixed spot under the rings: the Today line until a ring is hovered.
-                            HealthHoverStage(controller: ringHover, model: model,
-                                             rest: HealthTodayLine.line(recovery: whoop.snapshot?.recovery,
-                                                                        sleepHours: whoop.snapshot?.sleepHours))
-                                .deal(order: 2, rise: 8)
-                            if !whoop.week.isEmpty { week(model) }
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 30) {
+                    headline.deal(order: 1, rise: 12)
+                    // Fixed spot under the rings: the Today line until a ring is hovered.
+                    HealthHoverStage(controller: ringHover, reads: reads,
+                                     rest: HealthTodayLine.line(recovery: whoop.snapshot?.recovery,
+                                                                sleepHours: whoop.snapshot?.sleepHours))
+                        .deal(order: 2, rise: 8)
+                    if !whoop.week.isEmpty { week }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                readingRail
-                    .frame(width: 300)
-                    .padding(.top, 8)
+                VStack(alignment: .leading, spacing: 10) {
+                    railDailyProgress
+                    HealthHoverStage(controller: railHover, reads: reads, column: 300, height: 110)
+                }
+                .frame(width: 300)
+                .padding(.top, 8)
             }
-        }
-        .onAppear {
-            loadSummary()
         }
         // Persisting what the watch said is NOT done here any more — see
         // DashboardView. A health record that only exists on days Nick happened
         // to open this tab is what left the calendar grey.
-        .onChange(of: summaryFacts.narrativeKey) { _, _ in loadSummary() }
         .onChange(of: health.caloriesToday) { _, value in
             calorieDraft = value == 0 ? "" : String(value)
         }
@@ -93,79 +72,57 @@ struct HealthTab: View {
         }
     }
 
-    // MARK: - The seven sections (Phase 34)
+    // MARK: - What the page says
 
-    /// Live data, shaped into the seven sections.
-    ///
-    /// Two things here are easy to get wrong and are therefore explicit:
-    ///
-    /// · `WhoopWeek.points` is OLDEST → NEWEST and the model's series are
-    ///   NEWEST FIRST. `newestFirst` does the conversion and is pinned by a
-    ///   test in both directions, because a bare `.reversed()` at a call site
-    ///   inverts every trend on the page and nothing complains.
-    /// · History counts are per measurement. A day with strain but no recovery
-    ///   must not lend confidence to the recovery section.
-    private func sectionsModel(at now: Date) -> HealthSectionsModel {
+    /// Everything the captions and hover details are read from. `Trend` is oldest → newest; its `delta` is today
+    /// against the mean of the days before, and `baseline` the mean of the nights before last.
+    private var reads: HealthReads.Inputs {
         let snapshot = whoop.snapshot
-        let points = whoop.week.points
-        return HealthSectionsModel(inputs: .init(
-            recovery: snapshot?.recovery,
-            sleepPerformance: snapshot?.sleepPerformance,
-            sleepHours: snapshot?.sleepHours,
-            hrv: snapshot?.hrvMilliseconds,
-            restingHeartRate: snapshot?.restingHeartRate,
-            strain: snapshot?.strain,
-            calories: health.caloriesToday,
-            calorieTarget: health.nutritionGoals.calories,
-            waterBottles: health.hydrationBottles,
-            waterTarget: bottleTarget,
-            recoverySampleCount: points.filter { $0.recovery != nil }.count,
-            sleepSampleCount: points.filter { $0.sleepHours != nil || $0.sleepPerformance != nil }.count,
-            strainSampleCount: points.filter { $0.strain != nil }.count,
-            readingAgeHours: snapshot?.briefReadingAgeHours(at: now),
-            recentSleepHours: HealthSectionsModel.newestFirst(points.compactMap(\.sleepHours)),
-            recentRecovery: HealthSectionsModel.newestFirst(
-                points.compactMap { $0.recovery.map(Double.init) }),
-            journalEntryCount: 0))
+        let week = whoop.week
+        return HealthReads.Inputs(
+            recovery: snapshot?.recovery, recoveryDelta: week.recovery.delta,
+            sleepHours: snapshot?.sleepHours, sleepPerformance: snapshot?.sleepPerformance,
+            usualSleepHours: week.sleepHours.baseline, strain: snapshot?.strain,
+            hrvDelta: week.hrv.delta, restingHeartRateDelta: week.restingHeartRate.delta,
+            days: week.points.count,
+            bottles: health.hydrationBottles, bottleTarget: bottleTarget,
+            calories: health.caloriesToday, calorieTarget: health.nutritionGoals.calories)
     }
 
     // MARK: - Headline
 
-    @ViewBuilder private func headline(_ model: HealthSectionsModel) -> some View {
+    @ViewBuilder private var headline: some View {
         if let snapshot = whoop.snapshot {
-            wellnessOverview(snapshot, model)
+            wellnessOverview(snapshot)
         } else {
             whoopEmptyState
         }
     }
 
-    /// Raw available readings, without a fixed-score prescription.
-    ///
-    /// Wave 13: the three readings stand on the page as big light figures, each over a line-art meter, staggered
+    /// Wave 13: the three numbers stand on the page as big light figures, each over a line-art meter, staggered
     /// rather than three equal panels. The day they are about is the kicker over them.
-    private func wellnessOverview(_ snapshot: WhoopSnapshot, _ model: HealthSectionsModel) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
+    private func wellnessOverview(_ snapshot: WhoopSnapshot) -> some View {
+        let reads = reads
+        return VStack(alignment: .leading, spacing: 22) {
             Kicker(text: "WHOOP · \(snapshot.dayLabel)", hue: Color.white.opacity(0.4))
             HStack(alignment: .top, spacing: 58) {
-                wellnessRing(title: "Recovery", section: .recovery, model: model, tint: recoveryTint(snapshot.recovery),
+                wellnessRing(title: "Recovery", section: .recovery, tint: recoveryTint(snapshot.recovery),
                              progress: Double(snapshot.recovery ?? 0) / 100, number: snapshot.recovery.map(Double.init), decimals: 0,
-                             unit: "%", detail: snapshot.recovery == nil ? "not available" : "WHOOP recovery score", drop: 0, delay: 0.1)
-                wellnessRing(title: "Sleep", section: .sleep, model: model, tint: OrionTheme.violet,
+                             unit: "%", detail: HealthReads.caption(.recovery, reads), drop: 0, delay: 0.1)
+                wellnessRing(title: "Sleep", section: .sleep, tint: OrionTheme.violet,
                              progress: Double(snapshot.sleepPerformance ?? 0) / 100, number: snapshot.sleepHours, decimals: 1,
-                             unit: "h", detail: snapshot.sleepHours == nil ? "not available"
-                                 : "in bed" + (snapshot.sleepPerformance.map { " · \($0)% performance" } ?? ""),
-                             drop: 24, delay: 0.25)
-                wellnessRing(title: "Strain", section: .activity, model: model, tint: OrionTheme.orange,
+                             unit: "h", detail: HealthReads.caption(.sleep, reads), drop: 24, delay: 0.25)
+                wellnessRing(title: "Strain", section: .activity, tint: OrionTheme.orange,
                              progress: min(1, max(0, (snapshot.strain ?? 0) / 21)), number: snapshot.strain, decimals: 1,
-                             unit: "of 21", detail: snapshot.strain == nil ? "not available" : "available cycle reading", drop: 8, delay: 0.4)
+                             unit: "of 21", detail: HealthReads.caption(.activity, reads), drop: 8, delay: 0.4)
                 Spacer(minLength: 0)
             }
         }
     }
 
-    /// One reading as a ring: the number counts up in the centre, the kicker and a note sit under it, and hovering
-    /// floats the matching part of the day (its sentence, source and confidence).
-    private func wellnessRing(title: String, section: HealthSection, model: HealthSectionsModel, tint: Color,
+    /// One number as a ring: it counts up in the centre, the kicker and a short read sit under it, and hovering (or
+    /// clicking) floats what it means for today into the stage under the rings.
+    private func wellnessRing(title: String, section: HealthSection, tint: Color,
                               progress: Double, number: Double?, decimals: Int, unit: String, detail: String,
                               drop: CGFloat, delay: Double) -> some View {
         VStack(alignment: .center, spacing: 14) {
@@ -323,8 +280,8 @@ struct HealthTab: View {
 
     // MARK: - The week
 
-    /// Every reading with its own line and its distance from your baseline.
-    private func week(_ model: HealthSectionsModel) -> some View {
+    /// Every measure with its own line and its distance from your baseline.
+    private var week: some View {
         HairlineSection(title: "Your week", trailing: "\(whoop.week.points.count) days", order: 2) {
             HStack(alignment: .top, spacing: 0) {
                 Metric(label: "recovery", trend: whoop.week.recovery, unit: "%",
@@ -344,7 +301,7 @@ struct HealthTab: View {
                 Spacer(minLength: 0)
             }
             .healthHover(.trends, weekHover)
-            HealthHoverStage(controller: weekHover, model: model, height: 76)
+            HealthHoverStage(controller: weekHover, reads: reads, height: 76)
         }
     }
 
@@ -355,58 +312,14 @@ struct HealthTab: View {
             .padding(.top, 14)
     }
 
-    // MARK: - What Orion makes of it
-
-    /// The app writes the facts; the local model may choose one to lead with.
-    /// Raw prose and superseded selections never reach a row.
-    private var readingRail: some View {
-        let facts = summaryFacts
-        let selection = writer.text(for: facts.narrativeKey)
-        let takeaways = facts.takeaways(selection: selection)
-        return VStack(alignment: .leading, spacing: 44) {
-            VStack(alignment: .leading, spacing: 10) {
-                railDailyProgress(sectionsModel(at: Date()))
-                HealthHoverStage(controller: railHover, model: sectionsModel(at: Date()), column: 300, height: 110)
-            }
-            HairlineSection(title: "From your records", trailing: recordsOpen ? facts.dayKey : nil, hue: Color.white.opacity(0.28),
-                            spacing: 6, order: 2, accessory: {
-                Button {
-                    withAnimation(OrionMotion.page) { recordsOpen.toggle() }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.4))
-                        .rotationEffect(.degrees(recordsOpen ? 180 : 0))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(recordsOpen ? "Fold the records" : "Show the records")
-            }) {
-                if recordsOpen {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(takeaways.enumerated()), id: \.element.id) { index, takeaway in
-                        TakeawayRow(takeaway: takeaway)
-                        if index != takeaways.count - 1 { RowHairline() }
-                    }
-                }
-                .transition(.opacity)
-                if facts.selectedDetail(selection) != nil {
-                    Text("Highlight selected on this Mac · wording from your records")
-                        .font(OrionTheme.mono(9))
-                        .foregroundStyle(OrionTheme.textDim)
-                }
-                }
-            }
-        }
-    }
+    // MARK: - The glance rail
 
     /// The right side should answer the quick question — "how is the day
     /// going?" — while the main column remains the place to log the detail.
     ///
     /// Wave 13: four logs, each a line rather than a tile in a two-by-two grid: what it is, how far along, and the
     /// one outline action that moves it on.
-    private func railDailyProgress(_ model: HealthSectionsModel) -> some View {
+    private var railDailyProgress: some View {
         HairlineSection(title: "Today at a glance", spacing: 4, order: 1, accessory: {
             Button("Food log") { nutritionSheetVisible = true }
                 .buttonStyle(.plain)
@@ -470,33 +383,6 @@ struct HealthTab: View {
         }
         .padding(.vertical, 11)
         .healthHover(section, railHover)
-    }
-
-    private var summaryFacts: HealthFacts {
-        HealthFacts(
-            dayKey: day.key,
-            phase: phaseName,
-            healthDetails: whoop.snapshot?.healthSummaryDetails(clock: BriefClock(now: Date())) ?? [],
-            bottles: health.hydrationBottles,
-            takenSupplementIDs: health.takenToday,
-            listedSupplementIDs: Set(health.supplements.map(\.id)),
-            workoutLogged: health.todaysWorkout != nil,
-            workoutSets: health.todaysWorkout?.totalSets ?? 0,
-            calories: health.caloriesToday
-        )
-    }
-
-    private var phaseName: String {
-        switch phase {
-        case .morning: return "morning"
-        case .day: return "day"
-        case .evening: return "evening"
-        }
-    }
-
-    private func loadSummary() {
-        let facts = summaryFacts
-        writer.load(key: facts.narrativeKey, style: .selectionJSON) { facts.prompt() }
     }
 
     // MARK: - Not connected

@@ -2,56 +2,47 @@ import MobileCore
 import SwiftUI
 
 /*
- Wave 14 (Health): the seven parts, moved off the page and onto the thing they describe. Hovering a ring (or the
- glance line it belongs to) floats that part's sentence, what it likely means, and its source and confidence, as bare
- type over a fading hairline: no plate, the way Knowledge's hover card reads. Nothing here decides what may be said;
- the text is `HealthSectionsModel`'s, rendered as given.
+ Wave 14 (Health): the parts of the day, moved off the page and onto the thing they describe. Hovering a ring (or the
+ glance line it belongs to) floats that part's read as bare type over a fading hairline: no plate, the way Knowledge's
+ hover card reads.
+
+ Wave 18: the text is `HealthReads`', not the phase-34 section sentences. Those restated the ring's own number as
+ provenance ("The available WHOOP recovery reading is 78%." over "Whoop · high history confidence"), so on the
+ installed build a hover that fired still looked like it did nothing. A pin no longer outranks hover either.
 */
 
 /// The floating detail for one part. Pure presentation, so a render can draw it directly.
 struct HealthPartDetail: View {
-    let content: HealthSectionContent
-    let provenance: String
+    let part: HealthPartRead
     var width: CGFloat = 300
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 10) {
-                Kicker(text: content.title, hue: HealthSectionsView.hue(content.section))
+                Kicker(text: part.title, hue: HealthSectionsView.hue(part.section))
                 FadingRule().frame(width: 60)
             }
-            Text(content.narrative.happened)
+            Text(part.line)
                 .font(OrionTheme.serif(16))
                 .foregroundStyle(OrionTheme.text)
                 .lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
-            if let means = content.narrative.likelyMeans {
-                note(means)
+            if let note = part.note {
+                Text(note)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.white.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if let consider = content.narrative.consider {
-                note(consider)
-            }
-            Text(provenance)
-                .font(OrionTheme.mono(9))
-                .foregroundStyle(Color.white.opacity(0.36))
-                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: width, alignment: .leading)
         // The fading hairline down the left edge in place of a plate.
         .padding(.leading, 14)
         .overlay(alignment: .leading) {
-            LinearGradient(colors: [.clear, HealthSectionsView.hue(content.section).opacity(0.7), .clear],
+            LinearGradient(colors: [.clear, HealthSectionsView.hue(part.section).opacity(0.7), .clear],
                            startPoint: .top, endPoint: .bottom)
                 .frame(width: 1)
         }
         .shadow(color: OrionTheme.ink.opacity(0.9), radius: 14)
-    }
-
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 12))
-            .foregroundStyle(Color.white.opacity(0.62))
-            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -61,15 +52,16 @@ struct HealthPartDetail: View {
 @MainActor
 final class HealthHoverController: ObservableObject {
     @Published private(set) var hovered: HealthSection?
-    /// A click keeps a part open without hover, so the detail is reachable even where hover never arrives.
+    /// A click keeps a part open after the pointer leaves.
     @Published private(set) var pinned: HealthSection?
     private var pendingClear: Task<Void, Never>?
     let grace: Duration
 
     init(grace: Duration = .milliseconds(260)) { self.grace = grace }
 
-    /// What the stage should show: a clicked part wins over a hovered one.
-    var current: HealthSection? { pinned ?? hovered }
+    /// What the stage should show: the part under the pointer, else the clicked one. Wave 17 had this the other way
+    /// round, so one click made hovering every other ring do nothing until the same ring was clicked again.
+    var current: HealthSection? { hovered ?? pinned }
 
     func enter(_ section: HealthSection) {
         pendingClear?.cancel()
@@ -112,7 +104,7 @@ enum HealthStageLayout {
 /// leaves. `forced` pins a part, for renders.
 struct HealthHoverStage: View {
     @ObservedObject var controller: HealthHoverController
-    let model: HealthSectionsModel
+    let reads: HealthReads.Inputs
     var rest: String? = nil
     var forced: HealthSection? = nil
     var column: CGFloat = HealthStageLayout.maxWidth
@@ -124,8 +116,8 @@ struct HealthHoverStage: View {
         let active = forced ?? controller.current
         let width = HealthStageLayout.width(column: column)
         ZStack(alignment: .topLeading) {
-            if let active, let part = model.parts([active]).first {
-                HealthPartDetail(content: part, provenance: model.shortProvenance(part), width: width - 14)
+            if let active, let part = HealthReads.part(active, reads) {
+                HealthPartDetail(part: part, width: width - 14)
                     .id(active)
                     .transition(.opacity)
             } else if let rest {
@@ -142,8 +134,7 @@ struct HealthHoverStage: View {
 extension View {
     /// Reports the pointer on this view to the stage that shows `section`, and lets a click pin it.
     ///
-    /// `onContinuousHover` rather than `onHover`: it is what the Knowledge graph uses and is known to fire in the
-    /// dashboard window. The whole frame is the target (`contentShape`), so a ring's empty interior counts.
+    /// `onContinuousHover`, on the whole frame (`contentShape`), so a ring's empty interior counts.
     func healthHover(_ section: HealthSection?, _ controller: HealthHoverController) -> some View {
         contentShape(Rectangle())
             .onContinuousHover { phase in

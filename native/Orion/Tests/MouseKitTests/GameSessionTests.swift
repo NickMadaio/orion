@@ -63,36 +63,61 @@ final class GameSessionTests: XCTestCase {
         XCTAssertTrue(c.active); XCTAssertEqual(effect, .started(launcher)); XCTAssertNil(c.endedAt)
     }
 
-    // MARK: the override
+    // MARK: the gate (resolver)
 
-    func testASessionPassesEveryBindingThroughInEveryApp() {
+    func testGateOffPassesEveryBindingThroughInEveryApp() {
         for id in ["com.apple.finder", "com.apple.Safari", "x.game", nil] as [String?] {
-            XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: id, isGame: false, bindings: bindings(), gameSession: true), String(describing: id))
+            XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: id, isGame: false, bindings: bindings(), gateOn: false), String(describing: id))
         }
     }
 
-    func testTheSessionWinsEvenWhenAutoGamePassthroughIsOffAndAnAppOverrideExists() {
-        var b = bindings(); b.autoPassthroughGames = false
-        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "com.apple.Safari", isGame: false, bindings: b, gameSession: true))
-        XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.Safari", isGame: false, bindings: b, gameSession: false), .system("missionControl"))
-    }
-
-    func testWithoutASessionNothingChanges() {
+    func testGateOnRunsBindingsAndIsTheDefault() {
+        XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: bindings(), gateOn: true), .system("stageManager"))
         XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: bindings()), .system("stageManager"))
     }
 
-    // MARK: w18 mousetoggle
-
-    func testAutoPauseOffLetsBindingsRunDuringASession() {
-        var b = bindings(); b.autoPauseInGames = false
-        XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: b, gameSession: true), .system("stageManager"))
-        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: bindings(), gameSession: true))
+    func testAGameSessionAloneNoLongerGatesAnything() {
+        // The session drives prep and the wheel; the buttons only look at the gate.
+        XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.Safari", isGame: false, bindings: bindings(), gateOn: true), .system("missionControl"))
     }
 
-    func testManualOffWinsOverEverything() {
-        var b = bindings(); b.enabled = false; b.autoPauseInGames = false
-        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: b, gameSession: false))
-        XCTAssertNil(MouseResolver.resolve(button: 4, bundleId: nil, isGame: false, bindings: b, gameSession: true))
+    func testMasterOffWinsOverAnOpenGate() {
+        var b = bindings(); b.enabled = false
+        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: b, gateOn: true))
+        XCTAssertNil(MouseResolver.resolve(button: 4, bundleId: nil, isGame: false, bindings: b, gateOn: false))
+    }
+
+    // MARK: the gate (state machine)
+
+    func testGateFollowsFocusAndTheHotkey() {
+        var g = MouseGate()
+        XCTAssertTrue(g.isOn)
+        g = g.focusChanged(frontIsGame: true, autoPause: true);  XCTAssertFalse(g.isOn, "game gains focus")
+        g = g.focusChanged(frontIsGame: false, autoPause: true); XCTAssertTrue(g.isOn, "tab out")
+        g = g.focusChanged(frontIsGame: true, autoPause: true);  XCTAssertFalse(g.isOn)
+        g = g.toggled();                                         XCTAssertTrue(g.isOn, "hotkey inside the game turns it on")
+        g = g.focusChanged(frontIsGame: false, autoPause: true); XCTAssertTrue(g.isOn)
+        g = g.focusChanged(frontIsGame: true, autoPause: true);  XCTAssertFalse(g.isOn, "refocusing the game applies the rule again")
+    }
+
+    func testHotkeyWorksOutOfAGameToo() {
+        let g = MouseGate().toggled()
+        XCTAssertFalse(g.isOn)
+        XCTAssertTrue(g.toggled().isOn)
+    }
+
+    func testAutoPauseOffMeansOnlyTheHotkeyChangesTheGate() {
+        var g = MouseGate()
+        g = g.focusChanged(frontIsGame: true, autoPause: false);  XCTAssertTrue(g.isOn)
+        g = g.toggled();                                          XCTAssertFalse(g.isOn)
+        g = g.focusChanged(frontIsGame: false, autoPause: false); XCTAssertFalse(g.isOn, "focus leaves a hotkey-off gate alone")
+        g = g.focusChanged(frontIsGame: true, autoPause: false);  XCTAssertFalse(g.isOn)
+    }
+
+    func testMasterOffAlwaysBlocks() {
+        for on in [true, false] { XCTAssertFalse(MouseGate(isOn: on).passes(masterEnabled: false)) }
+        XCTAssertTrue(MouseGate(isOn: true).passes(masterEnabled: true))
+        XCTAssertFalse(MouseGate(isOn: false).passes(masterEnabled: true))
     }
 
     /// The live bug (2026-11-03): the app was relaunched while the session file said active, and the new process started with an idle session.

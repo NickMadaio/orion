@@ -95,7 +95,7 @@ function writeJournal(records, env) {
   writeFileSync(scratch, JSON.stringify({ records: records.slice(-JOURNAL_MAX) }, null, 2)); chmodSync(scratch, 0o600); renameSync(scratch, file);
 }
 
-const refused = () => ({ ok: false, refused: true, error: "Not logged: ORION is in an evaluation run, so nothing is written to your health log." });
+const refused = () => ({ ok: false, refused: true, error: "Not logged: I am in an evaluation run, so nothing is written to your health log." });
 
 /**
  Appends an estimate, or fills an existing entry (target.entryId: a meal logged earlier with 0 kcal) with its numbers.

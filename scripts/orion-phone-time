@@ -48,7 +48,7 @@ function saveUserBlocks(lists) {
 }
 function blockSummary() {
   const held = userBlocks();
-  return held.length ? ` ORION has shut: ${held.map((l) => `${shown(l.name)} until ${clock(new Date(l.until))}${l.why ? ` (${l.why})` : ""}`).join("; ")}.` : "";
+  return held.length ? ` I have shut: ${held.map((l) => `${shown(l.name)} until ${clock(new Date(l.until))}${l.why ? ` (${l.why})` : ""}`).join("; ")}.` : "";
 }
 
 function describe() {

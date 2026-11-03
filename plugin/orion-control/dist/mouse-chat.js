@@ -33,7 +33,7 @@ catch {
     return { ok: false, error: "orion-mouse gave no answer" };
 } };
 const failed = (error) => `I couldn't change the mouse settings just now${error ? ` (${error})` : ""}, so nothing was changed. Tell me again in a bit.`;
-const argsFor = (turn) => {
+export const argsFor = (turn) => {
     const app = (a) => (a ? ["--app", a] : []);
     switch (turn.kind) {
         case "status": return ["status", "--json"];
@@ -41,7 +41,7 @@ const argsFor = (turn) => {
         case "clear": return ["clear", turn.button, ...app(turn.app), "--json"];
         case "passthrough": return ["passthrough", turn.op, turn.app, "--json"];
         case "games": return ["games", turn.state, "--json"];
-        case "setup": return ["setup", "--json"];
+        case "setup": return turn.again ? ["setup", "--again", "--json"] : ["setup", "--json"];
         case "apply": return ["setup", "--apply", "--json"];
         default: return null;
     }

@@ -156,7 +156,7 @@ describe("through registerLocalRouting with a mocked script", () => {
     });
     it("unblocking what ORION never shut says nothing changed", async () => {
         const h = harness("social was not shut from here, so nothing changed. (A work-block or bedtime lock ends on its own, or use grant for extra time.)");
-        expect(await h.turn("let me back on social")).toMatch(/^ORION didn't have social media blocked, so nothing changed/);
+        expect(await h.turn("let me back on social")).toMatch(/^I didn't have social media blocked, so nothing changed/);
     });
     it("'block it' asks one short question and runs nothing", async () => {
         const h = harness(SENT());

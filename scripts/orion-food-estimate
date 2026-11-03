@@ -47,7 +47,7 @@ function finish(result, line) {
 }
 const usage = () => { console.error(USAGE); process.exit(2); };
 const failLine = (error) => `Couldn't estimate that: ${error}.`;
-const EVAL_NOTE = "not kept: ORION is in an evaluation run, so a yes will not log it";
+const EVAL_NOTE = "not kept: I am in an evaluation run, so a yes will not log it";
 /** What the JSON says about an offer: its id and line, or that an evaluation kept it from being saved. */
 const offerJson = (offer) => ({ id: offer.id, text: offer.offerText, ...(offer.saved === false ? { note: EVAL_NOTE } : {}) });
 

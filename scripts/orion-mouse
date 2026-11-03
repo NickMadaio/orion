@@ -7,7 +7,7 @@
    orion-mouse clear <button> [--app <bundleId|name>]            back to the button's normal behavior
    orion-mouse passthrough add|remove <bundleId|app name>        apps where the buttons are left alone (a game, say)
    orion-mouse games on|off                                      leave the buttons alone in games automatically
-   orion-mouse setup [--json]                                    open the Mac's mouse-setup popup (appends {"kind":"mouse","event":"setup-open","at":ISO} to outreach.jsonl)
+   orion-mouse setup [--again] [--json]                                    open the Mac's mouse-setup popup (appends {"kind":"mouse","event":"setup-open","at":ISO} to outreach.jsonl)
    orion-mouse setup --suggest|--apply [--json]                  list the extra buttons and suggest defaults; --apply writes them
 
  <button>: "back" / "side back" -> 3, "front" / "forward" / "side front" -> 4, "button N" (counted from 1, as on the box) -> N-1, a bare
@@ -41,7 +41,7 @@ function run() {
     case "clear": if (positional.length > 1) usage(); return clearBinding({ button: positional[0], ...(app !== undefined ? { app } : {}) });
     case "passthrough": if (positional.length !== 2) usage(); return passthrough({ op: positional[0], app: positional[1] });
     case "games": if (positional.length !== 1) usage(); return games({ state: positional[0] });
-    case "setup": return argv.includes("--suggest") || argv.includes("--apply") ? setup({ apply: argv.includes("--apply") }) : openSetup();
+    case "setup": return argv.includes("--suggest") || argv.includes("--apply") ? setup({ apply: argv.includes("--apply") }) : openSetup({ again: argv.includes("--again") });
     default: return usage();
   }
 }

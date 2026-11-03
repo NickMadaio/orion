@@ -54,7 +54,7 @@ function logNow(draft, text, extra = {}) {
 function ask(draft, text, missing, asked, extra = {}) {
   const question = questionFor(missing, { second: asked > 1 });
   const row = writeWorkoutPending({ asked, text, draft, missing, question }, { now });
-  return finish({ ok: true, asking: true, question, missing, draft, summary: summaryOf(draft), pending: { id: row.id, ...(row.saved === false ? { note: "not kept: ORION is in an evaluation run, so an answer will not log it" } : {}) }, ...extra }, question);
+  return finish({ ok: true, asking: true, question, missing, draft, summary: summaryOf(draft), pending: { id: row.id, ...(row.saved === false ? { note: "not kept: I am in an evaluation run, so an answer will not log it" } : {}) }, ...extra }, question);
 }
 
 async function describe(text) {

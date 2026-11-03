@@ -66,7 +66,7 @@ describe("sanitizeReply (H4, r8b2 2026-10-16)", () => {
     const raw = 'Get "https://gmail.googleapis.com/x": oauth2: "invalid_grant"';
     expect(sanitizeReply(raw)).toBe(REPLY_FAILED);
     expect(sanitizeReply(raw, { mailFailed: true })).toBe("Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.");
-    expect(sanitizeReply("Operation not permitted", { mailFailed: true })).toBe("I can't read your texts — ORION needs Full Disk Access.");
+    expect(sanitizeReply("Operation not permitted", { mailFailed: true })).toBe("I can't read your texts — I need Full Disk Access.");
     expect(mailReadFailed([{ canonical: 'exec orion-gmail-search "x"', stdout: "oops", exit: 1 }])).toBe(true);
     expect(mailReadFailed([{ canonical: 'exec orion-messages recent 3', stdout: 'Get "https://x": oauth2: "invalid_grant"', exit: null }])).toBe(true);
     expect(mailReadFailed([{ canonical: "exec orion-agenda today", stdout: "invalid_grant", exit: 1 }])).toBe(false);

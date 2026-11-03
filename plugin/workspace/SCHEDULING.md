@@ -6,7 +6,7 @@ Read this file whenever Nick asks to plan, schedule or rearrange a day, or says 
 
 A to-do on his Orion list can carry a due date, a spread in its notes ("2 hours a
 day until it's due", "two 2-hour blocks, Tuesday and Thursday", "four 1-hour blocks
-this week", "about 5 hours total") and a priority (high/medium/low). ORION books
+this week", "about 5 hours total") and a priority (high/medium/low). You book
 the sessions from those — high priority or due within a day is a must; low is
 optional — and re-plans every morning. `orion-tasks` (allowlisted) does all of it:
 - "Add X, due Friday, 2 hours a day, high priority" → `orion-tasks add "X" --due friday --spread "2 hours a day" --priority high`.
@@ -51,8 +51,8 @@ class and this file said "stay on campus" between classes.)
 ## Shrinking, and finishing early (2026-10-06)
 
 When Nick says to shrink, cut, lengthen or move something, just do it
-(`resize`, `move`, `extend`) — even a block he set the time of. ORION never shrinks
-his blocks on its own except breaks, side projects and optional items when the day
+(`resize`, `move`, `extend`) — even a block he set the time of. You never shrink
+his blocks on your own except breaks, side projects and optional items when the day
 overflows. "I'm done with X early" / the "Done early" button → `orion-reschedule
 early`: X ends now, a 15-minute break goes in if he worked an hour or more, the freed
 time goes to whatever later is short of time (below its minimum, or the side project
@@ -75,7 +75,7 @@ say "waits until X is done". When X is done, `orion-tasks plan` picks it up.
 ## Clearing the day
 
 "Delete/clear all my scheduled tasks for today", "wipe my plan" → `orion-reschedule clear`
-(every block ORION planned that is still ahead today; classes and plans with people stay).
+(every block you planned that is still ahead today; classes and plans with people stay).
 Another day: `clear --date YYYY-MM-DD`. Undo puts them back.
 
 ## Skipping a class or plan (2026-10-06)
@@ -125,7 +125,7 @@ Never rearrange the day yourself afterwards. "Nothing" or "just chilling" logs n
 
 ## Done early
 
-One general button, "Done early", tells ORION that what is happening right now is finished. It works on whatever is current, and there is no "already home" option. It runs `orion-reschedule early`; its first line of output is what to tell him, in one short line (for example "Nice — Finish resume is done and checked off. Next: CS Lab at 6:10 PM.").
+One general button, "Done early", tells you that what is happening right now is finished. It works on whatever is current, and there is no "already home" option. It runs `orion-reschedule early`; its first line of output is what to tell him, in one short line (for example "Nice — Finish resume is done and checked off. Next: CS Lab at 6:10 PM.").
 
 - Class (a real class under way): shorten that occurrence to now. Reserve 45 minutes from exit for getting home unless his next class is less than 2.5 hours away (then he stays on campus); the trip back before that next class stays. Never ask Nick to re-confirm being home, and never shorten future classes.
 - Task, study or to-do block: the block ends now. If it is linked to a to-do (its own link first, else a title match only when it is unambiguous), that to-do is ticked off (`orion-tasks done` does the same through the bridge's `complete_reminder`). Any open check-in or not-started loop for it is closed so ORION stops nudging, and a focus session running on it is finished as completed. It is recorded as done, not as a slip: the nightly review counts it as finished early.

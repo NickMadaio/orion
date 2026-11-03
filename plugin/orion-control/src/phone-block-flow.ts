@@ -86,7 +86,7 @@ export async function unblockGroups(opts: { groups: Group[] | "all"; apps: strin
     const via = opts.apps.length && opts.groups !== "all" ? ` That's the group ${list(opts.apps)} sits in, so the rest of it is open too.` : "";
     return { flow: { outcome: "done", calls: [cmd(args)], outputs: [out.stdout], reply: `Opened ${what} on your phone again.${via}${stillSaid}` }, tools, wrote: true };
   }
-  const nothing = opts.groups === "all" ? "ORION doesn't have anything blocked for you" : `ORION didn't have ${named} blocked`;
+  const nothing = opts.groups === "all" ? "I don't have anything blocked for you" : `I didn't have ${named} blocked`;
   return { flow: say(`${cap(nothing)}, so nothing changed. A bedtime or work-block lock ends on its own, or I can give you extra time if you need into your apps.${stillSaid}`), tools, wrote: false };
 }
 

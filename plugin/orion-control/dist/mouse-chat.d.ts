@@ -29,6 +29,7 @@ export declare class MouseMemory {
         confirm?: boolean;
     } | undefined;
 }
+export declare const argsFor: (turn: MouseTurn) => string[] | null;
 export type MouseDeps = {
     run: MouseRun;
 };

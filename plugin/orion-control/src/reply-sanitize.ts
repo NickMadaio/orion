@@ -12,6 +12,7 @@ import { stripExecFailed } from "./memory-facts.js";
 import { acknowledgement, acknowledgesFailure, failedTools, wroteSomething } from "./tool-failure.js";
 import { outcomeOf, type ToolResult } from "./work-check.js";
 import { fahrenheitWords } from "./weather-words.js";
+import { firstPerson } from "./self-voice.js";
 
 const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
@@ -23,7 +24,7 @@ const mailLine = (text: string): string => /invalid_grant/i.test(text) ? GMAIL_S
 // A change claim left standing after a failure tail was cut ("Done. ⚠️ Exec failed: …", review 6 M-B).
 const NEGATED = /\b(?:no|nothing|not|never|none)\b|n't\b/i; // "Nothing was moved — Gym is not on Friday." is an honest reply (review 7 M2)
 const CHANGE_CLAIM = /\b(?:done|added|moved|booked|scheduled|pushed|set|cancell?ed|removed|sent|logged|saved)\b/i;
-const FULL_DISK = "I can't read your texts — ORION needs Full Disk Access.";
+const FULL_DISK = "I can't read your texts — I need Full Disk Access.";
 export const REPLY_FAILED = "I couldn't finish that just now.";
 
 /** Raw error shapes a failed gmail/messages script prints (first match starts the span that is cut). */
@@ -211,7 +212,7 @@ export type FinalizeContext = {
 */
 export function finalizeReply(reply: string, tools: ReadonlyArray<ToolResult>, ctx: FinalizeContext = {}): string {
   // Spoken aloud: temperatures read as "55 degrees Fahrenheit", whichever path wrote the sentence.
-  return fahrenheitWords(finalizeCore(reply, tools, ctx));
+  return firstPerson(fahrenheitWords(finalizeCore(reply, tools, ctx)));   // w18 voiceself: ORION speaks as "I"
 }
 
 function finalizeCore(reply: string, tools: ReadonlyArray<ToolResult>, ctx: FinalizeContext): string {

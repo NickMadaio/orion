@@ -17,6 +17,6 @@ export function evalMode(now = Date.now()) {
 /** Call first in a sender: exits 0 with a plain "not sent" line during an evaluation. */
 export function refuseDuringEval(what) {
   if (!evalMode()) return;
-  console.log(`Not sent: ${what} — ORION is in an evaluation run, so nothing goes out to anyone.`);
+  console.log(`Not sent: ${what} — I am in an evaluation run, so nothing goes out to anyone.`);
   process.exit(0);
 }

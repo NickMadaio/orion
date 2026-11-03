@@ -29,7 +29,7 @@ const ASK = /^(?:how|what|why|when|where|who|which|can't|cant|cannot|is|are|does
 
 const cleanName = (raw: string): string => raw.split(" ").filter((w) => w && !FILLER.test(w)).join(" ").replace(/[.!,]+$/, "").trim();
 const splitNames = (text: string): string[] => text.split(/\s*(?:,|&|\band\b|\bplus\b|\bn\b|\bas well as\b|\bthen\b)\s*/).map(cleanName).filter((n) => n.length >= 2);
-const appish = (n: string) => n.split(" ").length <= 3 && !NOT_APP.test(n) && !/^(?:i|im|i'm|you|ur|it|he|she|they)\b/.test(n);
+const appish = (n: string) => n.split(" ").length <= 3 && !NOT_APP.test(n) && !/^[a-z]+ing\b/.test(n) && !/^(?:i|im|i'm|you|ur|it|he|she|they)\b/.test(n);
 
 const LIST = [
   /\b(?:what|which)\s+(?:apps?|programs?|applications?|stuff)\b.*\b(?:open|running|up|on)\b/,

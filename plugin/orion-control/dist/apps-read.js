@@ -6,7 +6,7 @@ const NOT_APP = /\b(?:smoking|vaping|job|school|work|uni|class|tab|tabs|window|w
 const ASK = /^(?:how|what|why|when|where|who|which|can't|cant|cannot|is|are|does|do|did|should|would|could|will|am i|have i)\b|\?\s*$/;
 const cleanName = (raw) => raw.split(" ").filter((w) => w && !FILLER.test(w)).join(" ").replace(/[.!,]+$/, "").trim();
 const splitNames = (text) => text.split(/\s*(?:,|&|\band\b|\bplus\b|\bn\b|\bas well as\b|\bthen\b)\s*/).map(cleanName).filter((n) => n.length >= 2);
-const appish = (n) => n.split(" ").length <= 3 && !NOT_APP.test(n) && !/^(?:i|im|i'm|you|ur|it|he|she|they)\b/.test(n);
+const appish = (n) => n.split(" ").length <= 3 && !NOT_APP.test(n) && !/^[a-z]+ing\b/.test(n) && !/^(?:i|im|i'm|you|ur|it|he|she|they)\b/.test(n);
 const LIST = [
     /\b(?:what|which)\s+(?:apps?|programs?|applications?|stuff)\b.*\b(?:open|running|up|on)\b/,
     /\b(?:what|whats|what's)\s+(?:do i have\s+|have i got\s+|is\s+|all\s+)?(?:open|running)\b(?!\s+(?:source|ai|house|hours))/,

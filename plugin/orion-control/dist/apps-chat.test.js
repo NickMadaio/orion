@@ -43,6 +43,7 @@ describe("readAppsTurn", () => {
             "i need to quit smoking", "close the door", "close this tab", "close it", "quit my job lol", "how do i close an app on mac", "can you close the deal with john",
             "what time is my class", "open spotify", "turn off the lights", "i want to close out the day", "did i quit gym", "close the window", "whats open source",
             "log my workout, ran 5k", "remind me to close the oven",
+            "quit checking email", "quit taking notes", "quit being lazy", "close gmail tabs", "stop closing apps lol i hate it",
         ])
             expect(readAppsTurn(m), m).toBeNull();
     });

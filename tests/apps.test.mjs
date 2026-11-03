@@ -6,23 +6,25 @@ import assert from "node:assert/strict";
 import { closeApp } from "../scripts/lib/apps/escalate.mjs";
 import { keptReason, matchApps } from "../scripts/lib/apps/policy.mjs";
 import { hideApp, listApps, quitNamed, quitUnused } from "../scripts/lib/apps/run.mjs";
-import { audiblePids, parseLsappinfo, parsePs, treeOf } from "../scripts/lib/apps/live.mjs";
+import { audiblePids, parseLsappinfo, parsePs, pidAlive, treeOf } from "../scripts/lib/apps/live.mjs";
 
 const app = (o) => ({ name: "App", bundleId: "com.x.app", pid: 100, path: "/Applications/App.app", kind: "regular", frontmost: false, windows: 0, onscreen: 0, rank: null, audible: false, document: false, ...o });
 
 /** procs: [{ pid, name, quit: "exit"|"ignore", term: "exit"|"ignore", helperOf?: pid }] ; every proc is alive until it exits or is signalled. */
-function stub(apps, procs) {
+function stub(apps, procs, { afterQuit } = {}) {
   const alive = new Set(procs.map((p) => p.pid));
+  const reused = new Map();   // pid -> identity of a stranger that took the pid over
   const log = [];
   const by = (pid) => procs.find((p) => p.pid === pid);
   return {
     log,
     snapshot: () => apps.filter((a) => alive.has(a.pid)),
     alive: (pid) => alive.has(pid),
-    tree: (a) => procs.filter((p) => alive.has(p.pid) && (p.pid === a.pid || p.helperOf === a.pid)).map((p) => ({ pid: p.pid, name: p.name })),
-    quit: (a) => { log.push(["quit", a.pid]); if (by(a.pid).quit === "exit") alive.delete(a.pid); },
+    tree: (a) => procs.filter((p) => alive.has(p.pid) && !reused.has(p.pid) && (p.pid === a.pid || p.helperOf === a.pid)).map((p) => ({ pid: p.pid, name: p.name, comm: `/x/${p.name}`, start: "t0" })),
+    identity: (pid) => (reused.get(pid) ?? (alive.has(pid) ? { comm: `/x/${by(pid).name}`, start: "t0" } : null)),
+    quit: (a) => { log.push(["quit", a.pid]); if (by(a.pid).quit === "exit") alive.delete(a.pid); afterQuit?.({ alive, reused }); },
     hide: () => true,
-    signal: (pid, sig) => { log.push([sig, pid]); const p = by(pid); if (p && (sig === "SIGKILL" || (sig === "SIGTERM" && p.term === "exit"))) alive.delete(pid); },
+    signal: (pid, sig) => { log.push([sig, pid]); const p = by(pid); if (reused.has(pid)) return; if (p && (sig === "SIGKILL" || (sig === "SIGTERM" && p.term === "exit"))) alive.delete(pid); },
     windowCount: (a) => a.windows,
     ownsTree: () => false,
     sleep: async () => {},
@@ -31,7 +33,7 @@ function stub(apps, procs) {
 
 test("escalation: exits after the normal quit, nothing is signalled", async () => {
   const s = stub([app({ pid: 1 })], [{ pid: 1, name: "App", quit: "exit" }]);
-  assert.deepEqual(await closeApp(app({ pid: 1 }), s), { name: "App", state: "closed", how: "quit", helpers: [] });
+  assert.deepEqual(await closeApp(app({ pid: 1 }), s), { name: "App", state: "closed", how: "quit", helpers: [], document: false });
   assert.deepEqual(s.log, [["quit", 1]]);
 });
 
@@ -75,7 +77,7 @@ test("escalation: a document app with no window is not showing a prompt, so it e
 test("escalation: a tree holding whoever runs this script is not signalled", async () => {
   const s = { ...stub([app({ pid: 1 })], [{ pid: 1, name: "Terminal", quit: "ignore", term: "exit" }]), ownsTree: () => true };
   assert.equal((await closeApp(app({ pid: 1 }), s)).state, "left_alone");
-  assert.deepEqual(s.log, [["quit", 1]]);
+  assert.deepEqual(s.log, []);   // not even the normal quit: quitting Terminal would end the very chat that asked
 });
 
 test("policy: never Finder, ORION, OrionLink or the model server, even when named", async () => {
@@ -181,4 +183,68 @@ test("parsers: lsappinfo, pmset audio, ps, and an app's tree stays inside its ow
   const tree = treeOf({ pid: 50, bundleId: "com.spotify.client", path: "/Applications/Spotify.app" }, ps, ls, new Set([999]));
   assert.deepEqual(tree.map((p) => p.pid).sort(), [50, 51, 60]);   // the /usr/bin child and the other app are untouched
   assert.deepEqual(treeOf({ pid: 50, bundleId: "com.spotify.client", path: "/Applications/Spotify.app" }, ps, ls, new Set([51])).map((p) => p.pid).sort(), [50, 60]);
+});
+
+test("pid reuse: a helper that exited and whose pid a stranger took over is never signalled", async () => {
+  const procs = [{ pid: 1, name: "Epic", quit: "exit" }, { pid: 2, name: "EpicWebHelper", helperOf: 1, quit: "ignore", term: "exit" }, { pid: 3, name: "crashpad", helperOf: 1, quit: "ignore", term: "exit" }];
+  const s = stub([app({ pid: 1, name: "Epic" })], procs, { afterQuit: ({ reused }) => reused.set(2, { comm: "/usr/bin/ssh", start: "t9" }) });
+  const r = await closeApp(app({ pid: 1, name: "Epic" }), s);
+  assert.deepEqual(s.log.filter(([k]) => k !== "quit"), [["SIGTERM", 3]]);   // pid 2 now belongs to someone else
+  assert.equal(r.state, "closed");
+});
+
+test("pid reuse: same pid and same program but a different start time is also not ours", async () => {
+  const procs = [{ pid: 1, name: "Steam", quit: "exit" }, { pid: 2, name: "Steam Helper", helperOf: 1, quit: "ignore", term: "exit" }];
+  const s = stub([app({ pid: 1, name: "Steam" })], procs, { afterQuit: ({ reused }) => reused.set(2, { comm: "/x/Steam Helper", start: "t5" }) });
+  await closeApp(app({ pid: 1, name: "Steam" }), s);
+  assert.deepEqual(s.log.filter(([k]) => k !== "quit"), []);
+});
+
+test("EPERM means not ours, not alive", () => {
+  const eperm = () => { throw Object.assign(new Error("x"), { code: "EPERM" }); };
+  const esrch = () => { throw Object.assign(new Error("x"), { code: "ESRCH" }); };
+  assert.equal(pidAlive(5, eperm), false);
+  assert.equal(pidAlive(5, esrch), false);
+  assert.equal(pidAlive(5, () => true), true);
+});
+
+test("protected set: ollama, anything whose command line mentions openclaw or orion (node included), pid 1 and the OS are not in a tree", () => {
+  const app_ = { pid: 50, bundleId: "com.big.app", path: "/Applications/Big.app" };
+  const rows = [
+    { pid: 50, ppid: 1, comm: "/Applications/Big.app/Contents/MacOS/Big", command: "/Applications/Big.app/Contents/MacOS/Big" },
+    { pid: 51, ppid: 50, comm: "/usr/local/bin/node", command: "node /Users/x/.openclaw/tools/gateway.js" },
+    { pid: 52, ppid: 50, comm: "/usr/local/bin/node", command: "node /Users/x/Desktop/ORION/scripts/orion-apps quit big" },
+    { pid: 53, ppid: 50, comm: "/Applications/Ollama.app/Contents/Resources/ollama", command: "ollama serve" },
+    { pid: 54, ppid: 50, comm: "/Applications/Big.app/Contents/Frameworks/BigHelper", command: "BigHelper --type=gpu" },
+    { pid: 1, ppid: 0, comm: "/sbin/launchd", command: "/sbin/launchd" },
+  ];
+  assert.deepEqual(treeOf(app_, rows, [], new Set()).map((p) => p.pid).sort(), [50, 54]);
+});
+
+test("a window left after the grace period means the app is asking: only a known launcher, game, chat or music app is ended anyway", async () => {
+  const chrome = app({ name: "Google Chrome", bundleId: "com.google.Chrome", pid: 1, windows: 1 });
+  const s = stub([chrome], [{ pid: 1, name: "Chrome", quit: "ignore", term: "exit" }]);
+  const r = await closeApp(chrome, s);
+  assert.equal(r.state, "asking_to_save");
+  assert.deepEqual(s.log, [["quit", 1]]);
+  for (const name of ["Discord", "Spotify", "Steam", "Epic Games Launcher", "Battle.net"]) {
+    const a = app({ name, pid: 1, windows: 2 });
+    const t = stub([a], [{ pid: 1, name, quit: "ignore", term: "exit" }]);
+    assert.deepEqual([(await closeApp(a, t)).state, t.log.at(-1)[0]], ["closed", "SIGTERM"], name);
+  }
+  const say = (await quitNamed(stub([chrome], [{ pid: 1, name: "Chrome", quit: "ignore" }]), ["chrome"])).say;
+  assert.match(say, /Google Chrome is still open and may be asking something/);
+});
+
+test("names: no reverse containment; an exact name, an alias, or the start of a word in the name", () => {
+  const apps = [app({ name: "Notes", pid: 1 }), app({ name: "Mail", pid: 2 }), app({ name: "Google Chrome", pid: 3 }), app({ name: "Code", pid: 4 }), app({ name: "TeamViewer", pid: 5 }), app({ name: "Epic Games Launcher", pid: 6 })];
+  const names = (q) => matchApps(q, apps).map((a) => a.name);
+  for (const q of ["taking notes", "checking email", "gmail", "being lazy", "ogle", "ail", "my mail app is open"]) assert.deepEqual(names(q), [], q);
+  assert.deepEqual(names("notes"), ["Notes"]);
+  assert.deepEqual(names("mail"), ["Mail"]);
+  assert.deepEqual(names("chrome"), ["Google Chrome"]);
+  assert.deepEqual(names("google chrome"), ["Google Chrome"]);
+  assert.deepEqual(names("vscode"), ["Code"]);
+  assert.deepEqual(names("team viewer"), ["TeamViewer"]);
+  assert.deepEqual(names("epic"), ["Epic Games Launcher"]);
 });

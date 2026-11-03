@@ -20,7 +20,7 @@ export function sayResults(results) {
   const by = (s) => results.filter((r) => r.state === s);
   const parts = [];
   if (by("closed").length) parts.push(`Closed ${list(by("closed").map(closedLine))}.`);
-  for (const r of by("asking_to_save")) parts.push(`${r.name} is asking to save, so I left it open for you.`);
+  for (const r of by("asking_to_save")) parts.push(r.document ? `${r.name} is asking to save, so I left it open for you.` : `${r.name} is still open and may be asking something (a save or confirm prompt), so I left it for you.`);
   if (by("still_open").length) parts.push(`${list(by("still_open").map((r) => r.name))} wouldn't go away even after a force-stop, so ${by("still_open").length > 1 ? "they are" : "it is"} still running.`);
   if (by("left_alone").length) parts.push(`${list(by("left_alone").map((r) => r.name))} is what this chat itself runs from, so I didn't touch it.`);
   if (by("not_running").length) parts.push(`${list(by("not_running").map((r) => r.name))} ${by("not_running").length > 1 ? "were" : "was"} already closed.`);

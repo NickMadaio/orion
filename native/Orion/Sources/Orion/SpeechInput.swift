@@ -81,6 +81,10 @@ final class SpeechInput {
     private var replaying = true
 
     private var latestText = ""
+    /// The current utterance's words with timings, from whichever ear gives them.
+    private var latestWords: [TimedWord] = []
+    /// The words of the utterance `onFinal` last delivered (empty when the ear gave no timings).
+    private(set) var finalWords: [TimedWord] = []
     private var awaitingFinal = false
     private var finalTimer: Timer?
     private var startGeneration = 0
@@ -323,6 +327,7 @@ final class SpeechInput {
         cancelPendingFinal()
         // A new press supersedes any utterance still waiting to be finalised.
         awaitingFinal = false
+        latestWords = []
 
         guard let recognizer = recognizer else {
             onError?("Speech recognition is not available on this Mac.")
@@ -606,6 +611,10 @@ final class SpeechInput {
                 guard let self else { return }
                 if let result {
                     let text = result.bestTranscription.formattedString
+                    let timed = result.bestTranscription.segments.map {
+                        TimedWord(text: $0.substring, start: $0.timestamp, end: $0.timestamp + $0.duration)
+                    }
+                    if timed.contains(where: { $0.end > 0 }) { self.latestWords = timed }
                     if !text.isEmpty {
                         OrionLog.write("[apple] heard: \(text)")
                         self.latestText = text
@@ -662,6 +671,10 @@ final class SpeechInput {
         stream.onSegment = { [weak self] text in
             guard let self, self.deepgram === stream else { return }
             self.latestText = text
+        }
+        stream.onWords = { [weak self] words in
+            guard let self, self.deepgram === stream else { return }
+            self.latestWords = words
         }
         stream.onEndOfSpeech = { [weak self] in
             guard let self, self.deepgram === stream else { return }
@@ -835,6 +848,8 @@ final class SpeechInput {
 
         let text = latestText.trimmingCharacters(in: .whitespacesAndNewlines)
         latestText = ""
+        finalWords = latestWords
+        latestWords = []
         task?.finish()
         task = nil
         request = nil

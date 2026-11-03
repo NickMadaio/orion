@@ -64,18 +64,55 @@ struct UtteranceCapture: Equatable {
     let rate: Double
     private(set) var chunks: [Chunk] = []
     private(set) var sampleCount = 0
+    /// Samples trimmed off the front, so a time from the start of the turn still finds its audio.
+    private(set) var droppedSamples = 0
 
     static func empty(rate: Double) -> UtteranceCapture { UtteranceCapture(rate: rate) }
 
     func appending(samples: [Float], level: Double) -> UtteranceCapture {
         var next = UtteranceCapture(rate: rate, chunks: chunks + [Chunk(samples: samples, level: level)],
-                                    sampleCount: sampleCount + samples.count)
+                                    sampleCount: sampleCount + samples.count, droppedSamples: droppedSamples)
         let cap = Int(rate * Self.maxSeconds)
         while next.sampleCount > cap, let first = next.chunks.first {
             next.chunks.removeFirst()
             next.sampleCount -= first.samples.count
+            next.droppedSamples += first.samples.count
         }
         return next
+    }
+
+    /// Seconds heard since the turn began, including any trimmed off the front.
+    var duration: Double { rate > 0 ? Double(droppedSamples + sampleCount) / rate : 0 }
+
+    /// The chunks overlapping [from, to) seconds, each with its first sample's index from the start of the turn.
+    private func chunks(from start: Double, to end: Double) -> [(offset: Int, chunk: Chunk)] {
+        let low = Int(start * rate), high = Int(end * rate)
+        var offset = droppedSamples
+        var result: [(Int, Chunk)] = []
+        for chunk in chunks {
+            let next = offset + chunk.samples.count
+            if next > low, offset < high { result.append((offset, chunk)) }
+            offset = next
+        }
+        return result
+    }
+
+    /// The audio between two times from the start of the turn (what a word timing points at).
+    func samples(from start: Double, to end: Double) -> [Float] {
+        let low = Int(start * rate), high = Int(end * rate)
+        return chunks(from: start, to: end).flatMap { offset, chunk -> ArraySlice<Float> in
+            let first = max(0, low - offset), last = min(chunk.samples.count, high - offset)
+            return first < last ? chunk.samples[first..<last] : []
+        }
+    }
+
+    /// Speech level of the audio between two times, measured like `speechLevel`.
+    func level(from start: Double, to end: Double) -> Double? {
+        let levels = chunks(from: start, to: end).map(\.chunk.level)
+        guard !levels.isEmpty else { return nil }
+        let sorted = levels.sorted(by: >)
+        let take = max(1, Int((Double(sorted.count) * Self.speechShare).rounded(.up)))
+        return sorted.prefix(take).reduce(0, +) / Double(take)
     }
 
     /// Mean level of the loudest buffers: how loud the speech itself was.

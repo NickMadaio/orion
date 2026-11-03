@@ -149,6 +149,9 @@ final class DeepgramStream {
     var onPartial: ((String) -> Void)?
     /// A finalised segment. Several may arrive for one utterance.
     var onSegment: ((String) -> Void)?
+    /// The current turn's words with their timings (seconds from the stream's start), punctuated from the
+    /// transcript when the two line up. Feeds the per-segment speaker filter (SegmentSpeakerFilter.swift).
+    var onWords: (([TimedWord]) -> Void)?
     /// Deepgram's VAD says the speaker stopped. This is the latency win.
     var onEndOfSpeech: (() -> Void)?
     /// Utterance-level confidence for the CURRENT result, when Deepgram
@@ -287,6 +290,7 @@ final class DeepgramStream {
         openTimer = nil
         onPartial = nil
         onSegment = nil
+        onWords = nil
         onEndOfSpeech = nil
         onOpen = nil
         onFailure = nil
@@ -374,7 +378,11 @@ final class DeepgramStream {
             case .connected:
                 if !self.isOpen { self.isOpen = true; self.openTimer?.invalidate(); self.onOpen?() }
             case .error(_, let description): self.fail(description)
-            case .turn:
+            case .turn(_, _, let transcript, let words, _):
+                if !words.isEmpty {
+                    let timed = words.map { TimedWord(text: $0.word, start: $0.start, end: $0.end) }
+                    self.onWords?(TimedWord.aligned(timed, transcript: transcript))
+                }
                 let decision = self.fluxTracker.absorb(message)
                 self.interim = self.fluxTracker.transcript
                 if !self.interim.isEmpty { self.onPartial?(self.interim) }

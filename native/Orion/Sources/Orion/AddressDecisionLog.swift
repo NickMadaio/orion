@@ -31,6 +31,11 @@ enum AddressDecisionLog {
         if let delta = signals.levelDeltaDB { record["levelDeltaDB"] = (delta * 10).rounded() / 10 }
         if let onset = signals.onsetSeconds { record["onsetSeconds"] = (onset * 100).rounded() / 100 }
         if let judged { record["judge"] = judged }
+        // Another voice's words cut out of the turn before deciding: logged as text so a wrong cut can be found.
+        if !signals.dropped.isEmpty {
+            record["dropped"] = signals.dropped.map { ["text": String($0.text.prefix(maxTextChars)), "reason": $0.reason] }
+        }
+        if verdict.sendText != signals.text { record["sent"] = String(verdict.sendText.prefix(maxTextChars)) }
         guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
               let text = String(data: data, encoding: .utf8) else { return "{}" }
         return text

@@ -499,6 +499,14 @@ final class AppState: ObservableObject {
     private var pausedSeedWasRoom = false
     /// Paused turns whose interruption was room speech: their answers go to the chat whenever they land (PausedAnswerLanding.swift).
     private var orphanedAnswers = OrphanedAnswers()
+    /// What the turn now at the gateway asked, and what the paused one asked (TurnRelation.swift compares them).
+    private var liveTurnText = ""
+    private var pausedTurnText = ""
+    /// A second question's answer waiting for the first one's, so they arrive in the order he asked (TurnRelation.swift).
+    private var answerOrder = AnswerOrder()
+    private var heldReplies: [Int: (reply: GatewayReply, origin: ReplyOrigin)] = [:]
+    /// The ear's word timings for the utterance being decided (SegmentSpeakerFilter.swift).
+    private var heardWords: [TimedWord] = []
     /// The listening window currently open is a follow-up, so nothing has been
     /// said in it yet and the ordinary hangover must not close it immediately.
     private var awaitingFollowUp = false
@@ -1157,6 +1165,7 @@ final class AppState: ObservableObject {
             guard let self else { return }
             self.heard = ""
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.heardWords = self.speechInput.finalWords
             self.handleFinalTranscript(trimmed)
         }
         speechInput.onError = { [weak self] message in
@@ -1432,6 +1441,11 @@ final class AppState: ObservableObject {
         runProgress?.recordUserCancelled(at: Date())
         stopProgressPolling()
         pausedGeneration = askGeneration
+        pausedTurnText = liveTurnText
+        // Its answer was already here, waiting on an earlier one: it is held for "continue" like any paused answer.
+        if let held = heldReplies.removeValue(forKey: askGeneration) {
+            pausedReplacementText = held.reply.text
+        }
         askGeneration += 1
         OrionLog.write("[think] paused by user (subprocess left running) — \(reason)")
         append(.system, "Paused — still working on that. Say \"continue\" once you're done to hear it.")
@@ -2025,7 +2039,10 @@ final class AppState: ObservableObject {
     /// ORION's last turn all have a say (FollowUpAddressGate.swift). Refused
     /// speech is dropped silently and the window closes, back to idle.
     private func sendIfAddressed(_ text: String, opening: VoiceTurnOpening) {
-        addressChecker.check(text: text, opening: opening, weakAdmitsInARow: weakAdmitsInARow,
+        // The timings belong to the last utterance only; a preserved fragment flushed later has none of its own.
+        let words = heardWords
+        heardWords = []
+        addressChecker.check(text: text, words: words, opening: opening, weakAdmitsInARow: weakAdmitsInARow,
                              orionLast: speechOutput.lastSpokenText) { [weak self] verdict, admitted in
             guard let self else { return }
             let why = verdict.reasons.joined(separator: "; ")
@@ -2034,8 +2051,11 @@ final class AppState: ObservableObject {
                 return
             }
             OrionLog.write("[gate] follow-up admitted (\(why))")
+            if !verdict.signals.dropped.isEmpty {
+                OrionLog.write("[gate] dropped \(verdict.signals.dropped.count) piece(s) in another voice before sending")
+            }
             self.weakAdmitsInARow = verdict.isWeak ? self.weakAdmitsInARow + 1 : 0
-            self.send(text)
+            self.send(verdict.sendText)
         }
     }
 
@@ -2296,25 +2316,42 @@ final class AppState: ObservableObject {
             deliver(GatewayReply(text: quick, elapsedMs: 0), origin: origin)
             return
         }
+        // A turn still in flight (paused by this barge-in): the same request is merged; a different question is
+        // answered too, first (w16, 2026-11-02 23:56: the weather answer was thrown away here).
+        var userText = text
+        var waitOn: Int?
+        liveTurnText = text
+        if let paused = pausedGeneration, !typed {
+            let plan = InFlightTurnPlan.make(previous: pausedTurnText, next: text, seedWasRoom: pausedSeedWasRoom,
+                                             heldAnswer: pausedReplacementText)
+            pausedGeneration = nil
+            pausedReplacementText = nil
+            pausedSeedWasRoom = false
+            switch plan {
+            case .merge:
+                // The rest of his sentence, or a fix to it: ORION is told this finishes his last message.
+                userText = "(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) " + text
+                liveTurnText = pausedTurnText + " " + text
+                OrionLog.write("[turn] same request as the paused turn — merged")
+            case .separate(let landNow, let wait):
+                if let landNow {
+                    append(.orion, landNow)
+                    saveChat(.orion, text: landNow)
+                }
+                if wait {
+                    orphanedAnswers = orphanedAnswers.adding(paused)
+                    waitOn = paused
+                }
+                OrionLog.write("[turn] a different question from the paused turn — both answered (\(landNow == nil ? "first still running" : "first shown now"))")
+            }
+        }
         append(.you, text)
         setPhase(.thinking)
         statusLine = "Thinking…"
 
-        // The rest of a sentence the endpoint cut off: the half-answer to the
-        // fragment is stale, and ORION is told this finishes his last message.
-        var userText = text
-        if pausedGeneration != nil, !typed {
-            let seedWasRoom = pausedSeedWasRoom
-            pausedGeneration = nil
-            pausedReplacementText = nil
-            pausedSeedWasRoom = false
-            if !seedWasRoom {
-                userText = "(Continuing — my last message was cut off mid-sentence; this is the rest of it. Answer the whole thing.) " + text
-            }
-        }
-
         askGeneration += 1
         let generation = askGeneration
+        if let waitOn { waitForEarlierAnswer(later: generation, earlier: waitOn) }
         let cancellation = TurnCancellation()
         liveTurnCancellation = cancellation
         let request = agentRequest(userText: userText, spoken: !typed)
@@ -2361,10 +2398,11 @@ final class AppState: ObservableObject {
                 if orphaned, self.askGeneration != generation {
                     if self.pausedGeneration == generation { self.pausedGeneration = nil; self.pausedSeedWasRoom = false }
                     if case .success(let reply) = result {
-                        OrionLog.write("[think] paused answer landed after room speech — shown in the chat (\(reply.text.count) chars)")
+                        OrionLog.write("[think] paused answer landed after a newer turn — shown in the chat (\(reply.text.count) chars)")
                         self.append(.orion, reply.text)
                         self.saveChat(.orion, text: reply.text, thinking: reply.thinking)
                     }
+                    self.releaseAnswers(after: generation)
                     return
                 }
                 guard self.askGeneration == generation else {
@@ -2391,6 +2429,10 @@ final class AppState: ObservableObject {
                 self.runProgress?.markCallReturned(at: Date())
                 self.stopProgressPolling()
                 switch result {
+                case .success(let reply) where self.answerOrder.mustWait(generation):
+                    // His earlier question is still being answered: this one lands after it.
+                    OrionLog.write("[turn] answer ready — waiting for the earlier question's answer first")
+                    self.heldReplies[generation] = (reply, origin)
                 case .success(let reply):
                     self.deliver(reply, origin: origin)
                 case .failure(let error):
@@ -2399,6 +2441,37 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    /// The later answer waits for the earlier one, but never longer than `AnswerOrder.patience`.
+    private func waitForEarlierAnswer(later: Int, earlier: Int) {
+        answerOrder = answerOrder.waiting(later: later, on: earlier)
+        DispatchQueue.main.asyncAfter(deadline: .now() + AnswerOrder.patience) { [weak self] in
+            guard let self, self.answerOrder.mustWait(later) else { return }
+            OrionLog.write("[turn] earlier answer took too long — delivering the later one")
+            let (released, next) = self.answerOrder.gaveUp(on: earlier)
+            self.answerOrder = next
+            released.forEach(self.deliverHeld)
+        }
+    }
+
+    /// A held answer goes out if its turn is still the live one; a turn paused since then keeps it for "continue".
+    private func deliverHeld(_ generation: Int) {
+        guard let held = heldReplies.removeValue(forKey: generation) else { return }
+        if askGeneration == generation {
+            deliver(held.reply, origin: held.origin)
+        } else if pausedGeneration == generation {
+            pausedGeneration = nil
+            append(.orion, held.reply.text)
+            saveChat(.orion, text: held.reply.text, thinking: held.reply.thinking)
+        }
+    }
+
+    /// An earlier turn's answer landed (or failed): answers that were waiting on it go out, oldest first.
+    private func releaseAnswers(after earlier: Int) {
+        let (released, next) = answerOrder.landed(earlier)
+        answerOrder = next
+        released.forEach(deliverHeld)
     }
 
     // MARK: The progress feed

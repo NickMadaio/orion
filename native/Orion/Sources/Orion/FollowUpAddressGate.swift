@@ -53,6 +53,9 @@ struct AddressSignals: Equatable {
     var onsetSeconds: TimeInterval?
     /// What ORION said last.
     var orionLast: String = ""
+    /// Pieces of the utterance dropped before this decision because they were another voice
+    /// (`SegmentSpeakerFilter`); `text` is what was left. Logged, never sent.
+    var dropped: [DroppedSegment] = []
 }
 
 struct AddressVerdict: Equatable {
@@ -64,6 +67,8 @@ struct AddressVerdict: Equatable {
     let isWeak: Bool
     let speakerRead: SpeakerRead
     let signals: AddressSignals
+    /// What goes to ORION when admitted: the line, or the part of it from his name on (`NameTrim`).
+    let sendText: String
 }
 
 /// "Was that said to ORION?" for follow-up and barge-in speech.
@@ -99,6 +104,14 @@ enum FollowUpAddressGate {
 
     static let strongReasons: Set<String> = ["command", "interruption"]
 
+    /// A barge-in reads a split more strictly: part of it clearly not him, and no part clearly him, is not him
+    /// (2026-11-02 23:56, 0.31/0.43 on "What time is Fuck").
+    static func read(_ evidence: SpeakerEvidence, opening: VoiceTurnOpening) -> SpeakerRead {
+        let general = read(evidence)
+        guard opening == .bargeIn, general == .uncertain, case .split(let first, let last) = evidence else { return general }
+        return min(first, last) < notNickScore ? .notNick : general
+    }
+
     static func read(_ evidence: SpeakerEvidence) -> SpeakerRead {
         switch evidence {
         case .unknown: return .unknown
@@ -118,21 +131,38 @@ enum FollowUpAddressGate {
 
     static func decide(_ signals: AddressSignals) -> AddressVerdict {
         let base = AddressGate.classify(signals.text, opening: signals.opening, weakAdmitsInARow: signals.weakAdmitsInARow)
-        let speaker = read(signals.speaker)
-        func verdict(_ outcome: AddressVerdict.Outcome, _ score: Int, _ reasons: [String]) -> AddressVerdict {
+        let speaker = read(signals.speaker, opening: signals.opening)
+        func verdict(_ outcome: AddressVerdict.Outcome, _ score: Int, _ reasons: [String],
+                     send: String? = nil) -> AddressVerdict {
             AddressVerdict(outcome: outcome, score: score, reasons: reasons, isWeak: base.isWeak,
-                           speakerRead: speaker, signals: signals)
+                           speakerRead: speaker, signals: signals, sendText: send ?? signals.text)
         }
         let textReason = "text: \(base.reason)"
         guard !signals.opening.isExplicit, signals.opening != .wake else {
             return verdict(base.addressed ? .addressed : .notAddressed, 0, [textReason])
         }
         guard base.addressed else { return verdict(.notAddressed, 0, [textReason]) }
-        if base.reason == "name" { return verdict(.addressed, 0, [textReason]) }
+        if base.reason == "name" { return nameVerdict(signals, speaker: speaker, textReason: textReason, verdict: verdict) }
         if let veto = veto(signals, speaker: speaker) { return verdict(.notAddressed, 0, [textReason, veto]) }
+        // A barge-in is at least as strict as a follow-up: without his voice it has to be a whole request.
+        if signals.opening == .bargeIn, speaker != .nick, !RequestShape.isWhole(signals.text) {
+            return verdict(.notAddressed, 0, [textReason, "barge-in without his voice (\(scoreText(signals.speaker))) and not a whole request"])
+        }
         let (score, reasons) = tally(signals, speaker: speaker, baseReason: base.reason)
         let outcome: AddressVerdict.Outcome = score >= 1 ? .addressed : (score < 0 ? .notAddressed : .borderline)
         return verdict(outcome, score, [textReason] + reasons)
+    }
+
+    /// His name gets through, from the name on. On a barge-in a voice that is clearly not his does not (the room says
+    /// "Orion" too); the follow-up window keeps the old rule.
+    private static func nameVerdict(_ signals: AddressSignals, speaker: SpeakerRead, textReason: String,
+                                    verdict: (AddressVerdict.Outcome, Int, [String], String?) -> AddressVerdict) -> AddressVerdict {
+        if signals.opening == .bargeIn, speaker == .notNick {
+            return verdict(.notAddressed, 0, [textReason, "barge-in voice is not Nick (\(scoreText(signals.speaker)))"], nil)
+        }
+        let kept = NameTrim.fromName(signals.text)
+        let reasons = kept == signals.text ? [textReason] : [textReason, "room words before his name dropped"]
+        return verdict(.addressed, 0, reasons, kept)
     }
 
     /// Any one of these alone means it was not said to ORION.

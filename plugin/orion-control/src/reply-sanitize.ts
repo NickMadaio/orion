@@ -11,6 +11,7 @@
 import { stripExecFailed } from "./memory-facts.js";
 import { acknowledgement, acknowledgesFailure, failedTools, wroteSomething } from "./tool-failure.js";
 import { outcomeOf, type ToolResult } from "./work-check.js";
+import { fahrenheitWords } from "./weather-words.js";
 
 const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
@@ -209,6 +210,11 @@ export type FinalizeContext = {
  Never silently drops a failure: the plain sentence says what did not happen.
 */
 export function finalizeReply(reply: string, tools: ReadonlyArray<ToolResult>, ctx: FinalizeContext = {}): string {
+  // Spoken aloud: temperatures read as "55 degrees Fahrenheit", whichever path wrote the sentence.
+  return fahrenheitWords(finalizeCore(reply, tools, ctx));
+}
+
+function finalizeCore(reply: string, tools: ReadonlyArray<ToolResult>, ctx: FinalizeContext): string {
   const failed = ctx.codeAuthored ? [] : failedTools(tools);
   if (!ctx.codeAuthored && restatesMoveWithoutWrite(reply, tools, ctx.askedChange === true)) return NOTHING_MOVED;
   const clean = sanitizeReply(reply, { ...(ctx.mailFailed ? { mailFailed: true } : {}), ...(failed.length ? { strict: true } : {}), ...(ctx.codeAuthored ? { codeAuthored: true } : {}) });

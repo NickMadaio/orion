@@ -72,9 +72,9 @@ const c = forecast.current ?? {};
 const d = forecast.daily ?? {};
 const name = [hit.name, hit.admin1].filter(Boolean).join(", ");
 const toF = (celsius) => Math.round((Number(celsius) * 9) / 5 + 32);
-const day = (index) => `${d.time?.[index] ?? "Upcoming"}: ${toF(d.temperature_2m_min?.[index])}–${toF(d.temperature_2m_max?.[index])}°F, ${conditions[d.weather_code?.[index]] ?? "unsettled"}, ${Math.round(Number(d.precipitation_probability_max?.[index] ?? 0))}% precip.`;
+const day = (index) => `${d.time?.[index] ?? "Upcoming"}: low ${toF(d.temperature_2m_min?.[index])} to high ${toF(d.temperature_2m_max?.[index])} degrees Fahrenheit, ${conditions[d.weather_code?.[index]] ?? "unsettled"}, ${Math.round(Number(d.precipitation_probability_max?.[index] ?? 0))}% precip.`;
 const message = [
-  `Weather update for ${name}: ${conditions[c.weather_code] ?? "unsettled"}, ${toF(c.temperature_2m)}°F (feels ${toF(c.apparent_temperature)}°F), wind ${Math.round(Number(c.wind_speed_10m ?? 0))} km/h.`,
+  `Weather update for ${name}: ${conditions[c.weather_code] ?? "unsettled"}, ${toF(c.temperature_2m)} degrees Fahrenheit (feels like ${toF(c.apparent_temperature)}), wind ${Math.round(Number(c.wind_speed_10m ?? 0))} km/h.`,
   day(0), day(1), day(2),
 ].join(" ");
 

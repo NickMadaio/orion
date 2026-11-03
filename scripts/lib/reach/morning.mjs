@@ -5,6 +5,7 @@
 // like." Pure: the gate and the words. scripts/orion-morning does the reading.
 
 import { topOfList } from "../life/morning-brief.mjs";
+import { toF } from "./fahrenheit.mjs";
 
 export const SIGNALS = ["unplugged", "used", "up"];
 const EARLIEST = 4 * 60;          // 04:00 — before this, unplugging is a trip to the bathroom
@@ -123,12 +124,12 @@ export function weatherFacts(weather, nowMinute) {
   return { sky, now: temps[0], high: weather.dayHigh ?? Math.max(...temps), low: weather.dayLow ?? Math.min(...temps), rain, windy: hours.some((h) => (h.windKph ?? 0) >= 35 && h.minute <= 21 * 60) };
 }
 
-/** The spoken weather: "Partly cloudy, 10 degrees now. High of 15, low of 8. No rain today." */
+/** The spoken weather, in Fahrenheit and the full word: "Partly cloudy, 50 degrees Fahrenheit now. High of 59, low of 46. No rain today." */
 export function weatherLine(weather, nowMinute) {
   const w = weatherFacts(weather, nowMinute);
   if (!w) return null;
   const sky = w.sky[0].toUpperCase() + w.sky.slice(1);
-  const parts = [`${sky}, ${w.now} degrees now.`, `High of ${w.high}, low of ${w.low}.`];
+  const parts = [`${sky}, ${toF(w.now)} degrees Fahrenheit now.`, `High of ${toF(w.high)}, low of ${toF(w.low)}.`];
   if (!w.rain) parts.push(w.windy ? "No rain, but it's windy." : "No rain today.");
   else {
     const span = `${spokenClock(w.rain.from)} to ${spokenClock(w.rain.to)}`;
@@ -236,11 +237,11 @@ export function buildView({ now, day = [], travel = [], todos = [], today, weath
     const first = hours[0]; const hour = Number(first.time.slice(11, 13));
     const facts = weatherFacts(weather, nowMinute);
     return {
-      now: temps[0], high: facts?.high ?? Math.max(...temps), low: facts?.low ?? Math.min(...temps), symbol: weatherSymbol(first.code ?? 0, hour),
+      now: toF(temps[0]), high: toF(facts?.high ?? Math.max(...temps)), low: toF(facts?.low ?? Math.min(...temps)), symbol: weatherSymbol(first.code ?? 0, hour),
       line: weatherLine(weather, nowMinute), sky: facts?.sky ?? null, rain: rainLabel(facts?.rain ?? null), wet: !!facts?.rain,
       hours: hours.filter((_, i) => i % 2 === 0).slice(0, 8).map((h) => {
         const at = Number(h.time.slice(11, 13));
-        return { label: `${spokenClock(at * 60)} ${at < 12 ? "AM" : "PM"}`, temp: Math.round(h.tempC), rain: Math.round(h.rainChance ?? 0), symbol: weatherSymbol(h.code ?? 0, at) };
+        return { label: `${spokenClock(at * 60)} ${at < 12 ? "AM" : "PM"}`, temp: toF(h.tempC), rain: Math.round(h.rainChance ?? 0), symbol: weatherSymbol(h.code ?? 0, at) };
       }),
     };
   })() : null;

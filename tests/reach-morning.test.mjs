@@ -43,7 +43,7 @@ test("the briefing says the day, when to leave, what's due, and the weather", ()
       { time: "2026-10-08T14:00", day: "today", tempC: 13, rainChance: 70, rainMm: 1.2, snowCm: 0 },
     ] },
   });
-  assert.equal(text, "Morning, Nick. Today you've got CS2100 Lecture at 9 and DS Assessment at 3:30. Leave by 8:30. Due today: Macro quiz prep. Cloudy, 9 degrees now. High of 14, low of 9. Rain likely from 2 to 3, 70% chance — take an umbrella. Anything you want to change?");
+  assert.equal(text, "Morning, Nick. Today you've got CS2100 Lecture at 9 and DS Assessment at 3:30. Leave by 8:30. Due today: Macro quiz prep. Cloudy, 48 degrees Fahrenheit now. High of 57, low of 48. Rain likely from 2 to 3, 70% chance — take an umbrella. Anything you want to change?");
 });
 
 test("an empty day still gets a briefing, with the top of the list", () => {
@@ -53,7 +53,7 @@ test("an empty day still gets a briefing, with the top of the list", () => {
 });
 
 test("weather and clock wording", () => {
-  assert.equal(weatherLine({ hours: [{ time: "2026-10-08T08:00", day: "today", tempC: 11, rainChance: 0, rainMm: 0, snowCm: 0 }] }, m(8)), "Cloudy, 11 degrees now. High of 11, low of 11. No rain today.");
+  assert.equal(weatherLine({ hours: [{ time: "2026-10-08T08:00", day: "today", tempC: 11, rainChance: 0, rainMm: 0, snowCm: 0 }] }, m(8)), "Cloudy, 52 degrees Fahrenheit now. High of 52, low of 52. No rain today.");
   assert.equal(weatherLine(null, m(8)), null);
   assert.equal(spokenClock(m(13, 15)), "1:15");
   assert.equal(spokenClock(m(0)), "12");
@@ -71,8 +71,8 @@ test("the morning screen: the day on one side, the weather on the other", async 
   assert.deepEqual(view.events, [{ title: "CS2100 Lecture", start: "9:00", half: "AM", end: "10:00", kind: "class", fixed: true }]);
   assert.equal(view.leaveBy, "8:30 AM");
   assert.deepEqual(view.due, ["Macro quiz prep"]);
-  assert.equal(view.weather.now, 8);
-  assert.equal(view.weather.high, 11);
+  assert.equal(view.weather.now, 46);
+  assert.equal(view.weather.high, 52);
   assert.equal(view.weather.symbol, "cloud.sun");
   assert.equal(view.weather.hours.length, 2);
   assert.equal(weatherSymbol(0, 3), "moon.stars");
@@ -87,7 +87,7 @@ test("the weather says what it's like, the high and low, and when it rains (2026
   assert.equal(w.sky, "partly cloudy");
   assert.deepEqual([w.now, w.high, w.low], [8, 15, 6]);
   assert.deepEqual(w.rain, { what: "rain", from: m(15), to: m(17), chance: 80, now: false });
-  assert.equal(weatherLine(day, m(7)), "Partly cloudy, 8 degrees now. High of 15, low of 6. Rain likely from 3 to 5, 80% chance — take an umbrella.");
+  assert.equal(weatherLine(day, m(7)), "Partly cloudy, 46 degrees Fahrenheit now. High of 59, low of 43. Rain likely from 3 to 5, 80% chance — take an umbrella.");
   assert.equal(rainLabel(w.rain), "Rain 3 PM – 5 PM · 80%");
   assert.equal(rainLabel(null), "No rain today");
 });
@@ -107,4 +107,15 @@ test("the alarm he set beats the planner's (2026-10-08: 7:15 unplug judged too e
   assert.equal(alarmClock({ planned: null, asked: null, today }), null);
   const wake = alarmClock({ planned: "09:00", asked: new Date(2026, 9, 8, 7, 15).toISOString(), today });
   assert.equal(shouldBrief({ signal: "unplugged", signalAt: at(7, 15), now: at(7, 16), wake }).ok, true);
+});
+
+test("the spoken weather is Fahrenheit, said as the full word", async () => {
+  const { weatherLine, buildView } = await import("../scripts/lib/reach/morning.mjs");
+  const hours = [{ time: "2026-11-03T08:00", day: "today", tempC: 10, rainChance: 0, rainMm: 0, snowCm: 0, code: 3 }, { time: "2026-11-03T12:00", day: "today", tempC: 13, rainChance: 0, rainMm: 0, snowCm: 0, code: 3 }];
+  const line = weatherLine({ hours, dayLow: 8, dayHigh: 13 }, 8 * 60);
+  assert.equal(line, "Cloudy, 50 degrees Fahrenheit now. High of 55, low of 46. No rain today.");
+  assert.doesNotMatch(line, /°|Celsius|\bF\b/);
+  const view = buildView({ now: new Date("2026-11-03T08:00:00"), today: "2026-11-03", weather: { hours, dayLow: 8, dayHigh: 13 } });
+  assert.equal(view.weather.now, 50);
+  assert.equal(view.weather.high, 55);
 });

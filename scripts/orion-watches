@@ -3,7 +3,7 @@
  orion-watches — things ORION keeps an eye on for Nick, and tells him about
  through orion-reach (2026-10-07).
 
-   orion-watches add weather "rain tomorrow" | "below 3" | "snow" | "wind" | "above 25 today"
+   orion-watches add weather "rain tomorrow" | "below 40" | "snow" | "wind" | "above 80 today" (degrees Fahrenheit)
    orion-watches list
    orion-watches remove <id>
    orion-watches people [add|remove "<name or number>"]   who always gets through

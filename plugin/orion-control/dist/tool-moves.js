@@ -21,7 +21,7 @@ const call = (action, step, note, failLine) => ({ kind: "call", action, args: JS
 /** He asked why ORION sent a weather notice: the forecast is looked up, then the reason is worded from it (never from memory). */
 export function weatherDirective(sent) {
     const said = sent.replace(/["\\$`]/g, "").slice(0, 200);
-    return call("weather_now", { location: LOCATION }, `He is asking WHY you sent him: "${said}". Answer that from the result only, in one or two short sentences, as the reason ("Because it's 8 degrees and rain starts around 4"). Do not ask whether he is ready and do not change anything.`, "I sent that because of the weather, but I can't check the forecast just now. Ask me again in a moment.");
+    return call("weather_now", { location: LOCATION }, `He is asking WHY you sent him: "${said}". Answer that from the result only, in one or two short sentences, as the reason ("Because it's 46 degrees Fahrenheit and rain starts around 4"). Say temperatures in Fahrenheit as the words "degrees Fahrenheit" (never F, °F or Celsius). Do not ask whether he is ready and do not change anything.`, "I sent that because of the weather, but I can't check the forecast just now. Ask me again in a moment.");
 }
 /** "set a timer for 25 min": a timer, whatever the front desk picked (never a focus session, q032). */
 // "cancel the timer for 10 min", "is my timer for 20 min still running": about a timer, not a new one
@@ -48,7 +48,7 @@ export function toolDirective(decision, message) {
         return { kind: "say", text: WORKOUT_LINE };
     if (tool === "weather") {
         const days = WEEK.test(message) ? 7 : TOMORROW_WORDS.test(message) ? 1 : undefined;
-        return call("weather_now", { location: LOCATION, ...(days ? { days } : {}) }, "Then answer his question from the result only (temperature, rain, what to wear).", "I couldn't check the weather just now — try me again in a moment.");
+        return call("weather_now", { location: LOCATION, ...(days ? { days } : {}) }, "Then answer his question from the result only (temperature, rain, what to wear). Say temperatures in Fahrenheit as the words \"degrees Fahrenheit\" on the first number in a sentence (\"a high of 55 degrees Fahrenheit and a low of 46\"); never F, °F or Celsius.", "I couldn't check the weather just now — try me again in a moment.");
     }
     if (tool === "supplements") {
         const name = typeof args.name === "string" ? args.name.trim() : "";

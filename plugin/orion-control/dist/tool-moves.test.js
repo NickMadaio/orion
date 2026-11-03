@@ -50,6 +50,7 @@ describe("front-desk tool moves are carried out, not left as hints (sweep 2026-1
             const { build } = setup({ move: "tool", tool: "weather", args });
             const built = await build(said);
             expect(callIn(built)).toEqual([step]);
+            expect(built?.systemPrompt).toMatch(/"degrees Fahrenheit"/);
             expect(built?.appendContext).toMatch(/call tool_call now with .*openclaw:orion-control:orion_task_run/);
         }
     });

@@ -2,15 +2,15 @@ export interface WeatherReport {
     place: string;
     /** One sentence, already phrased for speech. */
     summary: string;
-    temperatureC: number;
+    /** Fahrenheit only: Nick hears the reply aloud and wants "degrees Fahrenheit" in words, never Celsius. */
     temperatureF: number;
-    feelsLikeC: number;
+    feelsLikeF: number;
+    /** How to say the numbers; the model words the sentence from this report. */
+    say: string;
     conditions: string;
     windKph: number;
     days: Array<{
         date: string;
-        highC: number;
-        lowC: number;
         highF: number;
         lowF: number;
         conditions: string;
@@ -23,6 +23,8 @@ export interface WeatherReport {
         }>;
     }>;
 }
+/** The instruction that travels with the numbers (the TTS stumbles over "F" and "°"). */
+export declare const FAHRENHEIT_SAY = "Say temperatures in Fahrenheit, with the words \"degrees Fahrenheit\" on the first number in a sentence (\"a high of 55 degrees Fahrenheit and a low of 46\"). Never write F, \u00B0F or \u00B0C, and never give Celsius.";
 /** "Rain likely 2 PM–5 PM (up to 70%)" / "No rain expected", for the summary. */
 export declare function rainPhrase(hours: Array<{
     at: string;

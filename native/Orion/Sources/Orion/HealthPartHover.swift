@@ -61,15 +61,26 @@ struct HealthPartDetail: View {
 @MainActor
 final class HealthHoverController: ObservableObject {
     @Published private(set) var hovered: HealthSection?
+    /// A click keeps a part open without hover, so the detail is reachable even where hover never arrives.
+    @Published private(set) var pinned: HealthSection?
     private var pendingClear: Task<Void, Never>?
     let grace: Duration
 
     init(grace: Duration = .milliseconds(260)) { self.grace = grace }
 
+    /// What the stage should show: a clicked part wins over a hovered one.
+    var current: HealthSection? { pinned ?? hovered }
+
     func enter(_ section: HealthSection) {
         pendingClear?.cancel()
         pendingClear = nil
-        hovered = section
+        // Continuous hover reports every mouse move; only a real change may publish.
+        if hovered != section { hovered = section }
+    }
+
+    /// Click: pin this part, or unpin it if it is the pinned one.
+    func toggle(_ section: HealthSection) {
+        pinned = pinned == section ? nil : section
     }
 
     func exit(_ section: HealthSection) {
@@ -102,7 +113,7 @@ enum HealthStageLayout {
 struct HealthHoverStage: View {
     @ObservedObject var controller: HealthHoverController
     let model: HealthSectionsModel
-    var rest: HealthSection? = nil
+    var rest: String? = nil
     var forced: HealthSection? = nil
     var column: CGFloat = HealthStageLayout.maxWidth
     var height: CGFloat = HealthStageLayout.height
@@ -110,33 +121,41 @@ struct HealthHoverStage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let shown = forced ?? controller.hovered ?? rest
+        let active = forced ?? controller.current
         let width = HealthStageLayout.width(column: column)
         ZStack(alignment: .topLeading) {
-            if let shown, let part = model.parts([shown]).first {
-                Group {
-                    if shown == rest && (forced ?? controller.hovered) == nil {
-                        HealthTodayText(part: part)
-                    } else {
-                        HealthPartDetail(content: part, provenance: model.shortProvenance(part), width: width - 14)
-                    }
-                }
-                .id(shown)
-                .transition(.opacity)
+            if let active, let part = model.parts([active]).first {
+                HealthPartDetail(content: part, provenance: model.shortProvenance(part), width: width - 14)
+                    .id(active)
+                    .transition(.opacity)
+            } else if let rest {
+                HealthTodayText(line: rest)
+                    .id("rest")
+                    .transition(.opacity)
             }
         }
         .frame(width: width, height: height, alignment: .topLeading)
-        .animation(reduceMotion ? .easeInOut(duration: 0.12) : .easeInOut(duration: 0.28), value: shown)
+        .animation(reduceMotion ? .easeInOut(duration: 0.12) : .easeInOut(duration: 0.28), value: active)
     }
 }
 
 extension View {
-    /// Reports the pointer entering and leaving this view to the stage that shows `section`.
+    /// Reports the pointer on this view to the stage that shows `section`, and lets a click pin it.
+    ///
+    /// `onContinuousHover` rather than `onHover`: it is what the Knowledge graph uses and is known to fire in the
+    /// dashboard window. The whole frame is the target (`contentShape`), so a ring's empty interior counts.
     func healthHover(_ section: HealthSection?, _ controller: HealthHoverController) -> some View {
         contentShape(Rectangle())
-            .onHover { inside in
+            .onContinuousHover { phase in
                 guard let section else { return }
-                if inside { controller.enter(section) } else { controller.exit(section) }
+                switch phase {
+                case .active: controller.enter(section)
+                case .ended: controller.exit(section)
+                }
+            }
+            .onTapGesture {
+                guard let section else { return }
+                controller.toggle(section)
             }
     }
 }

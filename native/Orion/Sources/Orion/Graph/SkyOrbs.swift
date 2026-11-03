@@ -31,8 +31,8 @@ enum SkyOrbs {
         let palette = f.style.palette
         let p = f.points[i]
         let r = radius(f, i)
-        let tint = palette.color(node.kind)
-        let lit = f.sky.light[i] * f.sky.appear(i) * (node.hidden == true ? 0.5 : 1)
+        let tint = palette.tint(node)
+        let lit = f.sky.light[i] * f.sky.appear(i) * (node.hidden == true ? 0.5 : 1) * (node.isGhost ? 0.55 : 1)
         let twinkle = f.sky.ambient ? 0.88 + 0.12 * sin(f.sky.time * f.sky.twinkleSpeed[i] + f.sky.twinklePhase[i]) : 1
         let haloPeak = (palette.isDark ? 0.26 : 0.15) * lit * twinkle
         glow(context, at: p, radius: r * (node.isSelf ? 4.4 : 3.8), color: tint, peak: haloPeak, inner: r * 0.4)
@@ -47,16 +47,25 @@ enum SkyOrbs {
         ])
         context.fill(circle(p, r), with: .radialGradient(body, center: light, startRadius: 0, endRadius: r * 1.3))
         context.stroke(circle(p, r + 1.6), with: .color(tint.opacity(0.5 * lit)), lineWidth: 0.6)
+        if node.isHub, let count = node.badge { drawCount(context, count, at: p, lit: lit, dark: palette.isDark) }
         if node.isSelf {
             let b = breath(f.sky)
             context.stroke(circle(p, r * 1.75 + 3 * b), with: .color(tint.opacity((0.16 + 0.1 * b) * lit)), lineWidth: 0.7)
         }
     }
 
+    /// A hub's item count, printed in its body in dark ink.
+    private static func drawCount(_ context: GraphicsContext, _ count: Int, at p: CGPoint, lit: Double, dark: Bool) {
+        let ink = Color(red: 0.04, green: 0.06, blue: 0.10)
+        var layer = context
+        layer.opacity = min(1, lit * 1.1)
+        layer.draw(layer.resolve(Text("\(count)").font(OrionTheme.mono(9.5, .bold)).foregroundColor(ink)), at: p, anchor: .center)
+    }
+
     private static func drawMarks(_ context: GraphicsContext, _ f: SkyFrame, _ i: Int, selected: Bool) {
         let p = f.points[i]
         let r = radius(f, i)
-        let tint = f.style.palette.color(f.sky.nodes[i].kind)
+        let tint = f.style.palette.tint(f.sky.nodes[i])
         let lit = f.sky.light[i] * f.sky.appear(i)
         if f.sky.recent[i] {
             // Learned in the last 36 h: a slow dawn-cyan breath.

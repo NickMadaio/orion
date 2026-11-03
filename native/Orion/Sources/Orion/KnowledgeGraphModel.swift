@@ -87,11 +87,20 @@ struct KnowledgeNode: Codable, Equatable, Identifiable, Hashable {
     var sources: [KnowledgeCitation] = []
     var hidden: Bool?
     var note: String?
+    /// View-only (never decoded): the Brain view's top-level vault folder ("10 Projects"), or "ghost" for a link that
+    /// points at no note. Nil for everything in ORION's own graph.
+    var group: String?
+    /// View-only: where a click on this node goes (an `obsidian://` link for a vault note).
+    var openURL: URL?
+    /// View-only: the count printed inside a hub's orb.
+    var badge: Int?
 
     init(id: String, type: String, label: String, subtitle: String? = nil, aliases: [String]? = nil,
-         facts: [KnowledgeFact] = [], sources: [KnowledgeCitation] = [], hidden: Bool? = nil, note: String? = nil) {
+         facts: [KnowledgeFact] = [], sources: [KnowledgeCitation] = [], hidden: Bool? = nil, note: String? = nil,
+         group: String? = nil, openURL: URL? = nil, badge: Int? = nil) {
         self.id = id; self.type = type; self.label = label; self.subtitle = subtitle; self.aliases = aliases
         self.facts = facts; self.sources = sources; self.hidden = hidden; self.note = note
+        self.group = group; self.openURL = openURL; self.badge = badge
     }
 
     private enum CodingKeys: String, CodingKey { case id, type, label, subtitle, aliases, facts, sources, hidden, note }
@@ -111,6 +120,16 @@ struct KnowledgeNode: Codable, Equatable, Identifiable, Hashable {
 
     var kind: KnowledgeNodeType { KnowledgeNodeType(rawValue: type) ?? .goal }
     var isSelf: Bool { id == "person:self" }
+    /// A virtual per-kind hub the graph view inserts between him and the things of that kind (`KnowledgeHubGraph`).
+    var isHub: Bool { id.hasPrefix(KnowledgeHubGraph.prefix) }
+    var isGhost: Bool { group == BrainVault.ghostGroup }
+    var isBrainNote: Bool { group != nil }
+
+    /// The small caps line above a name on the hover card: the vault folder, the hub's kind, or the node's kind.
+    var cardKind: String {
+        if isGhost { return "Unresolved link" }
+        return group ?? kind.singular
+    }
 }
 
 struct KnowledgeEdge: Codable, Equatable, Identifiable, Hashable {

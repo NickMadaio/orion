@@ -8,7 +8,11 @@ extension KnowledgeSky {
     /// Orb size: degree on a square root, scaled sub-linearly with zoom so zooming in does not balloon the dots.
     /// He is always the largest.
     func radius(_ i: Int) -> CGFloat {
-        nodes[i].isSelf ? 15 : min(11, 3.4 + sqrt(CGFloat(degree[i])) * 1.7)
+        if nodes[i].isSelf { return 15 }
+        // A hub is a medium orb, sized a little by how much hangs from it.
+        if nodes[i].isHub { return min(13, 10 + sqrt(CGFloat(degree[i])) * 0.5) }
+        if isBrain { return min(12, 2.8 + sqrt(CGFloat(degree[i])) * 1.9) }
+        return min(11, 3.4 + sqrt(CGFloat(degree[i])) * 1.7)
     }
 
     var starScale: CGFloat { pow(camera.zoom, 0.62) }

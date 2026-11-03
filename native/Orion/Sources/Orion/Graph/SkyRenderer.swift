@@ -59,8 +59,9 @@ enum SkyRenderer {
             var path = Path()
             if reversed { path.move(to: b); path.addQuadCurve(to: a, control: c) } else { path.move(to: a); path.addQuadCurve(to: b, control: c) }
             if reveal < 1 { path = path.trimmedPath(from: 0, to: reveal) }
-            let ca = palette.color(f.sky.nodes[link.a].kind), cb = palette.color(f.sky.nodes[link.b].kind)
-            let level = restPeak + (0.9 - restPeak) * ignite
+            let ca = palette.tint(f.sky.nodes[link.a]), cb = palette.tint(f.sky.nodes[link.b])
+            let rest = link.faint ? restPeak * 0.42 : restPeak
+            let level = rest + (0.9 - rest) * ignite
             let shade = Gradient(colors: [ca.opacity(level), cb.opacity(level)])
             if ignite > 0.02 {
                 context.stroke(path, with: .linearGradient(Gradient(colors: [ca.opacity(0.24 * ignite), cb.opacity(0.24 * ignite)]), startPoint: a, endPoint: b),

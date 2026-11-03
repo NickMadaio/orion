@@ -22,6 +22,8 @@ final class KnowledgeSky {
         let dashed: Bool
         /// A slight sideways bow, so parallel edges from him do not read as one ruled sheet.
         let bow: CGFloat
+        /// A real cross-link between two things in the hub layout: faint at rest, bright when either end is touched.
+        let faint: Bool
     }
 
     struct Pulse {
@@ -84,6 +86,8 @@ final class KnowledgeSky {
     /// Measured label sizes, so a label that will be skipped is never resolved.
     var labelSizes: [String: CGSize] = [:]
 
+    /// The sky shows a vault (Brain): labels are rationed by zoom and degree so 160 names do not crowd the view.
+    private(set) var isBrain = false
     private var graph: KnowledgeGraph = .empty
     private var built = false
     private var hasAppeared = false
@@ -102,6 +106,7 @@ final class KnowledgeSky {
         guard next != graph || !built else { return }
         graph = next
         nodes = next.nodes
+        isBrain = next.nodes.contains(where: \.isBrainNote)
         index = Dictionary(nodes.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
         buildLinks(next)
         twinklePhase = nodes.map { Double(SkyPhysics.hash($0.id + "t") % 6283) / 1000 }
@@ -129,9 +134,11 @@ final class KnowledgeSky {
     }
 
     private func buildLinks(_ graph: KnowledgeGraph) {
+        let hubbed = graph.nodes.contains(where: \.isHub)
         links = graph.edges.compactMap { edge in
             guard edge.hidden != true, let a = index[edge.from], let b = index[edge.to], a != b else { return nil }
-            return Link(a: a, b: b, dashed: edge.kind == "said-together", bow: CGFloat(SkyPhysics.hash(edge.id) % 21) - 10)
+            return Link(a: a, b: b, dashed: edge.kind == "said-together", bow: CGFloat(SkyPhysics.hash(edge.id) % 21) - 10,
+                        faint: hubbed && edge.kind != KnowledgeHubGraph.edgeKind)
         }
         var nb = Array(repeating: [Int](), count: nodes.count), lo = nb
         for (e, link) in links.enumerated() {

@@ -36,8 +36,18 @@ struct SkyPhysics: Equatable {
         let rest: Double, pull: Double
     }
 
+    /// Where a node wants to rest, by what kind of node it is: on its kind's bearing (the plain graph), on its vault
+    /// folder's bearing (Brain), as a hub ringed around him, or in a cluster around its hub.
+    enum Placement: Equatable {
+        case kind(KnowledgeNodeType)
+        case folder(Int)
+        case hub(KnowledgeNodeType)
+        case member(hub: Int, KnowledgeNodeType)
+    }
+
     let ids: [String]
     let kinds: [KnowledgeNodeType]
+    let placement: [Placement]
     let springs: [Spring]
     let selfIndex: Int?
     private(set) var size: CGSize
@@ -54,6 +64,8 @@ struct SkyPhysics: Equatable {
     /// The node under his cursor while dragging: moved by the hand, not the forces.
     var pinned: Int?
     private let k: Double
+    /// How hard a node is drawn to its home. The Brain view lets its links decide the shape and keeps homes gentle.
+    private let homePull: Double
     /// Label footprints shrink when the oval cannot hold them all (about 200 nodes in a small window), so collision
     /// has a solution; the renderer's label pass then skips whatever would still overlap.
     private let crowding: Double
@@ -71,7 +83,11 @@ struct SkyPhysics: Equatable {
         let (rx0, ry0) = Self.radii(size)
         let room = Double.pi * rx0 * ry0 * 0.55, need = Double(max(ids.count, 1)) * 92 * 34 * Double.pi / 4
         crowding = min(1, (room / need).squareRoot())
-        let homes = ids.indices.map { Self.home(of: graph.nodes[$0].id, kind: graph.nodes[$0].kind, size: size) }
+        let places = Self.placements(graph, index: index)
+        placement = places
+        homePull = graph.nodes.contains(where: \.isBrainNote) ? 0.02 : 0.045
+        let names = ids
+        let homes = names.indices.map { Self.homePoint($0, ids: names, placement: places, size: size) }
         homeX = homes.map { Double($0.x) }
         homeY = homes.map { Double($0.y) }
         anchored = Array(repeating: false, count: ids.count)
@@ -144,7 +160,7 @@ struct SkyPhysics: Equatable {
             if mask[i] {
                 next.homeX[i] = x[i]; next.homeY[i] = y[i]
             } else {
-                let home = Self.home(of: ids[i], kind: kinds[i], size: size)
+                let home = Self.homePoint(i, ids: ids, placement: placement, size: size)
                 next.homeX[i] = Double(home.x); next.homeY[i] = Double(home.y)
             }
         }
@@ -165,7 +181,7 @@ struct SkyPhysics: Equatable {
                 copy.homeX[i] = homeX[i] * sx
                 copy.homeY[i] = homeY[i] * sy
             } else {
-                let home = Self.home(of: ids[i], kind: kinds[i], size: next)
+                let home = Self.homePoint(i, ids: ids, placement: placement, size: next)
                 copy.homeX[i] = Double(home.x)
                 copy.homeY[i] = Double(home.y)
             }
@@ -303,7 +319,7 @@ struct SkyPhysics: Equatable {
                 fx[i] += (cx - x[i]) * 0.3; fy[i] += (cy - y[i]) * 0.3
                 continue
             }
-            fx[i] += (homeX[i] - x[i]) * 0.045; fy[i] += (homeY[i] - y[i]) * 0.045
+            fx[i] += (homeX[i] - x[i]) * homePull; fy[i] += (homeY[i] - y[i]) * homePull
             let nx = (x[i] - cx) / rx, ny = (y[i] - cy) / ry
             let e = (nx * nx + ny * ny).squareRoot()
             if e > 0.96 {
@@ -372,6 +388,48 @@ struct SkyPhysics: Equatable {
         let r = 0.42 + 0.52 * reach
         return CGPoint(x: Double(size.width) / 2 + cos(angle) * r * rx, y: Double(size.height) / 2 + sin(angle) * r * ry)
     }
+
+    private static func placements(_ graph: KnowledgeGraph, index: [String: Int]) -> [Placement] {
+        var hubOf: [Int: Int] = [:]
+        for edge in graph.edges where edge.kind == KnowledgeHubGraph.edgeKind && edge.from.hasPrefix(KnowledgeHubGraph.prefix) {
+            if let h = index[edge.from], let m = index[edge.to] { hubOf[m] = h }
+        }
+        return graph.nodes.indices.map { i in
+            let node = graph.nodes[i]
+            if node.isHub { return .hub(node.kind) }
+            if let h = hubOf[i] { return .member(hub: h, node.kind) }
+            return node.isBrainNote ? .folder(BrainVault.slot(of: node.group)) : .kind(node.kind)
+        }
+    }
+
+    /// The home of node `i`. Hubs sit in a ring around him; a hub's things fan out beyond it, away from him.
+    static func homePoint(_ i: Int, ids: [String], placement: [Placement], size: CGSize) -> CGPoint {
+        let (rx, ry) = radii(size)
+        let cx = Double(size.width) / 2, cy = Double(size.height) / 2
+        switch placement[i] {
+        case .kind(let kind): return home(of: ids[i], kind: kind, size: size)
+        case .folder(let slot):
+            let turn = Double(hash(ids[i]) % 1000) / 1000 - 0.5
+            let reach = Double(hash(ids[i] + "r") % 1000) / 1000
+            let angle = -Double.pi / 2 + Double(slot) / 10 * 2 * Double.pi + turn * 0.55
+            let r = 0.3 + 0.62 * reach
+            return CGPoint(x: cx + cos(angle) * r * rx, y: cy + sin(angle) * r * ry)
+        case .hub(let kind):
+            let angle = bearing(of: kind)
+            return CGPoint(x: cx + cos(angle) * hubReach * rx, y: cy + sin(angle) * hubReach * ry)
+        case .member(let h, let kind):
+            guard placement.indices.contains(h) else { return home(of: ids[i], kind: kind, size: size) }
+            let angle = bearing(of: kind)
+            let turn = Double(hash(ids[i]) % 1000) / 1000 - 0.5
+            let reach = Double(hash(ids[i] + "r") % 1000) / 1000
+            let fan = angle + turn * 2.6
+            let d = (0.2 + 0.22 * reach) * min(rx, ry)
+            return CGPoint(x: cx + cos(angle) * hubReach * rx + cos(fan) * d, y: cy + sin(angle) * hubReach * ry + sin(fan) * d)
+        }
+    }
+
+    /// How far out the hub ring sits, as a share of the oval.
+    static let hubReach = 0.42
 
     /// Where each type's constellation sits around him: courses beside goals, habits beside routines and health.
     static func bearing(of kind: KnowledgeNodeType) -> Double {

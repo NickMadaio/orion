@@ -80,6 +80,13 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-03 afternoon: wave 17b (Claude, orchestrator)
+
+- **Workouts by chat:** scripts/orion-workout-log plus workout-read/chat.ts. At most 2 follow-up questions; WKT- ids with undo.
+- **Mail:** several accounts (mail-accounts.json, gog --account, a read-only Yahoo IMAP client with its password in the Keychain).
+- **Health:** HealthTodayLine replaces the provenance sentence. Hover now uses onContinuousHover, and click-to-pin is the fallback.
+- **Knowledge:** a hub view and a Brain view (the Obsidian vault). Projects plan-pane render caching.
+
 ### 2026-11-03 midday: wave 17 (Claude, orchestrator)
 
 - **Self-echo:** short cues ("Still working", "Let me") counted as barge-in and orphaned the spoken answer. Fixed with a CueEcho match, and a refused barge-in is now a no-op for speech (VoiceEcho.swift).

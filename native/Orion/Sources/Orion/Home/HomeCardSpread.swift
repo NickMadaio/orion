@@ -117,7 +117,6 @@ struct HomeCardSpread: View {
                     HomeCardView(card: card, rank: rank, onAction: onAction)
                         .rotationEffect(.degrees(HomePriorityPlan.tilt(rank)))
                         .deal(order: rank, rise: 22)
-                        .anchorPreference(key: HomeSunBoundsKey.self, value: .bounds) { rank == 0 ? $0 : nil }
                 }
             }
             .animation(reduceMotion ? .easeInOut(duration: 0.2) : Self.reorder, value: shown.map(\.id))

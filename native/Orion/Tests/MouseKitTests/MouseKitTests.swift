@@ -205,6 +205,20 @@ final class MouseKitTests: XCTestCase {
         XCTAssertFalse(OutreachTail.isSetupOpen("{\"kind\":\"mouse\",\"event\":\"asked\"}"))
     }
 
+    // MARK: Control Center tree (names dumped live on macOS 26)
+
+    func testControlCenterMatchers() {
+        XCTAssertTrue(ControlCenterMatch.isMenuExtra(id: "com.apple.menuextra.controlcenter"))
+        XCTAssertFalse(ControlCenterMatch.isMenuExtra(id: "com.apple.menuextra.wifi"))
+        XCTAssertTrue(ControlCenterMatch.isStageManagerTile(role: "AXCheckBox",
+            id: ":com.apple.WindowManager:com.apple.WindowManager.controls:com.apple.windowmanager.stagemanager:51A2", description: "Stage Manager"))
+        XCTAssertTrue(ControlCenterMatch.isStageManagerTile(role: "AXCheckBox", id: "x", description: "Stage Manager"))
+        XCTAssertFalse(ControlCenterMatch.isStageManagerTile(role: "AXCheckBox", id: "controlcenter-wifi", description: "Wi-Fi: eduroam"))
+        XCTAssertFalse(ControlCenterMatch.isStageManagerTile(role: "AXStaticText", id: "", description: "Stage Manager"))
+        XCTAssertTrue(ControlCenterMatch.isTurnOnButton(role: "AXButton", title: "Turn On Stage Manager", description: ""))
+        XCTAssertFalse(ControlCenterMatch.isTurnOnButton(role: "AXButton", title: "Not Now", description: ""))
+    }
+
     // MARK: store
 
     func testStoreAtomicRoundTripAndMerge() throws {

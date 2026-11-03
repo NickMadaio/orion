@@ -11,11 +11,8 @@ import MouseKit
     the user remapped the keyboard shortcut for them, which a synthetic Control-Up would not.
   · desktopLeft / desktopRight / showDesktop / notificationCenter post the default system shortcuts (Ctrl-Left,
     Ctrl-Right, F11, Fn-N). If he has disabled or changed those in Keyboard Shortcuts, the shortcut action is the escape hatch.
-  · stageManager flips `com.apple.WindowManager GloballyEnabled` with /usr/bin/defaults. That is the setting the
-    Control Center toggle writes, it needs no extra permission and no third-party tool, and WindowManager follows the
-    preference change live. The alternative, scripting the Control Center menu through System Events, needs a second
-    permission (Automation) and breaks whenever Apple re-lays-out that menu. Verified here: the key reads and writes
-    cleanly; the live visual switch must be confirmed on the Mac (see report).
+  · stageManager presses the Stage Manager tile in Control Center through Accessibility (see StageManagerToggle).
+    The old `defaults write com.apple.WindowManager GloballyEnabled` does nothing on macOS 26.
  */
 enum MouseActions {
     static func run(_ action: MouseAction, orion: (String) -> Void) {
@@ -74,22 +71,6 @@ enum MouseActions {
     }
 
     private static func toggleStageManager() {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let on = defaults(["read", "com.apple.WindowManager", "GloballyEnabled"]).trimmingCharacters(in: .whitespacesAndNewlines) == "1"
-            _ = defaults(["write", "com.apple.WindowManager", "GloballyEnabled", "-bool", on ? "false" : "true"])
-        }
-    }
-
-    private static func defaults(_ args: [String]) -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-        process.arguments = args
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do { try process.run() } catch { return "" }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(data: data, encoding: .utf8) ?? ""
+        DispatchQueue.global(qos: .userInitiated).async { StageManagerToggle.run() }
     }
 }

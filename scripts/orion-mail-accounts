@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+/*
+ orion-mail-accounts — which mailboxes ORION watches for important mail (wave 17, 2026-11-03).
+
+   orion-mail-accounts list [--json]
+   orion-mail-accounts add-gmail <address> [--label "Gmail (school)"]       sign in first with: gog auth add <address>
+   orion-mail-accounts add-imap <address> [--host imap.mail.yahoo.com] [--port 993] [--label Yahoo]
+   orion-mail-accounts remove <id|address>
+   orion-mail-accounts status [--json]       a real, read-only check of each account (and what the Keychain step is, if missing)
+
+ It never takes or stores a password: --password and friends are refused. An IMAP account's app password lives in the macOS
+ Keychain under orion-mail-imap:<address>, which Nick adds himself (add-imap prints the command). Store: mail-accounts.json in
+ the controlled dir (eval-mail-accounts.json during a sandboxed evaluation). Exit 0 done, 2 bad arguments (nothing saved), 3 nothing matched.
+*/
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { controlledDir } from "./lib/clock.mjs";
+import { sandbox } from "./lib/life/bridge-path.mjs";
+import { readJson, writeJsonAtomic } from "./lib/awareness/io.mjs";
+import { mailFile, readState } from "./lib/mail/files.mjs";
+import { addGmail, addImap, keychainCommand, normalizeAccounts, removeAccount } from "./lib/mail/accounts.mjs";
+import { accountStatuses } from "./lib/mail/account-status.mjs";
+
+const VALUE_FLAGS = ["--host", "--port", "--label"];
+const argv = process.argv.slice(2);
+const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+const [command, ...rest] = argv.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(argv[i - 1]));
+const json = argv.includes("--json");
+const USAGE = "usage: orion-mail-accounts list | add-gmail <address> | add-imap <address> [--host H] [--port P] | remove <id|address> | status";
+const say = (text, data = {}) => { console.log(json ? JSON.stringify({ ok: true, ...data }) : text); process.exit(0); };
+const fail = (code, text) => { if (json) console.log(JSON.stringify({ ok: false, error: text })); else console.error(`NOTHING WAS SAVED: ${text}`); process.exit(code); };
+
+if (argv.some((a) => /^--(?:password|pass|pw|secret|app-password|token)(?:=|$)/i.test(a))) fail(2, "this never takes a password. For Yahoo and other IMAP accounts the app password goes in the Keychain, and you type it yourself (add-imap prints the command).");
+
+const dir = controlledDir();
+const path = mailFile(dir, "accounts", { sandboxed: sandbox() !== null });
+const name = path.split("/").at(-1);
+const accounts = normalizeAccounts(readJson(path));
+const save = (next) => { try { writeJsonAtomic(dir, name, next); } catch (e) { fail(3, `could not write ${name}: ${e.message}`); } };
+const lineOf = (a) => `${a.id}  ${a.label}  ${a.kind}  ${a.address}${a.kind === "imap" ? `  ${a.host}:${a.port}` : ""}`;
+
+if (command === "list" || !command) {
+  say([`Mailboxes watched (${accounts.length}):`, ...accounts.map(lineOf)].join("\n"), { accounts });
+} else if (command === "add-gmail" || command === "add-imap") {
+  if (!rest[0]) fail(2, USAGE);
+  let next;
+  try { next = command === "add-gmail" ? addGmail(accounts, rest[0], { label: flag("--label") }) : addImap(accounts, rest[0], { host: flag("--host"), port: flag("--port") ?? 993, label: flag("--label") }); }
+  catch (e) { fail(2, e.message); }
+  save(next);
+  const added = next.at(-1);
+  const step = added.kind === "gmail" ? `If you haven't yet, sign it in: gog auth add ${added.address}`
+    : `Put its app password in the Keychain yourself (it asks for the password, which is not echoed or logged):\n  ${keychainCommand(added.address)}`;
+  say(`Now watching ${added.label} (${added.address}).\n${step}`, { added, accounts: next });
+} else if (command === "remove") {
+  if (!rest[0]) fail(2, USAGE);
+  const out = removeAccount(accounts, rest.join(" "));
+  if (!out.removed) fail(3, `no account matches "${rest.join(" ")}" (see orion-mail-accounts list)`);
+  save(out.list);
+  say(`Stopped watching ${rest.join(" ")}. (Its Keychain item, if any, is yours to delete: security delete-generic-password -s 'orion-mail-imap:<address>'.)`, { accounts: out.list });
+} else if (command === "status") {
+  const root = process.env.ORION_MAIL_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
+  const rows = await accountStatuses(accounts, { root, state: readState(mailFile(dir, "state", { sandboxed: sandbox() !== null })) });
+  say(rows.map((r) => `${r.label}: ${r.say}`).join("\n"), { accounts: rows });
+} else {
+  fail(2, USAGE);
+}

@@ -14,14 +14,15 @@ export const INBOX_MAX = 15;
 export const threadKey = (thread) => `${thread.id}@${thread.date ?? thread.messageCount ?? ""}`;
 
 /** fetchInbox for mailTick, bound to a repo root (for .env) and his addresses. Fetches threads in parallel; one failing thread is skipped. */
-export const gogInbox = (orionRoot, { nickAddresses = [], search = searchThreads, thread = getThreadMeta } = {}) => async ({ isSeen, firstPoll = false }) => {
-  const threads = (await search(orionRoot, INBOX_QUERY, INBOX_MAX)).filter((t) => t?.id);
+export const gogInbox = (orionRoot, { nickAddresses = [], account, search = searchThreads, thread = getThreadMeta } = {}) => async ({ isSeen, firstPoll = false }) => {
+  const opts = account ? { account } : {};
+  const threads = (await search(orionRoot, INBOX_QUERY, INBOX_MAX, opts)).filter((t) => t?.id);
   const unseen = threads.filter((t) => !isSeen(threadKey(t)));
   // The first poll (nothing seen yet) only needs the keys: no thread is read.
   if (firstPoll) return unseen.map((t) => ({ key: threadKey(t), threadId: String(t.id), messageId: "" }));
   const items = await Promise.all(unseen.map(async (t) => {
     try {
-      const item = mailItem(await thread(orionRoot, t.id), { nickAddresses });
+      const item = mailItem(await thread(orionRoot, t.id, opts), { nickAddresses });
       return item ? { ...item, key: threadKey(t) } : null;
     } catch { return null; }
   }));

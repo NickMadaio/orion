@@ -4,8 +4,9 @@
  signal: a mute means "never alert me about this", a boost means "always do".
 
    orion-mail-prefs list [--json]
-   orion-mail-prefs add mute|boost [sender|domain|topic] "<value>" [--via chat|cli]   kind defaults from the value: an address is a
+   orion-mail-prefs add mute|boost [sender|domain|topic] "<value>" [--via chat|cli] [--account <id>]   kind defaults from the value: an address is a
         sender, "linkedin.com" a domain, anything else a topic
+        (--account limits the rule to one account from orion-mail-accounts; without it a rule covers every account)
    orion-mail-prefs remove <id|value>
    orion-mail-prefs me add|remove <address>          his own addresses (his reply in a thread is never "from a person")
 
@@ -18,7 +19,7 @@ import { readJson, writeJsonAtomic } from "./lib/awareness/io.mjs";
 import { mailFile } from "./lib/mail/files.mjs";
 import { KINDS, addRule, emptyPrefs, kindOfValue, makeRule, removeRule, ruleLine } from "./lib/mail/prefs.mjs";
 
-const VALUE_FLAGS = ["--via"];
+const VALUE_FLAGS = ["--via", "--account"];
 const argv = process.argv.slice(2);
 const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const [command, ...rest] = argv.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(argv[i - 1]));
@@ -43,7 +44,7 @@ if (command === "list" || !command) {
   const value = explicitKind ? third : [second, third].filter(Boolean).join(" ");
   if (!value) fail(2, USAGE);
   let rule;
-  try { rule = makeRule({ action, kind: explicitKind ? second : kindOfValue(value), value, via: flag("--via") ?? "cli", now: clockNow() }); }
+  try { rule = makeRule({ action, kind: explicitKind ? second : kindOfValue(value), value, via: flag("--via") ?? "cli", now: clockNow(), account: flag("--account") ?? "" }); }
   catch (e) { fail(2, e.message); }
   save(addRule(prefs, rule));
   say(`${rule.action === "mute" ? "Won't alert" : "Will always alert"} on ${rule.kind} "${rule.value}" (${rule.id}).`, { rule });

@@ -2,11 +2,11 @@
 /*
  orion-mail-watch — passive alerts for mail that might matter (wave 14, 2026-11-02).
 
-   orion-mail-watch tick [--force] [--json]   run by orion-watches' tick; polls Gmail at most every 10 minutes
+   orion-mail-watch tick [--force] [--json]   run by orion-watches' tick; polls each account at most every 10 minutes
    orion-mail-watch status [--json]           when it last looked, what is waiting, the last alert
 
  How it decides and tells him: scripts/lib/mail/tick.mjs. What he taught it: orion-mail-prefs.
- Read-only on Gmail (headers and snippet). Never runs during an evaluation. Alerts go through orion-reach as quiet, low-tier
+ Watches every account in mail-accounts.json (orion-mail-accounts): Gmail through gog, others over read-only IMAP. Read-only (headers and snippet). Never runs during an evaluation. Alerts go through orion-reach as quiet, low-tier
  notices (held for quiet hours, focus and class like any other), so an isolated run's alerts land in its outbox.
  Seams for tests only: ORION_MAIL_OLLAMA_URL (a fake Ollama), ORION_MAIL_NO_MODEL=1, ORION_MAIL_ROOT (where .env is read).
 */
@@ -21,6 +21,8 @@ import { readJson } from "./lib/awareness/io.mjs";
 import { mailFile, readAlerts, readState } from "./lib/mail/files.mjs";
 import { mailTick } from "./lib/mail/tick.mjs";
 import { gogInbox } from "./lib/mail/gog.mjs";
+import { imapInbox } from "./lib/mail/imap-inbox.mjs";
+import { normalizeAccounts, reconnectText } from "./lib/mail/accounts.mjs";
 import { askModel, OLLAMA_URL } from "./lib/mail/model.mjs";
 import { nickAddresses, readKnowledgeContext } from "./lib/mail/context.mjs";
 import { DEFAULT_SCHOOL_DOMAINS } from "./lib/mail/score.mjs";
@@ -50,10 +52,14 @@ if (command === "tick") {
   if (evalMode() || sandbox()) { out("Mail watch paused during an evaluation.", { polled: false, reason: "evaluation" }); process.exit(0); }
   const prefs = readJson(mailFile(dir, "prefs")) ?? {};
   const noModel = process.env.ORION_MAIL_NO_MODEL === "1";
+  const configured = normalizeAccounts(readJson(mailFile(dir, "accounts")));
+  const mine = nickAddresses([...(prefs.me ?? []), ...configured.map((a) => a.address)]);
+  const accounts = configured.map((a) => ({ ...a, reconnectText: reconnectText(a),
+    fetchInbox: a.kind === "imap" ? imapInbox(a, { nickAddresses: mine }) : gogInbox(ORION_ROOT, { nickAddresses: mine, account: a.address }) }));
   const result = await mailTick({
     dir, now: clockNow(), force: argv.includes("--force"),
     ctx: { ...readKnowledgeContext(dir), schoolDomains: DEFAULT_SCHOOL_DOMAINS },
-    fetchInbox: gogInbox(ORION_ROOT, { nickAddresses: nickAddresses(prefs.me ?? []) }),
+    accounts,
     askModel: noModel ? null : (item, opts) => askModel(item, { ...opts, url: process.env.ORION_MAIL_OLLAMA_URL || OLLAMA_URL, onUsage: logUsage }),
     reach,
   });

@@ -81,6 +81,70 @@ final class GameSessionTests: XCTestCase {
         XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: bindings()), .system("stageManager"))
     }
 
+    // MARK: w18 mousetoggle
+
+    func testAutoPauseOffLetsBindingsRunDuringASession() {
+        var b = bindings(); b.autoPauseInGames = false
+        XCTAssertEqual(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: b, gameSession: true), .system("stageManager"))
+        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: bindings(), gameSession: true))
+    }
+
+    func testManualOffWinsOverEverything() {
+        var b = bindings(); b.enabled = false; b.autoPauseInGames = false
+        XCTAssertNil(MouseResolver.resolve(button: 3, bundleId: "com.apple.finder", isGame: false, bindings: b, gameSession: false))
+        XCTAssertNil(MouseResolver.resolve(button: 4, bundleId: nil, isGame: false, bindings: b, gameSession: true))
+    }
+
+    /// The live bug (2026-11-03): the app was relaunched while the session file said active, and the new process started with an idle session.
+    func testARelaunchedAppRestoresTheSessionTheFileSays() throws {
+        let dir = tmp(); let store = GameSessionStore(controlledDir: dir)
+        XCTAssertNil(store.load())
+        let (started, _) = GameSessionMachine.reduce(.idle, .frontmost(launcher, isGame: true, now: "t1"))
+        try store.save(started)
+        let restored = try XCTUnwrap(store.load())
+        XCTAssertTrue(restored.active); XCTAssertEqual(restored.game, launcher); XCTAssertEqual(restored.pids, [90]); XCTAssertEqual(restored.startedAt, "t1")
+        let (ended, _) = GameSessionMachine.reduce(started, .alive([], now: "t2"))
+        try store.save(ended)
+        XCTAssertFalse(try XCTUnwrap(store.load()).active)
+    }
+
+    func testJavaHostedMinecraftCountsByItsPath() {
+        let jre = "/Users/x/Documents/curseforge/minecraft/Install/runtime/java-runtime-epsilon/mac-os-arm64/jre.bundle/Contents/Home/bin/java"
+        XCTAssertTrue(GameClassifier.isGame(.init(name: "java", isJavaProcess: true, executablePath: jre)))
+        for p in ["/Applications/PrismLauncher.app/Contents/MacOS/java", "/x/ModrinthApp/meta/java_versions/jre/bin/java", "/x/.minecraft/runtime/bin/java"] {
+            XCTAssertTrue(GameClassifier.isGame(.init(name: "java", isJavaProcess: true, executablePath: p)), p)
+        }
+        XCTAssertFalse(GameClassifier.isGame(.init(name: "java", isJavaProcess: true, executablePath: "/Library/Java/JavaVirtualMachines/jdk-21/Contents/Home/bin/java")))
+        XCTAssertFalse(GameClassifier.isGame(.init(name: "node", isJavaProcess: false, executablePath: "/x/minecraft/node")))
+        XCTAssertTrue(GameClassifier.isGame(.init(name: "java", isJavaProcess: true, windowTitle: "Minecraft* 1.20.1")))
+        XCTAssertTrue(GameClassifier.isGameProcess(path: jre))
+        XCTAssertFalse(GameClassifier.isGameProcess(path: "/usr/bin/ssh"))
+    }
+
+    func testToggleShortcutDefaultsAndRoundTrips() throws {
+        XCTAssertEqual(BindingsFile().toggleShortcut, "ctrl+opt+m")
+        XCTAssertTrue(BindingsFile().autoPauseInGames)
+        var b = BindingsFile(); b.toggleShortcut = "ctrl+opt+n"; b.autoPauseInGames = false
+        let back = MouseCodec.decodeBindings(try MouseCodec.encode(b))
+        XCTAssertEqual(back.toggleShortcut, "ctrl+opt+n"); XCTAssertFalse(back.autoPauseInGames)
+        XCTAssertEqual(MouseCodec.decodeBindings(Data(#"{"toggleShortcut":"nonsense"}"#.utf8)).toggleShortcut, "ctrl+opt+m")
+        XCTAssertEqual(b.togglingEnabled().enabled, false)
+        XCTAssertEqual(b.togglingEnabled().togglingEnabled().enabled, true)
+    }
+
+    func testShortcutFormattingAndCarbonModifiers() {
+        let s = ShortcutParser.parse("ctrl+opt+m")!
+        XCTAssertEqual(ShortcutParser.carbonModifiers(s.flags), 4096 | 2048)
+        XCTAssertEqual(ShortcutParser.symbols("ctrl+opt+m"), "⌃⌥M")
+        XCTAssertEqual(ShortcutParser.symbols("cmd+shift+space"), "⇧⌘Space")
+        XCTAssertEqual(ShortcutParser.format(keyCode: 46, flags: ShortcutParser.ctrl | ShortcutParser.opt), "ctrl+opt+m")
+        XCTAssertNil(ShortcutParser.format(keyCode: 46, flags: 0))
+        XCTAssertNil(ShortcutParser.format(keyCode: 46, flags: ShortcutParser.shift))
+        XCTAssertEqual(ShortcutParser.format(keyCode: 49, flags: ShortcutParser.cmd | ShortcutParser.shift), "shift+cmd+space")
+        XCTAssertEqual(MouseToggleWords.line(enabled: false), "Mouse shortcuts off")
+        XCTAssertEqual(MouseToggleWords.line(enabled: true), "Mouse shortcuts on")
+    }
+
     // MARK: file
 
     private func tmp() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("gs-\(UUID().uuidString)") }

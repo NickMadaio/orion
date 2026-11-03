@@ -37,6 +37,12 @@ struct MouseSetupView: View {
             ForEach(Array(buttons.enumerated()), id: \.element) { index, button in
                 row(button).deal(order: index + 1, rise: 8)
             }
+            MouseShortcutRow(mouse: mouse, compact: true)
+            HStack(alignment: .center, spacing: 12) {
+                Text("Auto-pause in games").font(.system(size: 12.5, weight: .medium)).foregroundStyle(OrionTheme.text)
+                Spacer()
+                ProjectRoundToggle(isOn: Binding(get: { mouse.bindings.autoPauseInGames }, set: { mouse.setAutoPause($0) }))
+            }
             HStack(alignment: .center, spacing: 12) {
                 Text("Pass through in games").font(.system(size: 12.5, weight: .medium)).foregroundStyle(OrionTheme.text)
                 Spacer()

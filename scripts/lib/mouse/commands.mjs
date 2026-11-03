@@ -90,10 +90,19 @@ export function passthrough({ op, app: appText }, { env = process.env, lookup } 
 /** `games on|off`: automatic leave-alone for games. */
 export function games({ state }, { env = process.env } = {}) {
   if (state !== "on" && state !== "off") return fail("games takes on or off");
-  changeBindings((b) => ({ ...b, autoPassthroughGames: state === "on" }), env);
+  changeBindings((b) => ({ ...b, autoPassthroughGames: state === "on", autoPauseInGames: state === "on" }), env);
   return { ok: true, autoPassthroughGames: state === "on", say: state === "on"
     ? "Done: the mouse buttons are left alone in games automatically."
     : "Done: I won't leave the mouse alone in games automatically any more; only the apps on your list." };
+}
+
+/** `shortcuts on|off`: the master switch for every extra-button shortcut (same field as the Mac's hotkey). The wheel is separate. */
+export function shortcuts({ state }, { env = process.env } = {}) {
+  if (state !== "on" && state !== "off") return fail("shortcuts takes on or off");
+  changeBindings((b) => ({ ...b, enabled: state === "on" }), env);
+  return { ok: true, enabled: state === "on", say: state === "on"
+    ? "Done: your mouse button shortcuts are on."
+    : "Done: your mouse button shortcuts are off. Every button works as normal until you turn them back on." };
 }
 
 const WHEEL_SAY = {
@@ -130,7 +139,7 @@ export function status({ env = process.env } = {}) {
   if (bindings.passthroughApps.length) lines.push(`Left alone in: ${joinList(bindings.passthroughApps.map(appNameOf))}.`);
   lines.push(`Games are ${bindings.autoPassthroughGames ? "left alone automatically" : "not left alone automatically"}.`);
   lines.push(`Normal mouse wheel: ${{ games: "in games only", always: "always", never: "never" }[bindings.reverseWheel] ?? "always"}.`);
-  if (!bindings.enabled) lines.push("Mouse remapping is switched off in settings.");
+  if (!bindings.enabled) lines.push("Mouse button shortcuts are switched off (the shortcut key or settings turn them back on).");
   return { ok: true, devices, bindings, say: lines.join(" ") };
 }
 

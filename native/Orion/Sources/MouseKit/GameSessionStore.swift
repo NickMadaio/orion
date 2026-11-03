@@ -58,6 +58,19 @@ public struct GameSessionStore {
         try JSONObjectFile.write(file, to: url)
     }
 
+    /// The session as the file last said it: a relaunched app starts from this, not from idle (the live bug of 2026-11-03).
+    public func load() -> GameSession? {
+        let file = JSONObjectFile.read(url)
+        guard file["version"] != nil else { return nil }
+        var game: GameRef?
+        if let g = file["game"] as? [String: Any], let name = g["name"] as? String, let key = g["key"] as? String, let pid = g["pid"] as? Int {
+            game = GameRef(name: name, bundleId: g["bundleId"] as? String, key: key, pid: Int32(pid))
+        }
+        let pids = (file["pids"] as? [Int] ?? []).map { Int32($0) }
+        return GameSession(active: (file["active"] as? Bool) ?? false, game: game, pids: pids,
+                           startedAt: file["startedAt"] as? String, endedAt: file["endedAt"] as? String)
+    }
+
     public func prep() -> PrepRecord? {
         guard let p = JSONObjectFile.read(url)["prep"], let data = try? JSONSerialization.data(withJSONObject: p) else { return nil }
         return try? JSONDecoder().decode(PrepRecord.self, from: data)

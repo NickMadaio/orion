@@ -14,8 +14,11 @@ public enum GameClassifier {
         public var isJavaProcess: Bool
         public var windowTitle: String?
         public var isFullscreen: Bool
+        /// The executable's full path: the only reliable fact for a Java game, since window titles need Screen Recording.
+        public var executablePath: String?
         public init(bundleId: String? = nil, name: String? = nil, category: String? = nil, isJavaProcess: Bool = false,
-                    windowTitle: String? = nil, isFullscreen: Bool = false) {
+                    windowTitle: String? = nil, isFullscreen: Bool = false, executablePath: String? = nil) {
+            self.executablePath = executablePath
             self.bundleId = bundleId; self.name = name; self.category = category
             self.isJavaProcess = isJavaProcess; self.windowTitle = windowTitle; self.isFullscreen = isFullscreen
         }
@@ -30,9 +33,20 @@ public enum GameClassifier {
         if f.isJavaProcess {
             let hay = [f.windowTitle, f.name].compactMap { $0?.lowercased() }
             if hay.contains(where: { $0.contains("minecraft") }) { return true }
+            if let path = f.executablePath, isGameProcess(path: path) { return true }
         }
         // Fullscreen, no declared category, not a system or well-known productivity app.
         return f.isFullscreen && !isKnownNonGame(f.bundleId)
+    }
+
+    /// Where Minecraft's own Java runtime lives: the vanilla launcher, CurseForge, Prism, Modrinth. A system JDK never matches.
+    static let javaGameHints = ["minecraft", "curseforge", "prismlauncher", "prism launcher", "modrinth", "multimc"]
+
+    /// A `java` executable that belongs to a Minecraft install. Used to follow the real game process, not just its launcher.
+    public static func isGameProcess(path: String) -> Bool {
+        let lower = path.lowercased()
+        guard lower.hasSuffix("/java") || lower.hasSuffix("/javaw") else { return false }
+        return javaGameHints.contains { lower.contains($0) }
     }
 
     private static func isKnownNonGame(_ id: String?) -> Bool {

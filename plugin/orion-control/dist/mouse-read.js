@@ -39,6 +39,19 @@ function readWheel(said) {
         return null;
     return { kind: "wheel", mode: gaming ? "games" : "always" };
 }
+// The master switch: "turn my mouse shortcuts off". Not a question, not scoped to an app or to games.
+const SWITCH_NOUN = /\b(?:mouse|mose|mous) (?:shortcuts?|buttons?|remap\w*|bindings?)\b/;
+const SWITCH_OFF = /\b(?:turn|switch|shut|flip|put)\b.*\boff\b|\boff\b.*\b(?:pls|please|for a (?:bit|while|sec))\b|\b(?:disable|pause)\b|\bshut off\b|\bshortcuts? off\b/;
+const SWITCH_ON = /\b(?:turn|switch|flip|put)\b.*\bon\b|\b(?:enable|resume|unpause)\b|\bshortcuts? on\b/;
+function readSwitch(said) {
+    if (!SWITCH_NOUN.test(said) || QUESTION.test(said) || /\?\s*$/.test(said) || GAMING.test(said) || GAMES.test(said) || lastIn(said))
+        return null;
+    if (SWITCH_OFF.test(said) && !/\bon\b/.test(said.replace(/\bturn on\b/, "")))
+        return { kind: "shortcuts", state: "off" };
+    if (SWITCH_ON.test(said))
+        return { kind: "shortcuts", state: "on" };
+    return null;
+}
 const OFF = /\b(?:off|disable|stop|dont|don'?t|do not|no longer|without|never)\b/i;
 const NEG = /\b(?:dont|don'?t|do not|never|stop|no|disable|ignore|leave|bypass|pass ?through|turn off)\b/i;
 const REMOVE = /\b(?:stop ignoring|stop leaving|stop disabling|re-?enable|turn (?:it|them|the \w+) back on|(?:work|working|active|on) again|should work|start working|work normally)\b/i;
@@ -132,6 +145,9 @@ function readOne(message, c) {
     const mouseish = MOUSEISH.test(said);
     if (SETUP.test(said) && MOUSE.test(said) && !QUESTION.test(said))
         return { kind: "setup" };
+    const master = readSwitch(said);
+    if (master)
+        return master;
     const wheel = readWheel(said);
     if (wheel)
         return wheel;

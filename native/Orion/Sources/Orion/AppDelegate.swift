@@ -184,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         mouse.onSetupRequested = { [weak self] in self?.openMouseSetup() }
         mouse.onGameStarted = { [weak self] text in self?.state.deliverGameLine(text) }
+        mouse.onToggled = { [weak self] text in self?.state.deliverQuietLine(text) }
         mouse.onGameOver = { [weak self] text in self?.state.deliverGameOver(text) }
         state.onGameReopenAnswered = { [weak self] yes in self?.mouse.answerReopen(yes) }
         state.onWantsDashboard = { [weak self] in self?.textWindowController.show() }

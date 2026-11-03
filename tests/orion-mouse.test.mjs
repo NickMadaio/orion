@@ -158,6 +158,27 @@ test("a corrupt bindings file is refused, not overwritten; bad usage exits 2", (
   assert.equal(st.code, 1); assert.match(st.out.say, /unreadable/);
 });
 
+test("shortcuts on|off flips enabled only, validated; games also sets auto-pause; bindings validate the new fields", () => {
+  const s = sandbox();
+  assert.equal(emptyBindings().autoPauseInGames, true);
+  assert.equal(emptyBindings().toggleShortcut, "ctrl+opt+m");
+  assert.match(s.run("shortcuts", "off").out.say, /off/i);
+  assert.equal(s.bindingsNow().enabled, false);
+  assert.equal(s.bindingsNow().reverseWheel, "always");
+  assert.match(s.run("status").out.say, /switched off/i);
+  assert.match(s.run("shortcuts", "on").out.say, /on/i);
+  assert.equal(s.bindingsNow().enabled, true);
+  assert.equal(s.run("shortcuts", "maybe").code, 1);
+  assert.equal(s.run("shortcuts").code, 2);
+  s.run("games", "off");
+  assert.equal(s.bindingsNow().autoPauseInGames, false);
+  s.run("games", "on");
+  assert.equal(s.bindingsNow().autoPauseInGames, true);
+  assert.throws(() => assertBindings({ ...emptyBindings(), autoPauseInGames: "yes" }));
+  assert.throws(() => assertBindings({ ...emptyBindings(), toggleShortcut: "m" }));
+  assert.doesNotThrow(() => assertBindings({ ...emptyBindings(), toggleShortcut: "ctrl+opt+n" }));
+});
+
 test("wheel: games | always | never writes reverseWheel, validated, and status says it", () => {
   const s = sandbox();
   assert.equal(emptyBindings().reverseWheel, "always");

@@ -52,6 +52,16 @@ describe("readMouseTurn: held-out casual phrasings", () => {
       expect(readMouseTurn(m), m).toBeNull();
     }
   });
+  it("turning every mouse button shortcut off or on", () => {
+    const t = (state: "on" | "off"): MouseTurn => ({ kind: "shortcuts", state });
+    for (const m of ["turn my mouse shortcuts off", "can u disable my mouse buttons for a bit", "switch the mouse shortcuts off pls", "shut off my mouse buttons"]) expect(readMouseTurn(m), m).toEqual(t("off"));
+    for (const m of ["turn my mouse shortcuts back on", "enable the mouse buttons again", "mouse shortcuts on pls", "switch my mouse buttons back on"]) expect(readMouseTurn(m), m).toEqual(t("on"));
+  });
+  it("shortcut talk that is not the master switch", () => {
+    for (const m of ["are my mouse shortcuts on?", "turn off game detection for the mouse", "dont let the mouse buttons do anything in minecraft", "turn the lights on"]) {
+      expect(readMouseTurn(m)?.kind, m).not.toBe("shortcuts");
+    }
+  });
   it("status, clear and setup", () => {
     expect(readMouseTurn("what are my mouse buttons set to")).toEqual({ kind: "status" });
     expect(readMouseTurn("what does the back button on my mouse do rn")).toEqual({ kind: "status" });
@@ -97,11 +107,11 @@ describe("runMouseTurn", () => {
   };
   it("maps each turn to its command and says the script's own sentence", async () => {
     const calls: string[][] = [];
-    const run = fake({ status: { ok: true, say: "S" }, set: { ok: true, say: "D" }, clear: { ok: true, say: "C" }, passthrough: { ok: true, say: "P" }, games: { ok: true, say: "G" }, wheel: { ok: true, say: "W" } }, calls);
-    for (const t of [{ kind: "status" }, { kind: "set", button: "back", action: "screenshot", app: "safari" }, { kind: "clear", button: "3" }, { kind: "passthrough", op: "add", app: "minecraft" }, { kind: "games", state: "off" }, { kind: "wheel", mode: "always" }] as MouseTurn[]) {
-      expect((await runMouseTurn(t, { run })).text).toMatch(/^[SDCPGW]$/);
+    const run = fake({ status: { ok: true, say: "S" }, set: { ok: true, say: "D" }, clear: { ok: true, say: "C" }, passthrough: { ok: true, say: "P" }, games: { ok: true, say: "G" }, wheel: { ok: true, say: "W" }, shortcuts: { ok: true, say: "K" } }, calls);
+    for (const t of [{ kind: "status" }, { kind: "set", button: "back", action: "screenshot", app: "safari" }, { kind: "clear", button: "3" }, { kind: "passthrough", op: "add", app: "minecraft" }, { kind: "games", state: "off" }, { kind: "wheel", mode: "always" }, { kind: "shortcuts", state: "off" }] as MouseTurn[]) {
+      expect((await runMouseTurn(t, { run })).text).toMatch(/^[SDCPGWK]$/);
     }
-    expect(calls).toEqual([["status", "--json"], ["set", "back", "screenshot", "--app", "safari", "--json"], ["clear", "3", "--json"], ["passthrough", "add", "minecraft", "--json"], ["games", "off", "--json"], ["wheel", "always", "--json"]]);
+    expect(calls).toEqual([["status", "--json"], ["set", "back", "screenshot", "--app", "safari", "--json"], ["clear", "3", "--json"], ["passthrough", "add", "minecraft", "--json"], ["games", "off", "--json"], ["wheel", "always", "--json"], ["shortcuts", "off", "--json"]]);
   });
   it("a question from the script becomes the pending follow-up, with what is known so far", async () => {
     const run = fake({ set: { ok: true, asking: true, ask: "button", say: "Which button?" } });

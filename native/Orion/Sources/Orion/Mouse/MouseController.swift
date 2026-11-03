@@ -26,6 +26,12 @@ final class MouseController: ObservableObject {
     var onGameStarted: ((String) -> Void)?
     /// "Game over — want me to reopen Chrome and Slack?" (only when apps were closed).
     var onGameOver: ((String) -> Void)?
+    /// "Mouse shortcuts off" / "on": a quiet bubble, never spoken.
+    var onToggled: ((String) -> Void)?
+    /// Why the toggle hotkey is not working (taken by another app), for the shortcut row.
+    @Published private(set) var toggleKeyProblem: String?
+    private let toggleKey = GlobalHotKey()
+    private var registeredToggleShortcut: String?
     private var reopenApps: [ClosedApp] = []
 
     /// Delivers ORION's question as the proactive bubble; the id is the outreach record's id.
@@ -60,6 +66,10 @@ final class MouseController: ObservableObject {
         refreshNaturalScrolling()
         loadBindingsFromDisk()
         autoPrep = prepConfig.autoPrep()
+        restoreGameSession()
+        toggleKey.onLog = { OrionLog.write($0) }
+        toggleKey.onFire = { [weak self] in self?.toggleMouseShortcuts() }
+        registerToggleKey()
         remapper.onAction = { [weak self] action, _ in
             guard self?.setupOpen == false else { return }
             MouseActions.run(action) { self?.onOrionCommand?($0) }
@@ -82,6 +92,7 @@ final class MouseController: ObservableObject {
 
     func stop() {
         poll?.invalidate(); poll = nil
+        toggleKey.unregister(); registeredToggleShortcut = nil
         if let activationToken { NSWorkspace.shared.notificationCenter.removeObserver(activationToken) }
         watcher.stop(); remapper.stop()
     }
@@ -103,6 +114,28 @@ final class MouseController: ObservableObject {
         reopenApps = []
     }
     func setEnabled(_ on: Bool) { change { var b = $0; b.enabled = on; return b } }
+    func setAutoPause(_ on: Bool) { change { var b = $0; b.autoPauseInGames = on; return b } }
+
+    /// The global hotkey: flips every mouse button shortcut (the wheel is separate) and says so quietly.
+    func toggleMouseShortcuts() {
+        change { $0.togglingEnabled() }
+        onToggled?(MouseToggleWords.line(enabled: bindings.enabled))
+    }
+
+    /// A recorded shortcut ("ctrl+opt+m"). Ignored when it does not parse.
+    func setToggleShortcut(_ text: String) {
+        guard ShortcutParser.parse(text) != nil else { return }
+        change { var b = $0; b.toggleShortcut = text; return b }
+    }
+    func resetToggleShortcut() { setToggleShortcut(BindingsFile.defaultToggleShortcut) }
+
+    private func registerToggleKey() {
+        let text = bindings.toggleShortcut
+        guard text != registeredToggleShortcut, let parsed = ShortcutParser.parse(text) else { return }
+        registeredToggleShortcut = text
+        let result = toggleKey.register(HotKeyCombination(keyCode: UInt32(parsed.keyCode), modifiers: ShortcutParser.carbonModifiers(parsed.flags)))
+        toggleKeyProblem = result.isRegistered ? nil : "\(ShortcutParser.symbols(text)) is taken by another app. Record a different shortcut."
+    }
     func clearLastPressed() { lastPressed = nil }
 
     /// Re-reads both files without starting the watcher or the tap (previews and tests).
@@ -172,6 +205,7 @@ final class MouseController: ObservableObject {
     }
 
     private func pushBindings() {
+        registerToggleKey()
         let copy = bindings
         remapper.update { var s = $0; s.bindings = copy; return s }
         remapper.updateWheel { var w = $0; w.mode = copy.reverseWheel; return w }
@@ -188,6 +222,7 @@ final class MouseController: ObservableObject {
         if trusted != accessibilityGranted || (trusted && !remapper.isRunning) { refreshTap() }
         // Games go fullscreen, and Java windows get their title, after activation: re-check about once a second.
         activated(NSWorkspace.shared.frontmostApplication)
+        if ticks % 3 == 0 { scanForGameProcesses() }
         checkGameAlive()
         let new = prepConfig.autoPrep(); if new != autoPrep { autoPrep = new }
         let disk = store.loadDevices()
@@ -256,6 +291,24 @@ final class MouseController: ObservableObject {
         }
     }
 
+    /// A relaunched app picks the session up from the file instead of starting idle, so a game that is still running stays paused.
+    private func restoreGameSession() {
+        guard let saved = sessionStore.load(), saved.active else { return }
+        gameSession = saved
+        remapper.update { var s = $0; s.gameSession = true; return s }
+        remapper.updateWheel { var w = $0; w.gameSession = true; return w }
+        OrionLog.write("[game] session restored: \(saved.game?.name ?? "game")")
+    }
+
+    /// The real game is a separate process (Java under CurseForge, Prism, Modrinth) that may never become "frontmost" in a way
+    /// the classifier can read, so every few seconds the running Java games are added to the session by their pids.
+    private func scanForGameProcesses() {
+        for pid in GameProcessScan.javaGamePids() where !gameSession.pids.contains(pid) || !gameSession.active {
+            let ref = GameRef(name: "Minecraft", bundleId: nil, key: "java", pid: pid)
+            feedGame(.frontmost(ref, isGame: true, now: Self.now()))
+        }
+    }
+
     private func gameStarted(_ game: GameRef) {
         OrionLog.write("[game] session started: \(game.name)")
         guard autoPrep else { onGameStarted?(GameWords.started(headline: nil)); return }
@@ -277,7 +330,8 @@ final class MouseController: ObservableObject {
         let java = app.executableURL?.lastPathComponent == "java" || name == "java"
         return GameClassifier.Facts(bundleId: app.bundleIdentifier, name: name, category: category, isJavaProcess: java,
                                     windowTitle: java ? windowTitle(pid: app.processIdentifier) : nil,
-                                    isFullscreen: isFullscreen(pid: app.processIdentifier))
+                                    isFullscreen: isFullscreen(pid: app.processIdentifier),
+                                    executablePath: app.executableURL?.path)
     }
 
     private static func windowInfo(pid: pid_t) -> [[String: Any]] {

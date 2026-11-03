@@ -15,6 +15,7 @@ What is blocked on you, not on code. Older items are in the archive (see the las
 
 ## Whenever
 
+- Razer third button (the sensitivity switch): over Bluetooth it sends nothing to the Mac, checked 11-03. Once, with a USB-C to USB-A adapter and the Razer dongle, or on any Windows PC: open Razer Synapse, set that button to "mouse button 6" or F13, and save it to the mouse's onboard memory. Then ORION can map it.
 - Anthropic credits: ORION now runs on local models, so this isn't urgent. If you want the cloud model as a fallback, check the balance at console.anthropic.com.
 - Back up the Sparkle signing key. It's the only key that can sign updates, and if the Mac dies no installed copy can ever update. Run `native/Orion/.build/artifacts/sparkle/Sparkle/bin/generate_keys -x ~/Desktop/orion-sparkle-key.txt`, put the file in a password manager, delete the local copy.
 - Break ambience: drop real rain, waves and wind loops (30 to 90 seconds, seamless) into `native/Orion/Resources/Ambience/` as `rain.m4a`, `waves.m4a`, `wind.m4a`. Until then the break is silent.

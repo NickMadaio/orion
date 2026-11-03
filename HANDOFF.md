@@ -80,6 +80,14 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-03 00:30: voice turns in noise (w16/e-voice2) (Claude, orchestrator)
+
+- **SegmentSpeakerFilter:** drops segments of a voice turn that aren't Nick's, using voice-id per segment of 0.8 s or more.
+- **BargeInShape:** a name keeps the text from "Orion" on; an unsure voice needs a whole request.
+- **TurnRelation:** a held answer is no longer thrown away by the next turn.
+- **clock-answer.ts:** "what time is it" gets "It's 11:56 PM." from code.
+- **Root cause of "Still working Timmy":** ORION's own "Still working on it." cue was transcribed back as Nick (self-echo). The general case is still open.
+
 ### 2026-11-02 late: wave 16: replies, phone Home, voice address gate, bubble threads (Claude, orchestrator)
 
 - **Replies (w16/a-reply).**

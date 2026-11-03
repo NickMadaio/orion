@@ -13,6 +13,9 @@ export type MouseTurn = {
     action: string;
     app?: string;
 } | {
+    kind: "many";
+    turns: MouseTurn[];
+} | {
     kind: "clear";
     button: string;
     app?: string;

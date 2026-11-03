@@ -1,9 +1,10 @@
 // The mouse files (orion-mouse). CONTRACT: <controlled dir>/mouse/devices.json is written ONLY by the Mac app; bindings.json is written by
 // the Mac settings UI and by orion-mouse (tmp + rename, re-read under the lock before every write, last writer wins).
 // Shapes are strict on the way out: a binding that does not validate is never written.
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { controlledDir } from "../clock.mjs";
+import { controlledDir, clockNow } from "../clock.mjs";
+import { evalMode } from "../eval-mode.mjs";
 import { updateJson } from "../awareness/io.mjs";
 
 export const mouseDir = (env = process.env) => join(controlledDir(env), "mouse");
@@ -26,6 +27,19 @@ export function validAction(a) {
 }
 
 const validButtons = (map) => !!map && typeof map === "object" && Object.entries(map).every(([k, v]) => /^\d{1,2}$/.test(k) && Number(k) >= 3 && validAction(v));
+
+/**
+ * Asks the Mac app to open its mouse-setup popup: appends ONE line to <controlled dir>/outreach.jsonl,
+ *   {"kind":"mouse","event":"setup-open","at":"<ISO>"}
+ * It has no "text", so every outreach reader (reply context, the plugin's readLastOutreach) skips it. Not written during an evaluation.
+ */
+export function requestSetupPopup({ env = process.env, now = clockNow(env) } = {}) {
+  if (evalMode()) return { written: false };
+  mkdirSync(controlledDir(env), { recursive: true });
+  const row = { kind: "mouse", event: "setup-open", at: now.toISOString() };
+  appendFileSync(join(controlledDir(env), "outreach.jsonl"), `${JSON.stringify(row)}\n`);
+  return { written: true, row };
+}
 
 /** Throws when a bindings object breaks the contract (it never reaches disk). */
 export function assertBindings(b) {

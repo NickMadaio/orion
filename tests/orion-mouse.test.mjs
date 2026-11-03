@@ -114,7 +114,14 @@ test("clear, passthrough, games and setup", () => {
   s.run("games", "off"); assert.equal(s.bindingsNow().autoPassthroughGames, false);
   assert.equal(s.run("games", "maybe").code, 1);
   const fresh = sandbox();
-  const plan = fresh.run("setup");
+  const popup = fresh.run("setup");
+  assert.equal(popup.out.say, "Okay, let me help. Tell me what you want the buttons to do, or set them here:");
+  const rows = readFileSync(join(fresh.dir, "outreach.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(rows.length, 1);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ["at", "event", "kind"]);
+  assert.deepEqual([rows[0].kind, rows[0].event], ["mouse", "setup-open"]);
+  assert.ok(Number.isFinite(Date.parse(rows[0].at)));
+  const plan = fresh.run("setup", "--suggest");
   assert.equal(plan.out.asking, true);
   assert.match(plan.out.say, /back side button.*front side button.*button 6/s);
   assert.match(plan.out.say, /front side button on Stage Manager/);

@@ -53,6 +53,15 @@ describe("readMouseTurn: held-out casual phrasings", () => {
       expect(readMouseTurn(m), m).toBeNull();
     }
   });
+  it("review fixes: no setup from 'get rid of the mouse', no bind from 'does nothing', and two bindings in one message", () => {
+    expect(readMouseTurn("i need to get rid of the mouse in my apartment")).toBeNull();
+    expect(readMouseTurn("get my new mouse set up")).toEqual({ kind: "setup" });
+    expect(readMouseTurn("my mouse does nothing in minecraft")).toBeNull();
+    expect(readMouseTurn("make the back button do nothing")).toEqual(set("back button", "nothing"));
+    expect(readMouseTurn("set back button to nothing")).toEqual(set("back button", "nothing"));
+    expect(readMouseTurn("front stage manager, back mission control")).toEqual({ kind: "many", turns: [set("front", "stage manager"), set("back", "mission control")] });
+    expect(readMouseTurn("make the front button stage manager and the back button open spotify")).toEqual({ kind: "many", turns: [set("front button", "stage manager"), set("back button", "open spotify")] });
+  });
   it("replies bind only to a waiting question; a yes needs a new-mouse outreach or the offered defaults", () => {
     expect(readMouseTurn("the front one", { pending: { ask: "button", action: "stage manager" } })).toEqual(set("front", "stage manager"));
     expect(readMouseTurn("4", { pending: { ask: "button", action: "stage manager" } })).toEqual(set("button 4", "stage manager"));
@@ -152,6 +161,12 @@ describe("mouse through the routing (the real orion-mouse, a temp dir)", () => {
     expect(bindingsOf(d).passthroughApps).toEqual(["com.mojang.minecraftlauncher"]);
     expect(await r.turn("what are my mouse buttons set to")).toMatch(/front side button: Stage Manager; back side button: the left desktop|back side button: the left desktop; front side button: Stage Manager/);
   });
+  it("two bindings in one message are both written", async () => {
+    const d = dir(); seed(d);
+    const r = route(realRun(d), d);
+    expect(await r.turn("front stage manager, back mission control")).toBe("Done: the front side button now does Stage Manager. Done: the back side button now does Mission Control.");
+    expect(bindingsOf(d).default).toEqual({ 3: { kind: "system", name: "missionControl" }, 4: { kind: "system", name: "stageManager" } });
+  });
   it("a missing action asks, and an unrelated turn after the question unbinds it", async () => {
     const d = dir(); seed(d);
     const r = route(realRun(d), d);
@@ -160,15 +175,28 @@ describe("mouse through the routing (the real orion-mouse, a temp dir)", () => {
     expect(await r.turn("stage manager")).not.toMatch(/Done:/);
     expect(() => readFileSync(join(d, "mouse", "bindings.json"))).toThrow();
   });
-  it("a yes to the new-mouse outreach lists the buttons and suggests defaults; a second yes applies them", async () => {
+  it("a yes to the new-mouse outreach, or 'help me set up my mouse', says the one sentence and asks the Mac for its popup; buttons named next still bind", async () => {
     const d = dir(); seed(d);
     writeFileSync(join(d, "outreach.jsonl"), `${JSON.stringify({ text: "I see a new mouse, a Razer Basilisk V3. Want me to set up its extra buttons?", at: new Date(NOW.getTime() - 60_000).toISOString(), channel: "app" })}\n`);
     const r = route(realRun(d), d);
-    const offer = await r.turn("sure");
-    expect(offer).toMatch(/Razer Basilisk V3 has 2 extra buttons: back side button and front side button\./);
-    expect(offer).toMatch(/the back side button on Mission Control and the front side button on Stage Manager\. Want that\?$/);
-    expect(await r.turn("yeah")).toMatch(/^Done: the back side button on Mission Control and the front side button on Stage Manager/);
-    expect(bindingsOf(d).default).toEqual({ 3: { kind: "system", name: "missionControl" }, 4: { kind: "system", name: "stageManager" } });
+    const SAY = "Okay, let me help. Tell me what you want the buttons to do, or set them here:";
+    expect(await r.turn("sure")).toBe(SAY);
+    expect(await r.turn("front side stage manager")).toBe("Done: the front side button now does Stage Manager.");
+    expect(await r.turn("help me set up my mouse")).toBe(SAY);
+    const popups = readFileSync(join(d, "outreach.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>).filter((x) => x.kind === "mouse");
+    expect(popups).toHaveLength(2);
+    expect(popups[0]).toEqual({ kind: "mouse", event: "setup-open", at: expect.any(String) });
+  });
+  it("a yes counts only right after the outreach: not after another turn, not 20 minutes later", async () => {
+    const calls: string[][] = [];
+    const stale = dir();
+    writeFileSync(join(stale, "outreach.jsonl"), `${JSON.stringify({ text: "I see a new mouse. Want me to set up its buttons?", at: new Date(NOW.getTime() - 20 * 60_000).toISOString(), channel: "app" })}\n`);
+    await route(async (a) => { calls.push(a); return { stdout: "{}", code: 1 }; }, stale).turn("ok");
+    const busy = dir();
+    writeFileSync(join(busy, "outreach.jsonl"), `${JSON.stringify({ text: "I see a new mouse. Want me to set up its buttons?", at: new Date(NOW.getTime() - 5 * 60_000).toISOString(), channel: "app" })}\n`);
+    const r = route(async (a) => { calls.push(a); return { stdout: "{}", code: 1 }; }, busy);
+    await r.turn("what time is it"); await r.turn("ok");
+    expect(calls).toEqual([]);
   });
   it("a yes with no mouse outreach is not a mouse turn, and without a runner nothing is taken", async () => {
     const calls: string[][] = [];

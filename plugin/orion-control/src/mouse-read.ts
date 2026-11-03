@@ -21,6 +21,7 @@ export type MousePending = { ask: "button" | "action"; button?: string; action?:
 export type MouseTurn =
   | { kind: "status" }
   | { kind: "set"; button: string; action: string; app?: string }
+  | { kind: "many"; turns: MouseTurn[] }
   | { kind: "clear"; button: string; app?: string }
   | { kind: "passthrough"; op: "add" | "remove"; app: string }
   | { kind: "games"; state: "on" | "off" }
@@ -50,7 +51,7 @@ const ACTION_PHRASE = new RegExp([
   String.raw`notification ?(?:center|centre)`, String.raw`(?:left|right|previous|next|last) (?:desktop|space)`, String.raw`(?:desktop|space) (?:to the |on the )?(?:left|right)`,
   String.raw`(?:full |whole |entire )?screen ?(?:shot|capture)`, String.raw`spotlight`, String.raw`(?:summon|wake|call|bring up) orion`, String.raw`talk to orion`,
   String.raw`${KEYWORD}(?:\s*\+\s*|\s+)(?:${KEYWORD}(?:\s*\+\s*|\s+))*[a-z0-9]\b`, String.raw`(?:open|launch) [a-z0-9][a-z0-9 .'&-]{1,28}?(?=$|[.,!?]| (?:in|on|when|while|only|just)\b)`,
-  String.raw`nothing`, String.raw`(?:its|it's) normal`,
+  String.raw`(?:its|it's) normal`,
 ].join("|"), "i");
 const APP_TAIL = /\b(?:only |just )?(?:in|inside|when (?:i'?m |im |i am )?(?:in|using|on|playing)|while (?:i'?m |im |i am )?(?:in|using|on|playing))\s+(?:the )?([a-z0-9][a-z0-9 .'&-]{1,30}?)\s*[.!]?$/i;
 const NOT_APP = /^(?:general|everything|every ?thing|every app|all apps|all of them|any app|everywhere|default|there|here)$/i;
@@ -63,7 +64,7 @@ const GAMES = /\bgames? (?:detection|mode)\b|\bauto[- ]?(?:ignore|passthrough|pa
 const OFF = /\b(?:off|disable|stop|dont|don'?t|do not|no longer|without|never)\b/i;
 const NEG = /\b(?:dont|don'?t|do not|never|stop|no|disable|ignore|leave|bypass|pass ?through|turn off)\b/i;
 const REMOVE = /\b(?:stop ignoring|stop leaving|stop disabling|re-?enable|turn (?:it|them|the \w+) back on|(?:work|working|active|on) again|should work|start working|work normally)\b/i;
-const SETUP = /\b(?:set ?up|setup|configure|customi[sz]e|get)\b[^?]*\b(?:my |the |this )?(?:new )?mouse\b|\bnew mouse\b[^?]*\b(?:set ?up|configure)\b/i;
+const SETUP = /\b(?:set ?up|setup|configure|customi[sz]e)\b[^?]*\b(?:my |the |this )?(?:new )?mouse\b|\bget\b[^?]*\bmouse\b[^?]*\bset ?up\b|\bnew mouse\b[^?]*\b(?:set ?up|configure)\b/i;
 const GAMEY = /\b(?:minecraft|fortnite|valorant|roblox|steam|league|overwatch|cs2|csgo|apex|genshin|game|games)\b/i;
 const YES = /^(?:y|ye|ya|yea|yeah|yes|yep|yup|ok|okay|k|sure|alright|aight|do it|go ahead|sounds good|that works|perfect|fine|please|yes please|sure thing|lets do it|let'?s do it|set it up|set it|do that|go for it)(?: (?:please|orion|do it|thanks|thx|that'?s fine))?[.!]*$/;
 const NO = /^(?:no|nah|nope|not now|later|not yet|skip|no thanks|nah im good|maybe later|not really|leave it|dont|don'?t)[.!]*$/;
@@ -75,7 +76,9 @@ const lastIn = (said: string): string | undefined => {
   return app && !NOT_APP.test(app) ? app : undefined;
 };
 const buttonOf = (said: string): string => (BUTTON_PHRASE.exec(said)?.[0] ?? "").replace(/^(?:the |my )/, "");
-const actionOf = (said: string): string => ACTION_PHRASE.exec(said)?.[0]?.trim() ?? "";
+/** "nothing" is an action only as a binding ("make it do nothing", "set back button to nothing") or a bare reply, never in "my mouse does nothing". */
+const actionOf = (said: string): string => ACTION_PHRASE.exec(said)?.[0]?.trim()
+  ?? (/^(?:do )?nothing$/.test(said) || (BIND_VERB.test(said) && /\b(?:do|to|be) nothing\b/.test(said)) ? "nothing" : "");
 
 /** His reply to "which button?" / "what should it do?". */
 function readAnswer(said: string, p: MousePending): MouseTurn | null {
@@ -91,8 +94,33 @@ function readAnswer(said: string, p: MousePending): MouseTurn | null {
   return action && p.button ? { kind: "set", button: p.button, action, ...(p.app ? { app: p.app } : {}) } : null;
 }
 
+const CLAUSE_SPLIT = new RegExp(String.raw`\s*(?:,|;|\band\b|\bthen\b|\balso\b)\s*(?=(?:the |my )?(?:mouse )?(?:${BTN}|side|thumb|button\s*#?\d))`, "i");
+const BARE_PAIR = new RegExp(String.raw`^(?:the |my )?(${BTN})(?: side)?(?: button)?(?: should| to| do| does| is| =)*\s+(?:be |do |go to |open )?(.+)$`, "i");
+
+/** "front stage manager, back mission control": two or more clauses that each name a button and an action. */
+function readMany(said: string): MouseTurn | null {
+  const clauses = said.split(CLAUSE_SPLIT).map((x) => x.trim()).filter(Boolean);
+  if (clauses.length < 2 || clauses.length > 4) return null;
+  const turns: MouseTurn[] = [];
+  for (const clause of clauses) {
+    const one = readOne(clause, {});
+    if (one?.kind === "set" && one.button && one.action) { turns.push(one); continue; }
+    const bare = BARE_PAIR.exec(clause);
+    const action = bare ? actionOf(bare[2]!.trim()) : "";
+    if (!bare || !action) return null;
+    turns.push({ kind: "set", button: bare[1]!.toLowerCase(), action: /^(?:open|launch)/i.test(bare[2]!.trim()) ? bare[2]!.trim() : action });
+  }
+  return { kind: "many", turns };
+}
+
 /** The mouse turn in his message, or null. */
 export function readMouseTurn(message: string, c: MouseContext = {}): MouseTurn | null {
+  const said = flat(message.trim().replace(/\s+/g, " "));
+  if (!c.pending && !c.confirm && said.length <= 400) { const many = readMany(said); if (many) return many; }
+  return readOne(message, c);
+}
+
+function readOne(message: string, c: MouseContext): MouseTurn | null {
   const m = message.trim().replace(/\s+/g, " ");
   const said = flat(m);
   if (!said || m.length > 400) return null;

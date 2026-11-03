@@ -83,10 +83,17 @@ public struct BindingsFile: Codable, Equatable {
     public var autoPassthroughGames: Bool = true
     /// Normal (non-inverted) mouse wheel: always (default), in games only, or never. Only the wheel of a mouse, never a trackpad.
     public var reverseWheel: ReverseWheelMode = .always
+    /// A game session pauses every binding (default on). Separate from `enabled`: a manual off always wins.
+    public var autoPauseInGames: Bool = true
+    /// The global hotkey that flips `enabled` (ShortcutParser syntax). Default ⌃⌥M.
+    public var toggleShortcut: String = BindingsFile.defaultToggleShortcut
+    public static let defaultToggleShortcut = "ctrl+opt+m"
 
     public init() {}
 
-    private enum CodingKeys: String, CodingKey { case version, enabled, `default`, apps, passthroughApps, autoPassthroughGames, reverseWheel }
+    public func togglingEnabled() -> BindingsFile { var next = self; next.enabled.toggle(); return next }
+
+    private enum CodingKeys: String, CodingKey { case version, enabled, `default`, apps, passthroughApps, autoPassthroughGames, reverseWheel, autoPauseInGames, toggleShortcut }
 
     /// Tolerant decode: a hand- or chat-written file may omit any field.
     public init(from decoder: Decoder) throws {
@@ -98,6 +105,9 @@ public struct BindingsFile: Codable, Equatable {
         passthroughApps = (try? c.decode([String].self, forKey: .passthroughApps)) ?? []
         autoPassthroughGames = (try? c.decode(Bool.self, forKey: .autoPassthroughGames)) ?? true
         reverseWheel = (try? c.decode(ReverseWheelMode.self, forKey: .reverseWheel)) ?? .always
+        autoPauseInGames = (try? c.decode(Bool.self, forKey: .autoPauseInGames)) ?? true
+        let shortcut = (try? c.decode(String.self, forKey: .toggleShortcut)) ?? Self.defaultToggleShortcut
+        toggleShortcut = ShortcutParser.parse(shortcut) == nil ? Self.defaultToggleShortcut : shortcut
     }
 
     public func settingDefault(_ button: Int, _ action: MouseAction?) -> BindingsFile {

@@ -41,4 +41,45 @@ public enum ShortcutParser {
         guard let code else { return nil }
         return ParsedShortcut(keyCode: code, flags: flags)
     }
+
+    /// Carbon's modifier mask for RegisterEventHotKey (cmdKey 256, shiftKey 512, optionKey 2048, controlKey 4096). fn has none.
+    public static func carbonModifiers(_ flags: UInt64) -> UInt32 {
+        var mask: UInt32 = 0
+        if flags & cmd != 0 { mask |= 256 }
+        if flags & shift != 0 { mask |= 512 }
+        if flags & opt != 0 { mask |= 2048 }
+        if flags & ctrl != 0 { mask |= 4096 }
+        return mask
+    }
+
+    private static let canonicalKeyNames: [UInt16: String] = {
+        var names: [UInt16: String] = [:]
+        for (name, code) in keys.sorted(by: { $0.key.count == $1.key.count ? $0.key < $1.key : $0.key.count > $1.key.count }) { names[code] = name }
+        for (name, code) in [("return", 36), ("delete", 51), ("escape", 53)] { names[UInt16(code)] = name }
+        return names
+    }()
+
+    /// A key press as "ctrl+opt+m", or nil when it is not a usable global shortcut (needs cmd, ctrl or opt; shift alone is just typing).
+    public static func format(keyCode: UInt16, flags: UInt64) -> String? {
+        guard flags & (cmd | ctrl | opt) != 0, let key = canonicalKeyNames[keyCode] else { return nil }
+        let parts = [(ctrl, "ctrl"), (opt, "opt"), (shift, "shift"), (cmd, "cmd"), (fn, "fn")].filter { flags & $0.0 != 0 }.map(\.1)
+        return (parts + [key]).joined(separator: "+")
+    }
+
+    /// "ctrl+opt+m" as "⌃⌥M", the way menus write it.
+    public static func symbols(_ text: String) -> String {
+        guard let s = parse(text) else { return text }
+        var out = ""
+        if s.flags & ctrl != 0 { out += "⌃" }
+        if s.flags & opt != 0 { out += "⌥" }
+        if s.flags & shift != 0 { out += "⇧" }
+        if s.flags & cmd != 0 { out += "⌘" }
+        let key = canonicalKeyNames[s.keyCode] ?? "?"
+        return out + (key.count == 1 ? key.uppercased() : key.prefix(1).uppercased() + key.dropFirst())
+    }
+}
+
+/// The quiet line shown (never spoken) when the hotkey flips the mouse shortcuts.
+public enum MouseToggleWords {
+    public static func line(enabled: Bool) -> String { enabled ? "Mouse shortcuts on" : "Mouse shortcuts off" }
 }

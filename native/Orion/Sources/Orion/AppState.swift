@@ -595,6 +595,11 @@ final class AppState: ObservableObject {
         deliverReach(text, aloud: false, headphones: false, keepFor: 30, kind: "game")
     }
 
+    /// A one-line status ("Mouse shortcuts off"): a silent bubble that clears itself in a few seconds.
+    func deliverQuietLine(_ text: String) {
+        deliverReach(text, aloud: false, headphones: false, keepFor: 4, kind: "mouse-toggle")
+    }
+
     /// "Game over — want me to reopen ...?" with Reopen / No pills on the bubble.
     func deliverGameOver(_ text: String) {
         deliverReach(text, aloud: false, headphones: false, keepFor: 600, kind: "game")

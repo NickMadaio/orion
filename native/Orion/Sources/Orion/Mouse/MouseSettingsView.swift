@@ -19,12 +19,16 @@ struct MouseSettingsView: View {
             gamingBanner
             accessibilityRow
             deviceRow
-            toggleRow("Remap extra buttons", detail: "Off passes every button through untouched.",
+            toggleRow("Mouse button shortcuts", detail: "Off passes every extra button through untouched, in every app. Stays off until you turn it on.",
                       isOn: Binding(get: { mouse.bindings.enabled }, set: { mouse.setEnabled($0) }))
+            MouseShortcutRow(mouse: mouse)
             if device != nil {
                 ForEach(buttons, id: \.self) { buttonCard($0) }
             }
             Rectangle().fill(OrionTheme.line).frame(height: 1)
+            toggleRow("Auto-pause in games",
+                      detail: "Pauses every button shortcut while a game is running, even when you tab out of it. Turning shortcuts off yourself always wins.",
+                      isOn: Binding(get: { mouse.bindings.autoPauseInGames }, set: { mouse.setAutoPause($0) }))
             toggleRow("Pass through in games",
                       detail: "Minecraft, anything categorised as a game, and fullscreen games keep every button as the game expects.",
                       isOn: Binding(get: { mouse.bindings.autoPassthroughGames }, set: { mouse.setAutoGames($0) }))

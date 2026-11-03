@@ -52,11 +52,13 @@ export function assertBindings(b) {
   if (!b.apps || typeof b.apps !== "object" || Object.entries(b.apps).some(([id, m]) => !BUNDLE.test(id) || !validButtons(m))) bad("apps");
   if (!Array.isArray(b.passthroughApps) || b.passthroughApps.some((id) => !BUNDLE.test(id))) bad("passthroughApps");
   if (typeof b.autoPassthroughGames !== "boolean") bad("autoPassthroughGames");
+  if (b.autoPauseInGames !== undefined && typeof b.autoPauseInGames !== "boolean") bad("autoPauseInGames");
+  if (b.toggleShortcut !== undefined && (typeof b.toggleShortcut !== "string" || !KEYS.test(b.toggleShortcut))) bad("toggleShortcut");
   if (b.reverseWheel !== undefined && !WHEEL_MODES.includes(b.reverseWheel)) bad("reverseWheel");
   return b;
 }
 
-export const emptyBindings = () => ({ version: 1, enabled: true, default: {}, apps: {}, passthroughApps: [], autoPassthroughGames: true, reverseWheel: "always" });
+export const emptyBindings = () => ({ version: 1, enabled: true, default: {}, apps: {}, passthroughApps: [], autoPassthroughGames: true, reverseWheel: "always", autoPauseInGames: true, toggleShortcut: "ctrl+opt+m" });
 
 const readStrict = (path, fallback) => {
   if (!existsSync(path)) return fallback;

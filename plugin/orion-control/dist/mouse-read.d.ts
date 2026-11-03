@@ -27,6 +27,9 @@ export type MouseTurn = {
     kind: "games";
     state: "on" | "off";
 } | {
+    kind: "shortcuts";
+    state: "on" | "off";
+} | {
     kind: "wheel";
     mode: "games" | "always" | "never";
 } | {

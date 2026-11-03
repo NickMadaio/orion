@@ -26,6 +26,7 @@ export type MouseTurn =
   | { kind: "clear"; button: string; app?: string }
   | { kind: "passthrough"; op: "add" | "remove"; app: string }
   | { kind: "games"; state: "on" | "off" }
+  | { kind: "shortcuts"; state: "on" | "off" }
   | { kind: "wheel"; mode: "games" | "always" | "never" }
   | { kind: "setup"; again?: true }
   | { kind: "apply" }
@@ -80,6 +81,17 @@ function readWheel(said: string): MouseTurn | null {
   if (WHEEL_LEAVE.test(said)) return { kind: "wheel", mode: "never" };
   if (!WHEEL_FIX.test(said)) return null;
   return { kind: "wheel", mode: gaming ? "games" : "always" };
+}
+
+// The master switch: "turn my mouse shortcuts off". Not a question, not scoped to an app or to games.
+const SWITCH_NOUN = /\b(?:mouse|mose|mous) (?:shortcuts?|buttons?|remap\w*|bindings?)\b/;
+const SWITCH_OFF = /\b(?:turn|switch|shut|flip|put)\b.*\boff\b|\boff\b.*\b(?:pls|please|for a (?:bit|while|sec))\b|\b(?:disable|pause)\b|\bshut off\b|\bshortcuts? off\b/;
+const SWITCH_ON = /\b(?:turn|switch|flip|put)\b.*\bon\b|\b(?:enable|resume|unpause)\b|\bshortcuts? on\b/;
+function readSwitch(said: string): MouseTurn | null {
+  if (!SWITCH_NOUN.test(said) || QUESTION.test(said) || /\?\s*$/.test(said) || GAMING.test(said) || GAMES.test(said) || lastIn(said)) return null;
+  if (SWITCH_OFF.test(said) && !/\bon\b/.test(said.replace(/\bturn on\b/, ""))) return { kind: "shortcuts", state: "off" };
+  if (SWITCH_ON.test(said)) return { kind: "shortcuts", state: "on" };
+  return null;
 }
 
 const OFF = /\b(?:off|disable|stop|dont|don'?t|do not|no longer|without|never)\b/i;
@@ -164,6 +176,8 @@ function readOne(message: string, c: MouseContext): MouseTurn | null {
   }
   const mouseish = MOUSEISH.test(said);
   if (SETUP.test(said) && MOUSE.test(said) && !QUESTION.test(said)) return { kind: "setup" };
+  const master = readSwitch(said);
+  if (master) return master;
   const wheel = readWheel(said);
   if (wheel) return wheel;
   if (GAMES.test(said)) return { kind: "games", state: OFF.test(said) ? "off" : "on" };

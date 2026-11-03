@@ -24,7 +24,7 @@ final class MouseSetupRenderTests: XCTestCase {
             .padding(24)
             .background(UIRender.wallpaper(light: false))
             .environment(\.orionFrozenMotion, 1)
-        let image = try UIRender.write("mouse-setup-popup", view, size: CGSize(width: 440, height: 760))
+        let image = try UIRender.write("popup-toggle", view, size: CGSize(width: 440, height: 1060))
         XCTAssertGreaterThan(image.width, 0)
     }
 

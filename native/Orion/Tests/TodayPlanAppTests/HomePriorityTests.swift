@@ -90,70 +90,83 @@ final class HomePriorityTests: XCTestCase {
 
     // MARK: Layout
 
-    private func frames(count: Int, width: CGFloat, heights: [CGFloat]? = nil) -> [CGRect] {
-        let widths = HomePriorityPlan.widths(count: count, width: width)
-        let heights = heights ?? (0..<count).map { 240 + CGFloat($0 * 17) }
-        return HomePriorityPlan.frames(widths: widths, heights: heights, width: width)
+    private func frames(count: Int, width: CGFloat, maxHeight: CGFloat? = nil) -> [CGRect] {
+        HomePriorityPlan.fitted(count: count, width: width, maxHeight: maxHeight) { _, w in 110 + w * 0.6 }
     }
 
-    func testTheTopPriorityCardIsTheCentreAndTheWidest() {
-        for width in [1_148.0, 1_260, 1_280, 1_728] {
-            for count in 3...5 {
-                let f = frames(count: count, width: width)
-                let centre = width / 2
-                let nearest = f.indices.min { abs(f[$0].midX - centre) < abs(f[$1].midX - centre) }
-                XCTAssertEqual(nearest, 0, "rank 0 is in the middle at \(width) pt, \(count) cards")
-                XCTAssertEqual(f.indices.max { f[$0].width < f[$1].width }, 0)
-                XCTAssertEqual(f[0].width / f[1].width, 1.25, accuracy: 0.001, "1.25x the next card")
-            }
-        }
-    }
-
-    func testRanksFanLeftRightFarLeftFarRightEachStepSmaller() {
-        let f = frames(count: 5, width: 1_260)
-        XCTAssertLessThan(f[1].midX, f[0].midX, "2nd on the left")
-        XCTAssertGreaterThan(f[2].midX, f[0].midX, "3rd on the right")
-        XCTAssertLessThan(f[3].midX, f[1].midX, "4th far left")
-        XCTAssertGreaterThan(f[4].midX, f[2].midX, "5th far right")
-        XCTAssertGreaterThan(f[1].width, f[3].width, "left side narrows outward")
-        XCTAssertGreaterThan(f[2].width, f[4].width, "right side narrows outward")
-        XCTAssertEqual(f[0].minY, 0)
-        XCTAssertTrue(f[1...].allSatisfy { $0.minY > 0 }, "lower priority hangs slightly down")
-        XCTAssertLessThan(f[1].minY, f[3].minY)
-    }
-
-    func testNoOverlapAndNoClippingAtTheSupportedWidths() {
+    func testTheSunIsCentredLevelAndTheLargest() {
         for width in [1_148.0, 1_260, 1_280, 1_728] {
             for count in 1...5 {
-                let f = frames(count: count, width: width, heights: Array(repeating: 420, count: count))
-                for (i, a) in f.enumerated() {
-                    XCTAssertGreaterThanOrEqual(a.minX, 0, "clipped left, \(count) cards at \(width)")
-                    XCTAssertLessThanOrEqual(a.maxX, width + 0.001, "clipped right, \(count) cards at \(width)")
-                    for b in f[(i + 1)...] {
-                        // Tilts are under 1 degree: 6 pt of corner swing at most on the tallest card.
-                        XCTAssertFalse(a.insetBy(dx: -3, dy: -3).intersects(b.insetBy(dx: -3, dy: -3)), "\(a) overlaps \(b) at \(width)")
+                let f = frames(count: count, width: width)
+                XCTAssertEqual(f[0].midX, width / 2, accuracy: 0.5, "\(count) cards at \(width)")
+                XCTAssertEqual(f.indices.max { f[$0].width < f[$1].width }, 0)
+                XCTAssertEqual(f[0].minY, f.map(\.minY).min()!, accuracy: 0.5, "the sun is the highest card")
+            }
+        }
+        XCTAssertEqual(HomePriorityPlan.tilt(0), 0)
+    }
+
+    func testSidesAreMirroredAroundTheSunsAxisAndCloseToIt() {
+        for width in [1_280.0, 1_728] {
+            let f = frames(count: 3, width: width)
+            XCTAssertLessThan(f[1].midX, f[0].midX, "rank 2 on the left")
+            XCTAssertGreaterThan(f[2].midX, f[0].midX, "rank 3 on the right")
+            XCTAssertEqual(f[0].midX - f[1].midX, f[2].midX - f[0].midX, accuracy: 0.5, "mirrored")
+            XCTAssertEqual(f[0].minX - f[1].maxX, HomePriorityPlan.gap, accuracy: 0.5, "close, ~24 pt")
+            XCTAssertEqual(f[2].minX - f[0].maxX, HomePriorityPlan.gap, accuracy: 0.5)
+            XCTAssertEqual(f[1].midY, f[2].midY, accuracy: 0.5)
+            XCTAssertEqual(f[1].midY, f[0].midY, accuracy: 24, "vertically about the sun's middle, a touch below")
+            XCTAssertEqual(f[1].width / f[0].width, 0.85 / 1.25, accuracy: 0.001)
+        }
+        XCTAssertEqual(HomePriorityPlan.tilt(1), -HomePriorityPlan.tilt(2), "tilts mirror")
+        XCTAssertEqual(HomePriorityPlan.tilt(3), -HomePriorityPlan.tilt(4))
+    }
+
+    func testRankFourIsDirectlyBelowTheSunAndFiveBalancesIt() {
+        let four = frames(count: 4, width: 1_440)
+        XCTAssertEqual(four[3].midX, four[0].midX, accuracy: 0.5)
+        XCTAssertGreaterThan(four[3].minY, four[0].maxY)
+        XCTAssertEqual(four[3].width / four[0].width, 0.8 / 1.25, accuracy: 0.001)
+        let five = frames(count: 5, width: 1_440)
+        XCTAssertEqual(five[0].midX - five[3].midX, five[4].midX - five[0].midX, accuracy: 0.5, "below-left and below-right mirror")
+        XCTAssertLessThan(five[3].midX, five[0].midX)
+        XCTAssertEqual(five[3].minY, five[4].minY, accuracy: 0.5)
+        XCTAssertGreaterThan(five[3].minY, five[0].maxY)
+    }
+
+    func testNoOverlapNoClippingAndInsideTheHeightAtEveryWidthAndAShortWindow() {
+        // 336 is what HomeScene gives the cluster in a 760-pt-tall window.
+        let room: [CGFloat?] = [nil, 336]
+        for width in [1_148.0, 1_260, 1_280, 1_728] {
+            for maxHeight in room {
+                for count in 1...5 {
+                    let f = frames(count: count, width: width, maxHeight: maxHeight)
+                    for (i, a) in f.enumerated() {
+                        XCTAssertGreaterThanOrEqual(a.minX, -0.001)
+                        XCTAssertLessThanOrEqual(a.maxX, width + 0.001)
+                        for b in f[(i + 1)...] {
+                            XCTAssertFalse(a.insetBy(dx: -3, dy: -3).intersects(b.insetBy(dx: -3, dy: -3)),
+                                           "\(a) overlaps \(b): \(count) cards, width \(width), room \(String(describing: maxHeight))")
+                        }
+                    }
+                    if let maxHeight {
+                        let natural = frames(count: count, width: width).map(\.maxY).max()!
+                        let fitted = f.map(\.maxY).max()!
+                        if count == 1 || count == 3 { XCTAssertLessThanOrEqual(fitted, maxHeight + 0.5, "\(count) cards fit a short window") }
+                        else { XCTAssertLessThanOrEqual(fitted, natural, "\(count) cards shrink as far as readable before overlapping") }
                     }
                 }
             }
         }
     }
 
-    func testCardsStayWideEnoughToReadAtTheSmallestSupportedWidth() {
-        let f = frames(count: 5, width: 1_148)
-        XCTAssertGreaterThanOrEqual(f.map(\.width).min()!, HomePriorityPlan.minBase * HomePriorityPlan.scales[4] - 0.001)
-        XCTAssertFalse(HomePriorityPlan.isStacked(count: 5, width: 1_148))
-        XCTAssertTrue(HomePriorityPlan.isStacked(count: 5, width: 800), "too narrow for five across: stack by priority")
-    }
-
-    func testOneAndTwoCardsAreCentred() {
-        for width in [1_148.0, 1_728] {
-            let one = frames(count: 1, width: width)
-            XCTAssertEqual(one[0].midX, width / 2, accuracy: 0.5)
-            let two = frames(count: 2, width: width)
-            XCTAssertEqual((two[0].minX + two[1].maxX) / 2, width / 2, accuracy: 0.5, "the pair is centred as a group")
-            XCTAssertGreaterThan(two[0].width, two[1].width, "the top priority is still the larger")
-            XCTAssertLessThanOrEqual(two[0].width, HomePriorityPlan.maxBase * 1.25 + 0.001)
-        }
+    func testOneCardIsTheSunAloneAndTwoPutTheSecondUnderIt() {
+        let one = frames(count: 1, width: 1_440)
+        XCTAssertEqual(one.count, 1)
+        XCTAssertEqual(one[0].midX, 720, accuracy: 0.5)
+        let two = frames(count: 2, width: 1_440)
+        XCTAssertEqual(two[1].midX, two[0].midX, accuracy: 0.5)
+        XCTAssertGreaterThan(two[1].minY, two[0].maxY)
     }
 
     func testTheArrangementIsDeterministicAndTitleSizeShrinksWithRank() {
@@ -162,13 +175,12 @@ final class HomePriorityTests: XCTestCase {
         XCTAssertEqual(sizes, sizes.sorted(by: >))
         XCTAssertGreaterThan(sizes[0], sizes[1])
         XCTAssertEqual(HomePriorityPlan.dims, HomePriorityPlan.dims.sorted(by: >), "dimmer outward")
-        XCTAssertLessThan(abs(HomePriorityPlan.tilt(0)), 0.5, "the centre card is nearly level")
     }
 
     // MARK: Renders
 
-    private func page(_ facts: BriefFacts, _ signals: HomeSignals, size: CGSize) -> some View {
-        let cards = HomeCardBuilder.cards(brief: facts, signals: signals)
+    private func page(_ facts: BriefFacts, _ signals: HomeSignals, size: CGSize, limit: Int = 5) -> some View {
+        let cards = Array(HomeCardBuilder.cards(brief: facts, signals: signals).prefix(limit))
         return VStack(spacing: 0) {
             DashboardHeader(selected: .home, issues: [], onSelect: { _ in })
             HomeScene(greeting: HomeGreeting.line(clock: facts.clock, name: "Nick"),
@@ -180,17 +192,24 @@ final class HomePriorityTests: XCTestCase {
         }
     }
 
-    func testRendersTwoAndFiveCardDaysAtTwoWidths() throws {
-        let now = at(8, 30), soon = at(9, 15)
-        let five = (busyFacts(now: now), busySignals(now: now))
+    func testRendersThreeFourAndFiveCardDays() throws {
+        let size = CGSize(width: 1_440, height: 900)
+        let now = at(8, 30)
+        let facts = busyFacts(now: now), signals = busySignals(now: now)
+        let all = HomeCardBuilder.cards(brief: facts, signals: signals)
+        XCTAssertEqual(all.count, 5)
+        for count in [3, 4, 5] {
+            try UIRender.write("w17b2-home-\(count)-1440", UIRender.onDesktop(page(facts, signals, size: size, limit: count), light: false, size: size), size: size)
+        }
+        let soon = at(9, 15)
         var twoFacts = busyFacts(now: soon); twoFacts.readings = BriefFacts.Readings()
         var twoSignals = HomeSignals(now: soon); twoSignals.selfName = "Nick"
-        for (name, input) in [("five", five), ("two", (twoFacts, twoSignals))] {
-            for width in [1_280.0, 1_728] {
-                let size = CGSize(width: width, height: 900)
-                try UIRender.write("w17b-home-\(name)-\(Int(width))", UIRender.onDesktop(page(input.0, input.1, size: size), light: false, size: size), size: size)
-            }
-        }
         XCTAssertEqual(HomeCardBuilder.cards(brief: twoFacts, signals: twoSignals).count, 2)
+        for below in [true, false] {
+            HomePriorityPlan.twoBelow = below
+            try UIRender.write("w17b2-home-2-\(below ? "below" : "beside")-1440",
+                               UIRender.onDesktop(page(twoFacts, twoSignals, size: size), light: false, size: size), size: size)
+        }
+        HomePriorityPlan.twoBelow = true
     }
 }

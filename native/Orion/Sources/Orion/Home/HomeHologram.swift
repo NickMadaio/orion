@@ -116,16 +116,22 @@ struct HomeHologramPlacement: Equatable {
     let diameter: CGFloat
     let opacity: Double
 
-    /// Few cards: the orb fills the empty field below the spread. Many: it sits behind them, lower and dimmer.
+    /// No cards: the orb fills the empty field, lower than centre so the calm line sits above the ring. (Measured
+    /// on 1440×900 renders: the glance row sits at ~0.86 of the scene, so the ring stops by ~0.84.)
     static func forCards(_ count: Int) -> HomeHologramPlacement {
-        switch count {
-        // Measured on 1440×900 renders: the glance row sits at ~0.86 of the scene, so the ring stops by ~0.84.
-        // Empty: lower than centre, so the spread's one calm line sits above the ring rather than across the orb.
-        case 0: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.6), diameter: 0.52, opacity: 0.95)
-        case 1...2: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.52, opacity: 0.92)
-        case 3: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.52, opacity: 0.7)
-        default: HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.58), diameter: 0.72, opacity: 0.45)
-        }
+        HomeHologramPlacement(centre: UnitPoint(x: 0.5, y: 0.6), diameter: 0.52, opacity: 0.95)
+    }
+
+    /// With cards the orb is the top card's halo (wave 17): centred on it, a little bigger than it, dim enough that
+    /// the text over it stays readable.
+    static func behindSun() -> HomeHologramPlacement {
+        HomeHologramPlacement(centre: .center, diameter: 0, opacity: 0.4)
+    }
+
+    /// The ring around `sun`, in a scene of `size`. Wider than the sun card so a glow shows past its edges.
+    func frame(around sun: CGRect, in size: CGSize) -> CGRect {
+        let side = min(max(sun.width, sun.height) * 1.7, size.width * 0.8, size.height * 0.9)
+        return CGRect(x: sun.midX - side / 2, y: sun.midY - side / 2, width: side, height: side)
     }
 
     func frame(in size: CGSize) -> CGRect {

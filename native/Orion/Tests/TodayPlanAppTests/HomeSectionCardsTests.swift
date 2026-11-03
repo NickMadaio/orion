@@ -205,12 +205,16 @@ final class HomeSectionCardsTests: XCTestCase {
 
     // MARK: Hologram placement
 
-    func testHologramFillsTheFieldOnAQuietDayAndSinksBehindABusyOne() {
-        let quiet = HomeHologramPlacement.forCards(2), busy = HomeHologramPlacement.forCards(6)
-        XCTAssertGreaterThan(quiet.opacity, busy.opacity)
-        XCTAssertGreaterThan(quiet.centre.y, 0.5, "below the spread")
-        let frame = busy.frame(in: CGSize(width: 1440, height: 800))
+    func testHologramFillsTheFieldWhenEmptyAndHalosTheSunOtherwise() {
+        let empty = HomeHologramPlacement.forCards(0)
+        XCTAssertGreaterThan(empty.centre.y, 0.5, "below the calm line")
+        let halo = HomeHologramPlacement.behindSun()
+        XCTAssertLessThan(halo.opacity, empty.opacity, "dim behind card text")
+        let sun = CGRect(x: 520, y: 120, width: 350, height: 260)
+        let frame = halo.frame(around: sun, in: CGSize(width: 1440, height: 800))
         XCTAssertEqual(frame.width, frame.height)
-        XCTAssertLessThanOrEqual(frame.width, 1440 * 0.8)
+        XCTAssertEqual(frame.midX, sun.midX, accuracy: 0.01)
+        XCTAssertEqual(frame.midY, sun.midY, accuracy: 0.01)
+        XCTAssertGreaterThan(frame.width, sun.width, "a glow shows past the card")
     }
 }

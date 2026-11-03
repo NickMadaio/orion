@@ -94,9 +94,11 @@ struct HomeSpreadLayout: Layout {
 }
 
 /// The spread itself, or the calm line when there is nothing to say. Cards arrive in priority order: the first is
-/// the centre, largest card (HomePriorityPlan). A reorder or a resize moves them on a spring; Reduce Motion cross-fades.
+/// the sun: the centre, largest card (HomePriorityPlan). A reorder or a resize moves them on a spring; Reduce Motion cross-fades.
 struct HomeCardSpread: View {
     let cards: [HomeCard]
+    /// The room under the greeting and above the glance row; the cluster shrinks to fit it.
+    var maxHeight: CGFloat?
     let onAction: (HomeCardAction) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -110,11 +112,12 @@ struct HomeCardSpread: View {
                 .softReveal(delay: 0.2)
         } else {
             let shown = Array(cards.prefix(HomePriorityPlan.maxCount))
-            HomePriorityLayout {
+            HomePriorityLayout(maxHeight: maxHeight) {
                 ForEach(Array(shown.enumerated()), id: \.element.id) { rank, card in
                     HomeCardView(card: card, rank: rank, onAction: onAction)
                         .rotationEffect(.degrees(HomePriorityPlan.tilt(rank)))
                         .deal(order: rank, rise: 22)
+                        .anchorPreference(key: HomeSunBoundsKey.self, value: .bounds) { rank == 0 ? $0 : nil }
                 }
             }
             .animation(reduceMotion ? .easeInOut(duration: 0.2) : Self.reorder, value: shown.map(\.id))

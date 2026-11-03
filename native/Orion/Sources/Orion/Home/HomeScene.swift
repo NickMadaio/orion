@@ -40,11 +40,14 @@ struct HomeScene<Composer: View>: View {
 
             // The spread hangs a fixed step below the greeting, as Sentient's does; spare height goes under it.
             // Centring it (the first version) left a void between greeting and cards on a two-card day (live, 11-02).
-            HomeCardSpread(cards: cards, onAction: onAction)
+            HomeCardSpread(cards: cards, maxHeight: max(300, availableHeight - 330), onAction: onAction)
                 .frame(maxWidth: 1_260)
+                // A short cluster sits in the middle of its room, a touch high, rather than hugging the greeting.
+                .frame(minHeight: max(300, availableHeight - 330), alignment: .center)
+                .offset(y: -14)
                 .padding(.horizontal, 44)
                 .frame(maxWidth: .infinity)
-                .padding(.top, 72)
+                .padding(.top, 44)
 
             Spacer(minLength: 34)
 
@@ -61,16 +64,17 @@ struct HomeScene<Composer: View>: View {
                 .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, minHeight: availableHeight, alignment: .top)
-        .background(hologramLayer)
+        .backgroundPreferenceValue(HomeSunBoundsKey.self) { hologramLayer(sun: $0) }
         .background(atmosphere)
     }
 
-    /// The hologram and a faint ring around it, placed by card count. Behind the cards and never hit-testable.
-    private var hologramLayer: some View {
+    /// The hologram and a faint ring around it. With cards it is the sun's halo, centred behind the top card and
+    /// dimmed so its text stays readable; with none it fills the field. Never hit-testable.
+    private func hologramLayer(sun: Anchor<CGRect>?) -> some View {
         GeometryReader { proxy in
             if let hologram {
-                let placement = HomeHologramPlacement.forCards(cards.count)
-                let frame = placement.frame(in: proxy.size)
+                let placement = sun == nil ? HomeHologramPlacement.forCards(0) : HomeHologramPlacement.behindSun()
+                let frame = sun.map { placement.frame(around: proxy[$0], in: proxy.size) } ?? placement.frame(in: proxy.size)
                 ZStack {
                     // The ring, after Sentient's hero: one hairline with a soft halo, static.
                     Circle()

@@ -25,6 +25,8 @@ public struct PhoneHomeActions {
     public var onAddWater: () -> Void = {}
     public var onOpenGlance: (PhoneHome.GlanceItem.Kind) -> Void = { _ in }
     public var onOpenPlan: () -> Void = {}
+    /// Opens the food photo capture sheet.
+    public var onLogFood: () -> Void = {}
     public init() {}
 }
 
@@ -83,6 +85,7 @@ public struct PhoneHomeView: View {
                 PhoneHomeGlanceRow(items: home.glance, onAddWater: actions.onAddWater, onOpen: actions.onOpenGlance)
                     .softReveal(delay: 0.15)
             }
+            PhoneHomeFoodPill(action: actions.onLogFood).softReveal(delay: 0.2)
             cards.padding(.top, 6)
         }
         .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 28)
@@ -124,7 +127,7 @@ public struct PhoneHomeView: View {
             ZStack {
                 Circle().strokeBorder(ink.text.opacity(0.14), lineWidth: 0.8).shadow(color: PhoneHomeHue.accent.opacity(0.35), radius: 8)
                 OrionThinkingHologram(state: home.ask != nil || !home.approvals.isEmpty ? .listening : .breathing,
-                                      brightness: 0.85, frameTime: orbFrameTime)
+                                      brightness: 1.5, frameTime: orbFrameTime, palette: .blue)
                     .padding(8)
             }
             .frame(width: 78, height: 78)

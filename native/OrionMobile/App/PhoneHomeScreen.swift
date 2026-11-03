@@ -17,6 +17,7 @@ struct PhoneHomeScreen: View {
     let onMenu: () -> Void
     let onOpenChat: () -> Void
     let onOpenSection: (String) -> Void
+    var onLogFood: () -> Void = {}
 
     @State private var decided: [String: Bool] = [:]
     @State private var answered: Set<String> = []
@@ -71,6 +72,7 @@ struct PhoneHomeScreen: View {
         actions.onAddWater = addWater
         actions.onOpenGlance = { kind in onOpenSection(kind == .focus ? "control" : "health") }
         actions.onOpenPlan = { onOpenSection("plan") }
+        actions.onLogFood = onLogFood
         return actions
     }
 

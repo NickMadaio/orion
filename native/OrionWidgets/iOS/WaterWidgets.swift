@@ -82,12 +82,13 @@ struct WaterWidgetView: View {
                         Text("of \(reading.goal)").font(W.mono(9)).foregroundStyle(W.soft)
                     }
                 }
-                .frame(width: 84, height: 84)
+                .frame(width: 74, height: 74)
                 Spacer(minLength: 0)
                 Button(intent: AddWaterIntent()) {
-                    Text("+1").font(W.mono(13, .bold)).foregroundStyle(W.ink)
+                    Text("+1").font(W.mono(13, .bold)).foregroundStyle(W.accent)
                         .frame(width: 40, height: 40)
-                        .background(W.accent, in: Circle())
+                        .background(W.accent.opacity(0.12), in: Circle())
+                        .overlay(Circle().stroke(W.accent.opacity(0.8), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Add a bottle of water")

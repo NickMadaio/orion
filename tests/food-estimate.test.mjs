@@ -207,7 +207,7 @@ test("CLI: nothing is logged during an evaluation", async () => {
   try {
     writeFileSync(join(dir, "eval-mode"), "");
     const r = await run(["--text", "chicken rice bowl", "--log"], { ORION_OLLAMA_URL: o.url, ORION_CONTROLLED_DIR: dir });
-    assert.match(r.stdout, /Not logged: ORION is in an evaluation run/);
+    assert.match(r.stdout, /Not logged: I am in an evaluation run/);
     assert.equal(healthLog(dir).nutritionLog["2026-11-02"], undefined);
   } finally { await o.close(); }
 });

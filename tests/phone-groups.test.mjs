@@ -118,6 +118,6 @@ test("unknown groups, single apps and 'all' to block are refused and write nothi
 test("status lists what ORION has shut, and the grant path still works beside it", (t) => {
   const { run } = world(t);
   run("block", "social", "--minutes", "30", "--why", "studying");
-  assert.match(run("status").out, /ORION has shut: social until 2:30 PM \(studying\)/);
+  assert.match(run("status").out, /I have shut: social until 2:30 PM \(studying\)/);
   assert.equal(run("grant", "20", "--because", "x").code, 0);
 });

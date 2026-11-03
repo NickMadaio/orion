@@ -58,7 +58,7 @@ if (command === "add") {
 } else if (command === "gate" || command === "mail") {
   if (!["on", "off"].includes(rest[0])) fail(`usage: orion-watches ${command} on|off`);
   state = { ...state, [command]: rest[0] === "on" }; save(state);
-  console.log(command === "gate" ? `Texts gate ${rest[0].toUpperCase()}.${rest[0] === "on" ? " ORION reads new texts and tells him only what matters." : ""}` : `Important-mail alerts ${rest[0]}.`);
+  console.log(command === "gate" ? `Texts gate ${rest[0].toUpperCase()}.${rest[0] === "on" ? " I read new texts and tell him only what matters." : ""}` : `Important-mail alerts ${rest[0]}.`);
 } else if (command === "tick") {
   if (sandbox()) process.exit(0);
   await tick();

@@ -18,5 +18,7 @@ export declare function weatherDirective(sent: string): Extract<ToolDirective, {
     kind: "call";
 }>;
 export declare const isTimerRequest: (message: string) => boolean;
+/** The app named in an open-an-app request, or null when it is anything else. */
+export declare function appOpenName(message: string): string | null;
 /** The exact job for a front-desk tool move, when code can know it; null leaves the turn to the worker. */
 export declare function toolDirective(decision: Decision | undefined, message: string): ToolDirective | null;

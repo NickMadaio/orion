@@ -77,9 +77,9 @@ export function classifyAccountError(value, provider = "unknown") {
     return { provider: named, kind: match.kind, detail: errorDetail(raw), ...(regainOn ? { regainOn } : {}) };
 }
 const ANTHROPIC_FIX = {
-    credit: () => "ORION can't use Claude: the Anthropic account is out of credit, so replies fall back to slow local models. Fix: console.anthropic.com → Plans & Billing → buy credits.",
-    usage_limit: (p) => `ORION can't use Claude: the Anthropic account hit its monthly usage limit${p.regainOn ? ` (back ${p.regainOn})` : ""}. Fix: console.anthropic.com → Limits → raise the monthly cap; check Plans & Billing has credit.`,
-    auth: () => "ORION can't use Claude: the Anthropic API key was rejected. Fix: console.anthropic.com → API Keys → make a new key and give it to ORION.",
+    credit: () => "I can't use Claude: the Anthropic account is out of credit, so replies fall back to slow local models. Fix: console.anthropic.com → Plans & Billing → buy credits.",
+    usage_limit: (p) => `I can't use Claude: the Anthropic account hit its monthly usage limit${p.regainOn ? ` (back ${p.regainOn})` : ""}. Fix: console.anthropic.com → Limits → raise the monthly cap; check Plans & Billing has credit.`,
+    auth: () => "I can't use Claude: the Anthropic API key was rejected. Fix: console.anthropic.com → API Keys → make a new key and give it to me.",
 };
 const GENERIC_PROBLEM = {
     credit: "is out of credit",
@@ -89,12 +89,12 @@ const GENERIC_PROBLEM = {
 export function alertText(problem) {
     const message = problem.provider === "anthropic"
         ? ANTHROPIC_FIX[problem.kind](problem)
-        : `ORION can't use ${problem.provider}: the account ${GENERIC_PROBLEM[problem.kind]}${problem.regainOn ? ` (back ${problem.regainOn})` : ""}. Fix it in that provider's console; until then replies fall back to slow local models.`;
+        : `I can't use ${problem.provider}: the account ${GENERIC_PROBLEM[problem.kind]}${problem.regainOn ? ` (back ${problem.regainOn})` : ""}. Fix it in that provider's console; until then replies fall back to slow local models.`;
     return message.slice(0, PHONE_LIMIT);
 }
 function recoveredText(provider) {
     const name = provider === "anthropic" ? "Claude" : provider;
-    return `${name} is answering again — ORION is back on its normal model.`;
+    return `${name} is answering again — I'm back on my normal model.`;
 }
 /** llm_output: only the attempt's own, fresh message counts — `lastAssistant` may be an older turn's. */
 function inspectAttempt(event, now) {

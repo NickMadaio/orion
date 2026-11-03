@@ -38,7 +38,7 @@ import { isSessionStart, startsSession, type SessionExec, type SessionHint } fro
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
-import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
+import { appOpenName, isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { readIntent } from "./calendar-intent.js";
@@ -60,6 +60,7 @@ import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinute
 import { parseMessagesRead, readNote, type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { isBareTime, isReminderTurn, leaveAsReminder, planReminder, type StoredReminder } from "./reminder-flow.js";
 import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
+import { SPEAK_AS_I } from "./self-voice.js";
 import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
@@ -668,7 +669,7 @@ export const liveExtractReminder = async (message: string, clock?: string): Prom
  */
 export const EXACT_REPLY_PROMPT = "Reply to Nick with exactly this text and nothing else, and do not call any tools:";
 
-const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on. Scripts named orion-… are commands you run with the exec tool, never tools of their own, and you never tell Nick which tools are or are not available.";
+const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on. " + SPEAK_AS_I + " Scripts named orion-… are commands you run with the exec tool, never tools of their own, and you never tell Nick which tools are or are not available.";
 
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
 export function dateLine(now = pluginNow()): string {
@@ -1405,6 +1406,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run && isCrisis(run.message) && !run.afterCrisis) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
       if (run && (run.room || run.hushed || run.pending || run.preference || run.sleepTurn || run.phoneBlock || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
       if (run?.ownText) return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
+      if (run && appOpenName(run.message)) return undefined;   // w18 voiceself: opening an app is app_open, never a drafted "I can't pull up apps"
       if (run && isOverwhelmed(run.message)) return undefined;
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;

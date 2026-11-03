@@ -116,6 +116,9 @@ test("clear, passthrough, games and setup", () => {
   const fresh = sandbox();
   const popup = fresh.run("setup");
   assert.equal(popup.out.say, "Okay, let me help. Tell me what you want the buttons to do, or set them here:");
+  const again = sandbox().run("setup", "--again");
+  assert.equal(again.out.say, "Here it is.");
+  assert.equal(again.out.ok, true);
   const rows = readFileSync(join(fresh.dir, "outreach.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.equal(rows.length, 1);
   assert.deepEqual(Object.keys(rows[0]).sort(), ["at", "event", "kind"]);

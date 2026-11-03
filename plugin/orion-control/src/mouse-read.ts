@@ -25,7 +25,7 @@ export type MouseTurn =
   | { kind: "clear"; button: string; app?: string }
   | { kind: "passthrough"; op: "add" | "remove"; app: string }
   | { kind: "games"; state: "on" | "off" }
-  | { kind: "setup" }
+  | { kind: "setup"; again?: true }
   | { kind: "apply" }
   | { kind: "decline" }
   | { kind: "cancel" };
@@ -65,6 +65,9 @@ const OFF = /\b(?:off|disable|stop|dont|don'?t|do not|no longer|without|never)\b
 const NEG = /\b(?:dont|don'?t|do not|never|stop|no|disable|ignore|leave|bypass|pass ?through|turn off)\b/i;
 const REMOVE = /\b(?:stop ignoring|stop leaving|stop disabling|re-?enable|turn (?:it|them|the \w+) back on|(?:work|working|active|on) again|should work|start working|work normally)\b/i;
 const SETUP = /\b(?:set ?up|setup|configure|customi[sz]e)\b[^?]*\b(?:my |the |this )?(?:new )?mouse\b|\bget\b[^?]*\bmouse\b[^?]*\bset ?up\b|\bnew mouse\b[^?]*\b(?:set ?up|configure)\b/i;
+// "pull up the mouse button mapper again", "open the mouse thing", "show me the mouse setup", "bring back the button mapper": the popup, again.
+const REOPEN_VERB = /\bpull\b[^.?!]*\bup\b|\b(?:bring(?: it| that)?(?: back)? up|bring(?: it| that)? back|open(?: up)?|re-?open|show(?: me)?|launch|display|put (?:it )?back|get(?: it)? back)\b/;
+const REOPEN_THING = /\bmapper\b|\b(?:mouse|button|buttons)(?: button)? (?:setup|set up|thing|popup|pop up|window|panel|screen|config(?:uration)?|mapping)\b|\b(?:mouse|button) settings (?:popup|pop up|window|panel|screen)\b/;
 const GAMEY = /\b(?:minecraft|fortnite|valorant|roblox|steam|league|overwatch|cs2|csgo|apex|genshin|game|games)\b/i;
 const YES = /^(?:y|ye|ya|yea|yeah|yes|yep|yup|ok|okay|k|sure|alright|aight|do it|go ahead|sounds good|that works|perfect|fine|please|yes please|sure thing|lets do it|let'?s do it|set it up|set it|do that|go for it)(?: (?:please|orion|do it|thanks|thx|that'?s fine))?[.!]*$/;
 const NO = /^(?:no|nah|nope|not now|later|not yet|skip|no thanks|nah im good|maybe later|not really|leave it|dont|don'?t)[.!]*$/;
@@ -141,6 +144,7 @@ function readOne(message: string, c: MouseContext): MouseTurn | null {
   const buttons = /\b(?:mouse|buttons?|clicks?)\b/.test(said);
   if (app && REMOVE.test(said) && (buttons || GAMEY.test(app))) return { kind: "passthrough", op: "remove", app };
   if (app && NEG.test(said) && !BIND_VERB.test(said) && (buttons || (anything && GAMEY.test(app)))) return { kind: "passthrough", op: "add", app };
+  if (REOPEN_VERB.test(said) && REOPEN_THING.test(said) && !BIND_VERB.test(said) && !/^(?:what|which|how|why|is|are|does|do)\b/.test(said)) return { kind: "setup", again: true };
   if (QUESTION.test(said)) return mouseish && STATUS_WORD.test(said) || (MOUSE.test(said) && /\b(?:buttons?|settings?|bindings?)\b/.test(said)) ? { kind: "status" } : null;
   if (!mouseish) return null;
   if (CLEAR_VERB.test(said) && !actionOf(said).replace(/^nothing$/i, "")) return { kind: "clear", button: buttonOf(said), ...(app ? { app } : {}) };

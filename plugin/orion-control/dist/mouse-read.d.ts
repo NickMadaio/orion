@@ -28,6 +28,7 @@ export type MouseTurn = {
     state: "on" | "off";
 } | {
     kind: "setup";
+    again?: true;
 } | {
     kind: "apply";
 } | {

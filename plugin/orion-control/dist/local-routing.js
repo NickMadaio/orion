@@ -38,7 +38,7 @@ import { isSessionStart, startsSession } from "./session-flow.js";
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
-import { isTimerRequest, toolDirective } from "./tool-moves.js";
+import { appOpenName, isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
@@ -59,6 +59,7 @@ import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinute
 import { parseMessagesRead, readNote } from "./messages-read.js";
 import { isBareTime, isReminderTurn, leaveAsReminder, planReminder } from "./reminder-flow.js";
 import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
+import { SPEAK_AS_I } from "./self-voice.js";
 import { codeDayAnswer, dayRead, isAfterThat, noBlockReply } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory } from "./focus-status.js";
@@ -491,7 +492,7 @@ export const liveExtractReminder = async (message, clock) => {
  * schemas in this OpenClaw version, so the prompt is as small as it can be; finalize still checks the text and puts it in place.
  */
 export const EXACT_REPLY_PROMPT = "Reply to Nick with exactly this text and nothing else, and do not call any tools:";
-const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on. Scripts named orion-… are commands you run with the exec tool, never tools of their own, and you never tell Nick which tools are or are not available.";
+const LOCAL_IDENTITY = "You are ORION, Nick's personal assistant on his Mac and iPhone. Reply in one to three short sentences, the way you would say it out loud: no lists, no markdown, times like 8:15 PM. Never say something happened unless a tool result shows it did. Never name the model, provider or settings you run on. " + SPEAK_AS_I + " Scripts named orion-… are commands you run with the exec tool, never tools of their own, and you never tell Nick which tools are or are not available.";
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
 export function dateLine(now = pluginNow()) {
     const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -1413,6 +1414,8 @@ export function registerLocalRouting(api, options) {
                 return undefined; // 2026-10-31: code's, or the worker's textbook answer
             if (run?.ownText)
                 return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
+            if (run && appOpenName(run.message))
+                return undefined; // w18 voiceself: opening an app is app_open, never a drafted "I can't pull up apps"
             if (run && isOverwhelmed(run.message))
                 return undefined;
             // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).

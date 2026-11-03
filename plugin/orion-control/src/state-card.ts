@@ -16,6 +16,7 @@
  Budget: the card stays under ~600 tokens (CARD_MAX_CHARS). Every reader here is total: a missing or broken file is
  an absent line or "unknown", never an exception and never an invented value.
 */
+import { SPEAK_AS_I } from "./self-voice.js";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -185,12 +186,13 @@ export function deskLine(i: CardInputs): string {
     ? [`should be ${r.shouldBe?.title ?? r.shouldBe?.kind ?? "unknown"}`, `next ${r.next?.title ?? "unknown"}${r.next?.start ? ` at ${clockOf(r.next.start)}` : ""}`, ...(r.mismatch?.kind ? [`off plan: ${r.mismatch.kind}`] : [])]
     : ["his plan right now is unknown"];
   if (i.declared.length) parts.push(`he said today: ${i.declared.slice(-2).map((f) => (FACT_SAID[f.kind] ?? FACT_SAID.note!)(f)).join(", ")}`);
-  if (i.lastOutreach) parts.push(`ORION last sent ${quote(i.lastOutreach.text, 60)}`);
+  if (i.lastOutreach) parts.push(`You last sent ${quote(i.lastOutreach.text, 60)}`);
   return `Nick now: ${parts.join("; ")}.`;
 }
 
 /** How to sound. Short and specific on purpose: the 9B copies long style guides back as boilerplate. */
 export const TONE_NOTE = [
+  SPEAK_AS_I,
   "How to sound: like someone who has watched his week, not a productivity bot. When it matters, use one concrete fact from the card (\"that's the fourth gym skip this week\"); never invent one.",
   "Warm and plain, his register. No pep talk, no \"Great job!\", no \"I understand how you feel\".",
   "Strictness firm: say no once and give the smallest next step (\"No. Thirty minutes of gym, now.\"). Flexible: accept a real reason and say when you'll come back to it.",

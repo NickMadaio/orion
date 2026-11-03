@@ -31,7 +31,7 @@ const SLEEP_LOG = /\b(log|logged|track|record|note)\b.*\bsleep|\bslept\b/i;
 const WORKOUT_BY_TIME = /\b(workout|work out|worked out|gym session|training session|lift(?:ed|ing)?|run|ran)\b.*\b\d+\s*(min(?:ute)?s?|hours?|hrs?|h)\b/i;
 const WORKOUT_SETS = /\b\d+\s*(x|reps?|sets?|lbs?|kg)\b/i;
 
-const SLEEP_LINE = "I can't log sleep yet — ORION only tracks water, food, supplements and workout sets. Nothing was logged.";
+const SLEEP_LINE = "I can't log sleep yet — I only track water, food, supplements and workout sets. Nothing was logged.";
 const WORKOUT_LINE = "I can't log a workout by time yet — only exercises with their sets, like \"bench 135 for 8, 8, 6\". Nothing was logged.";
 
 function seconds(amount: string, unit: string): number {
@@ -57,15 +57,31 @@ export function weatherDirective(sent: string): Extract<ToolDirective, { kind: "
 const NOT_A_NEW_TIMER = /\b(cancel|stop|clear|remove|delete|kill|abort|never ?mind)\b|^\s*(is|are|was|how|what|whats|when|did|does|has|have)\b/i;
 export const isTimerRequest = (message: string): boolean => TIMER.test(message) && !NOT_A_NEW_TIMER.test(message);
 
+// "open spotify", "pull up safari again", "launch discord pls": the existing app_open action (w18 voiceself). Live 2026-11-03 the desk drafted
+// "I can't pull up apps on your Mac" for one of these, so no tool ran. Not apps: his tabs, the day, the mouse popup, a door, a URL, a gerund.
+const OPEN_APP = /^(?:(?:wait|yo|hey|ok|okay|so|and|can you|could you|can u|would you|will you|pls|please|orion|just|go ahead and)[,\s]+)*(?:open(?: up)?|pull up|bring up|fire up|launch)\s+(?:the |my )?(.+?)(?:\s+(?:app|again|please|pls|for me|real quick|rn|now|back up|back))*[\s.!?]*$/i;
+const NOT_AN_APP = /\b(?:tasks?|plans?|schedule|calendar|agenda|day|week|home|health|finances?|projects?|settings|door|tabs?|window|it|that|this|them|something|file|folder|mouse|button|buttons|mapper|setup|focus|session|timer|workout|reminders?|notes? on|what|why|how|when|where|new|a|an|the|my|into|to|of|in|on|for|source|link|url|page|site|email|mail|messages?|texts?|list|stuff|everything|anything|tomorrow|today|tonight|him|her|me|you|us)\b|\.[a-z]{2,}$|^https?:|^[a-z]+ing\b/i;
+
+/** The app named in an open-an-app request, or null when it is anything else. */
+export function appOpenName(message: string): string | null {
+  const m = message.trim().replace(/\s+/g, " ");
+  if (!m || m.length > 80) return null;
+  const name = OPEN_APP.exec(m)?.[1]?.trim().replace(/[.,!?]+$/, "") ?? "";
+  if (!name || name.split(" ").length > 3 || NOT_AN_APP.test(name) || !/^[A-Za-z0-9][A-Za-z0-9 .&'+_-]*$/.test(name)) return null;
+  return name;
+}
+
 /** The exact job for a front-desk tool move, when code can know it; null leaves the turn to the worker. */
 export function toolDirective(decision: Decision | undefined, message: string): ToolDirective | null {
-  if (!decision || decision.move === "escalate") return null;
-  const timer = isTimerRequest(message) ? TIMER.exec(message) : null;
+  if (decision?.move === "escalate") return null;
+  const timer = decision && isTimerRequest(message) ? TIMER.exec(message) : null;
   if (timer) {
     const total = seconds(timer[1] ?? timer[3] ?? "0", timer[2] ?? timer[4] ?? "m");
     if (total >= 1 && total <= 86400) return call("timer_set", { seconds: total }, "Then say the timer is set, only if the result shows it.", "I didn't manage to set that timer — nothing is running. Can you say it again?");
   }
-  if (decision.move !== "tool") return null;
+  const app = appOpenName(message);
+  if (app) return call("app_open", { application: app }, "Then say it is opening, only if the result shows it. One short sentence, as I (never \"ORION can\").", `I couldn't open ${app} — nothing opened. Is it installed under another name?`);
+  if (!decision || decision.move !== "tool") return null;
   const args = (decision.args ?? {}) as Record<string, unknown>;
   const tool = decision.tool ?? "";
   if (["log_intake", "supplements"].includes(tool) && SLEEP_LOG.test(message)) return { kind: "say", text: SLEEP_LINE };

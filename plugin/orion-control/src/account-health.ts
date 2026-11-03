@@ -102,11 +102,11 @@ export function classifyAccountError(value: unknown, provider = "unknown"): Acco
 
 const ANTHROPIC_FIX: Record<AccountProblemKind, (p: AccountProblem) => string> = {
   credit: () =>
-    "ORION can't use Claude: the Anthropic account is out of credit, so replies fall back to slow local models. Fix: console.anthropic.com → Plans & Billing → buy credits.",
+    "I can't use Claude: the Anthropic account is out of credit, so replies fall back to slow local models. Fix: console.anthropic.com → Plans & Billing → buy credits.",
   usage_limit: (p) =>
-    `ORION can't use Claude: the Anthropic account hit its monthly usage limit${p.regainOn ? ` (back ${p.regainOn})` : ""}. Fix: console.anthropic.com → Limits → raise the monthly cap; check Plans & Billing has credit.`,
+    `I can't use Claude: the Anthropic account hit its monthly usage limit${p.regainOn ? ` (back ${p.regainOn})` : ""}. Fix: console.anthropic.com → Limits → raise the monthly cap; check Plans & Billing has credit.`,
   auth: () =>
-    "ORION can't use Claude: the Anthropic API key was rejected. Fix: console.anthropic.com → API Keys → make a new key and give it to ORION.",
+    "I can't use Claude: the Anthropic API key was rejected. Fix: console.anthropic.com → API Keys → make a new key and give it to me.",
 };
 
 const GENERIC_PROBLEM: Record<AccountProblemKind, string> = {
@@ -119,13 +119,13 @@ export function alertText(problem: AccountProblem): string {
   const message =
     problem.provider === "anthropic"
       ? ANTHROPIC_FIX[problem.kind](problem)
-      : `ORION can't use ${problem.provider}: the account ${GENERIC_PROBLEM[problem.kind]}${problem.regainOn ? ` (back ${problem.regainOn})` : ""}. Fix it in that provider's console; until then replies fall back to slow local models.`;
+      : `I can't use ${problem.provider}: the account ${GENERIC_PROBLEM[problem.kind]}${problem.regainOn ? ` (back ${problem.regainOn})` : ""}. Fix it in that provider's console; until then replies fall back to slow local models.`;
   return message.slice(0, PHONE_LIMIT);
 }
 
 function recoveredText(provider: string): string {
   const name = provider === "anthropic" ? "Claude" : provider;
-  return `${name} is answering again — ORION is back on its normal model.`;
+  return `${name} is answering again — I'm back on my normal model.`;
 }
 
 type Observation = { problem?: AccountProblem; okProvider?: string };

@@ -181,6 +181,15 @@ describe("mouse through the routing (the real orion-mouse, a temp dir)", () => {
         expect(popups).toHaveLength(2);
         expect(popups[0]).toEqual({ kind: "mouse", event: "setup-open", at: expect.any(String) });
     });
+    it("'pull up the mouse button mapper again' asks the Mac for the popup and says Here it is, never a refusal (11-03)", async () => {
+        const d = dir();
+        seed(d);
+        const r = route(realRun(d), d);
+        for (const m of ["wait, can you pull up the mouse button mapper again", "bring back the button mapper"])
+            expect(await r.turn(m)).toBe("Here it is.");
+        const rows = readFileSync(join(d, "outreach.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+        expect(rows.map((x) => x.event)).toEqual(["setup-open", "setup-open"]);
+    });
     it("a yes counts only right after the outreach: not after another turn, not 20 minutes later", async () => {
         const calls = [];
         const stale = dir();

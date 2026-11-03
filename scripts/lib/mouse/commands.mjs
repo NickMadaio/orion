@@ -125,9 +125,9 @@ const SUGGESTED = { 3: { kind: "system", name: "missionControl" }, 4: { kind: "s
 export const SETUP_SAY = "Okay, let me help. Tell me what you want the buttons to do, or set them here:";
 
 /** `setup`: opens the Mac's mouse-setup popup (one record in outreach.jsonl) and says SETUP_SAY. */
-export function openSetup({ env = process.env } = {}) {
+export function openSetup({ env = process.env, again = false } = {}) {
   const req = requestSetupPopup({ env });
-  return { ok: true, popup: req.written, ...(req.row ? { record: req.row } : {}), say: SETUP_SAY };
+  return { ok: true, popup: req.written, ...(req.row ? { record: req.row } : {}), say: again ? "Here it is." : SETUP_SAY };
 }
 
 /** `setup --suggest [--apply]`: list the extra buttons and suggest defaults (front side: Stage Manager, back side: Mission Control); --apply writes them. */

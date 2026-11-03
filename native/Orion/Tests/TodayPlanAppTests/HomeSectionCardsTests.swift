@@ -97,33 +97,16 @@ final class HomeSectionCardsTests: XCTestCase {
 
     // MARK: Finance
 
-    func testARenewalInTwoDaysIsAFinanceCard() {
+    func testFinanceIsNeverACardOnlyAGlanceItem() {
         var input = signals(now: at(10))
-        input.finance = finance(week: 0, month: 0, written: at(9), recurring: [
+        input.finance = finance(week: 214.4, month: 486, written: at(9), recurring: [
             HomeFinance.Recurring(name: "Spotify", amount: 11.99, lastSeen: at(12, day: 4, month: 10)),
-            HomeFinance.Recurring(name: "Elevenlabs.io", amount: 6, lastSeen: at(12, day: 31, month: 10)),
         ])
-        let card = cards(input).first { $0.kind == .finance }
-        XCTAssertEqual(card?.kickerText, "RENEWS IN 2 DAYS · FINANCES")
-        XCTAssertEqual(card?.title, "Spotify renews on Wednesday: $11.99.")
-        XCTAssertEqual(card?.body, ["Two recurring charges, $17.99 a month."])
-        XCTAssertEqual(card?.primary.action, .openFinance)
-    }
-
-    func testWeeklySpendIsTheQuietFallbackAndStaleNumbersSayNothing() {
-        var input = signals(now: at(18))
-        input.finance = finance(week: 214.4, month: 486, written: at(9))
-        let card = cards(input).first { $0.kind == .finance }
-        XCTAssertEqual(card?.title, "$214 spent so far this week.")
-        XCTAssertEqual(card?.body, ["$486 this month, most of it on food and drink."])
-        XCTAssertEqual(card?.rank, 6)
+        XCTAssertTrue(cards(input).isEmpty, "a renewal and a spend headline used to be cards; finance is glance-only now")
+        XCTAssertEqual(HomeGlance.items(brief: nil, signals: input).first { $0.label == "FINANCE" }?.value, "$214 this week")
 
         input.finance = finance(week: 214, month: 486, written: at(9, day: 27, month: 10))
-        XCTAssertNil(cards(input).first { $0.kind == .finance })
         XCTAssertFalse(HomeGlance.items(brief: nil, signals: input).contains { $0.label == "FINANCE" })
-
-        input.finance = finance(week: 0, month: 0, written: at(9))
-        XCTAssertNil(cards(input).first { $0.kind == .finance }, "nothing spent is not news")
     }
 
     // MARK: Health

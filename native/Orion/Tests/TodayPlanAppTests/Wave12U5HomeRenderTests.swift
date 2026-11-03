@@ -88,8 +88,8 @@ final class Wave12U5HomeRenderTests: XCTestCase {
     func testRendersFiveCardDay() throws {
         let (facts, signals) = fiveCardDay()
         let cards = HomeCardBuilder.cards(brief: facts, signals: signals)
-        XCTAssertGreaterThanOrEqual(cards.count, 5)
-        XCTAssertTrue(cards.contains { $0.kind == .project } && cards.contains { $0.kind == .finance } && cards.contains { $0.kind == .health })
+        XCTAssertEqual(cards.count, HomeCardBuilder.maxCards)
+        XCTAssertTrue(cards.contains { $0.kind == .project } && cards.contains { $0.kind == .health })
         try UIRender.write("u5-home-5-cards", UIRender.onDesktop(page(facts, signals), light: false, size: size), size: size)
     }
 

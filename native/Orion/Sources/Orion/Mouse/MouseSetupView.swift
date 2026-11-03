@@ -27,6 +27,10 @@ struct MouseSetupView: View {
                 Text("Press a button on the mouse to find its row.")
                     .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim)
             }
+            if mouse.gameSession.active {
+                Text("Paused while you're gaming. Buttons work as the game expects until it quits.")
+                    .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.accent).fixedSize(horizontal: false, vertical: true)
+            }
             if !mouse.accessibilityGranted {
                 ProjectBubble(text: "Allow Accessibility so I can see them", symbol: "lock.open", hue: OrionTheme.orange) { mouse.requestAccessibility() }
             }

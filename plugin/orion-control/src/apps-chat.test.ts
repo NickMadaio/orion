@@ -127,3 +127,40 @@ describe("the exec route", () => {
     expect(routeForDoomedExec("orion-apps list")?.reason).toMatch(/\/scripts\/orion-apps/);
   });
 });
+
+describe("game mode turns (w18 gamemode)", () => {
+  it("game mode on and off, whatever the wording", () => {
+    for (const m of ["game mode on", "gaming mode on pls", "turn game mode on", "can you turn on gaming mode", "get my mac ready for gaming", "prep my laptop for gaming rn", "enable game mode"])
+      expect(readAppsTurn(m), m).toEqual({ kind: "gameMode", on: true });
+    for (const m of ["game mode off", "turn off gaming mode", "gaming mode off pls", "disable game mode", "turn game mode off lol"])
+      expect(readAppsTurn(m), m).toEqual({ kind: "gameMode", on: false });
+  });
+  it("dont close X when i game keeps it, and letting it close again removes it", () => {
+    expect(readAppsTurn("dont close discord when i game")).toEqual({ kind: "gameKeep", op: "add", names: ["discord"] });
+    expect(readAppsTurn("pls dont quit spotify or chrome while im gaming")).toEqual({ kind: "gameKeep", op: "add", names: ["spotify", "chrome"] });
+    expect(readAppsTurn("keep obsidian open when i game")).toEqual({ kind: "gameKeep", op: "add", names: ["obsidian"] });
+    expect(readAppsTurn("stop closing slack when im gaming")).toEqual({ kind: "gameKeep", op: "add", names: ["slack"] });
+    expect(readAppsTurn("you can close discord when i game")).toEqual({ kind: "gameKeep", op: "remove", names: ["discord"] });
+    expect(readAppsTurn("let chrome close again when i play games")).toEqual({ kind: "gameKeep", op: "remove", names: ["chrome"] });
+  });
+  it("what did you close", () => {
+    for (const m of ["what did you close", "wait what did u close when i started gaming", "what did you shut down for minecraft", "what apps did you close"])
+      expect(readAppsTurn(m), m).toEqual({ kind: "gameLast" });
+  });
+  it("lookalikes are not game mode turns", () => {
+    for (const m of ["what is game mode", "i love game mode in fortnite", "dont close the door when i leave", "what did you do today", "i wanna game later", "keep my workout streak when i travel"])
+      expect(readAppsTurn(m), m).toBeNull();
+  });
+  it("each runs its orion-apps command and the reply is the script's sentence", async () => {
+    expect(argsFor({ kind: "gameMode", on: true })).toEqual([["game-prep", "auto", "on", "--json"], ["game-prep", "--json"]]);
+    expect(argsFor({ kind: "gameMode", on: false })).toEqual([["game-prep", "auto", "off", "--json"]]);
+    expect(argsFor({ kind: "gameKeep", op: "add", names: ["discord"] })).toEqual([["game-prep", "keep", "add", "discord", "--json"]]);
+    expect(argsFor({ kind: "gameKeep", op: "remove", names: ["chrome"] })).toEqual([["game-prep", "keep", "remove", "chrome", "--json"]]);
+    expect(argsFor({ kind: "gameLast" })).toEqual([["game-prep", "last", "--json"]]);
+    const calls: string[][] = [];
+    const turn = route(async (a) => { calls.push(a); return { stdout: JSON.stringify({ ok: true, say: `done ${a.slice(0, 2).join(" ")}` }), code: 0 }; });
+    expect(await turn("dont close discord when i game")).toBe("done game-prep keep");
+    expect(await turn("what did you close")).toBe("done game-prep last");
+    expect(calls).toEqual([["game-prep", "keep", "add", "discord", "--json"], ["game-prep", "last", "--json"]]);
+  });
+});

@@ -12,5 +12,14 @@ export type AppsTurn = {
 } | {
     kind: "hide";
     name: string;
+} | {
+    kind: "gameMode";
+    on: boolean;
+} | {
+    kind: "gameKeep";
+    op: "add" | "remove";
+    names: string[];
+} | {
+    kind: "gameLast";
 };
 export declare function readAppsTurn(message: string): AppsTurn | null;

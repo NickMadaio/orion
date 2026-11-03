@@ -26,7 +26,7 @@ const ours = (src, procs) => procs.filter((p) => { const now = src.identity(p.pi
 /** { name, state: closed | asking_to_save | still_open | not_running | left_alone, how: quit | term | kill, helpers: [name] } */
 export async function closeApp(app, src, opts = {}) {
   const g = opts.graceMs ?? GRACE_MS, tm = opts.termMs ?? TERM_MS;
-  const result = (state, how = null, helpers = []) => ({ name: app.name, state, how, helpers, document: !!app.document });
+  const result = (state, how = null, helpers = [], procs = 0) => ({ name: app.name, state, how, helpers, document: !!app.document, ...(procs ? { helperProcs: procs } : {}) });
   if (!src.alive(app.pid)) return result("not_running");
   const before = src.tree(app);                       // recorded before the quit: helpers left behind are still known, and still checked, after it
   if (src.ownsTree(before)) return result("left_alone");   // whoever runs this lives in that tree: not even the normal quit
@@ -40,12 +40,13 @@ export async function closeApp(app, src, opts = {}) {
   let rest = left();
   if (!rest.length) return result("closed", "quit");
   const helpers = names(rest.filter((p) => p.pid !== app.pid));
+  const procs = rest.filter((p) => p.pid !== app.pid).length;   // helper processes, not names: "4 helpers" counts all four
   ours(src, rest).forEach((p) => src.signal(p.pid, "SIGTERM"));
   await waitGone(src, rest.map((p) => p.pid), tm);
   rest = left();
-  if (!rest.length) return result("closed", "term", helpers);
+  if (!rest.length) return result("closed", "term", helpers, procs);
   ours(src, rest).forEach((p) => src.signal(p.pid, "SIGKILL"));
   await waitGone(src, rest.map((p) => p.pid), KILL_MS);
   const stuck = left();
-  return result(stuck.length ? "still_open" : "closed", "kill", [...new Set([...helpers, ...names(rest.filter((p) => p.pid !== app.pid))])]);
+  return result(stuck.length ? "still_open" : "closed", "kill", [...new Set([...helpers, ...names(rest.filter((p) => p.pid !== app.pid))])], Math.max(procs, rest.filter((p) => p.pid !== app.pid).length));
 }

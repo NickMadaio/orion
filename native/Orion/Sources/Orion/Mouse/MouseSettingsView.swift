@@ -15,6 +15,7 @@ struct MouseSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionRule(title: "Mouse", trailing: mouse.bindings.enabled ? "on" : "off")
+            gamingBanner
             accessibilityRow
             deviceRow
             toggleRow("Remap extra buttons", detail: "Off passes every button through untouched.",
@@ -26,6 +27,9 @@ struct MouseSettingsView: View {
             toggleRow("Pass through in games",
                       detail: "Minecraft, anything categorised as a game, and fullscreen games keep every button as the game expects.",
                       isOn: Binding(get: { mouse.bindings.autoPassthroughGames }, set: { mouse.setAutoGames($0) }))
+            toggleRow("Get my Mac ready when a game opens",
+                      detail: "Closes browsers, other launchers and background apps you don't need, and frees idle models. Discord, music and call apps stay. Ask me to keep or close any app.",
+                      isOn: Binding(get: { mouse.autoPrep }, set: { mouse.setAutoPrep($0) }))
             passthroughList
             Text("DPI buttons are usually handled inside the mouse's own firmware, so they may never reach the Mac.")
                 .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim)
@@ -34,6 +38,20 @@ struct MouseSettingsView: View {
     }
 
     // MARK: Header rows
+
+    /// Shown the whole time a game session runs: every button passes through, whatever the bindings below say.
+    @ViewBuilder private var gamingBanner: some View {
+        if mouse.gameSession.active {
+            HStack(spacing: 8) {
+                Circle().fill(OrionTheme.accent).frame(width: 6, height: 6)
+                Text("Paused while you're gaming").font(.system(size: 12.5, weight: .medium)).foregroundStyle(OrionTheme.text)
+                if let game = mouse.gameSession.game { Text(game.name.uppercased()).font(OrionTheme.mono(9, .medium)).tracking(1.2).foregroundStyle(OrionTheme.textDim) }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .overlay(Capsule().strokeBorder(OrionTheme.accent.opacity(0.5), lineWidth: 0.8))
+        }
+    }
+
 
     @ViewBuilder private var accessibilityRow: some View {
         if !mouse.accessibilityGranted {

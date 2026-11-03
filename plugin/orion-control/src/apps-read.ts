@@ -18,7 +18,10 @@ export type AppsTurn =
   | { kind: "unused"; also: string[] }
   | { kind: "except"; keep: string[] }
   | { kind: "quit"; names: string[] }
-  | { kind: "hide"; name: string };
+  | { kind: "hide"; name: string }
+  | { kind: "gameMode"; on: boolean }
+  | { kind: "gameKeep"; op: "add" | "remove"; names: string[] }
+  | { kind: "gameLast" };
 
 const flat = (s: string) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
 const VERB = String.raw`(?:close|quit|shut ?down|shut|kill|exit|force quit|force close|get rid of|ditch|clear out|clean up|cleanup)`;
@@ -45,9 +48,43 @@ const LIKE = /\b(?:things? like|stuff like|such as|like|e\.?g\.?|for example|esp
 const QUIT = new RegExp(String.raw`^(?:(?:can you|could you|will you|would you|please|pls|hey|ok|okay|orion|yo|just|go ahead and|go|now|also|and)[,\s]+)*${VERB}\s+(?:out of\s+)?(.+)$`);
 const HIDE = /^(?:(?:can you|could you|please|pls|hey|orion|just)[,\s]+)*(?:hide|minimi[sz]e)\s+(?:the\s+|my\s+)?(.+?)(?:\s+(?:app|window))?$/;
 
+// Game mode (w18 gamemode): "game mode on/off", "dont close discord when i game", "what did you close". Carried out by `orion-apps game-prep`.
+const GM = String.raw`(?:game|gaming)\s*mode`;
+const GAMING = String.raw`(?:when|while|whenever)\s+(?:i|im|i'm|we)\s+(?:am\s+|start\s+|started\s+|go\s+)?(?:gam(?:e|es|ing)|play(?:ing)?(?:\s+games?)?)\b`;
+const GM_OFF = new RegExp(String.raw`\b${GM}\s+off\b|\bturn\s+off\s+(?:the\s+|my\s+)?${GM}|\b(?:disable|deactivate|stop|end|exit|cancel)\s+(?:the\s+|my\s+)?${GM}`);
+const GM_ON = new RegExp(String.raw`\b${GM}\s+on\b|\b(?:turn|switch|put|flip)\s+(?:on\s+)?(?:the\s+|my\s+)?${GM}|\b(?:enable|activate|start)\s+(?:the\s+|my\s+)?${GM}|\b(?:get|prep|prepare|set up)\s+(?:my\s+)?(?:mac|computer|laptop|pc)\s+(?:ready\s+)?for\s+(?:gaming|games?|a game)\b`);
+const GAME_LAST = /\bwhat\s+(?:apps?\s+|programs?\s+|stuff\s+)?(?:did|have)\s+(?:you|u|ya)\s+(?:just\s+)?(?:close|quit|shut(?:\s*down)?|kill|end)\b/;
+const KEEP_ADD = [
+  new RegExp(String.raw`\b(?:dont|don't|do not|never|stop|no need to)\s+(?:close|closing|quit|quitting|kill|killing|shut(?:ting)?(?:\s*down)?)\s+(.+?)\s+${GAMING}`),
+  new RegExp(String.raw`\b(?:keep|leave)\s+(.+?)(?:\s+(?:open|running|on|alive))?\s+${GAMING}`),
+];
+const KEEP_REMOVE = [
+  new RegExp(String.raw`\blet\s+(.+?)\s+(?:close|quit)(?:\s+again)?\s+${GAMING}`),
+  new RegExp(String.raw`\b(?:you can|u can|go ahead and|feel free to|ok to|go back to)\s+(?:close|closing|quit|quitting|shut(?:ting)?(?:\s*down)?)\s+(.+?)(?:\s+again)?\s+${GAMING}`),
+  new RegExp(String.raw`^(?:pls\s+|please\s+)?(?:close|quit)\s+(.+?)(?:\s+again)?\s+${GAMING}`),
+];
+const GAME_ASK = /^(?:how|what|why|when|where|who|which|is|are|does|did)\b/;
+
+function readGameTurn(m: string): AppsTurn | null {
+  if (GAME_LAST.test(m)) return { kind: "gameLast" };
+  if (GAME_ASK.test(m)) return null;
+  if (GM_OFF.test(m)) return { kind: "gameMode", on: false };
+  if (GM_ON.test(m)) return { kind: "gameMode", on: true };
+  for (const [op, res] of [["add", KEEP_ADD], ["remove", KEEP_REMOVE]] as const) {
+    for (const re of res) {
+      const hit = re.exec(m);
+      const names = splitNames((hit?.[1] ?? "").replace(/\bor\b/g, "and")).filter(appish);
+      if (hit && names.length) return { kind: "gameKeep", op, names };
+    }
+  }
+  return null;
+}
+
 export function readAppsTurn(message: string): AppsTurn | null {
   const m = flat(message).replace(/[.!]+$/, "");
   if (!m || m.length > 220) return null;
+  const game = readGameTurn(m);
+  if (game) return game;
   const asks = ASK.test(m);
   if (LIST.some((re) => re.test(m)) && !/\b(?:close|quit|kill)\b/.test(m)) return { kind: "list" };
   if (asks) return null;

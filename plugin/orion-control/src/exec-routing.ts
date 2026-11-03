@@ -123,7 +123,7 @@ export function routeForDoomedExec(command: string): ExecRoute | undefined {
     return {
       reason:
         "`orion-bedtime-act quit-app` is only for the bedtime nudge. To see or close apps, use the full path to " +
-        "`/Users/nickmadaio/Desktop/ORION/scripts/orion-apps`: `list`, `quit <app...>`, `quit-unused [--keep a,b]`, `hide <app>`. " +
+        "`/Users/nickmadaio/Desktop/ORION/scripts/orion-apps`: `list`, `quit <app...>`, `quit-unused [--keep a,b]`, `hide <app>`, `game-prep [keep add|remove <app>]`. " +
         "It closes them until they are really gone, and you do not need to ask first.",
     };
   }

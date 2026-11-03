@@ -11,6 +11,8 @@ struct BubbleThreadView: View {
     var width: CGFloat = 260
     /// Called with true for "Set up", false for "Not now" (the new-mouse question).
     var onMouseAnswer: ((Bool) -> Void)?
+    /// Called with true for "Reopen", false for "No" (the game-over question).
+    var onGameReopen: ((Bool) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -19,6 +21,13 @@ struct BubbleThreadView: View {
                 HStack(spacing: 8) {
                     ProjectBubble(text: "Set up", symbol: "computermouse", action: { onMouseAnswer(true) })
                     ProjectBubble(text: "Not now", hue: OrionTheme.textSoft, action: { onMouseAnswer(false) })
+                }
+                .padding(.leading, 12)
+            }
+            if thread.offersGameReopen, thread.state == .shown, let onGameReopen {
+                HStack(spacing: 8) {
+                    ProjectBubble(text: "Reopen", symbol: "arrow.uturn.backward", action: { onGameReopen(true) })
+                    ProjectBubble(text: "No", hue: OrionTheme.textSoft, action: { onGameReopen(false) })
                 }
                 .padding(.leading, 12)
             }

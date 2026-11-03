@@ -499,6 +499,8 @@ final class AppState: ObservableObject {
     private var pausedSeedWasRoom = false
     /// Paused turns whose interruption was room speech: their answers go to the chat whenever they land (PausedAnswerLanding.swift).
     private var orphanedAnswers = OrphanedAnswers()
+    /// w17: what a barge-in stopped or held back, said again if the address gate then refuses the speech.
+    private var bargeRecovery = RefusedBargeInRecovery.none
     /// What the turn now at the gateway asked, and what the paused one asked (TurnRelation.swift compares them).
     private var liveTurnText = ""
     private var pausedTurnText = ""
@@ -868,6 +870,7 @@ final class AppState: ObservableObject {
             return
         }
         spokenFailures = spokenFailures.recording(text, at: spokenAt)
+        bargeRecovery = .none
         // Only a question whose answer is needed is asked twice; a chatty or rhetorical "?" in a reply is not (review 8).
         if SpokenQuestionFollowUp.needsAnswer(text) { questionFollowUp.arm(text: text) }
         setPhase(.speaking)
@@ -1375,6 +1378,13 @@ final class AppState: ObservableObject {
         }
         // His own voice through the speakers is not Nick interrupting (2026-09-29:
         // he cut himself off mid-sentence and started listening to himself).
+        // w17 (2026-11-03 10:51): "Still working" / "Let me" were his own cues. Judged first, against every voice of his that
+        // is playing or just ended; it never interrupts, pauses or opens a turn.
+        if CueEcho.isEcho(heard: heardText, voices: ownRecentVoices()) {
+            OrionLog.write("[bargein] ignored — self-echo of ORION's own voice (\(heardText.count) chars)")
+            AddressDecisionLog.record(AddressDecisionLog.selfEchoLine(text: heardText, opening: .bargeIn, at: Date()))
+            return
+        }
         let cueEcho = Date().timeIntervalSince(voiceCue.lastEndedAt) < 2.5 || voiceCue.isPlaying
         let echo = (phase == .speaking
             ? SelfEcho.isEchoWhileSpeaking(heard: heardText, spoken: speechOutput.lastSpokenText)
@@ -1388,6 +1398,8 @@ final class AppState: ObservableObject {
         case .speaking:
             OrionLog.write("[bargein] confident speech during .speaking — stopping to listen")
             markLastReplyInterrupted()
+            let cutOff = speechOutput.currentText.isEmpty ? speechOutput.lastSpokenText : speechOutput.currentText
+            bargeRecovery = bargeRecovery.interrupting(cutOff)
             speechOutput.stop(reason: "spoken barge-in")
             hologram.setLevel(0)
             conversationOpen = true
@@ -1415,6 +1427,14 @@ final class AppState: ObservableObject {
         default:
             break
         }
+    }
+
+    /// Everything ORION is saying or said in the last few seconds, cue or reply: what the mic may be hearing back.
+    private func ownRecentVoices(tail: TimeInterval = 6) -> [String] {
+        var voices = [speechOutput.currentText, voiceCue.currentText]
+        if speechOutput.recentlySpoke(within: tail) { voices.append(speechOutput.lastSpokenText) }
+        if voiceCue.isPlaying || Date().timeIntervalSince(voiceCue.lastEndedAt) < tail { voices.append(voiceCue.lastText) }
+        return voices.filter { !$0.isEmpty }
     }
 
     /// Records the most recent Orion reply as cut off, for "continue what you
@@ -1907,13 +1927,15 @@ final class AppState: ObservableObject {
     /// sent rather than dropped, which is the same "never lose the words"
     /// rule `handleFinalTranscript` follows.
     /// A paused answer still held for "continue" goes to the bubble and the saved chat: the exchange it waited on is over.
-    private func landHeldPausedAnswer() {
-        guard let paused = pausedReplacementText else { return }
+    @discardableResult
+    private func landHeldPausedAnswer() -> String? {
+        guard let paused = pausedReplacementText else { return nil }
         pausedReplacementText = nil
         pausedGeneration = nil
         pausedSeedWasRoom = false
         append(.orion, paused)
         saveChat(.orion, text: paused)
+        return paused
     }
 
     private func endConversation() {
@@ -2068,9 +2090,29 @@ final class AppState: ObservableObject {
             pausedSeedWasRoom = true
             orphanedAnswers = orphanedAnswers.adding(paused)
         }
-        landHeldPausedAnswer()
+        let landed = landHeldPausedAnswer()
         weakAdmitsInARow = 0
         endConversation()
+        resumeAfterRefusedBargeIn(landedAnswer: landed)
+    }
+
+    /// w17: a refused barge-in is a no-op for speech. What it stopped is said again, or the answer it held back is said now.
+    private func resumeAfterRefusedBargeIn(landedAnswer: String?) {
+        let (resume, next) = bargeRecovery.refused()
+        bargeRecovery = next
+        let text = landedAnswer ?? resume
+        guard let text, phase == .idle,
+              RefusedAnswerLanding.on(allowsSpeech: activeReplyOrigin.allowsSpeech, idle: true) == .speak else { return }
+        OrionLog.write("[bargein] refused — saying the reply (\(text.count) chars) after all")
+        unmarkInterrupted()
+        interruptedReplyText = nil
+        speak(text, origin: activeReplyOrigin)
+    }
+
+    private func unmarkInterrupted() {
+        guard let index = turns.lastIndex(where: { $0.role == .orion }),
+              turns[index].text.hasSuffix(" [interrupted]") else { return }
+        turns[index].text = String(turns[index].text.dropLast(" [interrupted]".count))
     }
 
     /// "Don't reply unless I say Orion", "I'm rehearsing": acknowledged once,
@@ -2296,6 +2338,7 @@ final class AppState: ObservableObject {
         let tappedReply = OutreachReplyTo.take()
         InboundTurnLog.record(text: text, replyTo: tappedReply, session: chatConversation.map { "orion-chat-" + $0.id } ?? GatewayClient.sessionKey)
         questionFollowUp.answered()
+        bargeRecovery = bargeRecovery.admitted()
         repeatFollowUpGrace = nil
         let origin: ReplyOrigin = typed ? .typed : .voice
         activeReplyOrigin = origin
@@ -2401,6 +2444,7 @@ final class AppState: ObservableObject {
                         OrionLog.write("[think] paused answer landed after a newer turn — shown in the chat (\(reply.text.count) chars)")
                         self.append(.orion, reply.text)
                         self.saveChat(.orion, text: reply.text, thinking: reply.thinking)
+                        self.speakRefusedPauseAnswer(reply.text, origin: origin)
                     }
                     self.releaseAnswers(after: generation)
                     return
@@ -2412,6 +2456,7 @@ final class AppState: ObservableObject {
                     // between `pauseThinking` and `cancelThinking`.
                     if self.pausedGeneration == generation, case .success(let reply) = result {
                         self.pausedGeneration = nil
+                        let wasRoom = self.pausedSeedWasRoom
                         // w16 (2026-11-02 23:01): held only while he is finishing his sentence; otherwise it is his answer, now.
                         switch PausedAnswerLanding.on(seedWasRoom: self.pausedSeedWasRoom, listening: self.phase == .listening) {
                         case .bubble:
@@ -2419,6 +2464,7 @@ final class AppState: ObservableObject {
                             OrionLog.write("[think] paused answer landed — shown in the chat (\(reply.text.count) chars)")
                             self.append(.orion, reply.text)
                             self.saveChat(.orion, text: reply.text, thinking: reply.thinking)
+                            if wasRoom { self.speakRefusedPauseAnswer(reply.text, origin: origin) }
                         case .hold:
                             self.pausedReplacementText = reply.text
                             self.append(.system, "(The paused answer is ready — say \"continue\" to hear it.)")
@@ -2441,6 +2487,13 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    /// w17 (2026-11-03 10:51): the speech that paused this turn was refused, so its answer is still said, unless a newer turn is live.
+    private func speakRefusedPauseAnswer(_ text: String, origin: ReplyOrigin) {
+        guard RefusedAnswerLanding.on(allowsSpeech: origin.allowsSpeech, idle: phase == .idle) == .speak else { return }
+        OrionLog.write("[think] paused answer landed after refused speech — saying it (\(text.count) chars)")
+        speak(text, origin: origin)
     }
 
     /// The later answer waits for the earlier one, but never longer than `AnswerOrder.patience`.
@@ -2639,6 +2692,7 @@ final class AppState: ObservableObject {
         replyHold = next
         guard let text else { return false }
         interruptedReplyText = text
+        bargeRecovery = bargeRecovery.interrupting(text)
         return true
     }
 

@@ -81,3 +81,19 @@ enum AddressDecisionLog {
         }
     }
 }
+
+extension AddressDecisionLog {
+    /// Speech that was ORION's own voice, recognised before it could open a turn (w17).
+    static func selfEchoLine(text: String, opening: VoiceTurnOpening, at date: Date) -> String {
+        let record: [String: Any] = [
+            "at": ISO8601DateFormatter().string(from: date),
+            "opening": openingName(opening),
+            "outcome": "selfEcho",
+            "addressed": false,
+            "text": String(text.prefix(maxTextChars)),
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]),
+              let line = String(data: data, encoding: .utf8) else { return "{}" }
+        return line
+    }
+}

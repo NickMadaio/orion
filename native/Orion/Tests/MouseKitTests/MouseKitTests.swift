@@ -166,6 +166,45 @@ final class MouseKitTests: XCTestCase {
         XCTAssertFalse(t.shouldSwallowUp(5))          // pass-through down forgets a stale entry
     }
 
+    // MARK: setup popup
+
+    func testSuggestedDefaultsAndEffective() {
+        let b = BindingsFile()
+        XCTAssertEqual(MouseSetupPlan.effective(4, in: b), .system("stageManager"))
+        XCTAssertEqual(MouseSetupPlan.effective(3, in: b), .system("missionControl"))
+        XCTAssertNil(MouseSetupPlan.effective(5, in: b))
+        XCTAssertEqual(MouseSetupPlan.effective(4, in: b.settingDefault(4, .system("showDesktop"))), .system("showDesktop"))
+    }
+    func testFinalizeKeepsEditsAndFillsSuggestions() {
+        let b = MouseSetupPlan.finalized(BindingsFile().settingDefault(3, .system("desktopLeft")), buttons: [3, 4, 5])
+        XCTAssertEqual(b.default["3"], .system("desktopLeft"))
+        XCTAssertEqual(b.default["4"], .system("stageManager"))
+        XCTAssertNil(b.default["5"])
+    }
+    func testConfirmationLine() {
+        XCTAssertEqual(MouseSetupPlan.confirmation(BindingsFile(), buttons: [3, 4]),
+                       "Set. Back: Mission Control, front: Stage Manager.")
+        XCTAssertEqual(MouseSetupPlan.confirmation(BindingsFile().settingDefault(3, .passthrough).settingDefault(4, .passthrough), buttons: [3, 4]),
+                       "Okay, nothing set. The buttons stay as they were.")
+    }
+    func testKicker() { XCTAssertEqual(MouseSetupPlan.kicker(deviceName: "Razer Basilisk V3"), "MOUSE · RAZER BASILISK V3") }
+
+    func testOutreachTailIgnoresOldAndPartialLines() {
+        let old = Data("{\"kind\":\"mouse\",\"event\":\"setup-open\"}\n".utf8)
+        var r = OutreachTail.newLines(in: old, after: old.count)
+        XCTAssertTrue(r.lines.isEmpty)
+        let more = old + Data("{\"kind\":\"info\"}\n{\"kind\":\"mouse\",\"event\":\"setup-open\",\"x\":1}".utf8)
+        r = OutreachTail.newLines(in: more, after: old.count)
+        XCTAssertEqual(r.lines.count, 1)
+        XCTAssertFalse(OutreachTail.isSetupOpen(r.lines[0]))
+        let done = more + Data("\n".utf8)
+        r = OutreachTail.newLines(in: done, after: r.offset)
+        XCTAssertEqual(r.lines.count, 1)
+        XCTAssertTrue(OutreachTail.isSetupOpen(r.lines[0]))
+        XCTAssertEqual(OutreachTail.newLines(in: Data("a\n".utf8), after: 99).lines, ["a"])
+        XCTAssertFalse(OutreachTail.isSetupOpen("{\"kind\":\"mouse\",\"event\":\"asked\"}"))
+    }
+
     // MARK: store
 
     func testStoreAtomicRoundTripAndMerge() throws {

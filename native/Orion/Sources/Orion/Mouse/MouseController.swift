@@ -21,6 +21,11 @@ final class MouseController: ObservableObject {
     /// Delivers ORION's question as the proactive bubble; the id is the outreach record's id.
     var onAsk: ((String, String) -> Void)?
     var onOrionCommand: ((String) -> Void)?
+    /// `orion-mouse setup` (chat) or orion://mouse-setup: open the setup popup.
+    var onSetupRequested: (() -> Void)?
+    /// While the setup popup is open, presses are swallowed and identify rows but do not run their actions.
+    private(set) var setupOpen = false
+    private var outreachOffset = 0
 
     private let store: MouseStore
     private let watcher = MouseDeviceWatcher()
@@ -37,8 +42,10 @@ final class MouseController: ObservableObject {
 
     func start() {
         devices = store.loadDevices()
+        outreachOffset = (try? Data(contentsOf: outreachURL))?.count ?? 0   // old lines are history
         loadBindingsFromDisk()
         remapper.onAction = { [weak self] action, _ in
+            guard self?.setupOpen == false else { return }
             MouseActions.run(action) { self?.onOrionCommand?($0) }
         }
         remapper.onObserved = { [weak self] button in self?.observed(button) }
@@ -71,6 +78,30 @@ final class MouseController: ObservableObject {
     func setAutoGames(_ on: Bool) { change { var b = $0; b.autoPassthroughGames = on; return b } }
     func setEnabled(_ on: Bool) { change { var b = $0; b.enabled = on; return b } }
     func clearLastPressed() { lastPressed = nil }
+
+    /// Re-reads both files without starting the watcher or the tap (previews and tests).
+    func reload() { devices = store.loadDevices(); loadBindingsFromDisk() }
+    func highlight(_ button: Int?) { lastPressed = button }
+
+    private var outreachURL: URL { MouseStore.defaultControlledDir().appendingPathComponent("outreach.jsonl") }
+
+    func setSetupOpen(_ open: Bool) { setupOpen = open; if !open { lastPressed = nil } }
+
+    /// Done: saves the suggested defaults left untouched, marks the device configured, returns the confirmation line.
+    func finishSetup() -> String {
+        let buttons = Array(Set(devices.devices.filter(\.connected).flatMap(\.extraButtons)).union(bindings.default.keys.compactMap(Int.init))).sorted()
+        change { MouseSetupPlan.finalized($0, buttons: buttons) }
+        markConfigured()
+        return MouseSetupPlan.confirmation(bindings, buttons: buttons)
+    }
+
+    /// New `setup-open` lines appended to outreach.jsonl since launch (the chat side's trigger).
+    private func checkSetupRequests() {
+        guard let data = try? Data(contentsOf: outreachURL) else { return }
+        let (lines, next) = OutreachTail.newLines(in: data, after: outreachOffset)
+        outreachOffset = next
+        if lines.contains(where: OutreachTail.isSetupOpen) { onSetupRequested?() }
+    }
 
     func requestAccessibility() {
         Permissions.promptForAccessibility()
@@ -120,6 +151,7 @@ final class MouseController: ObservableObject {
     }
 
     private func tick() {
+        checkSetupRequests()
         let stamp = modified(store.bindingsURL)
         if stamp != bindingsStamp { loadBindingsFromDisk() }
         let trusted = Permissions.accessibilityTrusted
@@ -178,6 +210,9 @@ final class MouseController: ObservableObject {
 
     private func observed(_ button: Int) {
         lastPressed = button
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+            if self?.lastPressed == button { self?.lastPressed = nil }
+        }
         update(devices: { DeviceRegistry.observed(button: button, into: $0) })
     }
 

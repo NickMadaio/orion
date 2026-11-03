@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /*
@@ -13,6 +14,38 @@ struct ProjectPickItem: Identifiable, Equatable {
     var badges: [String] = []
     /// Shown in orange with a "missing" tag: the choice exists in a record but not on this machine.
     var missing = false
+}
+
+/// Sizes the popover to its longest model name. Pure so a test can pin it.
+enum ProjectPickLayout {
+    static let minWidth: CGFloat = 320
+    static let maxWidth: CGFloat = 560
+    static let maxListHeight: CGFloat = 520
+    /// Check column, gaps and side padding around a row's text.
+    static let rowChrome: CGFloat = 14 + 12 + 9 + 9 + 6 + 14 + 8
+
+    static func textWidth(_ text: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: NSFont.monospacedSystemFont(ofSize: size, weight: weight)]).width)
+    }
+
+    /// Wide enough for the longest title (and its badges), never below `minWidth` or above `maxWidth`.
+    static func listWidth(for items: [ProjectPickItem]) -> CGFloat {
+        let widest = items.map { item -> CGFloat in
+            let badges = (item.badges + (item.missing ? ["missing"] : []))
+                .reduce(CGFloat(0)) { $0 + textWidth($1, size: 8.5, weight: .semibold) + 14 + 9 }
+            return textWidth(item.title, size: 11.5, weight: .semibold) + badges
+        }.max() ?? 0
+        return min(maxWidth, max(minWidth, widest + rowChrome))
+    }
+
+    /// Tall enough to show every row up to a cap, after which the list scrolls.
+    static func listHeight(for items: [ProjectPickItem]) -> CGFloat {
+        min(maxListHeight, naturalHeight(items))
+    }
+    static func needsScroll(_ items: [ProjectPickItem]) -> Bool { naturalHeight(items) > maxListHeight }
+    private static func naturalHeight(_ items: [ProjectPickItem]) -> CGFloat {
+        items.reduce(CGFloat(0)) { $0 + ($1.detail == nil ? 27 : 42) }
+    }
 }
 
 /// The list itself: a "Default" row first when there is one, then the items, the current one checked.
@@ -38,7 +71,13 @@ struct ProjectPickList: View {
             if items.isEmpty {
                 Text(emptyText).font(.system(size: 12)).foregroundStyle(OrionTheme.textDim).padding(.horizontal, 14).padding(.vertical, 8)
             }
-            ForEach(items) { item in row(item, checked: selection == item.id, key: item.id) }
+            // Scrolls only once the rows would pass the height cap; shorter lists lay out plainly.
+            if ProjectPickLayout.needsScroll(items) {
+                ScrollView(.vertical, showsIndicators: false) { rows }
+                    .frame(height: ProjectPickLayout.listHeight(for: items))
+            } else {
+                rows
+            }
             if let onRefresh {
                 Rectangle().fill(OrionTheme.line).frame(height: 0.8).padding(.vertical, 5).padding(.horizontal, 12)
                 Button(action: onRefresh) {
@@ -53,8 +92,14 @@ struct ProjectPickList: View {
             }
         }
         .padding(.vertical, 8)
-        .frame(width: 330, alignment: .leading)
+        .frame(width: ProjectPickLayout.listWidth(for: items + (defaultRow.map { [$0] } ?? [])), alignment: .leading)
         .background(OrionTheme.ink)
+    }
+
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(items) { item in row(item, checked: selection == item.id, key: item.id) }
+        }
     }
 
     private func row(_ item: ProjectPickItem, checked: Bool, key: String) -> some View {
@@ -63,7 +108,8 @@ struct ProjectPickList: View {
                 Image(systemName: "checkmark").font(.system(size: 9.5, weight: .bold))
                     .foregroundStyle(OrionTheme.accent).opacity(checked ? 1 : 0).frame(width: 12)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title).font(OrionTheme.mono(11.5, checked ? .semibold : .medium)).lineLimit(1)
+                    Text(item.title).font(OrionTheme.mono(11.5, checked ? .semibold : .medium)).lineLimit(1).truncationMode(.middle)
+                        .help(item.title)
                         .foregroundStyle(item.missing ? OrionTheme.orange : OrionTheme.text)
                     if let detail = item.detail { Text(detail).font(.system(size: 10.5)).foregroundStyle(OrionTheme.textDim).lineLimit(1) }
                 }
@@ -132,8 +178,9 @@ struct PillFace: View {
     var body: some View {
         let hue = missing ? OrionTheme.orange : OrionTheme.accent
         HStack(spacing: 8) {
-            Text(label).font(OrionTheme.mono(11, .medium)).lineLimit(1).foregroundStyle(OrionTheme.text)
-            if let note { Text(note).font(OrionTheme.mono(9)).foregroundStyle(noteHue).lineLimit(1) }
+            Text(label).font(OrionTheme.mono(11, .medium)).lineLimit(1).truncationMode(.middle)
+                .foregroundStyle(OrionTheme.text).layoutPriority(2).help(label)
+            if let note { Text(note).font(OrionTheme.mono(9)).foregroundStyle(noteHue).lineLimit(1).truncationMode(.middle).layoutPriority(1) }
             Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
                 .foregroundStyle(OrionTheme.textSoft).rotationEffect(.degrees(open ? 180 : 0))
         }

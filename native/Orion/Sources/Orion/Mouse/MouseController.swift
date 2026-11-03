@@ -18,6 +18,16 @@ final class MouseController: ObservableObject {
     @Published private(set) var lastPressed: Int?
     @Published private(set) var frontmost: (bundleId: String, name: String)?
 
+    /// A game is running (w18 gamemode): every binding passes through until it quits, whatever app is in front.
+    @Published private(set) var gameSession = GameSession.idle
+    /// Closing unneeded apps when a game opens. On unless switched off; the keep list lives in game-prep.json.
+    @Published private(set) var autoPrep = true
+    /// "Game mode: closed Chrome ... Mouse shortcuts paused." for the bubble.
+    var onGameStarted: ((String) -> Void)?
+    /// "Game over — want me to reopen Chrome and Slack?" (only when apps were closed).
+    var onGameOver: ((String) -> Void)?
+    private var reopenApps: [ClosedApp] = []
+
     /// Delivers ORION's question as the proactive bubble; the id is the outreach record's id.
     var onAsk: ((String, String) -> Void)?
     var onOrionCommand: ((String) -> Void)?
@@ -28,6 +38,8 @@ final class MouseController: ObservableObject {
     private var outreachOffset = 0
 
     private let store: MouseStore
+    private let sessionStore = GameSessionStore(controlledDir: MouseStore.defaultControlledDir())
+    private let prepConfig = GamePrepConfigStore(controlledDir: MouseStore.defaultControlledDir())
     private let watcher = MouseDeviceWatcher()
     private let remapper = MouseRemapper()
     private var activationToken: NSObjectProtocol?
@@ -44,6 +56,7 @@ final class MouseController: ObservableObject {
         devices = store.loadDevices()
         outreachOffset = (try? Data(contentsOf: outreachURL))?.count ?? 0   // old lines are history
         loadBindingsFromDisk()
+        autoPrep = prepConfig.autoPrep()
         remapper.onAction = { [weak self] action, _ in
             guard self?.setupOpen == false else { return }
             MouseActions.run(action) { self?.onOrionCommand?($0) }
@@ -76,6 +89,15 @@ final class MouseController: ObservableObject {
     func setApp(_ bundleId: String, button: Int, _ action: MouseAction?) { change { $0.settingApp(bundleId, button: button, action) }; markConfigured() }
     func togglePassthrough(_ bundleId: String) { change { $0.togglingPassthrough(bundleId) } }
     func setAutoGames(_ on: Bool) { change { var b = $0; b.autoPassthroughGames = on; return b } }
+    func setAutoPrep(_ on: Bool) {
+        do { try prepConfig.setAutoPrep(on) } catch { OrionLog.write("[game] could not save the auto-prep setting: \(error.localizedDescription)") }
+        autoPrep = prepConfig.autoPrep()
+    }
+    /// Reopen / No on the game-over bubble.
+    func answerReopen(_ yes: Bool) {
+        if yes { GamePrepRunner.reopen(reopenApps) }
+        reopenApps = []
+    }
     func setEnabled(_ on: Bool) { change { var b = $0; b.enabled = on; return b } }
     func clearLastPressed() { lastPressed = nil }
 
@@ -159,6 +181,8 @@ final class MouseController: ObservableObject {
         if trusted != accessibilityGranted || (trusted && !remapper.isRunning) { refreshTap() }
         // Games go fullscreen, and Java windows get their title, after activation: re-check about once a second.
         activated(NSWorkspace.shared.frontmostApplication)
+        checkGameAlive()
+        let new = prepConfig.autoPrep(); if new != autoPrep { autoPrep = new }
         let disk = store.loadDevices()
         if disk != devices { devices = disk }
     }
@@ -173,10 +197,54 @@ final class MouseController: ObservableObject {
         let facts = Self.facts(for: app)
         let game = GameClassifier.isGame(facts)
         let id = app.bundleIdentifier
+        if game { feedGame(.frontmost(Self.gameRef(for: app, facts: facts), isGame: true, now: Self.now())) }
         if let id, frontmost?.bundleId != id { frontmost = (id, app.localizedName ?? id) }
         guard id != lastBundle || game != lastGame else { return }
         lastBundle = id; lastGame = game
         remapper.update { var s = $0; s.bundleId = id; s.isGame = game; return s }
+    }
+
+    // MARK: Game session
+
+    private static func now() -> String { ISO8601DateFormatter().string(from: Date()) }
+
+    private static func gameRef(for app: NSRunningApplication, facts: GameClassifier.Facts) -> GameRef {
+        let raw = app.localizedName ?? app.bundleIdentifier ?? "game"
+        let name = facts.isJavaProcess ? "Minecraft" : raw
+        let bundle = app.bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 }
+        return GameRef(name: name, bundleId: bundle, key: bundle ?? raw, pid: app.processIdentifier)
+    }
+
+    /// The session ends when its processes are gone, not when the game loses focus.
+    private func checkGameAlive() {
+        guard gameSession.active else { return }
+        let alive = Set(gameSession.pids.filter { kill($0, 0) == 0 || errno == EPERM })
+        feedGame(.alive(alive, now: Self.now()))
+    }
+
+    private func feedGame(_ event: GameSessionEvent) {
+        let (next, effect) = GameSessionMachine.reduce(gameSession, event)
+        guard next != gameSession else { return }
+        gameSession = next
+        do { try sessionStore.save(next) } catch { OrionLog.write("[game] could not save the session: \(error.localizedDescription)") }
+        remapper.update { var s = $0; s.gameSession = next.active; return s }
+        switch effect {
+        case .started(let game): gameStarted(game)
+        case .ended: gameEnded()
+        case nil: break
+        }
+    }
+
+    private func gameStarted(_ game: GameRef) {
+        OrionLog.write("[game] session started: \(game.name)")
+        guard autoPrep else { onGameStarted?(GameWords.started(headline: nil)); return }
+        GamePrepRunner.run(game: game) { [weak self] headline in self?.onGameStarted?(GameWords.started(headline: headline)) }
+    }
+
+    private func gameEnded() {
+        OrionLog.write("[game] session ended")
+        reopenApps = sessionStore.prep()?.closed ?? []
+        if let question = GameWords.gameOver(reopenApps) { onGameOver?(question) }
     }
 
     private static func facts(for app: NSRunningApplication) -> GameClassifier.Facts {

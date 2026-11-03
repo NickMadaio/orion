@@ -145,6 +145,7 @@ final class AppState: ObservableObject {
     /// A Settings section to open (set with `requestedTab = .settings`); SettingsTab expands it and clears this.
     @Published var requestedSettingsSection: String?
     var onMouseAnswered: ((Bool) -> Void)?
+    var onGameReopenAnswered: ((Bool) -> Void)?
     var onWantsDashboard: (() -> Void)?
 
     @Published private(set) var gatewayHealth = GatewayHealthSnapshot.initial
@@ -587,6 +588,23 @@ final class AppState: ObservableObject {
         bubble = nil
         reachClear?.cancel(); reachClear = nil
         onMouseAnswered?(setUp)
+    }
+
+    /// Game mode's two lines. Always a silent bubble: a fullscreen game is never talked over.
+    func deliverGameLine(_ text: String) {
+        deliverReach(text, aloud: false, headphones: false, keepFor: 30, kind: "game")
+    }
+
+    /// "Game over — want me to reopen ...?" with Reopen / No pills on the bubble.
+    func deliverGameOver(_ text: String) {
+        deliverReach(text, aloud: false, headphones: false, keepFor: 600, kind: "game")
+        if bubble != nil { bubble?.offersGameReopen = true }
+    }
+
+    func answerGameReopen(_ yes: Bool) {
+        bubble = nil
+        reachClear?.cancel(); reachClear = nil
+        onGameReopenAnswered?(yes)
     }
 
     func deliverReach(_ text: String, aloud: Bool, headphones: Bool, loud: Bool = false, listen: Bool = false, reachID: String? = nil, keepFor: TimeInterval = 120,

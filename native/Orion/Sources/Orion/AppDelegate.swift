@@ -176,9 +176,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if setUp { self?.openMouseSetup() } else { self?.mouse.answerAsk(setUp: false) }
         }
         mouse.onSetupRequested = { [weak self] in self?.openMouseSetup() }
+        mouse.onGameStarted = { [weak self] text in self?.state.deliverGameLine(text) }
+        mouse.onGameOver = { [weak self] text in self?.state.deliverGameOver(text) }
+        state.onGameReopenAnswered = { [weak self] yes in self?.mouse.answerReopen(yes) }
         state.onWantsDashboard = { [weak self] in self?.textWindowController.show() }
         mouseBubbleWatch = state.$bubble.receive(on: DispatchQueue.main).sink { bubble in
-            PanelHitRegion.bubbleActionReach = (bubble?.offersMouseSetup == true && bubble?.state == .shown) ? 120 : 0
+            PanelHitRegion.bubbleActionReach = ((bubble?.offersMouseSetup == true || bubble?.offersGameReopen == true) && bubble?.state == .shown) ? 120 : 0
         }
         mouse.start()
     }

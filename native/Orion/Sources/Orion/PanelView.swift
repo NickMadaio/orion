@@ -42,7 +42,7 @@ struct PanelView: View {
             // ORION started this one (orion-reach): a readable bubble, no sound unless he chose aloud. A reply typed
             // below answers it, and the answer shows here as a mini-thread (W16-d).
             if let thread = state.bubble {
-                BubbleThreadView(thread: thread, width: 260, onMouseAnswer: state.answerMouseAsk)
+                BubbleThreadView(thread: thread, width: 260, onMouseAnswer: state.answerMouseAsk, onGameReopen: state.answerGameReopen)
                     .padding(.bottom, 8)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }

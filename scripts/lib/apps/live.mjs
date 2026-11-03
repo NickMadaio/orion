@@ -126,6 +126,17 @@ export function liveSource() {
     hide: (app) => jxa(signalJs(app.pid, "hide")).trim() === "true",
     signal: (pid, sig) => { if (pid > 1 && !mine.has(pid)) { try { process.kill(pid, sig); } catch { /* already gone */ } } },
     windowCount: (app) => windows().filter(([p, on]) => p === app.pid && on).length,   // visible ones: a sheet or prompt is on screen
+    // The apps a game was started from (Steam for a Steam game): its parent chain, never past launchd.
+    lineage: (app) => {
+      const table = procs(), parent = new Map(table.map((p) => [p.pid, p.ppid])), out = [];
+      for (let p = parent.get(app.pid); p && p > 1 && !out.includes(p); p = parent.get(p)) out.push(p);
+      return out;
+    },
+    // Resident memory in KB across the app's whole tree: what closing it gives back.
+    memoryKB: (app) => {
+      const rss = new Map(run("/bin/ps", ["-axo", "pid=,rss="]).split("\n").map((l) => /^\s*(\d+)\s+(\d+)/.exec(l)).filter(Boolean).map((m) => [Number(m[1]), Number(m[2])]));
+      return treeOf(app, procs(), entries(), mine).reduce((n, p) => n + (rss.get(p.pid) ?? 0), 0);
+    },
     ownsTree: (rest) => rest.some((p) => mine.has(p.pid)),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   };

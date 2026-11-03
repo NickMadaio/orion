@@ -7,6 +7,7 @@
    orion-mouse clear <button> [--app <bundleId|name>]            back to the button's normal behavior
    orion-mouse passthrough add|remove <bundleId|app name>        apps where the buttons are left alone (a game, say)
    orion-mouse games on|off                                      leave the buttons alone in games automatically
+   orion-mouse wheel games|always|never                          normal (not inverted) mouse wheel: in games, always, or never (trackpad untouched)
    orion-mouse setup [--again] [--json]                                    open the Mac's mouse-setup popup (appends {"kind":"mouse","event":"setup-open","at":ISO} to outreach.jsonl)
    orion-mouse setup --suggest|--apply [--json]                  list the extra buttons and suggest defaults; --apply writes them
 
@@ -17,11 +18,11 @@
  A missing button or action answers { asking, ask } and writes nothing. Reads/writes <controlled dir>/mouse/bindings.json (the contract in
  lib/mouse/store.mjs); never devices.json. ORION_CONTROLLED_DIR redirects the state. Exit 0 ok (or asking), 1 failed, 2 usage.
 */
-import { clearBinding, games, openSetup, passthrough, setBinding, setup, status } from "./lib/mouse/commands.mjs";
+import { clearBinding, games, openSetup, passthrough, setBinding, setup, status, wheel } from "./lib/mouse/commands.mjs";
 
 const argv = process.argv.slice(2);
 const json = argv.includes("--json");
-const USAGE = "usage: orion-mouse status | set <button> <action> [--app X] | clear <button> [--app X] | passthrough add|remove <app> | games on|off | setup [--suggest|--apply] [--json]";
+const USAGE = "usage: orion-mouse status | set <button> <action> [--app X] | clear <button> [--app X] | passthrough add|remove <app> | games on|off | wheel games|always|never | setup [--suggest|--apply] [--json]";
 
 const flags = new Set(["--json", "--apply"]);
 const positional = [];
@@ -41,6 +42,7 @@ function run() {
     case "clear": if (positional.length > 1) usage(); return clearBinding({ button: positional[0], ...(app !== undefined ? { app } : {}) });
     case "passthrough": if (positional.length !== 2) usage(); return passthrough({ op: positional[0], app: positional[1] });
     case "games": if (positional.length !== 1) usage(); return games({ state: positional[0] });
+    case "wheel": if (positional.length !== 1) usage(); return wheel({ mode: positional[0] });
     case "setup": return argv.includes("--suggest") || argv.includes("--apply") ? setup({ apply: argv.includes("--apply") }) : openSetup({ again: argv.includes("--again") });
     default: return usage();
   }

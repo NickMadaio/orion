@@ -9,6 +9,7 @@
    clear        "unbind the back button", "put the front button back to normal"
    passthrough  "dont do anything in minecraft", "leave the mouse alone in photoshop", "stop ignoring the mouse in minecraft"
    games        "turn off game detection"
+   wheel        "make my scroll wheel normal" (always), "normal scrolling when gaming" (games), "leave my mouse wheel alone" (never)
    setup        "set up my new mouse", or a yes to ORION's own "I see a new mouse, want to set it up?"
    apply        a yes to the suggested defaults the setup listed
    decline      a no to either of those (answered here, nothing runs)
@@ -25,6 +26,7 @@ export type MouseTurn =
   | { kind: "clear"; button: string; app?: string }
   | { kind: "passthrough"; op: "add" | "remove"; app: string }
   | { kind: "games"; state: "on" | "off" }
+  | { kind: "wheel"; mode: "games" | "always" | "never" }
   | { kind: "setup"; again?: true }
   | { kind: "apply" }
   | { kind: "decline" }
@@ -61,6 +63,25 @@ const QUESTION = /^(?:what|which|how|is|are|does|do you|can you tell|tell me|sho
 const STATUS_WORD = /\b(?:set to|bound|mapped|doing|does|do|settings?|bindings?|configured|assigned|currently|right now|status|each|all)\b/i;
 const CLEAR_VERB = /\b(?:unbind|unmap|clear|reset|remove|unassign|disable|back to (?:normal|default)|normal again|default again|stock)\b/i;
 const GAMES = /\bgames? (?:detection|mode)\b|\bauto[- ]?(?:ignore|passthrough|pass through)\b|\b(?:ignore|leave alone|pass through|dont touch|don'?t touch) (?:the |my )?(?:mouse|buttons?) (?:in|for|during) games\b/i;
+// The mouse wheel's direction (not the buttons): a wheel word, plus either "make it normal" or "leave it alone", and where (games or everywhere).
+const WHEEL_NOUN = /\b(?:(?:mouse|mous|mose)'?s? ?(?:wheel|scroll\w*)|scroll ?wheel|wheel scroll\w*|scroll(?:ing)? (?:direction )?(?:on|with|using) (?:my|the) (?:mouse|mose))\b/;
+const SCROLL_WORD = /\bscroll(?:ing)?\b/;
+const GAMING = /\b(?:gam(?:e|es|ing|er)|playing|minecraft|fortnite|valorant|roblox|overwatch|cs2|csgo|apex|genshin)\b/;
+const WHEEL_FIX = /\b(?:normal|natural|right way|correct|not (?:inverted|reversed|backwards?)|un-?invert\w*|invert\w*|revers\w*|flip\w*|backwards?|opposite|upside|weird|wrong way|wrong)\b/;
+const WHEEL_LEAVE = /\b(?:leave|hands off|dont touch|don'?t touch|stop (?:touching|fixing|changing|messing)|back to (?:how|what|the normal mac|the mac|macos)|how it was|put (?:it |them |the \w+ \w+ )?back|go back|revert|undo)\b/;
+const NOT_WHEEL = /\b(?:trackpad|touchpad|track pad|magic mouse|colou?rs?)\b/;
+const WHEEL_TALK = /^(?:how|why|what|which|is|are|does|do|can you tell|tell me|show|list|check)\b|\?\s*$/;
+
+/** "make my scroll wheel normal", "normal scrolling when gaming", "leave my mouse wheel alone": the wheel's mode, or null. */
+function readWheel(said: string): MouseTurn | null {
+  if (NOT_WHEEL.test(said) || WHEEL_TALK.test(said)) return null;
+  const gaming = GAMING.test(said);
+  if (!WHEEL_NOUN.test(said) && !(SCROLL_WORD.test(said) && gaming)) return null;
+  if (WHEEL_LEAVE.test(said)) return { kind: "wheel", mode: "never" };
+  if (!WHEEL_FIX.test(said)) return null;
+  return { kind: "wheel", mode: gaming ? "games" : "always" };
+}
+
 const OFF = /\b(?:off|disable|stop|dont|don'?t|do not|no longer|without|never)\b/i;
 const NEG = /\b(?:dont|don'?t|do not|never|stop|no|disable|ignore|leave|bypass|pass ?through|turn off)\b/i;
 const REMOVE = /\b(?:stop ignoring|stop leaving|stop disabling|re-?enable|turn (?:it|them|the \w+) back on|(?:work|working|active|on) again|should work|start working|work normally)\b/i;
@@ -143,6 +164,8 @@ function readOne(message: string, c: MouseContext): MouseTurn | null {
   }
   const mouseish = MOUSEISH.test(said);
   if (SETUP.test(said) && MOUSE.test(said) && !QUESTION.test(said)) return { kind: "setup" };
+  const wheel = readWheel(said);
+  if (wheel) return wheel;
   if (GAMES.test(said)) return { kind: "games", state: OFF.test(said) ? "off" : "on" };
   const app = lastIn(said);
   const anything = /\bdo (?:anything|stuff|a thing)\b/.test(said);

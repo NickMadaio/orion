@@ -14,6 +14,8 @@ const ORION_COMMANDS = ["summon", "talk", "dashboard", "type"];
 const BUNDLE = /^[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9][A-Za-z0-9-]*)+$/;
 const KEYS = /^(?:(?:cmd|ctrl|opt|shift|fn)\+)+[a-z0-9-=;',./`]$|^(?:(?:cmd|ctrl|opt|shift|fn)\+)+(?:space|tab|return|escape|delete|left|right|up|down|home|end|pageup|pagedown|f(?:[1-9]|1\d|20))$/;
 
+export const WHEEL_MODES = ["games", "always", "never"];
+
 export function validAction(a) {
   if (!a || typeof a !== "object") return false;
   switch (a.kind) {
@@ -50,10 +52,11 @@ export function assertBindings(b) {
   if (!b.apps || typeof b.apps !== "object" || Object.entries(b.apps).some(([id, m]) => !BUNDLE.test(id) || !validButtons(m))) bad("apps");
   if (!Array.isArray(b.passthroughApps) || b.passthroughApps.some((id) => !BUNDLE.test(id))) bad("passthroughApps");
   if (typeof b.autoPassthroughGames !== "boolean") bad("autoPassthroughGames");
+  if (b.reverseWheel !== undefined && !WHEEL_MODES.includes(b.reverseWheel)) bad("reverseWheel");
   return b;
 }
 
-export const emptyBindings = () => ({ version: 1, enabled: true, default: {}, apps: {}, passthroughApps: [], autoPassthroughGames: true });
+export const emptyBindings = () => ({ version: 1, enabled: true, default: {}, apps: {}, passthroughApps: [], autoPassthroughGames: true, reverseWheel: "always" });
 
 const readStrict = (path, fallback) => {
   if (!existsSync(path)) return fallback;

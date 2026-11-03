@@ -42,6 +42,14 @@ struct MouseSetupView: View {
                 Spacer()
                 ProjectRoundToggle(isOn: Binding(get: { mouse.bindings.autoPassthroughGames }, set: { mouse.setAutoGames($0) }))
             }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Normal mouse wheel").font(.system(size: 12.5, weight: .medium)).foregroundStyle(OrionTheme.text)
+                KnowledgeFlow(spacing: 6, lineSpacing: 6) {
+                    ForEach(ReverseWheelMode.allCases, id: \.self) { m in
+                        choice(MouseSetupPlan.wheelTitle(m), mouse.bindings.reverseWheel == m) { mouse.setReverseWheel(m) }
+                    }
+                }
+            }
             HStack(spacing: 8) {
                 ProjectBubble(text: "Done", symbol: "checkmark", action: onDone)
                 ProjectBubble(text: "Not now", hue: OrionTheme.textSoft, action: onNotNow)

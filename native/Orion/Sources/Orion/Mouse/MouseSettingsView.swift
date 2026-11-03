@@ -28,6 +28,7 @@ struct MouseSettingsView: View {
             toggleRow("Pass through in games",
                       detail: "Minecraft, anything categorised as a game, and fullscreen games keep every button as the game expects.",
                       isOn: Binding(get: { mouse.bindings.autoPassthroughGames }, set: { mouse.setAutoGames($0) }))
+            wheelRow(Binding(get: { mouse.bindings.reverseWheel }, set: { mouse.setReverseWheel($0) }))
             toggleRow("Get my Mac ready when a game opens",
                       detail: "Closes browsers, other launchers and background apps you don't need, and frees idle models. Discord, music and call apps stay. Ask me to keep or close any app.",
                       isOn: Binding(get: { mouse.autoPrep }, set: { mouse.setAutoPrep($0) }))
@@ -166,6 +167,35 @@ struct MouseSettingsView: View {
                 ProjectBubble(text: "Add \(front.name)", symbol: "plus") { mouse.togglePassthrough(front.bundleId) }
             }
         }
+    }
+
+    /// Normal mouse wheel: In games / Always / Never. Trackpads are never touched.
+    private func wheelRow(_ mode: Binding<ReverseWheelMode>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Normal mouse wheel").font(.system(size: 13, weight: .medium)).foregroundStyle(OrionTheme.text)
+            Text("Undoes the inverted scroll direction for a mouse wheel only. Your trackpad and the system setting stay as they are.")
+                .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim).fixedSize(horizontal: false, vertical: true)
+            KnowledgeFlow(spacing: 6, lineSpacing: 6) {
+                ForEach(ReverseWheelMode.allCases, id: \.self) { m in
+                    wheelPill(MouseSetupPlan.wheelTitle(m), mode.wrappedValue == m) { mode.wrappedValue = m }
+                }
+            }
+        }
+    }
+
+    private func wheelPill(_ text: String, _ on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 11.5, weight: on ? .semibold : .medium))
+                .foregroundStyle(on ? OrionTheme.text : OrionTheme.textSoft)
+                .padding(.horizontal, 11).padding(.vertical, 5)
+                .background(Capsule().fill(OrionTheme.accent.opacity(on ? 0.14 : 0)))
+                .overlay(Capsule().strokeBorder(on ? OrionTheme.accent.opacity(0.7) : Color.white.opacity(0.16), lineWidth: 0.8))
+                .shadow(color: on ? OrionTheme.accent.opacity(0.3) : .clear, radius: 5)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     private func toggleRow(_ title: String, detail: String, isOn: Binding<Bool>) -> some View {

@@ -83,7 +83,6 @@ struct DashboardView: View {
     /// day reads this rather than the civil date.
     @StateObject private var dayModel = DayModel()
     @StateObject private var briefWriter = NarrativeWriter()
-    @StateObject private var healthWriter = NarrativeWriter()
     @StateObject private var financeWriter = NarrativeWriter()
     @State private var briefPresentation: BriefPresentation = .parked
     @State private var sessionPreview: SessionPreview?
@@ -440,8 +439,7 @@ struct DashboardView: View {
                 KnowledgeView(store: knowledge, availableHeight: availableHeight)
             case .health:
                 HealthTab(state: state, whoop: whoop, health: health,
-                          connections: connections, day: dayModel.day,
-                          writer: healthWriter)
+                          connections: connections, day: dayModel.day)
             case .finance:
                 FinanceTab(connections: connections, plaid: plaid,
                            writer: financeWriter, day: dayModel.day)

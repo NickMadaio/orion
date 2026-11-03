@@ -41,23 +41,25 @@ final class Wave17HealthLineTests: XCTestCase {
         }
     }
 
-    func testClickPinsAndUnpinsAndBeatsHover() {
+    /// Wave 18 reversed the precedence this test used to pin ("a pinned part wins over the hovered one"): that is what
+    /// made hovering the other rings do nothing after one click. Hover now wins; the pin is what shows after leaving.
+    func testClickPinsAndUnpinsAndHoverStillWins() {
         let controller = HealthHoverController(grace: .milliseconds(10))
-        controller.enter(.recovery)
-        XCTAssertEqual(controller.current, .recovery)
         controller.toggle(.sleep)
-        XCTAssertEqual(controller.current, .sleep, "a pinned part wins over the hovered one")
+        XCTAssertEqual(controller.current, .sleep, "a click with no hover shows the clicked part")
+        controller.enter(.recovery)
+        XCTAssertEqual(controller.current, .recovery, "hovering another ring shows that ring")
         controller.toggle(.activity)
-        XCTAssertEqual(controller.current, .activity, "clicking another ring moves the pin")
+        XCTAssertEqual(controller.pinned, .activity, "clicking another ring moves the pin")
         controller.toggle(.activity)
-        XCTAssertEqual(controller.current, .recovery, "unpinning falls back to the hover")
+        XCTAssertNil(controller.pinned, "clicking it again unpins")
+        XCTAssertEqual(controller.current, .recovery)
     }
 
     func testRendersHealthPageWithTheNewLine() throws {
         try TabRender.write("w17f-health-today-line", TabRender.page(.health) {
             HealthTab(state: AppState(), whoop: TabRender.whoop(), health: HealthLog(), connections: ConnectionsModel(),
-                      day: LogicalDay(start: Calendar.current.startOfDay(for: Date()).addingTimeInterval(7 * 3600), fromWakeTime: true),
-                      writer: NarrativeWriter())
+                      day: LogicalDay(start: Calendar.current.startOfDay(for: Date()).addingTimeInterval(7 * 3600), fromWakeTime: true))
         })
     }
 }

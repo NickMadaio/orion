@@ -42,8 +42,7 @@ final class Wave13TabRenderTests: XCTestCase {
         let health = HealthLog()
         try TabRender.write(name("health"), TabRender.page(.health) {
             HealthTab(state: Self.app, whoop: TabRender.whoop(), health: health, connections: ConnectionsModel(),
-                      day: LogicalDay(start: Calendar.current.startOfDay(for: Date()).addingTimeInterval(7 * 3600), fromWakeTime: true),
-                      writer: NarrativeWriter())
+                      day: LogicalDay(start: Calendar.current.startOfDay(for: Date()).addingTimeInterval(7 * 3600), fromWakeTime: true))
         })
     }
 

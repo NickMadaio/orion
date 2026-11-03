@@ -149,7 +149,7 @@ let package = Package(
         // this one directory and off theirs.
         .testTarget(
             name: "TodayPlanAppTests",
-            dependencies: ["Orion", "SessionService", "SessionDomain", .product(name: "MobileCore", package: "OrionMobile")],
+            dependencies: ["Orion", "PaletteKit", "SessionService", "SessionDomain", .product(name: "MobileCore", package: "OrionMobile")],
             path: "Tests/TodayPlanAppTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

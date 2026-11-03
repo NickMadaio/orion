@@ -188,3 +188,27 @@ final class RankingAndNavTests: XCTestCase {
         XCTAssertTrue(n.openingSubMenu().subMenu!.contains { $0.action == .quitApp(name: "Safari") })
     }
 }
+
+extension RankingAndNavTests {
+    func testBackTabGoesToThePreviousSection() {
+        let n = PaletteNav(rows: PaletteRanker.results(input: .search("s"), context: PaletteModelFixture.apps, frecency: Frecency(), now: Date()))
+        XCTAssertEqual(n.cycledSection().cycledSection(backward: true).selected, n.selected)
+    }
+}
+
+enum PaletteModelFixture {
+    static let apps = PaletteContext(session: nil, muted: false, mouseShortcutsOn: true, nextFocusMinutes: nil, todos: [],
+        installed: [PaletteInstalledApp(name: "Safari", path: "/A/Safari.app"), PaletteInstalledApp(name: "Steam", path: "/A/Steam.app")], running: [])
+}
+
+extension RankingAndNavTests {
+    func testACrowdedSectionDoesNotPushAnotherOffTheList() {
+        let many = (1...12).map { PaletteInstalledApp(name: "Send app \($0)", path: "/A/S\($0).app") }
+        let ctx = PaletteContext(session: nil, muted: false, mouseShortcutsOn: true, nextFocusMinutes: nil,
+                                 todos: [PaletteTodo(title: "Send Priya the set", overdue: true, due: "yesterday")], installed: many, running: [])
+        let rows = PaletteRanker.results(input: .search("send"), context: ctx, frecency: Frecency(), now: Date())
+        XCTAssertTrue(rows.contains { $0.section == .today })
+        XCTAssertTrue(rows.contains { $0.section == .apps })
+        XCTAssertTrue(rows.contains { $0.section == .ask })
+    }
+}

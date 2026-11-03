@@ -42,14 +42,14 @@ public struct PaletteNav: Equatable {
     }
 
     /// Tab: the first row of the next section, wrapping to the first section.
-    public func cycledSection() -> PaletteNav {
-        guard subMenu == nil, let current = selectedItem?.section else { return self }
+    public func cycledSection(backward: Bool = false) -> PaletteNav {
+        guard subMenu == nil, selectedItem != nil else { return self }
         var starts: [Int] = []
         for (index, row) in rows.enumerated() where index == 0 || rows[index - 1].section != row.section { starts.append(index) }
         guard starts.count > 1 else { return self }
         let here = starts.lastIndex(where: { $0 <= selected }) ?? 0
-        _ = current
-        return PaletteNav(rows: rows, selected: starts[(here + 1) % starts.count])
+        let next = (here + (backward ? starts.count - 1 : 1)) % starts.count
+        return PaletteNav(rows: rows, selected: starts[next])
     }
 
     /// New results: keep the same row selected when it is still there, else go back to the top.

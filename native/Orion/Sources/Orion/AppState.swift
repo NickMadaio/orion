@@ -327,6 +327,7 @@ final class AppState: ObservableObject {
 
     /// The keyboard-first Console. ⌥Tab by default.
     private(set) lazy var console = ConsoleController(service: session, enforcer: enforcer)
+    private var paletteAnswers: AnyCancellable?
 
     /// Gate 10's opt-ins. Every one off by default.
     private(set) lazy var focusExtras = FocusExtras()
@@ -1126,12 +1127,14 @@ final class AppState: ObservableObject {
 
         console.onLog = { OrionLog.write($0) }
         console.actions = ConsoleActions(
+            // The palette answers inline, so it no longer opens Home: same composer, same submitTyped.
             ask: { [weak self] text in
                 guard let self else { return }
-                NSWorkspace.shared.open(URL(string: "orion://show/home")!)
                 self.composer = text
                 self.submitTyped()
             },
+            isThinking: { [weak self] in self?.phase == .thinking },
+            lastTurnID: { [weak self] in self?.turns.last?.id },
             listen: { [weak self] in self?.beginListening(handsFree: true, followUp: true, opening: .pushToTalk) },
             openChat: { [weak self] in
                 self?.chatMode = true
@@ -1144,6 +1147,9 @@ final class AppState: ObservableObject {
             say: { [weak self] text in self?.append(.system, text) }
         )
         console.install()
+        paletteAnswers = Publishers.CombineLatest($turns, $phase)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] turns, phase in self?.console.ingest(turns: turns, thinking: phase == .thinking) }
 
         sessionIPC.onLog = { OrionLog.write($0) }
         if !sessionIPC.start() {

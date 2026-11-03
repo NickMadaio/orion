@@ -59,15 +59,21 @@ public enum PaletteRanker {
         scored += synthetic(raw).map { (item: $0, score: 101, order: -1) }
 
         let grouped = Dictionary(grouping: scored, by: { $0.item.section })
-        let ordered = grouped.map { section, rows -> (PaletteSection, [PaletteItem], Double) in
+        let sections = grouped.map { section, rows -> (section: PaletteSection, items: [PaletteItem], best: Double) in
             let sorted = rows.sorted { $0.score != $1.score ? $0.score > $1.score : $0.order < $1.order }
-            let best = sorted.first?.score ?? 0
-            return (section, sorted.prefix(perSectionCap[section] ?? 4).map(\.item), best)
-        }.sorted { $0.2 != $1.2 ? $0.2 > $1.2 : $0.0.hashRank < $1.0.hashRank }
+            return (section, sorted.prefix(perSectionCap[section] ?? 4).map(\.item), sorted.first?.score ?? 0)
+        }.sorted { $0.best != $1.best ? $0.best > $1.best : $0.section.hashRank < $1.section.hashRank }
 
-        var rows: [PaletteItem] = []
-        for (_, items, _) in ordered { rows += items }
-        rows = Array(rows.prefix(searchCap))
+        // Hand the rows out round-robin, so a crowded section cannot push another one off the list.
+        var taken = [Int](repeating: 0, count: sections.count), total = 0
+        var progressed = true
+        while total < searchCap, progressed {
+            progressed = false
+            for index in sections.indices where total < searchCap && taken[index] < sections[index].items.count {
+                taken[index] += 1; total += 1; progressed = true
+            }
+        }
+        let rows = sections.indices.flatMap { Array(sections[$0].items.prefix(taken[$0])) }
         // Running apps outrank an installed copy of the same name: the pool already removed duplicates.
         return rows + [askRow(raw)]
     }

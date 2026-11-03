@@ -53,6 +53,12 @@ describe("runFoodTurn", () => {
         expect(new FoodMemory().bound("s", view, "Logged ~630 kcal — pizza: 1P 1C 1F. Fix anything?")).toBe(true);
         expect(new FoodMemory().bound("s", view, "Is this food? I couldn't tell. My guess: x. Log it?")).toBe(true);
     });
+    it("readFoodPending counts only the open offers; the logged one is carried apart", () => {
+        const d = dir();
+        const row = (id, name, minutes, extra = {}) => ({ id, name, at: new Date(NOW.getTime() - minutes * 60_000).toISOString(), expiresAt: new Date(NOW.getTime() + 3600_000).toISOString(), via: "inbox", offerText: `${name}.`, estimate: {}, ...extra });
+        writeFileSync(join(d, "food-pending.json"), JSON.stringify({ offers: [row("a", "burger", 20), row("b", "pizza", 5, { logged: { id: "FOOD-9" } })] }));
+        expect(readFoodPending(d, NOW)).toMatchObject({ loggedId: "FOOD-9", count: 1, names: ["burger"] });
+    });
     it("a failure is one honest sentence", async () => {
         const out = await runFoodTurn({ kind: "ask", text: "toast" }, { run: fakeRun({ "--text": { ok: false, error: "the local model took longer than 45 s" } }), stateDir: dir(), now: NOW });
         expect(out.text).toBe("I couldn't estimate that just now (the local model took longer than 45 s), so nothing was logged. Tell me again in a bit.");

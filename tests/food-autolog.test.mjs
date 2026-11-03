@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { logEstimate } from "../scripts/lib/food/log.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,8 +84,11 @@ test("a correction edits that same entry in place; a bare yes keeps it; undo the
     assert.equal(o.bodies[1].messages[1].images.length, 1, "the correction re-reads the photo");
     const yes = await run(["log-pending", "--json"], env);
     assert.equal(JSON.parse(yes.stdout).ok, true); assert.equal(rows(s.dir).length, 1, "yes to 'Fix anything?' adds nothing");
-    const undo = JSON.parse((await run(["undo", first.id, "--json"], env)).stdout);
-    assert.equal(undo.ok, true); assert.equal(rows(s.dir).length, 0);
+    const back = JSON.parse((await run(["undo", first.id, "--json"], env)).stdout);   // an edit is recoverable: the first undo puts the first estimate back
+    assert.equal(back.ok, true); assert.equal(back.restored, true);
+    assert.equal(rows(s.dir).length, 1); assert.equal(rows(s.dir)[0].calories, first.calories);
+    const gone = JSON.parse((await run(["undo", first.id, "--json"], env)).stdout);   // the second takes it off
+    assert.equal(gone.ok, true); assert.equal(rows(s.dir).length, 0);
     assert.equal(JSON.parse(readFileSync(join(s.dir, "health-log.json"), "utf8")).days["2026-11-03"].calories, 0);
   } finally { await o.close(); }
 });
@@ -141,5 +145,47 @@ test("during an evaluation the photo is offered, not logged", async () => {
     writeFileSync(join(s.dir, "eval-mode"), "1");
     await run(["inbox", "--json"], envOf(s, o));
     assert.equal(rows(s.dir).length, 0);
+  } finally { await o.close(); }
+});
+
+test("a correction whose entry is gone writes nothing, not a duplicate", () => {
+  const s = setup();
+  const est = { items: [{ name: "pizza slice", grams: 150, kcal: 399, p: 16.5, c: 49.5, f: 15, confidence: "medium" }], totals: { kcal: 399, p: 16.5, c: 49.5, f: 15, grams: 150 }, assumptions: [], confidence: "medium" };
+  const before = readFileSync(join(s.dir, "health-log.json"), "utf8");
+  const out = logEstimate(est, { at: new Date("2026-11-03T18:20:00Z"), now: new Date("2026-11-03T18:30:00Z"), env: { ORION_CONTROLLED_DIR: s.dir, ORION_EVAL_MARKER: join(s.dir, "eval-mode") }, target: { entryId: "FOOD-GONE", replace: true } });
+  assert.equal(out.ok, false);
+  assert.equal(readFileSync(join(s.dir, "health-log.json"), "utf8"), before);
+});
+
+test("with a logged photo and an older 'Log it?' offer, yes and no go to the open question; a correction goes to the logged entry", async () => {
+  const o = await fakeOllama([GUESS, PIZZA, TWO_SLICES, GUESS]); const s = setup("b-new");
+  try {
+    writeFileSync(join(s.dir, "food-inbox", "a-old.json"), JSON.stringify({ id: "a-old", at: "2026-11-03T18:10:00Z", note: "" }));
+    cpSync(PHOTO, join(s.dir, "food-inbox", "a-old.jpg"));
+    const env = envOf(s, o);
+    await run(["inbox", "--json"], env);
+    assert.equal(rows(s.dir).length, 1, "the pizza is logged, the guess is only offered");
+    const pizza = rows(s.dir)[0];
+    const fixed = JSON.parse((await run(["--revise", "it was 2 slices", "--json"], env)).stdout);
+    assert.equal(fixed.ok, true); assert.equal(rows(s.dir).length, 1); assert.equal(rows(s.dir)[0].id, pizza.id); assert.equal(rows(s.dir)[0].calories, 798);
+    const yes = JSON.parse((await run(["log-pending", "--json"], env)).stdout);
+    assert.equal(yes.ok, true);
+    assert.equal(rows(s.dir).length, 2, "the yes logged the guess");
+    assert.equal(rows(s.dir).find((r) => r.id === pizza.id).calories, 798, "and left the pizza as corrected");
+  } finally { await o.close(); }
+});
+
+test("a no with a logged photo and an open offer drops the open offer and keeps the logged entry", async () => {
+  const o = await fakeOllama([GUESS, PIZZA]); const s = setup("b-new");
+  try {
+    writeFileSync(join(s.dir, "food-inbox", "a-old.json"), JSON.stringify({ id: "a-old", at: "2026-11-03T18:10:00Z", note: "" }));
+    cpSync(PHOTO, join(s.dir, "food-inbox", "a-old.jpg"));
+    const env = envOf(s, o);
+    await run(["inbox", "--json"], env);
+    const no = JSON.parse((await run(["discard", "--json"], env)).stdout);
+    assert.equal(no.discarded, 1); assert.equal(no.kept, undefined);
+    assert.equal(rows(s.dir).length, 1);
+    const left = JSON.parse((await run(["pending", "--json"], env)).stdout);
+    assert.ok(left.pending.logged, "the logged photo is still open to a correction");
   } finally { await o.close(); }
 });

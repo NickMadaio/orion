@@ -21,8 +21,18 @@ const SETTINGS = /system settings|system preferences|com\.apple\.systempreferenc
 // unused only when it is a launcher, game client, chat, remote-desktop or music app.
 const BACKGROUND_LEAVABLE = /epic|steam|battle\.?net|blizzard|riot|roblox|curseforge|overwolf|ubisoft|\bea app\b|origin|gog galaxy|minecraft|discord|spotify|teamviewer|anydesk|whatsapp|telegram|slack|skype|webex|netflix|plex|vlc|twitch/i;
 
+// Game prep closes background apps too, except these: they hold a standing job the Mac would be worse without (passwords, VPN, mouse and
+// keyboard drivers, window managers). Anything not here and not on the keep list is closed when he games.
+const STANDING_JOB = /1password|bitwarden|lastpass|dashlane|keychain|tailscale|wireguard|vpn|little snitch|karabiner|steermouse|linearmouse|logi|logitech|synapse|bettertouchtool|rectangle|magnet|alfred|raycast|amphetamine|caffeine|hazel|cleanshot|maccy|paste/i;
+// A background updater or agent: closes for a game even when its parent app is on the keep list (ZoomUpdater, RazerGameManagerService).
+const BACKGROUND_AGENT = /updater|autoupdate|update ?(?:helper|service|agent)|\bagent\b|service\b|daemon|crash ?reporter|helper tool/i;
+export const neverClosed = (app) => test(NEVER, app);
+/** A windowless menu-bar/background app that is an updater or agent, and not named exactly on the keep list. */
+export const isBackgroundAgent = (app, keep = []) => app.kind === "accessory" && !app.windows && test(BACKGROUND_AGENT, app) && !test(STANDING_JOB, app) && !test(NEVER, app)
+  && !keep.some((k) => norm(k) && norm(k) === norm(app.name));
+
 /** Why an app is kept by quit-unused, or null when it counts as unused. `all` (close everything except what I named) drops the recent-window and audio protections only. */
-export function keptReason(app, { keep = [], all = false } = {}) {
+export function keptReason(app, { keep = [], all = false, game = false } = {}) {
   if (test(NEVER, app)) return "ORION, the Finder or the model server, never closed";
   const names = [norm(app.name), norm(app.bundleId)];
   if (keep.some((k) => norm(k) && names.some((n) => n === norm(k) || (norm(k).length >= 4 && n.includes(norm(k)))))) return "on your keep list";
@@ -31,6 +41,7 @@ export function keptReason(app, { keep = [], all = false } = {}) {
   if (test(IN_USE, app)) return "it may be mid-call or recording";
   if (test(SETTINGS, app)) return "you may be mid-change in it";
   if (app.audible && !all) return "playing audio";
+  if (game && app.kind === "accessory") return test(STANDING_JOB, app) ? "a menu-bar utility doing a standing job" : null;
   if (app.kind === "accessory") return test(BACKGROUND_LEAVABLE, app) ? null : "a menu-bar utility doing a standing job";
   if (!all && app.onscreen > 0 && Number.isInteger(app.rank) && app.rank < RECENT_RANKS) return "one of your most recent windows";
   return null;
@@ -38,7 +49,7 @@ export function keptReason(app, { keep = [], all = false } = {}) {
 
 /** How an unused app is described when it is closed. */
 export function unusedWhy(app) {
-  if (app.kind === "accessory" && !app.windows) return "a background launcher with no window";
+  if (app.kind === "accessory" && !app.windows) return BACKGROUND_AGENT.test(`${app.name} ${app.bundleId}`) ? "a background updater or agent the game doesn't need" : "a background app with no window";
   if (!app.onscreen) return app.windows ? "its windows are hidden or minimized" : "no window open";
   return "buried under your other windows";
 }

@@ -20,6 +20,7 @@ export type AppsTurn =
   | { kind: "quit"; names: string[] }
   | { kind: "hide"; name: string }
   | { kind: "gameMode"; on: boolean }
+  | { kind: "gameReady"; game?: string }
   | { kind: "gameKeep"; op: "add" | "remove"; names: string[] }
   | { kind: "gameLast" };
 
@@ -52,7 +53,38 @@ const HIDE = /^(?:(?:can you|could you|please|pls|hey|orion|just)[,\s]+)*(?:hide
 const GM = String.raw`(?:game|gaming)\s*mode`;
 const GAMING = String.raw`(?:when|while|whenever)\s+(?:i|im|i'm|we)\s+(?:am\s+|start\s+|started\s+|go\s+)?(?:gam(?:e|es|ing)|play(?:ing)?(?:\s+games?)?)\b`;
 const GM_OFF = new RegExp(String.raw`\b${GM}\s+off\b|\bturn\s+off\s+(?:the\s+|my\s+)?${GM}|\b(?:disable|deactivate|stop|end|exit|cancel)\s+(?:the\s+|my\s+)?${GM}`);
-const GM_ON = new RegExp(String.raw`\b${GM}\s+on\b|\b(?:turn|switch|put|flip)\s+(?:on\s+)?(?:the\s+|my\s+)?${GM}|\b(?:enable|activate|start)\s+(?:the\s+|my\s+)?${GM}|\b(?:get|prep|prepare|set up)\s+(?:my\s+)?(?:mac|computer|laptop|pc)\s+(?:ready\s+)?for\s+(?:gaming|games?|a game)\b`);
+const GM_ON = new RegExp(String.raw`\b${GM}\s+on\b|\b(?:turn|switch|put|flip)\s+(?:on\s+)?(?:the\s+|my\s+)?${GM}|\b(?:enable|activate|start)\s+(?:the\s+|my\s+)?${GM}`);
+
+// Game ready on demand (w18 gameready): "make my computer game ready", "prep for gaming", "im about to play minecraft, clean up". Runs the prep right now.
+const MACHINE = String.raw`(?:mac|macbook|computer|compter|comp|laptop|pc|machine|setup)`;
+const READY_WORD = String.raw`gam(?:e|ing)\s*r(?:ea|e)?d(?:y|ie)`;
+const READY_NOT = /\bgame ready (?:drivers?|mean|means|meaning|nvidia|geforce|ready)\b|\bdrivers?\b/;
+const READY_GENERIC = new RegExp([
+  String.raw`\b${READY_WORD}\b`,
+  String.raw`\b(?:gaming|game)\s+prep\b`,
+  String.raw`\b(?:get|make|prep|prepare|set up|setup)\s+(?:me\s+|my\s+|the\s+)?(?:${MACHINE}\s+)?(?:ready\s+)?(?:for|to)\s+(?:gaming|games?|a game|game time|play(?:ing)?(?:\s+games?)?|game)\b`,
+  String.raw`\b(?:get|make|prep|prepare)\s+(?:me\s+)?ready\s+(?:for|to)\s+(?:gaming|game|play\s+games?)\b`,
+  String.raw`^(?:pls\s+|please\s+)?prep\s+(?:for\s+)?(?:gaming|games?)\b`,
+].join("|"));
+const KNOWN_GAMES = "minecraft|fortnite|valorant|roblox|league of legends|league|overwatch|cs2|csgo|counter strike|apex(?: legends)?|genshin(?: impact)?|rocket league|gta(?: ?v| 5)?|call of duty|cod|warzone|elden ring|terraria|stardew(?: valley)?|dota(?: 2)?|wow|world of warcraft|hearthstone|rust|palworld|helldivers(?: 2)?|diablo(?: 4| iv)?|civ(?:ilization)?(?: ?\\d)?|among us|fifa|baldurs gate(?: 3)?";
+const READY_NAMED = new RegExp(String.raw`\b(?:get|make|prep|prepare|set up|setup)\s+(?:my\s+)?${MACHINE}\s+(?:ready\s+)?for\s+(?:some\s+)?(${KNOWN_GAMES})\b|^(?:pls\s+|please\s+)?(?:prep|prepare)\s+(?:my\s+${MACHINE}\s+)?for\s+(${KNOWN_GAMES})\b`);
+const ABOUT_TO = String.raw`(?:about to|abt to|bout to|going to|gonna|finna|fixing to|wanna|want to|boutta)\s+(?:play|game|start playing|get on|hop on|jump on)(?:\s+some)?`;
+const CLEAN_TAIL = String.raw`(?:clean(?:\s*up)?|tidy(?:\s*up)?|prep|get ready|free up|close (?:everything|apps|stuff|things|the rest)|get (?:my )?${MACHINE} ready|clean up (?:my )?(?:${MACHINE}|apps|everything|stuff|things)|prep (?:my )?${MACHINE}|clean (?:my )?${MACHINE} up)(?:\s+(?:up|for me|pls|please|rn|real quick|now))*`;
+const READY_ABOUT = new RegExp(String.raw`\b${ABOUT_TO}\s+([a-z0-9][a-z0-9' ]{1,28}?)\s*(?:[,.;]|\bso\b|\band\b|\bcan you\b|\bcould you\b|\bplease\b|\bpls\b|\brn\b)?\s*(?:can you\s+|could you\s+|pls\s+|please\s+)?${CLEAN_TAIL}\s*$`);
+const READY_ABOUT_LEAD = new RegExp(String.raw`^(?:${CLEAN_TAIL})\s+(?:cause|because|im|i'm|i am)?\s*${ABOUT_TO}\s+([a-z0-9][a-z0-9' ]{1,28}?)\s*$`);
+const GAME_NAME_STOP = /^(?:a game|games?|some games?|something|a bit|later|tonight)$/;
+
+function readReadyTurn(m: string): AppsTurn | null {
+  if (READY_NOT.test(m)) return null;
+  const named = READY_NAMED.exec(m);
+  const game = named?.[1] ?? named?.[2];
+  if (game) return { kind: "gameReady", game };
+  const about = READY_ABOUT.exec(m) ?? READY_ABOUT_LEAD.exec(m);
+  const name = about?.[1]?.trim();
+  if (name && !GAME_NAME_STOP.test(name)) return { kind: "gameReady", game: name };
+  if (about) return { kind: "gameReady" };
+  return READY_GENERIC.test(m) ? { kind: "gameReady" } : null;
+}
 const GAME_LAST = /\bwhat\s+(?:apps?\s+|programs?\s+|stuff\s+)?(?:did|have)\s+(?:you|u|ya)\s+(?:just\s+)?(?:close|quit|shut(?:\s*down)?|kill|end)\b/;
 const KEEP_ADD = [
   new RegExp(String.raw`\b(?:dont|don't|do not|never|stop|no need to)\s+(?:close|closing|quit|quitting|kill|killing|shut(?:ting)?(?:\s*down)?)\s+(.+?)\s+${GAMING}`),
@@ -70,6 +102,8 @@ function readGameTurn(m: string): AppsTurn | null {
   if (GAME_ASK.test(m)) return null;
   if (GM_OFF.test(m)) return { kind: "gameMode", on: false };
   if (GM_ON.test(m)) return { kind: "gameMode", on: true };
+  const ready = readReadyTurn(m);
+  if (ready) return ready;
   for (const [op, res] of [["add", KEEP_ADD], ["remove", KEEP_REMOVE]] as const) {
     for (const re of res) {
       const hit = re.exec(m);

@@ -166,3 +166,41 @@ test("run: model unload frees memory and is recorded", async () => {
   assert.ok(r.freedBytes >= 6e9); assert.match(r.headline, /unloaded|freed/);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, "game-session.json"), "utf8")).prep.unloaded.map((m) => m.name), ["qwen3.5:9b"]);
 });
+
+// w18 gameready: "make my computer game ready" runs now, with no game open, and closes background updaters and unknown apps too.
+const ZUPD = app({ name: "ZoomUpdater", bundleId: "us.zoom.ZoomUpdater", pid: 70, path: "/Applications/zoom.us.app/ZoomUpdater.app", kind: "accessory" });
+const RAZER = app({ name: "RazerGameManagerService", bundleId: "com.razer.gms", pid: 71, path: "/Library/Razer/gms.app", kind: "accessory" });
+const VORS = app({ name: "Vorssaint", bundleId: "com.vorssaint.utils", pid: 72, path: "/Applications/Vorssaint.app", kind: "accessory" });
+const SENT = app({ name: "Sentient OS", bundleId: "jesai.Sentient-OS-macOS", pid: 73, path: "/Applications/Sentient OS.app", kind: "accessory" });
+const PASS = app({ name: "1Password", bundleId: "com.1password.1password", pid: 74, path: "/Applications/1Password.app", kind: "accessory" });
+const TERM = app({ name: "Terminal", bundleId: "com.apple.Terminal", pid: 75, path: "/System/Applications/Utilities/Terminal.app", frontmost: true, windows: 2, onscreen: 1, rank: 0 });
+const CODE = app({ name: "Code", bundleId: "com.microsoft.VSCode", pid: 76, path: "/Applications/Visual Studio Code.app", windows: 3 });
+const NOTES = app({ name: "Notion", bundleId: "notion.id", pid: 77, path: "/Applications/Notion.app", windows: 1, onscreen: 1, rank: 1 });
+const READY = [TERM, CODE, ZUPD, RAZER, VORS, SENT, PASS, DISCORD, SPOTIFY, ORION, OLLAMA, NOTES, EPIC];
+
+test("ready (no game): background updaters, agents, unknown apps and launchers close; terminals, IDE, chat, music, ORION, Ollama, password manager stay", () => {
+  const plan = planGamePrep(READY, { keep: ["Discord", "Spotify", "Zoom"], src: stub(READY), now: true });
+  assert.equal(plan.gameFound, false);
+  assert.deepEqual(names(plan.close).sort(), ["Epic Games Launcher", "Notion", "RazerGameManagerService", "Sentient OS", "Vorssaint", "ZoomUpdater"]);
+  const why = Object.fromEntries(plan.kept.map((k) => [k.name, k.why]));
+  for (const n of ["Terminal", "Code", "Discord", "Spotify", "ORION", "Ollama", "1Password"]) assert.ok(why[n], n);
+});
+
+test("ready: a named game that is open is protected with its tree; --now closes the rest and records it", async () => {
+  const s = stub(ALL);
+  const dir = tmp();
+  const r = await gamePrep(s, { game: "Minecraft", keep: KEEP, dir, now: true, ollama: null });
+  assert.equal(r.ok, true); assert.match(r.say, /Epic Games Launcher/); assert.equal(s.alive(JAVA.pid), true);
+  assert.equal(JSON.parse(readFileSync(join(dir, "game-session.json"), "utf8")).prep.closed.length > 0, true);
+});
+
+test("ready: no game open still preps, says so, and dry-run signals nothing", async () => {
+  const s = stub(READY);
+  const dir = tmp();
+  const dry = await gamePrep(s, { keep: KEEP, dir, now: true, dryRun: true, ollama: null });
+  assert.equal(dry.ok, true); assert.deepEqual(s.log, []); assert.match(dry.say, /Vorssaint/); assert.match(dry.say, /ZoomUpdater/);
+  const named = await gamePrep(stub(READY), { game: "Fortnite", keep: KEEP, dir, now: true, ollama: null });
+  assert.equal(named.ok, true); assert.match(named.say, /Fortnite/i); assert.match(named.say, /closed/i);
+  const real = await gamePrep(stub(READY), { keep: KEEP, dir: tmp(), now: true, ollama: null });
+  assert.equal(real.ok, true); assert.match(real.say, /Game ready/); assert.ok(real.closed.length >= 5);
+});

@@ -62,6 +62,7 @@ const ORION = {
   summon: /\b(?:summon|wake|bring up|call) orion\b|\borion summon\b/,
   talk: /\btalk to orion\b|\bspeak to orion\b/,
   dashboard: /\b(?:orion )?dashboard\b/,
+  type: /\btype to orion\b|\btext (?:box|window|input|bar)\b|\btyping (?:box|bar|window|input)\b|\btype (?:box|overlay)\b/,
 };
 const MODS = { cmd: "cmd", command: "cmd", ctrl: "ctrl", control: "ctrl", opt: "opt", option: "opt", alt: "opt", shift: "shift", fn: "fn" };
 const MOD_ORDER = ["cmd", "ctrl", "opt", "shift", "fn"];

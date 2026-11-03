@@ -130,10 +130,29 @@ describe("the exec route", () => {
 
 describe("game mode turns (w18 gamemode)", () => {
   it("game mode on and off, whatever the wording", () => {
-    for (const m of ["game mode on", "gaming mode on pls", "turn game mode on", "can you turn on gaming mode", "get my mac ready for gaming", "prep my laptop for gaming rn", "enable game mode"])
+    for (const m of ["game mode on", "gaming mode on pls", "turn game mode on", "can you turn on gaming mode", "enable game mode"])
       expect(readAppsTurn(m), m).toEqual({ kind: "gameMode", on: true });
     for (const m of ["game mode off", "turn off gaming mode", "gaming mode off pls", "disable game mode", "turn game mode off lol"])
       expect(readAppsTurn(m), m).toEqual({ kind: "gameMode", on: false });
+  });
+  it("game ready on demand, whatever the wording, names the game when it has one", () => {
+    for (const m of ["make my computer game ready", "get my mac ready for gaming", "prep for gaming", "game ready pls", "prep my laptop for gaming rn", "can you make my pc game ready",
+      "make my mac gaming ready", "get my computer ready to game", "make it game ready", "gameready", "gaming prep", "get ready for gaming", "mak my compter game redy pls"])
+      expect(readAppsTurn(m), m).toEqual({ kind: "gameReady" });
+    expect(readAppsTurn("im about to play minecraft, clean up")).toEqual({ kind: "gameReady", game: "minecraft" });
+    expect(readAppsTurn("about to play fortnite get my mac ready")).toEqual({ kind: "gameReady", game: "fortnite" });
+    expect(readAppsTurn("im gonna play valorant rn clean up my mac")).toEqual({ kind: "gameReady", game: "valorant" });
+    expect(readAppsTurn("prep my mac for minecraft")).toEqual({ kind: "gameReady", game: "minecraft" });
+    expect(readAppsTurn("get my computer ready for roblox")).toEqual({ kind: "gameReady", game: "roblox" });
+  });
+  it("on-demand lookalikes are not game ready", () => {
+    for (const m of ["im about to play minecraft", "what does game ready mean", "get ready for bed", "prep for my exam", "game ready drivers are out", "im about to play tennis, clean up the kitchen"])
+      expect(readAppsTurn(m), m).toBeNull();
+  });
+  it("game mode on is prep now plus auto", () => {
+    expect(argsFor({ kind: "gameMode", on: true })).toEqual([["game-prep", "auto", "on", "--json"], ["game-prep", "--now", "--json"]]);
+    expect(argsFor({ kind: "gameReady" })).toEqual([["game-prep", "--now", "--json"]]);
+    expect(argsFor({ kind: "gameReady", game: "minecraft" })).toEqual([["game-prep", "--now", "--game", "minecraft", "--json"]]);
   });
   it("dont close X when i game keeps it, and letting it close again removes it", () => {
     expect(readAppsTurn("dont close discord when i game")).toEqual({ kind: "gameKeep", op: "add", names: ["discord"] });
@@ -152,8 +171,7 @@ describe("game mode turns (w18 gamemode)", () => {
       expect(readAppsTurn(m), m).toBeNull();
   });
   it("each runs its orion-apps command and the reply is the script's sentence", async () => {
-    expect(argsFor({ kind: "gameMode", on: true })).toEqual([["game-prep", "auto", "on", "--json"], ["game-prep", "--json"]]);
-    expect(argsFor({ kind: "gameMode", on: false })).toEqual([["game-prep", "auto", "off", "--json"]]);
+        expect(argsFor({ kind: "gameMode", on: false })).toEqual([["game-prep", "auto", "off", "--json"]]);
     expect(argsFor({ kind: "gameKeep", op: "add", names: ["discord"] })).toEqual([["game-prep", "keep", "add", "discord", "--json"]]);
     expect(argsFor({ kind: "gameKeep", op: "remove", names: ["chrome"] })).toEqual([["game-prep", "keep", "remove", "chrome", "--json"]]);
     expect(argsFor({ kind: "gameLast" })).toEqual([["game-prep", "last", "--json"]]);

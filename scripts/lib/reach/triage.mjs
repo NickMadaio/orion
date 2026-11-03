@@ -4,6 +4,8 @@
 
 const norm = (t) => String(t ?? "").toLowerCase().replace(/[^a-z0-9@+ ]/g, " ").replace(/\s+/g, " ").trim();
 
+import { toF } from "./fahrenheit.mjs";
+
 /** His important people: a name or number he gave matches the sender. */
 export function importantPerson(sender, people = []) {
   const s = norm(sender);
@@ -41,6 +43,8 @@ export async function judge(item, { people = [], model = null, about }) {
   return verdict ? { verdict, why: "local model" } : { verdict: "skip", why: "the local model gave no clear answer" };
 }
 
+const limitF = (watch) => (watch.unit === "F" ? watch.value : toF(watch.value));
+
 /** Weather watch: { condition: "rain"|"snow"|"storm"|"below"|"above"|"wind", value?, day: "today"|"tomorrow" }. */
 export function weatherHit(watch, forecast) {
   const hours = (forecast?.hours ?? []).filter((h) => h.day === watch.day);
@@ -53,8 +57,9 @@ export function weatherHit(watch, forecast) {
     case "snow": { const h = first((x) => x.snowCm > 0); return h ? `Snow ${when} from about ${at(h)}.` : null; }
     case "storm": { const h = first((x) => x.code >= 95); return h ? `Thunderstorms ${when} around ${at(h)}.` : null; }
     case "wind": { const h = first((x) => x.windKph >= (watch.value ?? 40)); return h ? `Strong wind ${when} around ${at(h)} (${Math.round(h.windKph)} km/h).` : null; }
-    case "below": { const h = first((x) => x.tempC < watch.value); return h ? `It drops below ${watch.value}°C ${when} around ${at(h)}.` : null; }
-    case "above": { const h = first((x) => x.tempC > watch.value); return h ? `It goes above ${watch.value}°C ${when} around ${at(h)}.` : null; }
+    // Thresholds are Fahrenheit now; a watch saved before that (no unit) is Celsius and is converted, never reread.
+    case "below": { const h = first((x) => toF(x.tempC) < limitF(watch)); return h ? `It drops below ${limitF(watch)} degrees Fahrenheit ${when} around ${at(h)}.` : null; }
+    case "above": { const h = first((x) => toF(x.tempC) > limitF(watch)); return h ? `It goes above ${limitF(watch)} degrees Fahrenheit ${when} around ${at(h)}.` : null; }
     default: return null;
   }
 }
@@ -64,9 +69,9 @@ export function parseWeatherWatch(text) {
   const t = norm(text);
   const day = /\btomorrow\b/.test(t) ? "tomorrow" : "today";
   const num = Number((/(-?\d+)/.exec(t) ?? [])[1]);
-  if (/\b(below|under|colder than|freez)/.test(t)) return { kind: "weather", condition: "below", value: Number.isFinite(num) ? num : 0, day };
-  if (/\b(above|over|hotter than|warmer than)\b/.test(t)) { if (!Number.isFinite(num)) throw new TypeError("give a temperature, e.g. above 25"); return { kind: "weather", condition: "above", value: num, day }; }
+  if (/\b(below|under|colder than|freez)/.test(t)) return { kind: "weather", condition: "below", value: Number.isFinite(num) ? num : 32, unit: "F", day };
+  if (/\b(above|over|hotter than|warmer than)\b/.test(t)) { if (!Number.isFinite(num)) throw new TypeError("give a temperature, e.g. above 75"); return { kind: "weather", condition: "above", value: num, unit: "F", day }; }
   if (/\bwind/.test(t)) return { kind: "weather", condition: "wind", value: Number.isFinite(num) ? num : 40, day };
   for (const c of ["rain", "snow", "storm"]) if (t.includes(c) || (c === "storm" && t.includes("thunder"))) return { kind: "weather", condition: c, day };
-  throw new TypeError('say what to watch for: rain, snow, storm, wind, below N or above N (°C), and "tomorrow" if not today');
+  throw new TypeError('say what to watch for: rain, snow, storm, wind, below N or above N degrees Fahrenheit, and "tomorrow" if not today');
 }

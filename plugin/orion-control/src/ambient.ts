@@ -71,15 +71,15 @@ export interface WeatherReport {
   place: string;
   /** One sentence, already phrased for speech. */
   summary: string;
-  temperatureC: number;
+  /** Fahrenheit only: Nick hears the reply aloud and wants "degrees Fahrenheit" in words, never Celsius. */
   temperatureF: number;
-  feelsLikeC: number;
+  feelsLikeF: number;
+  /** How to say the numbers; the model words the sentence from this report. */
+  say: string;
   conditions: string;
   windKph: number;
   days: Array<{
     date: string;
-    highC: number;
-    lowC: number;
     highF: number;
     lowF: number;
     conditions: string;
@@ -90,6 +90,9 @@ export interface WeatherReport {
 }
 
 const toF = (c: number) => Math.round((c * 9) / 5 + 32);
+
+/** The instruction that travels with the numbers (the TTS stumbles over "F" and "°"). */
+export const FAHRENHEIT_SAY = 'Say temperatures in Fahrenheit, with the words "degrees Fahrenheit" on the first number in a sentence ("a high of 55 degrees Fahrenheit and a low of 46"). Never write F, °F or °C, and never give Celsius.';
 
 function hourLabel(iso: string): string {
   const hour = Number(iso.slice(11, 13));
@@ -193,8 +196,6 @@ export async function readWeather(options: {
       const lowC = round(daily.temperature_2m_min?.[i]);
       forecast.push({
         date: String(daily.time[i]),
-        highC,
-        lowC,
         highF: toF(highC),
         lowF: toF(lowC),
         // The day's code is its WORST hour: "light drizzle" at a 17% chance was
@@ -209,14 +210,14 @@ export async function readWeather(options: {
 
   const today = forecast[0];
   const summary = today
-    ? `${conditions}, ${temperatureC}°C (${toF(temperatureC)}°F) in ${place.name} now. Today: high ${today.highC}°C (${today.highF}°F), low ${today.lowC}°C (${today.lowF}°F), ${rainPhrase(today.rainHours)}.`
-    : `${conditions}, ${temperatureC} degrees in ${place.name}`;
+    ? `${conditions}, ${toF(temperatureC)} degrees Fahrenheit in ${place.name} now. Today: a high of ${today.highF} degrees Fahrenheit and a low of ${today.lowF}, ${rainPhrase(today.rainHours)}.`
+    : `${conditions}, ${toF(temperatureC)} degrees Fahrenheit in ${place.name}`;
   return {
     place: place.name,
     summary,
-    temperatureC,
     temperatureF: toF(temperatureC),
-    feelsLikeC: round(current.apparent_temperature, temperatureC),
+    feelsLikeF: toF(round(current.apparent_temperature, temperatureC)),
+    say: FAHRENHEIT_SAY,
     conditions,
     windKph: round(current.wind_speed_10m),
     days: forecast,

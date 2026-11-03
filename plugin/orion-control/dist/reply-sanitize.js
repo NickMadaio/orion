@@ -11,6 +11,7 @@
 import { stripExecFailed } from "./memory-facts.js";
 import { acknowledgement, acknowledgesFailure, failedTools, wroteSomething } from "./tool-failure.js";
 import { outcomeOf } from "./work-check.js";
+import { fahrenheitWords } from "./weather-words.js";
 const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
 const GMAIL_OTHER = "I couldn't read your Gmail just now.";
@@ -212,6 +213,10 @@ function restatesMoveWithoutWrite(reply, tools, askedChange) {
  Never silently drops a failure: the plain sentence says what did not happen.
 */
 export function finalizeReply(reply, tools, ctx = {}) {
+    // Spoken aloud: temperatures read as "55 degrees Fahrenheit", whichever path wrote the sentence.
+    return fahrenheitWords(finalizeCore(reply, tools, ctx));
+}
+function finalizeCore(reply, tools, ctx) {
     const failed = ctx.codeAuthored ? [] : failedTools(tools);
     if (!ctx.codeAuthored && restatesMoveWithoutWrite(reply, tools, ctx.askedChange === true))
         return NOTHING_MOVED;

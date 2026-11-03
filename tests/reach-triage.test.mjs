@@ -33,5 +33,5 @@ test("weather watches parse and fire", () => {
   ] };
   assert.equal(weatherHit({ condition: "rain", day: "today" }, forecast), "Rain likely today from about 4 PM (80% chance).");
   assert.equal(weatherHit({ condition: "snow", day: "today" }, forecast), null);
-  assert.equal(weatherHit({ condition: "below", value: 13, day: "today" }, forecast), "It drops below 13°C today around 4 PM.");
+  assert.equal(weatherHit({ condition: "below", value: 13, day: "today" }, forecast), "It drops below 55 degrees Fahrenheit today around 4 PM.");
 });

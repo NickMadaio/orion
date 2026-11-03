@@ -8,7 +8,8 @@ const jxa = (code) => run("/usr/bin/osascript", ["-l", "JavaScript", "-e", code]
 
 // Never part of "an app's tree", whatever matches: the OS, and anything of ORION's own.
 const SYSTEM_PATH = /^\/(?:System|usr|bin|sbin|Library\/Apple)\//;
-const ORION_PATH = /orion|openclaw/i;
+// Never signalled, wherever they turn up: ORION, the gateway (a node process shows only in its command line) and the model server.
+const PROTECTED = /orion|openclaw|ollama/i;
 // Document-based apps: asked to save, never killed over unsaved work.
 const DOC_IDS = /com\.apple\.(?:iwork\.|textedit|preview|dt\.xcode|notes|mail)|com\.microsoft\.(?:word|excel|powerpoint)|com\.adobe\.|com\.microsoft\.vscode|com\.sublimetext|com\.jetbrains|dev\.zed|com\.apple\.finalcutpro|com\.apple\.logic/i;
 
@@ -37,9 +38,20 @@ export function audiblePids(text) {
   return pids;
 }
 
-/** ps -axo pid=,ppid=,comm= -> [{ pid, ppid, comm }] (comm is the full path, spaces and all) */
+/** ps -axww -o pid=,ppid=,lstart=,comm= -> [{ pid, ppid, start, comm }] (comm is the full path, spaces and all; lstart is optional) */
 export function parsePs(text) {
-  return text.split("\n").map((l) => /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(l)).filter(Boolean).map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), comm: m[3] }));
+  const row = /^\s*(\d+)\s+(\d+)\s+(?:([A-Z][a-z]{2} [A-Z][a-z]{2}\s+\d+ [\d:]{8} \d{4})\s+)?(.+?)\s*$/;
+  return text.split("\n").map((l) => row.exec(l)).filter(Boolean).map((m) => ({ pid: Number(m[1]), ppid: Number(m[2]), start: m[3] ?? "", comm: m[4] }));
+}
+
+/** ps -axww -o pid=,command= -> Map(pid -> full command line) */
+export function parseCommands(text) {
+  return new Map(text.split("\n").map((l) => /^\s*(\d+)\s+(.*)$/.exec(l)).filter(Boolean).map((m) => [Number(m[1]), m[2]]));
+}
+
+/** kill -0, where "not permitted" means the process is not ours, which is not the same as alive. */
+export function pidAlive(pid, kill = process.kill.bind(process)) {
+  try { kill(pid, 0); return true; } catch { return false; }
 }
 
 /** The app's own processes: itself, its descendants, anything running out of its bundle, anything whose bundle id extends its own. */
@@ -54,9 +66,9 @@ export function treeOf(app, procs, entries, mine) {
   return procs.filter((p) => {
     const inBundle = app.path && p.comm.startsWith(`${app.path}/`);
     if (!(inTree.has(p.pid) || inBundle || byId.has(p.pid))) return false;
-    if (p.pid <= 1 || mine.has(p.pid) || ORION_PATH.test(p.comm)) return false;
+    if (p.pid <= 1 || mine.has(p.pid) || PROTECTED.test(p.comm) || PROTECTED.test(p.command ?? "")) return false;
     return inBundle || p.pid === app.pid || !SYSTEM_PATH.test(p.comm);
-  }).map((p) => ({ pid: p.pid, name: p.comm.split("/").pop() }));
+  }).map((p) => ({ pid: p.pid, name: p.comm.split("/").pop(), comm: p.comm, start: p.start }));
 }
 
 const WINDOWS_JS = `ObjC.import('CoreGraphics');
@@ -72,8 +84,13 @@ function isDocument(app) {
   } catch { return false; }
 }
 
+const psTable = () => {
+  const commands = parseCommands(run("/bin/ps", ["-axww", "-o", "pid=,command="]));
+  return parsePs(run("/bin/ps", ["-axww", "-o", "pid=,ppid=,lstart=,comm="])).map((p) => ({ ...p, command: commands.get(p.pid) ?? "" }));
+};
+
 function ancestors() {
-  const procs = parsePs(run("/bin/ps", ["-axo", "pid=,ppid=,comm="]));
+  const procs = psTable();
   const parent = new Map(procs.map((p) => [p.pid, p.ppid]));
   const set = new Set([process.pid]);
   for (let p = parent.get(process.pid); p && p > 1 && !set.has(p); p = parent.get(p)) set.add(p);
@@ -83,9 +100,8 @@ function ancestors() {
 export function liveSource() {
   const mine = ancestors();
   const entries = () => parseLsappinfo(run("/usr/bin/lsappinfo", ["list"]));
-  const procs = () => parsePs(run("/bin/ps", ["-axo", "pid=,ppid=,comm="]));
+  const procs = psTable;
   const windows = () => { try { return JSON.parse(jxa(WINDOWS_JS) || "[]"); } catch { return []; } };
-  const windowCount = (pid) => windows().filter(([p]) => p === pid).length;
   return {
     snapshot() {
       const all = entries();
@@ -103,12 +119,13 @@ export function liveSource() {
             windows: mine_.length, onscreen: mine_.filter(([, on]) => on).length, rank: rank < 0 ? null : rank, audible: sound.has(e.pid), document: isDocument(e) };
         });
     },
-    alive: (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } },
+    alive: (pid) => pidAlive(pid),
+    identity: (pid) => { const p = procs().find((r) => r.pid === pid); return p ? { comm: p.comm, start: p.start } : null; },
     tree: (app) => treeOf(app, procs(), entries(), mine),
     quit: (app) => { jxa(signalJs(app.pid, "terminate")); },
     hide: (app) => jxa(signalJs(app.pid, "hide")).trim() === "true",
     signal: (pid, sig) => { if (pid > 1 && !mine.has(pid)) { try { process.kill(pid, sig); } catch { /* already gone */ } } },
-    windowCount: (app) => windowCount(app.pid),
+    windowCount: (app) => windows().filter(([p, on]) => p === app.pid && on).length,   // visible ones: a sheet or prompt is on screen
     ownsTree: (rest) => rest.some((p) => mine.has(p.pid)),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   };

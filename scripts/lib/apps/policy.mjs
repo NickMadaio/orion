@@ -43,14 +43,29 @@ export function unusedWhy(app) {
   return "buried under your other windows";
 }
 
-/** Running apps a spoken name could mean: an exact name first, otherwise every app whose name contains it ("team view" is TeamViewer). */
+// What people call an app that its own name does not start with.
+const ALIASES = { vscode: "code", vs: "code", vscodium: "code", chrome: "googlechrome", teams: "microsoftteams", word: "microsoftword", excel: "microsoftexcel",
+  powerpoint: "microsoftpowerpoint", epic: "epicgameslauncher", battlenet: "battlenet", yt: "youtube", tv: "tv", ps: "photoshop" };
+const words = (name) => String(name ?? "").split(/[^A-Za-z0-9]+/).filter(Boolean);
+/** True when the query is the whole app name, a known alias of it, or the start of a word in it ("team view" is TeamViewer, "chrome" is Google Chrome). */
+function nameMatches(q, name) {
+  const w = words(name).map((x) => x.toLowerCase()), whole = w.join("");
+  if (!whole) return false;
+  if (whole === q || (ALIASES[q] && (whole === ALIASES[q] || whole.endsWith(ALIASES[q])))) return true;
+  if (q.length < 4) return false;
+  return w.some((_, i) => w.slice(i).join("").startsWith(q));   // starts a word, never the middle of one, and never the other way round
+}
+
+/** Running apps a spoken name could mean. An exact name first, otherwise the apps it is an alias or a word-start of. "gmail" and "taking notes" match nothing. */
 export function matchApps(query, apps) {
   const q = norm(query);
   if (q.length < 2) return [];
   const exact = apps.filter((a) => norm(a.name) === q || norm(a.bundleId) === q);
-  if (exact.length) return exact;
-  return apps.filter((a) => norm(a.name).includes(q) || (norm(a.name).length >= 4 && q.includes(norm(a.name))));
+  return exact.length ? exact : apps.filter((a) => nameMatches(q, a.name));
 }
+
+/** Launchers, game clients, chat and music apps: the class that is ended outright when it will not quit, even with a window up. */
+export const isBackgroundClass = (app) => !app.document && BACKGROUND_LEAVABLE.test(`${app.name} ${app.bundleId}`);
 
 /** Why a NAMED app still may not be closed, or null. Only the never list holds against a direct request. */
 export const refusedReason = (app) => (test(NEVER, app) ? "ORION, the Finder and the model server stay open" : null);

@@ -85,6 +85,18 @@ let package = Package(
             name: "ComputerRelay",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Mouse button remapping (w18): contract types, lookup order, game classifier, shortcut parser.
+        // Foundation only, so the rules are tested without IOKit or an event tap.
+        .target(
+            name: "MouseKit",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "MouseKitTests",
+            dependencies: ["MouseKit"],
+            path: "Tests/MouseKitTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         // Runs the relay core from a terminal against any directory and bridge binary:
         // the integration proof, and a way to exercise the relay without installing the app.
         .executableTarget(
@@ -96,6 +108,7 @@ let package = Package(
             name: "Orion",
             dependencies: [
                 "ComputerRelay",
+                "MouseKit",
                 "SessionDomain",
                 "SessionService",
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -112,7 +125,8 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Speech"),
                 .linkedFramework("ApplicationServices"),
-                .linkedFramework("CoreGraphics")
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("IOKit")
             ]
         ),
         // `path` is explicit because Tests/ is not only a SwiftPM directory —

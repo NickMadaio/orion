@@ -142,6 +142,10 @@ final class AppState: ObservableObject {
     /// A tab someone asked the dashboard to show (orion://show/<tab>); the
     /// dashboard selects it and clears this.
     @Published var requestedTab: DashboardTab?
+    /// A Settings section to open (set with `requestedTab = .settings`); SettingsTab expands it and clears this.
+    @Published var requestedSettingsSection: String?
+    var onMouseAnswered: ((Bool) -> Void)?
+    var onWantsDashboard: (() -> Void)?
 
     @Published private(set) var gatewayHealth = GatewayHealthSnapshot.initial
     var gatewayAvailability: GatewayAvailability { gatewayHealth.current() }
@@ -570,6 +574,25 @@ final class AppState: ObservableObject {
     /// Set by a reach that asked for an answer (the morning briefing): when the
     /// speech finishes, listen for a few seconds as a follow-up.
     private var listenAfterReach = false
+
+    /// The new-mouse question (MouseController): the proactive bubble with Set up / Not now pills. On the open
+    /// dashboard it goes into the chat as plain text, where a "yes" is understood through its outreach row.
+    func deliverMouseAsk(_ text: String, reachID: String) {
+        deliverReach(text, aloud: false, headphones: false, reachID: reachID, keepFor: 600, kind: "mouse")
+        if bubble != nil { bubble?.offersMouseSetup = true }
+    }
+
+    /// Set up opens Settings on the Mouse section; either answer closes the bubble.
+    func answerMouseAsk(setUp: Bool) {
+        bubble = nil
+        reachClear?.cancel(); reachClear = nil
+        onMouseAnswered?(setUp)
+        if setUp {
+            requestedSettingsSection = "Mouse"
+            requestedTab = .settings
+            onWantsDashboard?()
+        }
+    }
 
     func deliverReach(_ text: String, aloud: Bool, headphones: Bool, loud: Bool = false, listen: Bool = false, reachID: String? = nil, keepFor: TimeInterval = 120,
                       kind: String? = nil, deliveredToPhone: Bool = false) {

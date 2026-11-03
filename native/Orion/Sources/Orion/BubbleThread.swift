@@ -24,6 +24,8 @@ struct BubbleThread: Equatable {
     let message: String
     let reachID: String?
     let shownAt: Date
+    /// The new-mouse question: the bubble offers Set up / Not now pills while it is unanswered.
+    var offersMouseSetup = false
     private(set) var state: State = .shown
     private(set) var reply: String?
     private(set) var answer: String?

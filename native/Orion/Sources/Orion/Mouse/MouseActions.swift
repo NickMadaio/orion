@@ -1,0 +1,95 @@
+import AppKit
+import CoreGraphics
+import Foundation
+import MouseKit
+
+/*
+ Runs a MouseAction. Main-thread entry; nothing here blocks it for long.
+
+ System actions, and why each is done the way it is:
+  · missionControl / appExpose / launchpad open their own system app through NSWorkspace. That works whether or not
+    the user remapped the keyboard shortcut for them, which a synthetic Control-Up would not.
+  · desktopLeft / desktopRight / showDesktop / notificationCenter post the default system shortcuts (Ctrl-Left,
+    Ctrl-Right, F11, Fn-N). If he has disabled or changed those in Keyboard Shortcuts, the shortcut action is the escape hatch.
+  · stageManager flips `com.apple.WindowManager GloballyEnabled` with /usr/bin/defaults. That is the setting the
+    Control Center toggle writes, it needs no extra permission and no third-party tool, and WindowManager follows the
+    preference change live. The alternative, scripting the Control Center menu through System Events, needs a second
+    permission (Automation) and breaks whenever Apple re-lays-out that menu. Verified here: the key reads and writes
+    cleanly; the live visual switch must be confirmed on the Mac (see report).
+ */
+enum MouseActions {
+    static func run(_ action: MouseAction, orion: (String) -> Void) {
+        switch action {
+        case .passthrough: break
+        case .orion(let command): orion(command)
+        case .openApp(let bundleId): openApp(bundleId)
+        case .shortcut(let keys):
+            guard let parsed = ShortcutParser.parse(keys) else { OrionLog.write("[mouse] bad shortcut '\(keys)'"); return }
+            post(parsed)
+        case .system(let name): system(name)
+        }
+    }
+
+    private static func system(_ name: String) {
+        switch name {
+        case "missionControl": launch(path: "/System/Applications/Mission Control.app")
+        case "launchpad": launchLaunchpad()
+        case "appExpose": post(ParsedShortcut(keyCode: 125, flags: ShortcutParser.ctrl))
+        case "desktopLeft": post(ParsedShortcut(keyCode: 123, flags: ShortcutParser.ctrl))
+        case "desktopRight": post(ParsedShortcut(keyCode: 124, flags: ShortcutParser.ctrl))
+        case "showDesktop": post(ParsedShortcut(keyCode: 103, flags: 0))
+        case "notificationCenter": post(ParsedShortcut(keyCode: 45, flags: ShortcutParser.fn))
+        case "stageManager": toggleStageManager()
+        default: OrionLog.write("[mouse] unknown system action '\(name)'")
+        }
+    }
+
+    private static func launch(path: String) {
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: path) else { OrionLog.write("[mouse] missing \(path)"); return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// Launchpad became "Apps" on macOS 26; try whichever is installed.
+    private static func launchLaunchpad() {
+        for path in ["/System/Applications/Apps.app", "/System/Applications/Launchpad.app"]
+        where FileManager.default.fileExists(atPath: path) { launch(path: path); return }
+    }
+
+    private static func openApp(_ bundleId: String) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
+            OrionLog.write("[mouse] no app for \(bundleId)"); return
+        }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    static func post(_ shortcut: ParsedShortcut) {
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let down = CGEvent(keyboardEventSource: source, virtualKey: shortcut.keyCode, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: shortcut.keyCode, keyDown: false) else { return }
+        let flags = CGEventFlags(rawValue: shortcut.flags)
+        down.flags = flags; up.flags = flags
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+    }
+
+    private static func toggleStageManager() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let on = defaults(["read", "com.apple.WindowManager", "GloballyEnabled"]).trimmingCharacters(in: .whitespacesAndNewlines) == "1"
+            _ = defaults(["write", "com.apple.WindowManager", "GloballyEnabled", "-bool", on ? "false" : "true"])
+        }
+    }
+
+    private static func defaults(_ args: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+        process.arguments = args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do { try process.run() } catch { return "" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+}

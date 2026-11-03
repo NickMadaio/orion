@@ -32,10 +32,13 @@ struct SettingsTab: View {
     /// Settings should open as a compact index, not as a wall of account and
     /// integration detail. Each section expands only when it is needed.
     @State private var expanded: Set<String> = []
+    @ObservedObject private var mouse = MouseController.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 46) {
             PageHeader(title: "Settings", subline: summary)
+                .onAppear { openRequestedSection() }
+                .onChange(of: state.requestedSettingsSection) { _, _ in openRequestedSection() }
             HStack(alignment: .top, spacing: 64) {
                 VStack(alignment: .leading, spacing: 0) {
                     section("Permissions", hint: "\(grantedCount) of \(states.count) granted", order: 0) { permissions }
@@ -48,6 +51,7 @@ struct SettingsTab: View {
                     section("Orion core", hint: "the hologram on Home", order: 3) { core }
                     section("Quick open", hint: "icons at \(Int(iconScale * 100))%", order: 4) { quickOpen }
                     section("Push to talk", hint: state.pushToTalk.enabled ? "on" : "off", order: 5) { PushToTalkSettingsView(state: state) }
+                    section("Mouse", hint: mouse.devices.devices.contains { $0.connected } ? "\(mouse.devices.devices.first { $0.connected }?.name ?? "connected")" : "no mouse with extra buttons", order: 7) { MouseSettingsView(mouse: mouse) }
                     section("Voice timing", hint: "\(VoiceTuning.endpointingMs) ms before he answers", order: 6) { voice }
                 }
                 .frame(width: 380)
@@ -67,6 +71,13 @@ struct SettingsTab: View {
                 .padding(.top, 28)
             }
         }
+    }
+
+    /// The new-mouse bubble's "Set up" lands here: expand the section it asked for.
+    private func openRequestedSection() {
+        guard let name = state.requestedSettingsSection else { return }
+        expanded.insert(name)
+        state.requestedSettingsSection = nil
     }
 
     /// The header's one true line: how much of what Orion needs he actually has.

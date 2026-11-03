@@ -1,5 +1,7 @@
 import AppKit
+import Combine
 import Foundation
+import MouseKit
 
 /// Wiring. Nothing in here makes decisions — it connects the status item, the
 /// panel, and the push-to-talk monitor to `AppState`, which owns the behaviour.
@@ -11,6 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController!
     private var preferencesController: PreferencesWindowController!
     private let pushToTalk = PushToTalkMonitor()
+    let mouse = MouseController.shared
+    private var mouseBubbleWatch: AnyCancellable?
     /// Owns the Sparkle updater. Constructed here, STARTED late — see
     /// `UpdateController.start`, and the launch-path note in its header.
     private let updates = UpdateController()
@@ -139,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         state.start()
+        startMouse()
 
         // Accessibility cannot be granted from inside the app, so ask once at
         // first launch and let the panel banner carry it from there.
@@ -153,6 +158,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textWindowController.show()
         menuBarController.refresh(panelVisible: false)
         refreshEscapeWatch()
+    }
+
+    /// Mouse button remapping: starts the watcher and the tap, and connects the new-mouse question to the bubble.
+    private func startMouse() {
+        mouse.onAsk = { [weak self] text, id in self?.state.deliverMouseAsk(text, reachID: id) }
+        mouse.onOrionCommand = { [weak self] command in
+            guard let self else { return }
+            switch command {
+            case "talk": self.state.beginListening()
+            case "dashboard": self.textWindowController.show()
+            default: self.state.onWantsSummon?()
+            }
+        }
+        state.onMouseAnswered = { [weak self] setUp in self?.mouse.answerAsk(setUp: setUp) }
+        state.onWantsDashboard = { [weak self] in self?.textWindowController.show() }
+        mouseBubbleWatch = state.$bubble.receive(on: DispatchQueue.main).sink { bubble in
+            PanelHitRegion.bubbleActionReach = (bubble?.offersMouseSetup == true && bubble?.state == .shown) ? 120 : 0
+        }
+        mouse.start()
     }
 
     /// An accessory app shows no menu bar, but without a main menu the standard
@@ -245,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         pushToTalk.stop()
+        mouse.stop()
         state.shutDown()
     }
 

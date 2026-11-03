@@ -15,6 +15,10 @@ export class MouseMemory {
     waiting = new Map();
     wait(key, nowMs, w) { this.waiting.set(key, { at: nowMs, ...w }); }
     clear(key) { this.waiting.delete(key); }
+    others = new Map();
+    /** A turn that was not about the mouse; a yes after it is no longer the answer to a mouse outreach. */
+    otherTurn(key, nowMs) { this.others.set(key, nowMs); }
+    lastOther(key) { return this.others.get(key) ?? 0; }
     get(key, nowMs) {
         const w = this.waiting.get(key);
         if (!w || nowMs - w.at > WAIT_MS)
@@ -44,6 +48,17 @@ const argsFor = (turn) => {
 };
 /** Carries out one mouse turn. Never throws; a failure is one honest sentence. */
 export async function runMouseTurn(turn, deps) {
+    if (turn.kind === "many") { // each binding in order; a question or a failure stops the rest and is said after what was done
+        const done = [];
+        for (const one of turn.turns) {
+            const out = await runMouseTurn(one, deps);
+            done.push(out);
+            if (out.pending || out.text.startsWith("I couldn't") || /^(?:The |This |I don't |There )/.test(out.text))
+                break;
+        }
+        const last = done.at(-1);
+        return { text: done.map((d) => d.text).join(" "), calls: done.flatMap((d) => d.calls), outputs: done.flatMap((d) => d.outputs), ...(last.pending ? { pending: last.pending } : {}) };
+    }
     if (turn.kind === "decline")
         return { text: 'No problem. Say "set up my mouse" whenever you want to.', calls: [], outputs: [] };
     if (turn.kind === "cancel")

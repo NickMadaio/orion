@@ -1,6 +1,6 @@
 // The orion-mouse subcommands as functions: each returns { ok, say, ...} (or { ok, asking, ask, say } when a piece is missing).
 import { actionLabel, appNameOf, buttonLabel, parseAction, parseButton, resolveApp } from "./names.mjs";
-import { changeBindings, readBindings, readDevices } from "./store.mjs";
+import { changeBindings, readBindings, readDevices, requestSetupPopup } from "./store.mjs";
 
 const ASK = {
   button: "Which button, the front or the back side button?",
@@ -122,7 +122,15 @@ export function status({ env = process.env } = {}) {
 
 const SUGGESTED = { 3: { kind: "system", name: "missionControl" }, 4: { kind: "system", name: "stageManager" } };
 
-/** `setup [--apply]`: list the extra buttons and suggest defaults (front side: Stage Manager, back side: Mission Control); --apply writes them. */
+export const SETUP_SAY = "Okay, let me help. Tell me what you want the buttons to do, or set them here:";
+
+/** `setup`: opens the Mac's mouse-setup popup (one record in outreach.jsonl) and says SETUP_SAY. */
+export function openSetup({ env = process.env } = {}) {
+  const req = requestSetupPopup({ env });
+  return { ok: true, popup: req.written, ...(req.row ? { record: req.row } : {}), say: SETUP_SAY };
+}
+
+/** `setup --suggest [--apply]`: list the extra buttons and suggest defaults (front side: Stage Manager, back side: Mission Control); --apply writes them. */
 export function setup({ apply = false }, { env = process.env } = {}) {
   const devices = readDevices(env);
   const extras = [...new Set(devices.flatMap((d) => d.extraButtons ?? []))].sort((a, b) => a - b);

@@ -1196,11 +1196,16 @@ export function registerLocalRouting(api, options) {
         // w18 mousechat (mouse-read.ts): "make my side button do stage manager", "dont do anything in minecraft", "what are my mouse buttons set to", or a yes to a new-mouse outreach.
         const mouseAt = (options.now ?? pluginNow)();
         const mouseWaiting = on && options.mouseRun ? mouseMemory.get(sessionKey, mouseAt.getTime()) : undefined;
-        const mouseOutreach = parseOutreach(raw)?.text ?? (options.stateDir ? readLastOutreach(options.stateDir, mouseAt)?.text : undefined);
+        // A bare yes/no answers the new-mouse outreach only as its immediate reply: the app's label on this very message, or the push was within
+        // 15 minutes and nothing else was said in this chat since.
+        const push = options.stateDir ? readLastOutreach(options.stateDir, mouseAt) : null;
+        const mouseOutreach = parseOutreach(raw)?.text ?? (push && mouseAt.getTime() - Date.parse(push.at) <= 15 * 60_000 && Date.parse(push.at) > mouseMemory.lastOther(sessionKey) ? push.text : undefined);
         const mouse = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !isCrisis(message) && options.mouseRun
             ? readMouseTurn(message, { ...(mouseWaiting ?? {}), outreachAbout: !!mouseOutreach && /\bmouse\b/i.test(mouseOutreach) }) ?? undefined : undefined;
-        if (!mouse && !quietTurn)
+        if (!mouse && !quietTurn) {
             mouseMemory.clear(sessionKey);
+            mouseMemory.otherTurn(sessionKey, mouseAt.getTime());
+        }
         const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
         const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout || !!appsTurn || !!mouse;
         // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.

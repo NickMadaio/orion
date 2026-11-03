@@ -20,6 +20,10 @@ export declare class MouseMemory {
         confirm?: boolean;
     }): void;
     clear(key: string): void;
+    private others;
+    /** A turn that was not about the mouse; a yes after it is no longer the answer to a mouse outreach. */
+    otherTurn(key: string, nowMs: number): void;
+    lastOther(key: string): number;
     get(key: string, nowMs: number): {
         pending?: MousePending;
         confirm?: boolean;

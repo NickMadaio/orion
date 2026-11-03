@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import Foundation
 import MouseKit
@@ -9,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let state = AppState()
     private var panelController: PanelController!
+    private var typedSummon: TypedSummonController!
+    private let typedSummonKey = GlobalHotKey()
     private var textWindowController: TextWindowController!
     private var menuBarController: MenuBarController!
     private var preferencesController: PreferencesWindowController!
@@ -27,6 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Secrets.prefetch()
         panelController = PanelController(state: state)
         textWindowController = TextWindowController(state: state)
+        typedSummon = TypedSummonController(state: state)
+        installTypedSummon()
         sessionFloatController = SessionFloatController(state: state) { [weak self] in self?.textWindowController.show() }
         todoFloatController = TodoFloatController(state: state)
         preferencesController = PreferencesWindowController(state: state)
@@ -86,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             // When the full dashboard is already visible, its central hologram
             // is the voice surface. Do not layer the small orb over it.
-            guard !self.textWindowController.isInFocus else { return }
+            guard !self.textWindowController.isInFocus, !self.typedSummon.isVisible else { return }
             if !self.panelController.isVisible {
                 // Wake without stealing focus: the user is mid-sentence in
                 // another app and should stay there.
@@ -98,10 +103,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Summoned by name. Always arrives in the configured corner on the
         // screen the user is looking at, and never takes focus — you can say
         // "Orion" mid-sentence in another app and keep typing.
-        state.dashboardVisible = { [weak self] in self?.textWindowController.isInFocus ?? false }
+        state.dashboardVisible = { [weak self] in (self?.textWindowController.isInFocus ?? false) || (self?.typedSummon.isVisible ?? false) }
         state.onWantsSummon = { [weak self] in
             guard let self else { return }
-            guard !self.textWindowController.isInFocus else { return }
+            guard !self.textWindowController.isInFocus, !self.typedSummon.isVisible else { return }
             self.panelController.summon()
             self.menuBarController.refresh(panelVisible: true)
             self.refreshEscapeWatch()
@@ -247,6 +252,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    kind: entry.kind, deliveredToPhone: entry.channel == "phone")
                 continue
             }
+            // orion://type — the typed summon, as the keyboard shortcut opens it.
+            if url.scheme == "orion", url.host == "type" {
+                typedSummon.show()
+                continue
+            }
             // orion://mouse-setup: the new-mouse setup popup (scripts/orion-mouse setup).
             if url.scheme == "orion", url.host == "mouse-setup" {
                 openMouseSetup()
@@ -335,7 +345,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// ⌃⌥Space opens the typed summon: the composer at the bottom of the screen and the hologram above it, for
+    /// messaging without talking. The voice summon (wake word, push-to-talk) and the proactive bubble are unchanged.
+    private func installTypedSummon() {
+        typedSummon.onVisibilityChanged = { [weak self] visible in
+            guard let self else { return }
+            if visible { self.panelController.hide() }
+            self.menuBarController?.refresh(panelVisible: self.panelController.isVisible)
+            self.refreshEscapeWatch()
+        }
+        typedSummon.onOpenChat = { [weak self] in
+            self?.state.chatMode = true
+            self?.textWindowController.show()
+        }
+        typedSummonKey.onFire = { [weak self] in self?.typedSummon.toggle() }
+        typedSummonKey.onLog = { OrionLog.write($0) }
+        typedSummonKey.register(HotKeyCombination(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey)))
+    }
+
     private func handleEscape() {
+        // Escape closes the typed summon too; the stop below still applies to a turn in flight.
+        if typedSummon.isVisible { typedSummon.dismiss() }
         // `bargeIn()` sorts the two cases itself: it stops the voice when Orion
         // is speaking and cancels the turn when he is thinking. Both are "stop",
         // which is the only thing Escape has ever meant.

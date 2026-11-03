@@ -7,7 +7,7 @@ const KEYWORD = String.raw `(?:cmd|command|ctrl|control|opt|option|alt|shift)`;
 const ACTION_PHRASE = new RegExp([
     String.raw `stage ?manager`, String.raw `mission ?control`, String.raw `app ?expos[eé]`, String.raw `show (?:the |my )?desktop`, String.raw `launch ?pad`,
     String.raw `notification ?(?:center|centre)`, String.raw `(?:left|right|previous|next|last) (?:desktop|space)`, String.raw `(?:desktop|space) (?:to the |on the )?(?:left|right)`,
-    String.raw `(?:full |whole |entire )?screen ?(?:shot|capture)`, String.raw `spotlight`, String.raw `(?:summon|wake|call|bring up) orion`, String.raw `talk to orion`,
+    String.raw `(?:full |whole |entire )?screen ?(?:shot|capture)`, String.raw `spotlight`, String.raw `(?:summon|wake|call|bring up) orion`, String.raw `talk to orion`, String.raw `type to orion`, String.raw `(?:the )?(?:text|typing) (?:box|window|bar|input)`,
     String.raw `${KEYWORD}(?:\s*\+\s*|\s+)(?:${KEYWORD}(?:\s*\+\s*|\s+))*[a-z0-9]\b`, String.raw `(?:open|launch) [a-z0-9][a-z0-9 .'&-]{1,28}?(?=$|[.,!?]| (?:in|on|when|while|only|just)\b)`,
     String.raw `(?:its|it's) normal`,
 ].join("|"), "i");
@@ -23,8 +23,13 @@ const NEG = /\b(?:dont|don'?t|do not|never|stop|no|disable|ignore|leave|bypass|p
 const REMOVE = /\b(?:stop ignoring|stop leaving|stop disabling|re-?enable|turn (?:it|them|the \w+) back on|(?:work|working|active|on) again|should work|start working|work normally)\b/i;
 const SETUP = /\b(?:set ?up|setup|configure|customi[sz]e)\b[^?]*\b(?:my |the |this )?(?:new )?mouse\b|\bget\b[^?]*\bmouse\b[^?]*\bset ?up\b|\bnew mouse\b[^?]*\b(?:set ?up|configure)\b/i;
 // "pull up the mouse button mapper again", "open the mouse thing", "show me the mouse setup", "bring back the button mapper": the popup, again.
-const REOPEN_VERB = /\bpull\b[^.?!]*\bup\b|\b(?:bring(?: it| that)?(?: back)? up|bring(?: it| that)? back|open(?: up)?|re-?open|show(?: me)?|launch|display|put (?:it )?back|get(?: it)? back)\b/;
-const REOPEN_THING = /\bmapper\b|\b(?:mouse|button|buttons)(?: button)? (?:setup|set up|thing|popup|pop up|window|panel|screen|config(?:uration)?|mapping)\b|\b(?:mouse|button) settings (?:popup|pop up|window|panel|screen)\b/;
+const REOPEN_VERB = /\bpull\b[^.?!]*\bup\b|\b(?:bring(?: it| that)?(?: back)? up|bring(?: it| that)? back|bring\b[^.?!]*\bback|s[ua]m+[ou]n\w*|op[en]\w{0,2}(?: up)?|re-?open\w*|show(?: me)?|launch|display|fire up|load|pop up|put (?:it )?back|get(?: it)? back)\b/;
+const MOUSEW = String.raw `(?:mouse|mous|mose|mice)`;
+const BTNW = String.raw `(?:buttons?|butt?ons?|btns?)`;
+const REOPEN_THING = new RegExp(String.raw `\bmapp?e?r\b|\b(?:${MOUSEW}|${BTNW})(?: ${BTNW})? (?:setup|set up|thing|popup|pop up|window|panel|screen|config(?:uration)?|mapping|settings|menu)\b|\b${MOUSEW} ${BTNW}\b`);
+/** The popup named with no verb at all: "mouse settings", "button mapper", "mouse button settings". */
+const REOPEN_BARE = new RegExp(String.raw `^(?:(?:yo|hey|ok|okay|orion|pls|please|the|my|that)\s+)*(?:${MOUSEW}|${BTNW})(?: ${BTNW})? (?:mapper|mappr|maper|settings|setup|mapping)(?:\s+(?:again|pls|please|thing))*$|^(?:(?:yo|hey|ok|okay|orion|pls|please|the|my|that)\s+)*mapper(?:\s+(?:again|pls|please))*$`);
+const READING = /\b(?:set to|bound|mapped to|doing|currently|right now|assigned|configured)\b/;
 const GAMEY = /\b(?:minecraft|fortnite|valorant|roblox|steam|league|overwatch|cs2|csgo|apex|genshin|game|games)\b/i;
 const YES = /^(?:y|ye|ya|yea|yeah|yes|yep|yup|ok|okay|k|sure|alright|aight|do it|go ahead|sounds good|that works|perfect|fine|please|yes please|sure thing|lets do it|let'?s do it|set it up|set it|do that|go for it)(?: (?:please|orion|do it|thanks|thx|that'?s fine))?[.!]*$/;
 const NO = /^(?:no|nah|nope|not now|later|not yet|skip|no thanks|nah im good|maybe later|not really|leave it|dont|don'?t)[.!]*$/;
@@ -115,7 +120,8 @@ function readOne(message, c) {
         return { kind: "passthrough", op: "remove", app };
     if (app && NEG.test(said) && !BIND_VERB.test(said) && (buttons || (anything && GAMEY.test(app))))
         return { kind: "passthrough", op: "add", app };
-    if (REOPEN_VERB.test(said) && REOPEN_THING.test(said) && !BIND_VERB.test(said) && !/^(?:what|which|how|why|is|are|does|do)\b/.test(said))
+    const asked = /^(?:what|which|how|why|is|are|does|do)\b/.test(said);
+    if (!BIND_VERB.test(said) && !asked && ((REOPEN_VERB.test(said) && REOPEN_THING.test(said) && !READING.test(said)) || REOPEN_BARE.test(said)))
         return { kind: "setup", again: true };
     if (QUESTION.test(said))
         return mouseish && STATUS_WORD.test(said) || (MOUSE.test(said) && /\b(?:buttons?|settings?|bindings?)\b/.test(said)) ? { kind: "status" } : null;

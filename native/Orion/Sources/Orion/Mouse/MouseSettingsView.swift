@@ -15,6 +15,7 @@ struct MouseSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             SectionRule(title: "Mouse", trailing: mouse.bindings.enabled ? "on" : "off")
+            ProjectBubble(text: MouseSetupEntry.pillTitle, symbol: "computermouse") { mouse.onSetupRequested?() }
             gamingBanner
             accessibilityRow
             deviceRow

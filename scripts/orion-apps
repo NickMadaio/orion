@@ -7,7 +7,7 @@
    orion-apps quit-unused [--keep a,b] [--dry-run] [--all] [--json]   close everything not in use and not protected
                                                           --all: "everything except": also closes recent and audible apps
    orion-apps hide <app> [--json]
-   orion-apps game-prep [--game <bundleOrName>] [--dry-run] [--json]   game mode: close what the running game does not need, unload idle models, record it in game-session.json
+   orion-apps game-prep [--now] [--game <bundleOrName>] [--dry-run] [--json]   --now: on demand, no game has to be open ("make my computer game ready"). Game mode: close what the running game does not need, unload idle models, record it in game-session.json
    orion-apps game-prep keep add|remove <app...> | keep list | auto on|off | last   the keep list (game-prep.json), the auto-prep setting, what was closed last time
 
  Nick: "he should have these abilities, why are we limiting him." / "things like epic games stay open and i want them closed closed."
@@ -25,7 +25,7 @@ import { hideApp, listApps, quitNamed, quitUnused } from "./lib/apps/run.mjs";
 const argv = process.argv.slice(2);
 const json = argv.includes("--json");
 const [command, ...rest] = argv.filter((a) => a !== "--json");
-const USAGE = "usage: orion-apps game-prep [--game g] [--dry-run] | game-prep keep add|remove|list <app...> | game-prep auto on|off | game-prep last | list | quit <app...> | quit-unused [--keep a,b] [--dry-run] [--all] | hide <app>   [--json]";
+const USAGE = "usage: orion-apps game-prep [--now] [--game g] [--dry-run] | game-prep keep add|remove|list <app...> | game-prep auto on|off | game-prep last | list | quit <app...> | quit-unused [--keep a,b] [--dry-run] [--all] | hide <app>   [--json]";
 const flagValue = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] ?? "" : undefined; };
 
 function finish(result) {
@@ -48,7 +48,7 @@ async function gameCommand() {
   if (sub === "auto" && (op === "on" || op === "off")) return setAutoPrep(dir, op === "on");
   if (sub === "last") return { ok: true, say: lastPrepSay(loadSession(dir)) };
   if (sub) return { ok: false, error: "usage", say: `I didn't catch what to do with game mode (${apps.join(" ") || sub}).` };
-  return gamePrep(liveSource(), { game: flagValue("--game"), dir, dryRun: rest.includes("--dry-run") });
+  return gamePrep(liveSource(), { game: flagValue("--game"), dir, dryRun: rest.includes("--dry-run"), now: rest.includes("--now") });
 }
 
 const src = liveSource();

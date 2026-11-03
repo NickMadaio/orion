@@ -43,6 +43,8 @@ test("actions: friendly names, shortcuts, apps to open, and a refusal for the un
   assert.deepEqual(parseAction("screenshot").action, { kind: "shortcut", keys: "cmd+shift+4" });
   assert.deepEqual(parseAction("command shift 3").action, { kind: "shortcut", keys: "cmd+shift+3" });
   assert.deepEqual(parseAction("summon orion").action, { kind: "orion", command: "summon" });
+  for (const t of ["type to orion", "the text box", "open the text box", "orion text box", "typing box", "open the typing window"])
+    assert.deepEqual(parseAction(t).action, { kind: "orion", command: "type" }, t);
   assert.deepEqual(parseAction("nothing").action, { kind: "passthrough" });
   assert.equal(parseAction("open spotify").app, "spotify");
   assert.deepEqual(parseAction(""), { ask: "action" });

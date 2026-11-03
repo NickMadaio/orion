@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController.onToggleTextWindow = { [weak self] in
             self?.textWindowController.toggle()
         }
+        menuBarController.onOpenMouseSetup = { [weak self] in self?.openMouseSetup() }
         menuBarController.install()
 
         // The iPhone link helper embedded in this bundle (PhoneLink.swift).
@@ -169,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch command {
             case "talk": self.state.beginListening()
             case "dashboard": self.textWindowController.show()
+            case "type": NSWorkspace.shared.open(MouseSetupEntry.typeURL)   // the typed overlay lives behind orion://type
             default: self.state.onWantsSummon?()
             }
         }

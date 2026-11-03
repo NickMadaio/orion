@@ -43,7 +43,7 @@ public enum MouseAction: Equatable, Hashable {
 
     public static let systemNames = ["missionControl", "appExpose", "stageManager", "showDesktop", "launchpad",
                                      "desktopLeft", "desktopRight", "notificationCenter"]
-    public static let orionCommands = ["summon", "talk", "dashboard"]
+    public static let orionCommands = ["summon", "talk", "dashboard", "type"]
 }
 
 extension MouseAction: Codable {

@@ -7,7 +7,7 @@ public enum MouseActionLabel {
         "showDesktop": "Show Desktop", "launchpad": "Launchpad", "desktopLeft": "Desktop to the left",
         "desktopRight": "Desktop to the right", "notificationCenter": "Notification Center"
     ]
-    static let orionTitles: [String: String] = ["summon": "Summon ORION", "talk": "Talk to ORION", "dashboard": "Open ORION dashboard"]
+    static let orionTitles: [String: String] = ["summon": "Summon ORION", "talk": "Talk to ORION", "dashboard": "Open ORION dashboard", "type": "Type to ORION"]
 
     public static func label(_ action: MouseAction?) -> String {
         switch action {

@@ -10,7 +10,7 @@ import { updateJson } from "../awareness/io.mjs";
 export const mouseDir = (env = process.env) => join(controlledDir(env), "mouse");
 
 const SYSTEM_NAMES = ["missionControl", "appExpose", "stageManager", "showDesktop", "launchpad", "desktopLeft", "desktopRight", "notificationCenter"];
-const ORION_COMMANDS = ["summon", "talk", "dashboard"];
+const ORION_COMMANDS = ["summon", "talk", "dashboard", "type"];
 const BUNDLE = /^[A-Za-z0-9][A-Za-z0-9-]*(?:\.[A-Za-z0-9][A-Za-z0-9-]*)+$/;
 const KEYS = /^(?:(?:cmd|ctrl|opt|shift|fn)\+)+[a-z0-9-=;',./`]$|^(?:(?:cmd|ctrl|opt|shift|fn)\+)+(?:space|tab|return|escape|delete|left|right|up|down|home|end|pageup|pagedown|f(?:[1-9]|1\d|20))$/;
 

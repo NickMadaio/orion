@@ -1,4 +1,5 @@
 import AppKit
+import MouseKit
 
 /// The status-bar presence. Orion has no Dock icon and no main window, so this
 /// menu is the only always-available surface — it carries the panel toggle, the
@@ -35,6 +36,8 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// updater has started, and a menu item that does nothing for the first
     /// thirty seconds is better than a launch that waits for the network.
     var onCheckForUpdates: (() -> Void)?
+    /// Opens the mouse setup popup (same path as orion://mouse-setup). Set by AppDelegate.
+    var onOpenMouseSetup: (() -> Void)?
 
     init(state: AppState,
          onTogglePanel: @escaping () -> Void,
@@ -87,6 +90,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(wakeItem)
 
         menu.addItem(.separator())
+
+        let typeItem = NSMenuItem(title: MouseSetupEntry.typeMenuTitle, action: #selector(openTypeToOrion), keyEquivalent: "")
+        typeItem.target = self
+        menu.addItem(typeItem)
+
+        let mouseSetup = NSMenuItem(title: MouseSetupEntry.menuTitle, action: #selector(openMouseSetup), keyEquivalent: "")
+        mouseSetup.target = self
+        menu.addItem(mouseSetup)
 
         let updates = NSMenuItem(title: "Check for Updates…",
                                  action: #selector(checkForUpdates), keyEquivalent: "")
@@ -216,6 +227,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     /// Asking explicitly always checks, even mid-session — see UpdateController.
     @objc private func checkForUpdates() {
         onCheckForUpdates?()
+    }
+
+    @objc private func openTypeToOrion() {
+        NSWorkspace.shared.open(MouseSetupEntry.typeURL)
+    }
+
+    @objc private func openMouseSetup() {
+        onOpenMouseSetup?()
     }
 
     @objc private func openPreferences() {

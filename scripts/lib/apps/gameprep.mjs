@@ -6,7 +6,7 @@
 import { closeApp } from "./escalate.mjs";
 import { freedText, loadConfig, loadSession, updateSession } from "./gameconfig.mjs";
 import { unloadIdleModels } from "./ollama.mjs";
-import { keptReason, matchApps, unusedWhy } from "./policy.mjs";
+import { isBackgroundAgent, keptReason, matchApps, unusedWhy } from "./policy.mjs";
 
 const MINECRAFT = /minecraft|mojang|\bjava\b|openjdk|temurin|zulu|prism ?launcher|multimc|atlauncher|modrinth|curseforge/i;
 const MINECRAFT_GAME = /minecraft|mojang|\bjava\b/i;   // a Java game is Minecraft: the classifier only calls a java process a game for a Minecraft window
@@ -15,10 +15,10 @@ const list = (xs) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 /** { gameFound, game: [apps], close: [apps], kept: [{ name, why }] }. Pure over the snapshot and the source's tree/lineage. */
-export function planGamePrep(apps, { game, keep = [], src }) {
+export function planGamePrep(apps, { game, keep = [], src, now = false }) {
   const gameApps = game ? matchApps(game, apps) : [];
   const minecraft = MINECRAFT_GAME.test(game ?? "") || gameApps.some((a) => MINECRAFT_GAME.test(text(a)));
-  if (!gameApps.length) return { gameFound: false, game: [], close: [], kept: [] };
+  if (!gameApps.length && !now) return { gameFound: false, game: [], close: [], kept: [] };
   const family = minecraft ? apps.filter((a) => MINECRAFT.test(text(a))) : [];
   const core = [...new Map([...gameApps, ...family].map((a) => [a.pid, a])).values()];
   const protectedPids = new Set(core.map((a) => a.pid));
@@ -29,9 +29,10 @@ export function planGamePrep(apps, { game, keep = [], src }) {
   const plan = apps.map((a) => {
     if (protectedPids.has(a.pid)) return { app: a, kept: a.pid === gameApps[0]?.pid ? "the game itself" : "the game or its launcher and runtime" };
     // frontmost is dropped: someone tabbed out to ask for this, and the app in front is not the game
-    return { app: a, kept: keptReason({ ...a, frontmost: false }, { keep, all: true }) };
+    if (isBackgroundAgent(a, keep)) return { app: a, kept: null };
+    return { app: a, kept: keptReason({ ...a, frontmost: false }, { keep, all: true, game: true }) };
   });
-  return { gameFound: true, game: gameApps, close: plan.filter((p) => !p.kept).map((p) => p.app),
+  return { gameFound: gameApps.length > 0, game: gameApps, close: plan.filter((p) => !p.kept).map((p) => p.app),
     kept: plan.filter((p) => p.kept).map((p) => ({ name: p.app.name, why: p.kept })) };
 }
 
@@ -50,21 +51,23 @@ function headlineOf({ closed, helperCount, reported, unloaded, freedBytes }) {
 }
 
 /** Runs the prep. `ollama` is { fetch, host } or null (skip the unload). Never throws on a missing game: it says so. */
-export async function gamePrep(src, { game, keep, dir, dryRun = false, ollama = {}, ...opts }) {
+export async function gamePrep(src, { game, keep, dir, dryRun = false, ollama = {}, now = false, ...opts }) {
   const config = loadConfig(dir);
   const session = loadSession(dir);
   const target = game ?? session?.game?.key ?? session?.game?.bundleId ?? session?.game?.name;
-  if (!target) return { ok: true, dryRun, closed: [], say: "No game is running right now, so there's nothing to prep. I'll do it the moment one opens." };
+  if (!target && !now) return { ok: true, dryRun, closed: [], say: "No game is running right now, so there's nothing to prep. I'll do it the moment one opens." };
   const apps = src.snapshot();
-  const plan = planGamePrep(apps, { game: target, keep: keep ?? config.keep, src });
-  if (!plan.gameFound) return { ok: false, dryRun, closed: [], error: `${target} isn't running`, say: `I can't see ${target} running, so I haven't closed anything.` };
+  const plan = planGamePrep(apps, { game: target, keep: keep ?? config.keep, src, now });
+  if (!plan.gameFound && !now) return { ok: false, dryRun, closed: [], error: `${target} isn't running`, say: `I can't see ${target} running, so I haven't closed anything.` };
   const models = ollama ? await unloadIdleModels({ ...ollama, dryRun }) : { unloaded: [], freedBytes: 0 };
+  const gameName = plan.game[0]?.name;
+  const lead = !plan.gameFound && game ? `I don't see ${game} open yet, so I cleaned up for it anyway. ` : "";
   const keptSay = plan.kept.length ? ` Keeping ${list(plan.kept.map((k) => k.name))}.` : "";
   if (dryRun) {
     const would = plan.close.map((a) => ({ name: a.name, why: unusedWhy(a) }));
     const modelsSay = models.unloaded.length ? ` Would unload ${list(models.unloaded.map((m) => m.name))}.` : "";
-    return { ok: true, dryRun: true, game: plan.game[0].name, closed: [], would, kept: plan.kept, unloaded: models.unloaded,
-      say: `${would.length ? `I would close ${list(would.map((w) => `${w.name} (${w.why})`))}.` : "I would close nothing."}${modelsSay}${keptSay}` };
+    return { ok: true, dryRun: true, game: gameName, closed: [], would, kept: plan.kept, unloaded: models.unloaded,
+      say: `${lead}${would.length ? `I would close ${list(would.map((w) => `${w.name} (${w.why})`))}.` : "I would close nothing."}${modelsSay}${keptSay}` };
   }
   const memory = new Map(plan.close.map((a) => [a.pid, src.memoryKB?.(a) ?? 0]));
   const results = await Promise.all(plan.close.map((a) => closeApp(a, src, opts)));
@@ -78,7 +81,7 @@ export async function gamePrep(src, { game, keep, dir, dryRun = false, ollama = 
   const freedBytes = closedBytes + models.freedBytes;
   const prep = { at: new Date().toISOString(), closed, helperCount, reported, unloaded: models.unloaded, freedBytes, kept: plan.kept };
   const headline = headlineOf(prep);
-  updateSession(dir, (s) => ({ ...s, version: 1, game: s.game ?? { name: plan.game[0].name, bundleId: plan.game[0].bundleId }, prep: { ...prep, headline } }));
-  return { ok: true, dryRun: false, game: plan.game[0].name, closed, helperCount, reported, unloaded: models.unloaded, freedBytes, kept: plan.kept, headline,
-    say: `Game mode: ${headline}.${keptSay}` };
+  updateSession(dir, (s) => ({ ...s, version: 1, ...(s.game ?? gameName ? { game: s.game ?? { name: gameName, bundleId: plan.game[0].bundleId } } : {}), prep: { ...prep, headline } }));
+  return { ok: true, dryRun: false, game: gameName, closed, helperCount, reported, unloaded: models.unloaded, freedBytes, kept: plan.kept, headline,
+    say: `${now ? `${lead}Game ready` : "Game mode"}: ${headline}.${keptSay}` };
 }

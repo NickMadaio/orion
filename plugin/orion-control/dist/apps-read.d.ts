@@ -16,6 +16,9 @@ export type AppsTurn = {
     kind: "gameMode";
     on: boolean;
 } | {
+    kind: "gameReady";
+    game?: string;
+} | {
     kind: "gameKeep";
     op: "add" | "remove";
     names: string[];

@@ -230,7 +230,8 @@ struct PhoneRootView: View {
                 ZStack {
                     if screen == "home" {
                         PhoneHomeScreen(remote: remote, planner: planner, routine: routine, onMenu: { drawerOpen = true },
-                                        onOpenChat: { show("chat") }, onOpenSection: { tab = $0 })
+                                        onOpenChat: { show("chat") }, onOpenSection: { tab = $0 },
+                                        onLogFood: { loggingFood = true })
                             .transition(.opacity)
                     } else {
                         ConversationView(remote: remote, conversationID: $conversationID, onMenu: { drawerOpen = true },

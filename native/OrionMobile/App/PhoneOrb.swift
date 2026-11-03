@@ -36,15 +36,15 @@ struct PhoneOrb: View {
     var body: some View {
         ZStack {
             if reactive && !fullProjection {
-                Circle().fill(Phone.violet.opacity(0.18 + 0.25 * Double(amplitude)))
+                Circle().fill(Phone.accent.opacity(0.18 + 0.25 * Double(amplitude)))
                     .frame(width: size * 1.4, height: size * 1.4).blur(radius: 18)
             }
             if fullProjection, let projection {
-                BalancedOrionHologram(model: projection)
+                BalancedOrionHologram(model: projection, palette: .blue)
                     .onChange(of: mood) { _, _ in updateProjection() }
                     .onChange(of: level) { _, _ in projection.setLevel(Double(amplitude)) }
             } else {
-                OrionThinkingHologram(state: mood.state, level: Double(amplitude))
+                OrionThinkingHologram(state: mood.state, level: Double(amplitude), palette: .blue)
                 .scaleEffect(reactive && !reduceMotion ? 1 + 0.12 * amplitude : 1)
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: level)
             }

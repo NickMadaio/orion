@@ -49,8 +49,11 @@ struct NowNextView: View {
             if let block = now ?? next {
                 Text(block.title).font(W.display(17, .bold)).foregroundStyle(W.text).lineLimit(2).minimumScaleFactor(0.8)
                 if let now {
-                    TimeBar(value: entry.glance?.progress(of: now, at: entry.date) ?? 0, tint: W.tint(now.kind))
-                    Text("until \(W.clock(now.end))").font(W.mono(10, .medium)).foregroundStyle(W.soft)
+                    HStack(spacing: 8) {
+                        Ring(value: entry.glance?.progress(of: now, at: entry.date) ?? 0, tint: W.tint(now.kind), width: 3)
+                            .frame(width: 26, height: 26)
+                        Text("until \(W.clock(now.end))").font(W.mono(10, .medium)).foregroundStyle(W.soft)
+                    }
                 } else {
                     Text(W.clock(block.start)).font(W.mono(22, .bold)).foregroundStyle(W.tint(block.kind))
                     Text("in \(W.duration(block.start.timeIntervalSince(entry.date)))").font(W.mono(10, .medium)).foregroundStyle(W.soft)

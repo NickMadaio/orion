@@ -18,18 +18,23 @@ enum W {
     static let dim = Color.white.opacity(0.38)
     static let hairline = Color.white.opacity(0.09)
 
-    static let accent = Color(red: 0.18, green: 0.83, blue: 1.00)
+    /// Blue Orion's palette (ThinkingOrbsKit HoloPalette.blue): #4FB8FF strokes, #A8DCFF highlights, #1F5FD6 depth.
+    static let accent = Color(red: 79 / 255, green: 184 / 255, blue: 255 / 255)
+    static let highlight = Color(red: 168 / 255, green: 220 / 255, blue: 255 / 255)
+    static let depth = Color(red: 31 / 255, green: 95 / 255, blue: 214 / 255)
     static let green = Color(red: 0.36, green: 0.92, blue: 0.60)
     static let orange = Color(red: 1.00, green: 0.58, blue: 0.20)
     static let violet = Color(red: 0.70, green: 0.52, blue: 1.00)
     static let red = Color(red: 1.00, green: 0.38, blue: 0.38)
-    static let gold = Color(red: 1.00, green: 0.74, blue: 0.36)
+    /// Was gold; the calm and paused tint is now the pale azure highlight.
+    static let gold = highlight
 
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
+    /// Titles are serif, like Home's.
     static func display(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        .system(size: size, weight: weight, design: .serif)
     }
 
     /// Classes are ORION's cyan, plans with people violet, study green, ORION's own blocks orange.
@@ -77,8 +82,7 @@ struct WidgetBackdrop: View {
     var body: some View {
         ZStack {
             W.ink
-            RadialGradient(colors: [tint.opacity(0.20), .clear], center: .topLeading, startRadius: 0, endRadius: 260)
-            RadialGradient(colors: [W.violet.opacity(0.07), .clear], center: .bottomTrailing, startRadius: 0, endRadius: 240)
+            RadialGradient(colors: [tint.opacity(0.13), .clear], center: .topLeading, startRadius: 0, endRadius: 240)
         }
     }
 }
@@ -106,7 +110,7 @@ struct Eyebrow: View {
     }
 }
 
-/// The hologram still for a mood: the gold shell, or the event horizon.
+/// The hologram still for a mood: the Blue Orion shell, or the event horizon.
 struct HologramArt: View {
     enum Style { case shell, horizon }
     let mood: OrionGlance.Mood
@@ -169,7 +173,7 @@ struct TimeBar: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
-                Capsule().fill(tint.opacity(0.16))
+                Capsule().stroke(tint.opacity(0.28), lineWidth: 1)
                 Capsule().fill(tint).frame(width: max(4, proxy.size.width * CGFloat(min(1, max(0, value)))))
             }
         }

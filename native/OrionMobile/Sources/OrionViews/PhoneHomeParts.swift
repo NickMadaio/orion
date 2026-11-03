@@ -25,9 +25,10 @@ enum PhoneHomeHue {
     static let question = Color(red: 0.70, green: 0.52, blue: 1.00)
     static let approval = Color(red: 1.00, green: 0.58, blue: 0.20)
     static let done = Color(red: 0.36, green: 0.92, blue: 0.60)
-    static let water = Color(red: 0.18, green: 0.83, blue: 1.00)
+    static let water = Color(red: 79 / 255, green: 184 / 255, blue: 255 / 255)
     static let sleep = Color(red: 0.58, green: 0.62, blue: 1.00)
-    static let accent = Color(red: 0.18, green: 0.83, blue: 1.00)
+    /// Blue Orion's #4FB8FF, the hologram's main stroke.
+    static let accent = Color(red: 79 / 255, green: 184 / 255, blue: 255 / 255)
 }
 
 /// The tilted outline card: kicker, serif title, a line or two, then whatever actions the card carries.
@@ -175,5 +176,30 @@ struct PhoneHomeGlanceRow: View {
                 .accessibilityIdentifier("homeAddWater")
             }
         }
+    }
+}
+
+/// The "Food photo" entry point: a camera pill in the glance row's language, opening the food capture sheet.
+struct PhoneHomeFoodPill: View {
+    let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let ink = PhoneHomeInk(scheme)
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "camera").font(.system(size: 13, weight: .regular))
+                Text("FOOD PHOTO").font(.system(size: 9.5, weight: .semibold, design: .monospaced)).tracking(2.2)
+            }
+            .foregroundStyle(ink.text.opacity(0.85))
+            .padding(.horizontal, 14).frame(height: 34)
+            .overlay(Capsule().strokeBorder(PhoneHomeHue.accent.opacity(0.65), lineWidth: 1))
+            .shadow(color: PhoneHomeHue.accent.opacity(0.28), radius: 6)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(HomePressStyle())
+        .accessibilityLabel("Food photo")
+        .accessibilityHint("Take or choose a photo of a meal and send it to ORION")
+        .accessibilityIdentifier("homeFoodPhoto")
     }
 }

@@ -63,6 +63,20 @@ final class ProjectModelTests: XCTestCase {
         try UIRender.write(name, UIRender.onDesktop(view.padding(34), light: false, size: size), size: size)
     }
 
+    /// Long real-world names: the render the width change is judged by (written under ORION_UI_RENDER_DIR).
+    func testRendersLongModelNames() throws {
+        let long = ["qwen3.5:4b-q4_K_M", "qwen3.5:27b", "claude-sonnet-5-5", "qwen3-coder:30b-a3b-instruct-q4_K_M", "tiny:1b"]
+        let catalog = ProjectModelCatalog(models: long.map { ProjectModelInfo(name: $0, sizeBytes: 4_700_000_000, capabilities: ["tools"]) },
+                                          defaults: ["worker": "qwen3.5:27b"])
+        let store = ProjectModelStore(projectID: "p-one", models: ["worker": "qwen3-coder:30b-a3b-instruct-q4_K_M"], catalog: catalog)
+        try frame("w18-picker-closed", ProjectModelSection(store: store).frame(width: 640), size: CGSize(width: 760, height: 260))
+        let items = ProjectModelRows.items(catalog, chosen: "qwen3.5:27b")
+        let defaultRow = ProjectModelRows.defaultRow("qwen3.5:27b")
+        try frame("w18-picker-open",
+                  ProjectPickList(defaultRow: defaultRow, items: items, selection: "qwen3.5:27b", onSelect: { _ in }, onRefresh: {}),
+                  size: CGSize(width: 560, height: 420))
+    }
+
     func testRendersSelectorClosedAndOpen() throws {
         let catalog = try catalog()
         let closedStore = ProjectModelStore(projectID: "p-one", models: ["worker": "alpha-vision:12b", "reviewer": "gone:3b"], catalog: catalog)

@@ -16,7 +16,7 @@ export const healthLogPath = (env = process.env) => env.ORION_HEALTH_LOG || join
 export const undoJournalPath = (env = process.env) => join(controlledDir(env), "food-undo.json");
 const JOURNAL_MAX = 50;
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-const stamp = (d) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+export const stamp = (d) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 
 /** The app's logical day: before 4 AM is still yesterday (OrionDay.cutoffHour). */
 export const dayKey = (d) => new Date(d.getTime() - 4 * 3600_000).toLocaleDateString("en-CA");
@@ -44,7 +44,7 @@ function withLock(file, body) {
 }
 
 /** Read, change (returning a new log), write atomically. The change gets a copy and must not throw half way. */
-function update(file, now, change) {
+export function update(file, now, change) {
   return withLock(file, () => {
     let log;
     try { log = JSON.parse(readFileSync(file, "utf8")); } catch (error) {

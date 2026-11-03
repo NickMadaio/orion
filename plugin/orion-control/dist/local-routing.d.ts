@@ -16,6 +16,7 @@ import { type SleepRun } from "./sleep-plan-flow.js";
 import { type KnowledgeRun } from "./knowledge-run.js";
 import { type QuestionsRun } from "./questions-flow.js";
 import { type FoodRun } from "./food-chat.js";
+import { type WorkoutRun } from "./workout-chat.js";
 import { type MailPrefsRun } from "./mail-flow.js";
 import { type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -156,6 +157,8 @@ export type LocalRoutingOptions = {
     mailPrefsRun?: MailPrefsRun;
     /** w14 g-food: orion-food-estimate (food-chat.ts). Without it no turn is a food estimate and a meal is logged as before. */
     foodRun?: FoodRun;
+    /** w17 g-workout: orion-workout-log (workout-chat.ts). Without it no turn is a workout log. */
+    workoutRun?: WorkoutRun;
     /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
     nickNote?: () => string;
     /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */

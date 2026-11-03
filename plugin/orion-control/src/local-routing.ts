@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { decide, keepWarm, FRONT_DESK_CTX, type Decision } from "./front-desk.js";
 import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
-import { BRAIN_INSTRUCTIONS, FOOD_TOOL, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL } from "./job-instructions.js";
+import { BRAIN_INSTRUCTIONS, FOOD_TOOL, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL, WORKOUT_TOOL } from "./job-instructions.js";
 import { checkWork, outcomeOf, retryInstruction, type ToolResult } from "./work-check.js";
 import { isSessionStart, startsSession, type SessionExec, type SessionHint } from "./session-flow.js";
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
@@ -99,6 +99,8 @@ import { runKnowledgeMove, type KnowledgeRun } from "./knowledge-run.js";
 import { liveQuestionsRun, readQuestionsMove, runQuestionsMove, type QuestionsRun } from "./questions-flow.js";   // wave 12 L1
 import { readFoodTurn } from "./food-read.js";   // w14 g-food
 import { FoodMemory, readFoodPending, runFoodTurn, type FoodRun } from "./food-chat.js";   // w14 g-food
+import { readWorkoutTurn } from "./workout-read.js";   // w17 g-workout
+import { WorkoutMemory, readWorkoutPending, runWorkoutTurn, type WorkoutRun } from "./workout-chat.js";   // w17 g-workout
 import { answeredCardLine } from "./questions-store.js";
 import { liveMailPrefsRun, readMailMove, runMailMove, type MailPrefsRun } from "./mail-flow.js";   // wave 14 f-mail
 import { approvalAsk } from "./approval-reply.js";   // run-1101020721: a held send is said as a draft and a question
@@ -194,6 +196,8 @@ export type LocalRoutingOptions = {
   mailPrefsRun?: MailPrefsRun;
   /** w14 g-food: orion-food-estimate (food-chat.ts). Without it no turn is a food estimate and a meal is logged as before. */
   foodRun?: FoodRun;
+  /** w17 g-workout: orion-workout-log (workout-chat.ts). Without it no turn is a workout log. */
+  workoutRun?: WorkoutRun;
   /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
   nickNote?: () => string;
   /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
@@ -502,8 +506,10 @@ export function canonicalCall(toolName: string, params: unknown): string {
 export function instructionsFor(decision: Decision | undefined, message: string): string {
   if (decision?.tool === "brain" || decision?.tool === "repair_note" || (!decision?.tool && BRAIN.test(message))) return BRAIN_INSTRUCTIONS;
   if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message) || RUNNING_LATE.test(message)) return SCHEDULING_INSTRUCTIONS;
-  return FOOD_TURN.test(message) ? `${GENERAL_INSTRUCTIONS}\n\n${FOOD_TOOL}` : GENERAL_INSTRUCTIONS;   // w14 g-food: the food line only when it is about food
+  const tools = [...(FOOD_TURN.test(message) ? [FOOD_TOOL] : []), ...(WORKOUT_TURN.test(message) ? [WORKOUT_TOOL] : [])];   // w14 g-food, w17 g-workout: a tool's line only when the turn is about it
+  return tools.length ? `${GENERAL_INSTRUCTIONS}\n\n${tools.join("\n")}` : GENERAL_INSTRUCTIONS;
 }
+const WORKOUT_TURN = /\b(?:workout|worked out|gym|lifted|lifting|squats?|bench|deadlifts?|sets|reps|stairmaster|treadmill|ran|run|jog|jogged)\b/i;
 const FOOD_TURN = /\b(?:calories|calorie|cals|kcal|macros|protein|carbs|ate|eaten|food|meal|breakfast|lunch|dinner|snack)\b/i;
 
 // The small core every local turn gets (Nick, 2026-10-12: a small prompt, and ORION looks up the rest
@@ -792,6 +798,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const knowledgePending = new KnowledgePending();   // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
   const sleepPending = new SleepPlanPending();   // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
   const pendingMemory = new PendingMemory();   // 2026-10-31 (pending-reply.ts): what a nudge's reply agreed, for the next short reply
+  const workoutMemory = new WorkoutMemory();   // w17 g-workout (workout-chat.ts): whether a reply still answers the follow-up, and the last workout log for "undo"
   const foodMemory = new FoodMemory();   // w14 g-food (food-chat.ts): whether "yes" still answers "Log it?", and the last food log for "undo"
   const forgetMade = (key: string | undefined) => { if (key) lastMade.delete(key); };
   const recentMade = (key: string | undefined): EditTarget | undefined => { const m = key ? lastMade.get(key) : undefined; return m && Date.now() - m.at < 15 * 60_000 ? m : undefined; };
@@ -1210,8 +1217,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : {}), attachments: Array.isArray(event.attachments) ? event.attachments as Array<{ kind?: string }> : [],
       ...(foodMemory.lastLogged(sessionKey) ? { lastLogged: foodMemory.lastLogged(sessionKey)! } : {}) }) ?? undefined : undefined;
     if (!food && !quietTurn) foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
-    const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-    const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food;
+    // w17 g-workout (workout-read.ts): "just did legs, squats 4x6 at 185", "log my workout: …", "went for a 3 mile run", or his answer to the follow-up question.
+    const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
+    const workout = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
+      ...(workoutPending ? { pending: workoutPending, bound: workoutMemory.bound(sessionKey, workoutPending, parseOutreach(raw)?.text) } : {}), outreach: !!parseOutreach(raw),
+      ...(workoutMemory.lastLogged(sessionKey) ? { lastLogged: workoutMemory.lastLogged(sessionKey)! } : {}) }) ?? undefined : undefined;
+    if (!workout && !quietTurn) workoutMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
+    const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+    const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
     const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
     const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1237,7 +1250,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
     const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
-    const knowledge = on && !quietTurn && !kmove && !food && isKnowledgeAsk(message);
+    const knowledge = on && !quietTurn && !kmove && !food && !workout && isKnowledgeAsk(message);
     const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
     const pendingAt = (options.now ?? pluginNow)();
     const prior = sessionKey ? pendingMemory.beginTurn(sessionKey, pendingAt.getTime(), { crisis: isCrisis(message), replied: !hushed }, options.stateDir) : undefined;
@@ -1274,7 +1287,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
     // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
     // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-    const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+    const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
       ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
         ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
         chatSurface: CHAT_SURFACE.test(sessionKey) })
@@ -1315,6 +1328,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
       if (out?.logged) foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime(), out.logged.ids ?? [out.logged.id]);
       if (food.kind === "undo") foodMemory.forgetLog(sessionKey);
+      if (out?.logged) workoutMemory.forgetLog(sessionKey);   // "undo" takes off the newest thing logged in this chat
+    }
+    if (workout && options.workoutRun && options.stateDir) {   // w17 g-workout: the reply is orion-workout-log's own sentence
+      const out = await withTimeout(runWorkoutTurn(workout, { run: options.workoutRun, stateDir: options.stateDir, now: (options.now ?? pluginNow)() }).catch(() => undefined), 55000);
+      run.ownText = out?.text ?? "I couldn't log that workout just now, so nothing was logged. Tell me again in a bit.";
+      out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+      if (out?.logged) { workoutMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime()); foodMemory.forgetLog(sessionKey); }
+      if (workout.kind === "undo") workoutMemory.forgetLog(sessionKey);
     }
     if (sessionKey && !cutOff && !quietTurn && options.lateFlow) { const late = lateTurn(sessionKey, message); if (late) run.late = late; }
     if (sessionKey) { const answer = addTurn(sessionKey, message); if (answer && !cutOff) run.addAnswer = answer; }

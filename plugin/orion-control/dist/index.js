@@ -11,6 +11,7 @@ import { liveRememberRun } from "./preference-remember.js";
 import { liveSleepPlanRun } from "./sleep-plan-flow.js"; // W10-B
 import { livePhoneTimeRun } from "./phone-block-flow.js"; // W10-G
 import { liveFoodRun } from "./food-chat.js"; // w14 g-food
+import { liveWorkoutRun } from "./workout-chat.js"; // w17 g-workout
 import { liveKnowledgeRun } from "./knowledge-run.js";
 import { liveLateFlow } from "./late-flow.js";
 import { liveMessagesRead } from "./messages-read.js";
@@ -1410,6 +1411,7 @@ export function installProvenanceHooks(api) {
             rememberRun: liveRememberRun,
             phoneTimeRun: livePhoneTimeRun, // W10-G
             foodRun: liveFoodRun(process.env.ORION_CONTROLLED_DIR || path.join(os.homedir(), ".openclaw", "orion-controlled")), // w14 g-food: calorie estimates (food-chat.ts)
+            workoutRun: liveWorkoutRun(process.env.ORION_CONTROLLED_DIR || path.join(os.homedir(), ".openclaw", "orion-controlled")), // w17 g-workout: workout logging (workout-chat.ts)
             sleepPlanRun: liveSleepPlanRun, // W10-B: the sleep-plan interview and night exceptions (sleep-plan-flow.ts)
             knowledgeRun: liveKnowledgeRun, // wave 6: forget / links / profile / trash (knowledge-run.ts)
             lateFlow: (minutes) => liveLateFlow(minutes, () => undoJournalTop()),

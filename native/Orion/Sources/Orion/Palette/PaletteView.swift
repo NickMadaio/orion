@@ -10,7 +10,10 @@ import SwiftUI
 
 struct PaletteView: View {
     static let width: CGFloat = 760
+    /// The tallest the palette gets, and the size of the (transparent) window; the face fits its content inside it.
     static let height: CGFloat = 672
+    static let minHeight: CGFloat = 320
+    private static let chrome: CGFloat = 44 + 82 + 10 + 38
     private static let listWidth: CGFloat = 462
     private static let corner: CGFloat = 26
 
@@ -19,6 +22,8 @@ struct PaletteView: View {
     /// Renders: still rim, no text field, no scroll views, a held clock.
     var isStatic = false
     var clockDate: Date?
+    /// Called once the height has settled, so the window can redraw its shadow.
+    var onResize: () -> Void = {}
 
     @FocusState private var focused: Bool
     @Namespace private var glow
@@ -35,14 +40,30 @@ struct PaletteView: View {
                 PalettePreview(item: model.nav.selectedItem, output: model.output, running: model.context.running, animated: !isStatic)
             }
             .padding(.top, 10)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .clipped()
             footer
         }
-        .frame(width: Self.width, height: Self.height, alignment: .topLeading)
+        .frame(width: Self.width, height: fit, alignment: .topLeading)
         .background(panel)
+        .animation(OrionMotion.resolved(OrionMotion.page, reduceMotion: reduceMotion), value: fit)
         .softReveal(rise: 10)
+        .frame(width: Self.width, height: isStatic ? fit : Self.height, alignment: .top)
         .id(isStatic ? 0 : model.showCount)
+        .onChange(of: fit) { _ in DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { onResize() } }
         .onAppear { focus() }
         .onChange(of: model.showCount) { _ in focus() }
+    }
+
+    private var fit: CGFloat { Self.fitHeight(rows: model.nav.rows, hasOutput: model.output != nil) }
+
+    /// The height its content needs, kept between `minHeight` and `height`. An answer or plan wants room to read.
+    static func fitHeight(rows: [PaletteItem], hasOutput: Bool) -> CGFloat {
+        let kickers = rows.indices.filter { $0 == 0 || rows[$0 - 1].section != rows[$0].section }.count
+        let list = CGFloat(rows.count) * 40 + CGFloat(kickers) * 26 + 16
+        // The preview pane needs about 190 pt to show an icon and its lines, so that is the floor for the body.
+        let body = max(list, hasOutput ? 300 : 190)
+        return min(height, max(minHeight, chrome + body))
     }
 
     private func focus() {

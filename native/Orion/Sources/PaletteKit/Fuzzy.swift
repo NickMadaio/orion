@@ -34,7 +34,7 @@ public enum Fuzzy {
            String(words.compactMap(\.first)).hasPrefix(token) { return 80 }
         if token.count >= 3, whole.contains(token) { return 66 }
         if token.count >= 4, let typo = typoScore(token, words) { return typo }
-        if allowLoose, token.count >= 2, token.count <= 8, let loose = subsequenceScore(token, whole) { return loose }
+        if allowLoose, token.count == 2, let loose = subsequenceScore(token, whole) { return loose }
         return nil
     }
 
@@ -57,6 +57,8 @@ public enum Fuzzy {
     /// Letters in order, rewarded for running together and starting early.
     private static func subsequenceScore(_ token: String, _ text: String) -> Double? {
         let hay = Array(text), needle = Array(token)
+        // Loose matches must start at the start of a word: "mus" is not hiding inside "Mouse setup".
+        guard let head = needle.first, hay.indices.contains(where: { hay[$0] == head && ($0 == 0 || hay[$0 - 1] == " ") }) else { return nil }
         var position = 0, run = 0, bestRun = 0, first: Int?
         for char in needle {
             guard let found = hay[position...].firstIndex(of: char) else { return nil }

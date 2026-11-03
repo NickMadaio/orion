@@ -42,7 +42,7 @@ final class PaletteRenderTests: XCTestCase {
             .background(UIRender.wallpaper(light: false))
             .environment(\.colorScheme, .dark)
             .environment(\.orionFrozenMotion, 1)
-        let image = try UIRender.write(name, view, size: CGSize(width: PaletteView.width + 80, height: PaletteView.height + 80))
+        let image = try UIRender.write(name, view, size: CGSize(width: PaletteView.width + 80, height: PaletteView.fitHeight(rows: model.nav.rows, hasOutput: model.output != nil) + 80))
         XCTAssertGreaterThan(image.width, 0)
     }
 
@@ -83,6 +83,15 @@ final class PaletteRenderTests: XCTestCase {
         sub.openSubMenu()
         try render("7-actions-submenu", sub)
         try render("8-calc", model("=18% of 240"))
+    }
+
+    func testHeightFitsContentBetweenTheLimits() {
+        let few = PaletteView.fitHeight(rows: model("gam").nav.rows, hasOutput: false)
+        let many = PaletteView.fitHeight(rows: model("s", running: true).nav.rows, hasOutput: false)
+        XCTAssertGreaterThanOrEqual(few, PaletteView.minHeight)
+        XCTAssertLessThan(few, many)
+        XCTAssertLessThanOrEqual(many, PaletteView.height)
+        XCTAssertLessThanOrEqual(PaletteView.fitHeight(rows: model("").nav.rows, hasOutput: true), PaletteView.height)
     }
 
     func testShowIsFastAndTheRankingDoesNotBlockTheMainThread() {

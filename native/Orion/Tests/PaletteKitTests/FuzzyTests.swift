@@ -19,7 +19,12 @@ final class FuzzyTests: XCTestCase {
     }
 
     func testAcronymOutranksLooseSubsequence() throws {
-        XCTAssertGreaterThan(try XCTUnwrap(score("gr", "Game ready")), try XCTUnwrap(score("gr", "Fixing the red car", "")))
+        XCTAssertGreaterThan(try XCTUnwrap(score("gr", "Game ready")), try XCTUnwrap(score("gr", "Gym and run", "")))
+    }
+
+    func testThreeLetterQueriesDoNotMatchLooselyInsideOtherWords() throws {
+        XCTAssertNil(score("mus", "Mouse setup"))
+        XCTAssertGreaterThan(try XCTUnwrap(score("mus", "Music")), 80)
     }
 
     func testTyposStillMatch() throws {

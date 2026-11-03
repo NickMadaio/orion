@@ -166,7 +166,8 @@ final class ConsoleController: ObservableObject {
         panel.level = .floating
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        let host = NSHostingView(rootView: PaletteView(model: model, onRun: { [weak self] index in self?.runRow(at: index) }))
+        let host = NSHostingView(rootView: PaletteView(model: model, onRun: { [weak self] index in self?.runRow(at: index) },
+                                                   onResize: { [weak self] in self?.panel?.invalidateShadow() }))
         host.frame = NSRect(origin: .zero, size: size)
         host.wantsLayer = true
         host.layer?.backgroundColor = .clear

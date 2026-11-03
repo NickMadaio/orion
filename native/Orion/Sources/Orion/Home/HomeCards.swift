@@ -16,7 +16,7 @@ import Foundation
 
 /// What a card is about. One accent hue per kind (HomeCardStyle).
 enum HomeCardKind: String, CaseIterable {
-    case question, event, tasks, focus, project, health, finance, sleep
+    case question, event, tasks, focus, project, health, sleep
 }
 
 /// What a card's buttons do. Every case maps to an action the app already has; see HomeTab.perform.
@@ -50,7 +50,7 @@ struct HomeCard: Identifiable, Equatable {
     let primary: HomeCardButton
     /// The quiet "details ›" link, when there is somewhere useful to go.
     let details: HomeCardButton?
-    /// Lower comes first.
+    /// Urgency within its kind; lower comes first. Which kind leads is HomeCardPriority's table, not this.
     let rank: Int
 
     var id: String { kind.rawValue }
@@ -94,7 +94,8 @@ struct HomeSignals: Equatable {
 }
 
 enum HomeCardBuilder {
-    static let maxCards = 6
+    /// Home shows at most this many cards (wave 17: five, the centre one largest).
+    static let maxCards = 5
     /// A focus block is only worth suggesting with at least this much clear time.
     static let minimumFreeMinutes = 45
     /// An unanswered question older than this has gone stale.
@@ -110,15 +111,10 @@ enum HomeCardBuilder {
             focus(brief: brief, live: signals.focus, leaveBy: signals.leaveBy, format: format),
             project(signals.projects, format: format),
             health(readings(brief: brief, day: signals.healthDay), format: format),
-            finance(signals.finance, format: format),
             sleep(bedtime: signals.bedtime, nextWake: signals.nextWake, lastNight: readings(brief: brief, day: signals.healthDay)?.sleepHours,
                   format: format),
         ]
-        let order = HomeCardKind.allCases
-        return candidates.compactMap { $0 }
-            .sorted { ($0.rank, order.firstIndex(of: $0.kind)!) < ($1.rank, order.firstIndex(of: $1.kind)!) }
-            .prefix(maxCards)
-            .map { $0 }
+        return Array(HomeCardPriority.ordered(candidates.compactMap { $0 }).prefix(maxCards))
     }
 
     // MARK: Question
@@ -271,9 +267,11 @@ enum HomeCardBuilder {
 
     private static func sleep(bedtime: Date?, nextWake: Date?, lastNight: Double?, format: HomeFormat) -> HomeCard? {
         let short = lastNight.flatMap { $0 < shortNightHours ? $0 : nil }
+        guard HomeCardPriority.isEvening(hour: format.hour) else { return nil }
         guard let bedtime else { return short.flatMap { shortNight($0, format: format) } }
         let minutes = format.minutes(until: bedtime)
-        guard minutes > -120, minutes <= 8 * 60, format.hour >= 17 || minutes <= 300 else { return nil }
+        guard HomeCardPriority.isEvening(hour: format.hour) else { return nil }
+        guard minutes > -120, minutes <= 8 * 60 else { return nil }
         let past = minutes < 0
         return HomeCard(kind: .sleep,
                         kicker: past ? ["PAST BEDTIME", format.duration(-minutes)]

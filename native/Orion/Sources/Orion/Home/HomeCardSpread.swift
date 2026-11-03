@@ -6,6 +6,8 @@ import SwiftUI
  (within ±1.5°), its own width and a nudge up or down, and a short second row sits half a column over, like
  bricks. Deterministic, so the same cards land in the same places on every render and nothing jumps on refresh.
 
+ (FinanceTab still uses this brick spread; Home's own cards use HomePriorityLayout.)
+
  The cards deal in on the shared schedule (ViewMotion.dealDelay), each with SoftReveal.
 */
 
@@ -91,10 +93,13 @@ struct HomeSpreadLayout: Layout {
     }
 }
 
-/// The spread itself, or the calm line when there is nothing to say.
+/// The spread itself, or the calm line when there is nothing to say. Cards arrive in priority order: the first is
+/// the centre, largest card (HomePriorityPlan). A reorder or a resize moves them on a spring; Reduce Motion cross-fades.
 struct HomeCardSpread: View {
     let cards: [HomeCard]
     let onAction: (HomeCardAction) -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if cards.isEmpty {
@@ -104,14 +109,17 @@ struct HomeCardSpread: View {
                 .frame(maxWidth: .infinity, minHeight: 220)
                 .softReveal(delay: 0.2)
         } else {
-            let slots = HomeSpreadGeometry.slots(count: cards.count, columns: 3)
-            HomeSpreadLayout {
-                ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
-                    HomeCardView(card: card, onAction: onAction)
-                        .rotationEffect(.degrees(slots[index].rotation))
-                        .deal(order: index, rise: 22)
+            let shown = Array(cards.prefix(HomePriorityPlan.maxCount))
+            HomePriorityLayout {
+                ForEach(Array(shown.enumerated()), id: \.element.id) { rank, card in
+                    HomeCardView(card: card, rank: rank, onAction: onAction)
+                        .rotationEffect(.degrees(HomePriorityPlan.tilt(rank)))
+                        .deal(order: rank, rise: 22)
                 }
             }
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : Self.reorder, value: shown.map(\.id))
         }
     }
+
+    static let reorder = Animation.spring(response: 0.6, dampingFraction: 0.78)
 }

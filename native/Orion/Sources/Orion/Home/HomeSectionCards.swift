@@ -2,14 +2,11 @@ import Foundation
 
 /*
  The cards Home borrows from Projects, Finances and Health (wave 12, U5). Same contract as HomeCards.swift: a fold
- over data the section already holds, no data → no card. Ranks slot them among the day's cards: a run that needs
- Nick sits with the overdue tasks; a renewal or a stalled run beside a later class; a spend headline last.
+ over data the section already holds, no data → no card. Ranks here are urgency within a kind;
+ which kind comes first is HomeCardPriority's table. Finance is no longer a card (wave 17): the glance row keeps it.
 */
 
 extension HomeCardBuilder {
-    /// A charge renewing within this many days is worth a card.
-    static let renewalLeadDays = 3
-
     // MARK: Projects
 
     static func project(_ projects: [HomeProject], format: HomeFormat) -> HomeCard? {
@@ -48,35 +45,6 @@ extension HomeCardBuilder {
                         body: [(project.activeTask.map { "On “\($0)”." } ?? "Between tasks.") + others],
                         primary: HomeCardButton(title: "Watch it", action: .openProject(id: project.id)),
                         details: nil, rank: 5)
-    }
-
-    // MARK: Finance
-
-    static func finance(_ finance: HomeFinance?, format: HomeFormat) -> HomeCard? {
-        guard let finance, finance.isFresh(at: format.now) else { return nil }
-        let money = { HomeFormat.money($0, currency: finance.currency) }
-        let monthly = finance.recurring.count > 1
-            ? "\(HomeFormat.word(finance.recurring.count)) recurring charges, \(money(finance.recurringTotal)) a month." : nil
-
-        let renewals = finance.recurring.compactMap { item -> (HomeFinance.Recurring, Date, Int)? in
-            guard let seen = item.lastSeen, let due = format.clock.calendar.date(byAdding: .month, value: 1, to: seen) else { return nil }
-            let days = format.days(until: due)
-            return (0...renewalLeadDays).contains(days) ? (item, due, days) : nil
-        }.sorted { $0.2 < $1.2 }
-        if let (item, due, days) = renewals.first {
-            let when = days == 0 ? "today" : days == 1 ? "tomorrow" : "on \(format.weekday(due))"
-            return HomeCard(kind: .finance, kicker: [days == 0 ? "RENEWS TODAY" : "RENEWS IN \(days) DAY\(days == 1 ? "" : "S")", "FINANCES"],
-                            title: "\(item.name) renews \(when): \(money(item.amount)).",
-                            body: [monthly ?? "Cancel it first if you're done with it."],
-                            primary: HomeCardButton(title: "Open finances", action: .openFinance), details: nil,
-                            rank: days == 0 ? 2 : 4)
-        }
-        guard finance.spentThisWeek > 0 else { return nil }
-        let category = finance.topCategory.map { ", most of it on \(Money.prettyCategory($0).lowercased())" } ?? ""
-        return HomeCard(kind: .finance, kicker: ["SPENDING", "THIS WEEK"],
-                        title: "\(money(finance.spentThisWeek)) spent so far this week.",
-                        body: ["\(money(finance.spentThisMonth)) this month\(category)."],
-                        primary: HomeCardButton(title: "Open finances", action: .openFinance), details: nil, rank: 6)
     }
 
     // MARK: A short night, when no bedtime is planned

@@ -80,6 +80,12 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-03 midday: wave 17 (Claude, orchestrator)
+
+- **Self-echo:** short cues ("Still working", "Let me") counted as barge-in and orphaned the spoken answer. Fixed with a CueEcho match, and a refused barge-in is now a no-op for speech (VoiceEcho.swift).
+- **Home:** a priority table (question > class > overdue > evening sleep > focus > project > health; no finance card) and an orbit layout. The hologram is the sun's halo.
+- **Weather:** Fahrenheit only, spoken in full words ("55 degrees Fahrenheit"). weather-words.ts runs at finalize; the brief and watches are converted.
+
 ### 2026-11-03 00:30: voice turns in noise (w16/e-voice2) (Claude, orchestrator)
 
 - **SegmentSpeakerFilter:** drops segments of a voice turn that aren't Nick's, using voice-id per segment of 0.8 s or more.

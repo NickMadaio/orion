@@ -26,7 +26,7 @@ final class MouseRemapper {
     private let lock = NSLock()
     private var snapshot = Snapshot()
     /// Buttons whose down was swallowed, so the up is too. Touched only inside the callback (one thread).
-    private var swallowedDown = Set<Int>()
+    private var swallowed = SwallowTracker()
 
     var isRunning: Bool { tap != nil }
 
@@ -43,6 +43,7 @@ final class MouseRemapper {
     @discardableResult
     func start() -> Bool {
         guard tap == nil else { return true }
+        swallowed.reset()
         guard Permissions.accessibilityTrusted else { return false }
         let mask = (CGEventMask(1) << CGEventType.otherMouseDown.rawValue) | (CGEventMask(1) << CGEventType.otherMouseUp.rawValue)
         let context = Unmanaged.passUnretained(self).toOpaque()
@@ -65,25 +66,28 @@ final class MouseRemapper {
     func stop() {
         if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        tap = nil; source = nil; swallowedDown.removeAll()
+        if let tap { CFMachPortInvalidate(tap) }
+        tap = nil; source = nil; swallowed.reset()
     }
 
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            // Downs swallowed before the stall have no matching up bookkeeping any more: start clean.
+            swallowed.reset()
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
         let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
         guard button >= 3 else { return Unmanaged.passUnretained(event) }
         if type == .otherMouseUp {
-            return swallowedDown.remove(button) != nil ? nil : Unmanaged.passUnretained(event)
+            return swallowed.shouldSwallowUp(button) ? nil : Unmanaged.passUnretained(event)
         }
         guard type == .otherMouseDown else { return Unmanaged.passUnretained(event) }
         let snap = current()
         let action = MouseResolver.resolve(button: button, bundleId: snap.bundleId, isGame: snap.isGame, bindings: snap.bindings)
         DispatchQueue.main.async { [weak self] in self?.onObserved?(button) }
-        guard let action else { return Unmanaged.passUnretained(event) }
-        swallowedDown.insert(button)
+        guard let action else { swallowed.passDown(button); return Unmanaged.passUnretained(event) }
+        swallowed.swallowDown(button)
         DispatchQueue.main.async { [weak self] in self?.onAction?(action, button) }
         return nil
     }

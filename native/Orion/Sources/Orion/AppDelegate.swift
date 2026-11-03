@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var preferencesController: PreferencesWindowController!
     private let pushToTalk = PushToTalkMonitor()
     let mouse = MouseController.shared
+    private let mouseSetupPanel = MouseSetupPanelController()
     private var mouseBubbleWatch: AnyCancellable?
     /// Owns the Sparkle updater. Constructed here, STARTED late — see
     /// `UpdateController.start`, and the launch-path note in its header.
@@ -171,12 +172,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             default: self.state.onWantsSummon?()
             }
         }
-        state.onMouseAnswered = { [weak self] setUp in self?.mouse.answerAsk(setUp: setUp) }
+        state.onMouseAnswered = { [weak self] setUp in
+            if setUp { self?.openMouseSetup() } else { self?.mouse.answerAsk(setUp: false) }
+        }
+        mouse.onSetupRequested = { [weak self] in self?.openMouseSetup() }
         state.onWantsDashboard = { [weak self] in self?.textWindowController.show() }
         mouseBubbleWatch = state.$bubble.receive(on: DispatchQueue.main).sink { bubble in
             PanelHitRegion.bubbleActionReach = (bubble?.offersMouseSetup == true && bubble?.state == .shown) ? 120 : 0
         }
         mouse.start()
+    }
+
+    /// ORION says he will help, and the small setup popup opens beside his bubble.
+    func openMouseSetup() {
+        guard !mouseSetupPanel.isOpen else { return }
+        state.deliverReach(MouseSetupPlan.intro, aloud: false, headphones: false, keepFor: 600, kind: "mouse")
+        mouse.setSetupOpen(true)
+        let close: (Bool) -> Void = { [weak self] done in
+            guard let self else { return }
+            self.mouse.setSetupOpen(false)
+            self.mouseSetupPanel.close()
+            if done { self.state.deliverReach(self.mouse.finishSetup(), aloud: false, headphones: false, keepFor: 20, kind: "mouse") }
+            else { self.mouse.answerAsk(setUp: false) }
+        }
+        // Wait a beat so the bubble's panel has its frame, then sit beside it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            guard let self else { return }
+            self.mouseSetupPanel.show(mouse: self.mouse, beside: self.panelController.panel?.frame,
+                                      onDone: { close(true) }, onNotNow: { close(false) })
+        }
     }
 
     /// An accessory app shows no menu bar, but without a main menu the standard
@@ -218,6 +242,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 state.deliverReach(entry.text, aloud: entry.channel == "mac-voice", headphones: entry.headphones,
                                    loud: entry.loud, listen: entry.listen, reachID: id,
                                    kind: entry.kind, deliveredToPhone: entry.channel == "phone")
+                continue
+            }
+            // orion://mouse-setup: the new-mouse setup popup (scripts/orion-mouse setup).
+            if url.scheme == "orion", url.host == "mouse-setup" {
+                openMouseSetup()
                 continue
             }
             // orion://morning-screen — the day and the weather, full screen (scripts/orion-morning).

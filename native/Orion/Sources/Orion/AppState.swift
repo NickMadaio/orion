@@ -582,16 +582,11 @@ final class AppState: ObservableObject {
         if bubble != nil { bubble?.offersMouseSetup = true }
     }
 
-    /// Set up opens Settings on the Mouse section; either answer closes the bubble.
+    /// Set up opens the small setup popup (AppDelegate); either answer closes the question bubble.
     func answerMouseAsk(setUp: Bool) {
         bubble = nil
         reachClear?.cancel(); reachClear = nil
         onMouseAnswered?(setUp)
-        if setUp {
-            requestedSettingsSection = "Mouse"
-            requestedTab = .settings
-            onWantsDashboard?()
-        }
     }
 
     func deliverReach(_ text: String, aloud: Bool, headphones: Bool, loud: Bool = false, listen: Bool = false, reachID: String? = nil, keepFor: TimeInterval = 120,

@@ -8,8 +8,11 @@
  <id> is [A-Za-z0-9_-]{1,64}. The watcher writes back:
    food-inbox/<id>.estimate.json  { id, ok, summary?, estimate?, error?, at }   (the phone may show it)
    food-inbox/.state.json         { done: { <id>: { at, ok } } }               (each item is estimated once)
- and sends Nick one chat message per item: "Food photo: ~650 kcal · 45P 70C 18F (…). Log it?", with the estimate
- left in food-pending.json so his "yes" in either chat logs it. Items older than a day are marked stale, not estimated.
+ and logs each estimate to the health log AT ONCE (Nick: "the AI logs it for me"), then sends one chat message per item:
+ "Logged ~630 kcal — pizza slice, chicken: 36P 64C 25F. Fix anything?". The offer stays in food-pending.json for 30 minutes with
+ `logged: { id }`, so a reply ("it was 2 slices", "undo") edits or removes that same entry (orion-food-estimate --revise / undo).
+ Not logged, but asked: a photo with no food in it ("Is this food? I couldn't tell.") and a low-confidence guess (kept as an offer,
+ a yes logs it); during an evaluation the old "Log it?" offer is made instead. Items older than a day are marked stale, not estimated.
  Never during an evaluation; at most three items per run, under food-inbox/.lock, so overlapping ticks do not double up.
 */
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -18,7 +21,8 @@ import { controlledDir } from "../clock.mjs";
 import { evalMode } from "../eval-mode.mjs";
 import { estimateMeal } from "./estimate.mjs";
 import { readImages } from "./ollama.mjs";
-import { offerLine, writePending } from "./pending.mjs";
+import { logEstimate } from "./log.mjs";
+import { loggedLine, offerLine, writePending } from "./pending.mjs";
 
 export const INBOX_DIR = "food-inbox";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -79,6 +83,11 @@ export async function runInbox({ now = new Date(), env = process.env, estimate =
   } finally { try { unlinkSync(lock); } catch { /* gone */ } }
 }
 
+function logOnArrival(estimate, { taken, now, env }) {
+  const at = Number.isFinite(taken) ? new Date(taken) : now;
+  return logEstimate(estimate, { at, now, env });
+}
+
 async function processItem(item, { now, estimate, notify, env }) {
   const taken = item.at ? Date.parse(item.at) : Number.NaN;
   if (Number.isFinite(taken) && now.getTime() - taken > STALE_MS) return { record: { ok: false, error: "stale" }, report: { ok: false, error: "stale" } };
@@ -86,12 +95,33 @@ async function processItem(item, { now, estimate, notify, env }) {
   try { images = item.photo ? readImages([item.photo]) : []; } catch (error) { return { record: { ok: false, error: error.message }, report: { ok: false, error: error.message } }; }
   if (!images.length && !item.note) return { record: { ok: false, error: "no photo and no note" }, report: { ok: false, error: "no photo and no note" } };
   const out = await estimate({ text: item.note, images, imagePaths: item.photo ? [item.photo] : [] });
+  if (!out.ok && out.noFood) {
+    const text = "Is this food? I couldn't tell.";
+    const sent = notify ? notify(text, `food: ${item.id}`) : { ok: false };
+    return { record: { ok: false, error: "not food" }, report: { ok: false, error: "not food", notified: !!sent?.ok } };
+  }
   if (!out.ok) {
     const text = `I couldn't estimate the food photo you sent: ${out.error}. Tell me what it was and I'll work it out.`;
     const sent = notify ? notify(text, `food: ${item.id}`) : { ok: false };
     return { record: { ok: false, error: out.error }, report: { ok: false, error: out.error, notified: !!sent?.ok } };
   }
-  const offerText = offerLine(out.summary, "Food photo: ");
+  const base = { via: "inbox", inboxId: item.id, summary: out.summary, estimate: out.estimate,
+    ...(item.note ? { text: item.note } : {}), ...(item.photo ? { photos: [item.photo] } : {}),
+    ...(Number.isFinite(taken) ? { eatenAt: new Date(taken).toISOString() } : {}) };
+  if (out.estimate.confidence === "low") {   // only guessing: ask, log nothing; a yes logs the guess
+    const offerText = `Is this food? I couldn't tell. My guess: ${out.summary}. Log it?`;
+    writePending({ ...base, offerText }, { now, env });
+    const sent = notify ? notify(offerText, `food: ${item.id}`) : { ok: false };
+    return { record: { ok: true, logged: false, summary: out.summary, estimate: out.estimate }, report: { ok: true, logged: false, summary: out.summary, notified: !!sent?.ok } };
+  }
+  const logged = logOnArrival(out.estimate, { taken, now, env });
+  if (logged.ok) {   // he asked ORION to log his food: it is logged, and the reply edits that entry
+    const offerText = loggedLine(logged.entry, out.estimate);
+    writePending({ ...base, offerText, logged: { id: logged.entry.id } }, { now, env });
+    const sent = notify ? notify(offerText, `food: ${item.id}`) : { ok: false };
+    return { record: { ok: true, logged: true, entryId: logged.entry.id, summary: out.summary, estimate: out.estimate }, report: { ok: true, logged: true, summary: out.summary, notified: !!sent?.ok } };
+  }
+  const offerText = offerLine(out.summary, "Food photo: ");   // could not log (evaluation, busy log): offer it instead
   writePending({ via: "inbox", inboxId: item.id, offerText, summary: out.summary, estimate: out.estimate,
     ...(item.note ? { text: item.note } : {}), ...(item.photo ? { photos: [item.photo] } : {}),
     ...(Number.isFinite(taken) ? { eatenAt: new Date(taken).toISOString() } : {}) }, { now, env });

@@ -80,3 +80,25 @@ public struct FoodInbox {
         #endif
     }
 }
+
+extension FoodInbox {
+    /// What starts the estimator right after a photo lands, so it does not wait for the app's
+    /// five-minute tick (which still picks up anything this misses). The installed mirror's
+    /// node and script, as `morningSignal` uses; the inbox's own lock stops two runs at once.
+    public static func estimatorCommand(home: URL) -> (executable: URL, arguments: [String]) {
+        (home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node"),
+         [home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-food-estimate").path, "inbox"])
+    }
+
+    /// Fire and forget: never throws, never waits on the model.
+    public static func kickEstimator(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+        let command = estimatorCommand(home: home)
+        guard FileManager.default.isExecutableFile(atPath: command.executable.path) else { return }
+        let process = Process()
+        process.executableURL = command.executable
+        process.arguments = command.arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+}

@@ -113,3 +113,20 @@ describe("no and corrections that name one of several offers (wave 14 review)", 
     expect(read("undo", { lastLogged })).toEqual({ kind: "undo", id: "FOOD-b", ids: ["FOOD-a", "FOOD-b"] });
   });
 });
+
+describe("a reply to a photo that was already logged", () => {
+  const ID = "FOOD-0E0C7C2A-6B8B-4E0B-9C1A-3F7E3C0D8A11";
+  const logged = { pending: { at: NOW.getTime() - 120_000, via: "inbox" as const, offerText: "Logged ~630 kcal — pizza slice, pineapple topping: 36P 64C 25F. Fix anything?", loggedId: ID }, bound: true };
+  it.each(["ya thats fine", "yep", "ok"])("%s is yes: it stays logged", (m) => expect(read(m, logged)).toEqual({ kind: "yes" }));
+  it.each(["nah thats right", "no"])("%s is no: nothing to fix, it stays", (m) => expect(read(m, logged)).toEqual({ kind: "no" }));
+  it.each(["undo", "nvm delete that", "remove it pls", "scratch that", "take it off"])("%s takes the entry off", (m) => expect(read(m, logged)).toEqual({ kind: "undo", id: ID }));
+  it.each(["it was 2 slices", "no pineapple tho", "more like 800", "nah that was a veggie one", "i only ate half", "forgot the garlic bread"])("%s edits it in place", (m) =>
+    expect(read(m, logged)).toEqual({ kind: "revise", correction: m }));
+  it("chatter, questions and other requests are not edits", () => {
+    for (const m of ["lol thanks", "cool", "whats the weather", "remind me to call mom at 5", "move gym to 6"]) expect(read(m, logged)).toBeNull();
+  });
+  it("is not an edit once another conversation came in between", () => expect(read("it was 2 slices", { ...logged, bound: false })).toBeNull());
+  it("with older offers also waiting, the logged photo still answers a bare reply", () => {
+    expect(read("it was 2 slices", { ...logged, pending: { ...logged.pending, count: 2, names: ["burger", "pizza slice"] } })).toEqual({ kind: "revise", correction: "it was 2 slices" });
+  });
+});

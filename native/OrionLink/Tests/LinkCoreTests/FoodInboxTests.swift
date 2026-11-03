@@ -89,4 +89,11 @@ final class FoodInboxTests: XCTestCase {
         XCTAssertEqual((object["note"] as? String)?.count, FoodPhotoSchema.noteLimit)
     }
     #endif
+
+    func testEstimatorKickRunsTheInstalledInboxCommand() {
+        let home = URL(fileURLWithPath: "/home/x")
+        let command = FoodInbox.estimatorCommand(home: home)
+        XCTAssertTrue(command.executable.path.hasSuffix(".openclaw/tools/node-v24.15.0/bin/node"))
+        XCTAssertEqual(command.arguments, ["/home/x/.openclaw/orion-remote/scripts/orion-food-estimate", "inbox"])
+    }
 }

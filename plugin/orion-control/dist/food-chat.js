@@ -30,6 +30,9 @@ export function readFoodPending(stateDir, now) {
         if (!newest)
             return undefined;
         const view = { at: Date.parse(String(newest.at)), via: newest.via === "inbox" ? "inbox" : "chat", offerText: String(newest.offerText) };
+        const loggedId = typeof newest.logged?.id === "string" ? newest.logged.id : undefined;
+        if (loggedId)
+            view.loggedId = loggedId;
         return Array.isArray(raw.offers) ? { ...view, count: live.length, names: live.map((row) => String(row.name ?? "")) } : view;
     }
     catch {
@@ -47,7 +50,7 @@ export class FoodMemory {
     forgetLog(key) { this.logs.delete(key); }
     /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
     bound(key, pending, label) {
-        if (label && !/Log it\?|Add those numbers/.test(label))
+        if (label && !/Log it\?|Add those numbers|Fix anything\?/.test(label))
             return false;
         return (this.others.get(key) ?? 0) <= pending.at;
     }
@@ -90,7 +93,7 @@ export async function runFoodTurn(turn, deps) {
         });
         case "yes": return one(["log-pending", "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
         case "pick": return one(["log-pending", "--pick", turn.which, "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
-        case "no": return one(["discard", ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose ? String(j.say) : "Okay, not logged."), () => "Okay, not logged.");
+        case "no": return one(["discard", ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose || j.kept ? String(j.say) : "Okay, not logged."), () => "Okay, not logged.");
         case "revise": return one(["--revise", turn.correction, ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose ? String(j.say) : offerOf(j)));
         case "undo": return undoAll(turn.ids?.length ? turn.ids : [turn.id], deps);
         case "that": {

@@ -42,6 +42,21 @@ describe("runFoodTurn", () => {
     expect(calls[0]).toEqual(["--revise", "it was a small one", "--json"]);
     expect(out.text).toBe("~400 kcal · smaller. Log it?");
   });
+  it("a no to 'Fix anything?' says it stays logged, and a correction reports the updated entry", async () => {
+    const stays = await runFoodTurn({ kind: "no" }, { run: fakeRun({ discard: { ok: true, discarded: 1, kept: true, say: "Okay, it stays logged." } }), stateDir: dir(), now: NOW });
+    expect(stays.text).toBe("Okay, it stays logged.");
+    const fixed = await runFoodTurn({ kind: "revise", correction: "it was 2 slices" }, { run: fakeRun({ "--revise": { ...ESTIMATE, offer: { id: "fp-3", text: "Updated ~800 kcal — pizza slice: 33P 99C 30F. Fix anything?" }, logged: { id: "FOOD-X" } } }), stateDir: dir(), now: NOW });
+    expect(fixed.text).toBe("Updated ~800 kcal — pizza slice: 33P 99C 30F. Fix anything?");
+    expect(fixed.logged?.id).toBe("FOOD-X");
+  });
+  it("readFoodPending carries the logged entry's id, and the memory treats 'Fix anything?' as the offer's own line", () => {
+    const d = dir();
+    writeFileSync(join(d, "food-pending.json"), JSON.stringify({ offers: [{ id: "a", name: "pizza", at: NOW.toISOString(), expiresAt: new Date(NOW.getTime() + 60_000).toISOString(), via: "inbox", offerText: "Logged ~630 kcal — pizza: 1P 1C 1F. Fix anything?", logged: { id: "FOOD-9" }, estimate: {} }] }));
+    const view = readFoodPending(d, NOW);
+    expect(view?.loggedId).toBe("FOOD-9");
+    expect(new FoodMemory().bound("s", view!, "Logged ~630 kcal — pizza: 1P 1C 1F. Fix anything?")).toBe(true);
+    expect(new FoodMemory().bound("s", view!, "Is this food? I couldn't tell. My guess: x. Log it?")).toBe(true);
+  });
   it("a failure is one honest sentence", async () => {
     const out = await runFoodTurn({ kind: "ask", text: "toast" }, { run: fakeRun({ "--text": { ok: false, error: "the local model took longer than 45 s" } }), stateDir: dir(), now: NOW });
     expect(out.text).toBe("I couldn't estimate that just now (the local model took longer than 45 s), so nothing was logged. Tell me again in a bit.");

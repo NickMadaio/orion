@@ -98,6 +98,8 @@ const refused = () => ({ ok: false, refused: true, error: "Not logged: ORION is 
 
 /**
  Appends an estimate, or fills an existing entry (target.entryId: a meal logged earlier with 0 kcal) with its numbers.
+ target.replace: the entry is one this tool wrote and Nick corrected; it is rewritten in place (new title and numbers, same id) and not journaled,
+ so undo removes it instead of restoring the first guess.
  Resolves { ok, entry, day, dayCalories } / { ok: false, error }.
 */
 export function logEstimate(estimate, { meal, at, now = at, target, env = process.env } = {}) {
@@ -109,14 +111,16 @@ export function logEstimate(estimate, { meal, at, now = at, target, env = proces
       const day = located?.day ?? dayKey(at);
       const existing = log.nutritionLog?.[day] ?? [];
       const prior = located ? existing[located.index] : null;
-      const entry = prior
+      const entry = prior && target.replace
+        ? entryFor(estimate, { meal: prior.meal ?? meal, at: new Date(prior.loggedAt ?? at), id: prior.id })
+        : prior
         ? { ...entryFor(estimate, { meal: prior.meal ?? meal, at: new Date(prior.loggedAt ?? at), id: prior.id, title: prior.title }), notes: [prior.notes, entryFor(estimate, { meal, at }).notes].filter(Boolean).join(" ") }
         : entryFor(estimate, { meal: mealFor(meal, at), at });
       const entries = prior ? existing.map((e, i) => (i === located.index ? entry : e)) : [...existing, entry];
       const next = withDayTotal(log, day, entries, now);
       return { next, result: { ok: true, entry, day, filled: !!prior, before: prior, dayCalories: next.days[day].calories } };
     });
-    if (out.ok && out.before) writeJournal([...readJournal(env).filter((r) => r.id !== out.entry.id), { id: out.entry.id, day: out.day, before: out.before, at: stamp(now) }], env);
+    if (out.ok && out.before && !target?.replace) writeJournal([...readJournal(env).filter((r) => r.id !== out.entry.id), { id: out.entry.id, day: out.day, before: out.before, at: stamp(now) }], env);
     const { before: _before, ...result } = out;
     return result;
   } catch (error) { return { ok: false, error: error.message }; }

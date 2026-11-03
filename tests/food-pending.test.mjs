@@ -59,18 +59,14 @@ test("during an evaluation --offer and --revise never write food-pending.json", 
   } finally { await o.close(); }
 });
 
-test("three phone photos leave three offers; a bare yes lists them and asks; naming one logs it and says which", async () => {
+test("three estimates leave three offers; a bare yes lists them and asks; naming one logs it and says which", async () => {
   const o = await fakeOllama(); const dir = stateDir();
   try {
-    mkdirSync(join(dir, "food-inbox"));
-    for (const [i, food] of ["burger", "salad", "pasta"].entries()) {
-      writeFileSync(join(dir, "food-inbox", `m${i}.json`), JSON.stringify({ id: `m${i}`, at: `2026-11-02T12:4${i}:00Z`, note: food }));
-    }
     const reach = join(dir, "fake-reach.mjs"); writeFileSync(reach, "");
     const env = { ORION_OLLAMA_URL: o.url, ORION_CONTROLLED_DIR: dir, ORION_NOW: NOW, ORION_REACH_BIN: reach };
-    assert.equal(JSON.parse((await run(["inbox", "--json"], env)).stdout).items.length, 3);
+    for (const food of ["burger", "salad", "pasta"]) await run(["--text", food, "--offer", "--json"], env);
     const offers = JSON.parse(readFileSync(join(dir, "food-pending.json"), "utf8")).offers;
-    assert.deepEqual(offers.map((x) => x.inboxId), ["m0", "m1", "m2"], "kept by id, none overwritten");
+    assert.equal(offers.length, 3, "kept by id, none overwritten");
     assert.equal(new Set(offers.map((x) => x.id)).size, 3);
 
     const yes = JSON.parse((await run(["log-pending", "--json"], env)).stdout);

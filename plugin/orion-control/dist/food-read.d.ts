@@ -36,6 +36,7 @@ export type FoodPendingView = {
     offerText: string;
     count?: number;
     names?: string[];
+    loggedId?: string;
 };
 export type FoodContext = {
     now: Date;

@@ -29,7 +29,7 @@ export const liveFoodRun = (stateDir?: string): FoodRun => (args) => new Promise
   execFile(scriptPath("orion-food-estimate"), args, { timeout: RUN_TIMEOUT_MS, maxBuffer: 1 << 20, env: { ...process.env, ...(stateDir ? { ORION_CONTROLLED_DIR: stateDir } : {}) } },
     (e, stdout) => resolve({ stdout: String(stdout ?? ""), code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
 
-type PendingRow = { at?: string; expiresAt?: string; via?: string; offerText?: string; name?: string };
+type PendingRow = { logged?: { id?: string }; at?: string; expiresAt?: string; via?: string; offerText?: string; name?: string };
 
 /** The newest live offer in food-pending.json ({ offers: [...] }, or the older single object), with how many wait and their names. */
 export function readFoodPending(stateDir: string, now: Date): FoodPendingView | undefined {
@@ -40,6 +40,8 @@ export function readFoodPending(stateDir: string, now: Date): FoodPendingView | 
     const newest = live.at(-1);
     if (!newest) return undefined;
     const view: FoodPendingView = { at: Date.parse(String(newest.at)), via: newest.via === "inbox" ? "inbox" : "chat", offerText: String(newest.offerText) };
+    const loggedId = typeof newest.logged?.id === "string" ? newest.logged.id : undefined;
+    if (loggedId) view.loggedId = loggedId;
     return Array.isArray(raw.offers) ? { ...view, count: live.length, names: live.map((row) => String(row.name ?? "")) } : view;
   } catch { return undefined; }
 }
@@ -55,7 +57,7 @@ export class FoodMemory {
   forgetLog(key: string): void { this.logs.delete(key); }
   /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
   bound(key: string, pending: FoodPendingView, label?: string): boolean {
-    if (label && !/Log it\?|Add those numbers/.test(label)) return false;
+    if (label && !/Log it\?|Add those numbers|Fix anything\?/.test(label)) return false;
     return (this.others.get(key) ?? 0) <= pending.at;
   }
 }
@@ -97,7 +99,7 @@ export async function runFoodTurn(turn: FoodTurn, deps: FoodDeps): Promise<FoodO
     });
     case "yes": return one(["log-pending", "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
     case "pick": return one(["log-pending", "--pick", turn.which, "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
-    case "no": return one(["discard", ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose ? String(j.say) : "Okay, not logged."), () => "Okay, not logged.");
+    case "no": return one(["discard", ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose || j.kept ? String(j.say) : "Okay, not logged."), () => "Okay, not logged.");
     case "revise": return one(["--revise", turn.correction, ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose ? String(j.say) : offerOf(j)));
     case "undo": return undoAll(turn.ids?.length ? turn.ids : [turn.id], deps);
     case "that": {

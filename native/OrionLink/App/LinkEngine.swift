@@ -507,6 +507,7 @@ final class LinkEngine: ObservableObject {
                 try FoodInbox().write(image: data, id: id, at: at, note: note)
                 ok = true
                 reply = "On your Mac; ORION is estimating it."
+                FoodInbox.kickEstimator()
             } catch LinkError.invalidCommand(let why) {
                 reply = "Not filed: \(why)."
             } catch {

@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { decide, keepWarm, FRONT_DESK_CTX } from "./front-desk.js";
 import { FRONT_DESK_MODEL } from "./front-desk-prompt.js";
-import { BRAIN_INSTRUCTIONS, FOOD_TOOL, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL, WORKOUT_TOOL } from "./job-instructions.js";
+import { BRAIN_INSTRUCTIONS, FOOD_TOOL, GENERAL_INSTRUCTIONS, SCHEDULING_INSTRUCTIONS, WORKER_MODEL, WORKOUT_TOOL, MOUSE_TOOL } from "./job-instructions.js";
 import { checkWork, outcomeOf, retryInstruction } from "./work-check.js";
 import { isSessionStart, startsSession } from "./session-flow.js";
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
@@ -102,6 +102,8 @@ import { readWorkoutTurn } from "./workout-read.js"; // w17 g-workout
 import { readAppsTurn } from "./apps-read.js"; // w18 apps
 import { runAppsTurn } from "./apps-chat.js"; // w18 apps
 import { WorkoutMemory, readWorkoutPending, runWorkoutTurn } from "./workout-chat.js"; // w17 g-workout
+import { readMouseTurn } from "./mouse-read.js"; // w18 mousechat
+import { MouseMemory, runMouseTurn } from "./mouse-chat.js"; // w18 mousechat
 import { answeredCardLine } from "./questions-store.js";
 import { liveMailPrefsRun, readMailMove, runMailMove } from "./mail-flow.js"; // wave 14 f-mail
 import { approvalAsk } from "./approval-reply.js"; // run-1101020721: a held send is said as a draft and a question
@@ -309,9 +311,10 @@ export function instructionsFor(decision, message) {
         return BRAIN_INSTRUCTIONS;
     if (["agenda", "reschedule", "tasks"].includes(decision?.tool ?? "") || SCHEDULING.test(message) || RUNNING_LATE.test(message))
         return SCHEDULING_INSTRUCTIONS;
-    const tools = [...(FOOD_TURN.test(message) ? [FOOD_TOOL] : []), ...(WORKOUT_TURN.test(message) ? [WORKOUT_TOOL] : [])]; // w14 g-food, w17 g-workout: a tool's line only when the turn is about it
+    const tools = [...(FOOD_TURN.test(message) ? [FOOD_TOOL] : []), ...(WORKOUT_TURN.test(message) ? [WORKOUT_TOOL] : []), ...(MOUSE_TURN.test(message) ? [MOUSE_TOOL] : [])]; // w14 g-food, w17 g-workout: a tool's line only when the turn is about it
     return tools.length ? `${GENERAL_INSTRUCTIONS}\n\n${tools.join("\n")}` : GENERAL_INSTRUCTIONS;
 }
+const MOUSE_TURN = /\b(?:mouse|basilisk|side button|thumb button)\b/i;
 const WORKOUT_TURN = /\b(?:workout|worked out|gym|lifted|lifting|squats?|bench|deadlifts?|sets|reps|stairmaster|treadmill|ran|run|jog|jogged)\b/i;
 const FOOD_TURN = /\b(?:calories|calorie|cals|kcal|macros|protein|carbs|ate|eaten|food|meal|breakfast|lunch|dinner|snack)\b/i;
 // The small core every local turn gets (Nick, 2026-10-12: a small prompt, and ORION looks up the rest
@@ -638,6 +641,7 @@ export function registerLocalRouting(api, options) {
     const knowledgePending = new KnowledgePending(); // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
     const sleepPending = new SleepPlanPending(); // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
     const pendingMemory = new PendingMemory(); // 2026-10-31 (pending-reply.ts): what a nudge's reply agreed, for the next short reply
+    const mouseMemory = new MouseMemory(); // w18 mousechat (mouse-chat.ts): the button/action question ORION is waiting on
     const workoutMemory = new WorkoutMemory(); // w17 g-workout (workout-chat.ts): whether a reply still answers the follow-up, and the last workout log for "undo"
     const foodMemory = new FoodMemory(); // w14 g-food (food-chat.ts): whether "yes" still answers "Log it?", and the last food log for "undo"
     const forgetMade = (key) => { if (key)
@@ -1189,8 +1193,16 @@ export function registerLocalRouting(api, options) {
             workoutMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
         // w18 apps (apps-read.ts): "close the apps im not using", "quit spotify and discord", "what apps do i have open": orion-apps does it and says what it did.
         const appsTurn = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
-        const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout || !!appsTurn;
+        // w18 mousechat (mouse-read.ts): "make my side button do stage manager", "dont do anything in minecraft", "what are my mouse buttons set to", or a yes to a new-mouse outreach.
+        const mouseAt = (options.now ?? pluginNow)();
+        const mouseWaiting = on && options.mouseRun ? mouseMemory.get(sessionKey, mouseAt.getTime()) : undefined;
+        const mouseOutreach = parseOutreach(raw)?.text ?? (options.stateDir ? readLastOutreach(options.stateDir, mouseAt)?.text : undefined);
+        const mouse = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !isCrisis(message) && options.mouseRun
+            ? readMouseTurn(message, { ...(mouseWaiting ?? {}), outreachAbout: !!mouseOutreach && /\bmouse\b/i.test(mouseOutreach) }) ?? undefined : undefined;
+        if (!mouse && !quietTurn)
+            mouseMemory.clear(sessionKey);
+        const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout || !!appsTurn || !!mouse;
         // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
         const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
         const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1217,7 +1229,7 @@ export function registerLocalRouting(api, options) {
         }
         const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
         const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
-        const knowledge = on && !quietTurn && !kmove && !food && !workout && !appsTurn && isKnowledgeAsk(message);
+        const knowledge = on && !quietTurn && !kmove && !food && !workout && !appsTurn && !mouse && isKnowledgeAsk(message);
         const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
         const pendingAt = (options.now ?? pluginNow)();
         const prior = sessionKey ? pendingMemory.beginTurn(sessionKey, pendingAt.getTime(), { crisis: isCrisis(message), replied: !hushed }, options.stateDir) : undefined;
@@ -1254,7 +1266,7 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
         // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
         // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-        const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+        const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
             ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
                 chatSurface: CHAT_SURFACE.test(sessionKey) })
@@ -1332,6 +1344,15 @@ export function registerLocalRouting(api, options) {
             const out = await withTimeout(runAppsTurn(appsTurn, { run: options.appsRun }).catch(() => undefined), 70000);
             run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Try again in a bit.";
             out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+        }
+        else if (mouse && options.mouseRun) { // w18 mousechat: the reply is orion-mouse's own sentence
+            const out = await withTimeout(runMouseTurn(mouse, { run: options.mouseRun }).catch(() => undefined), 20000);
+            run.ownText = out?.text ?? "I couldn't change the mouse settings just now, so nothing was changed. Tell me again in a bit.";
+            out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+            if (out && (out.pending || out.confirm))
+                mouseMemory.wait(sessionKey, mouseAt.getTime(), { ...(out.pending ? { pending: out.pending } : {}), ...(out.confirm ? { confirm: true } : {}) });
+            else
+                mouseMemory.clear(sessionKey);
         }
         if (sessionKey && !cutOff && !quietTurn && options.lateFlow) {
             const late = lateTurn(sessionKey, message);

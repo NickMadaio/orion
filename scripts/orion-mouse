@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+/*
+ orion-mouse — set up his mouse buttons by talking to ORION (2026-11-03, wave 18).
+
+   orion-mouse status [--json]                                   the mice the Mac app has seen, and what the buttons do
+   orion-mouse set <button> <action> [--app <bundleId|name>]     make a button do something (everywhere, or only in one app)
+   orion-mouse clear <button> [--app <bundleId|name>]            back to the button's normal behavior
+   orion-mouse passthrough add|remove <bundleId|app name>        apps where the buttons are left alone (a game, say)
+   orion-mouse games on|off                                      leave the buttons alone in games automatically
+   orion-mouse setup [--apply] [--json]                          list the extra buttons and suggest defaults; --apply writes them
+
+ <button>: "back" / "side back" -> 3, "front" / "forward" / "side front" -> 4, "button N" (counted from 1, as on the box) -> N-1, a bare
+ integer -> that CGEvent number. Left, right and wheel (0-2) are refused; "side button" alone asks which one. <action>: stage manager, mission
+ control, app expose, show desktop, launchpad, notification center, left desktop, right desktop, screenshot (cmd+shift+4), a shortcut such as
+ cmd+shift+4, "open <app>", summon orion, nothing. Names resolve through a built-in table (Minecraft launcher included), then mdfind/mdls.
+ A missing button or action answers { asking, ask } and writes nothing. Reads/writes <controlled dir>/mouse/bindings.json (the contract in
+ lib/mouse/store.mjs); never devices.json. ORION_CONTROLLED_DIR redirects the state. Exit 0 ok (or asking), 1 failed, 2 usage.
+*/
+import { clearBinding, games, passthrough, setBinding, setup, status } from "./lib/mouse/commands.mjs";
+
+const argv = process.argv.slice(2);
+const json = argv.includes("--json");
+const USAGE = "usage: orion-mouse status | set <button> <action> [--app X] | clear <button> [--app X] | passthrough add|remove <app> | games on|off | setup [--apply] [--json]";
+
+const flags = new Set(["--json", "--apply"]);
+const positional = [];
+let app;
+for (let i = 1; i < argv.length; i += 1) {
+  if (argv[i] === "--app") { app = argv[i + 1] ?? ""; i += 1; }
+  else if (!flags.has(argv[i])) positional.push(argv[i]);
+}
+const [command] = argv;
+const usage = () => { console.error(USAGE); process.exit(2); };
+const finish = (result) => { console.log(json ? JSON.stringify(result) : result.say); process.exit(result.ok ? 0 : 1); };
+
+function run() {
+  switch (command) {
+    case "status": return status();
+    case "set": if (positional.length > 2) usage(); return setBinding({ button: positional[0], action: positional[1], ...(app !== undefined ? { app } : {}) });
+    case "clear": if (positional.length > 1) usage(); return clearBinding({ button: positional[0], ...(app !== undefined ? { app } : {}) });
+    case "passthrough": if (positional.length !== 2) usage(); return passthrough({ op: positional[0], app: positional[1] });
+    case "games": if (positional.length !== 1) usage(); return games({ state: positional[0] });
+    case "setup": return setup({ apply: argv.includes("--apply") });
+    default: return usage();
+  }
+}
+
+try { finish(run()); } catch (error) {
+  finish({ ok: false, error: String(error?.message ?? error), say: `I couldn't change the mouse settings (${String(error?.message ?? error)}), so nothing was changed.` });
+}

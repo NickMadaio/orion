@@ -509,7 +509,7 @@ struct ProjectWorkspace: View {
         VStack(alignment: .leading, spacing: 17) {
             briefsLine
             if blocks.isEmpty { empty("Plan unavailable", detail: "Open the project folder to inspect its saved plan.") }
-            else { ProjectPlanFlowView(blocks: blocks, tasks: run?.tasks ?? []) }
+            else { ProjectPlanFlowView(blocks: blocks, tasks: run?.tasks ?? []).equatable() }
         }
     }
     /*

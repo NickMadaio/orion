@@ -1,3 +1,4 @@
+import OrionViews
 import SwiftUI
 
 /// Where a plan step stands in the run. `blocked` is a task parked on a note from Nick.
@@ -47,22 +48,26 @@ struct ProjectPlanStep: Identifiable, Equatable {
  the serif face and its details in muted sans. The step in progress glows. Headings above the first step and any
  text before it sit above the flow. Content is exactly the plan's blocks; only the presentation is new.
 */
-struct ProjectPlanFlowView: View {
-    let blocks: [ProjectPlanBlock]
-    var tasks: [ProjectAgentStatus.WorkItem] = []
+struct ProjectPlanFlowView: View, Equatable {
+    let model: ProjectPlanFlowModel
+    /// Counts body evaluations; tests read it to prove an idle refresh does not re-render the plan.
+    nonisolated(unsafe) static var bodyEvaluations = 0
+
+    init(blocks: [ProjectPlanBlock], tasks: [ProjectAgentStatus.WorkItem] = [], cache: ProjectPlanFlowCache = .shared) {
+        model = cache.model(blocks: blocks, tasks: tasks)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.model.key == rhs.model.key }
 
     var body: some View {
-        let steps = ProjectPlanStep.steps(from: blocks)
-        let states = ProjectPlanStep.states(for: steps, tasks: tasks)
-        let stepIDs = Set(steps.flatMap { [$0.id] + $0.details })
-        let byID = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
+        let _ = { Self.bodyEvaluations += 1 }()
         VStack(alignment: .leading, spacing: 18) {
-            ForEach(blocks.filter { !stepIDs.contains($0.id) }) { block in blockView(block) }
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                    ProjectPlanStepRow(title: step.title, state: states[step.id] ?? .todo, last: index == steps.count - 1) {
+            ForEach(model.leading) { block in blockView(block) }
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(model.steps.enumerated()), id: \.element.id) { index, step in
+                    ProjectPlanStepRow(title: step.title, state: model.states[step.id] ?? .todo, last: index == model.steps.count - 1) {
                         ForEach(step.details, id: \.self) { id in
-                            if let block = byID[id] { blockView(block) }
+                            if let block = model.byID[id] { blockView(block) }
                         }
                     }
                 }
@@ -82,7 +87,7 @@ struct ProjectPlanFlowView: View {
             Text(block.text).font(OrionTheme.serif(block.kind == "h1" ? 28 : 20)).foregroundStyle(OrionTheme.text)
                 .padding(.top, block.kind == "h1" ? 0 : 6)
         } else {
-            Text((try? AttributedString(markdown: block.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(block.text))
+            Text(model.rich[block.id] ?? AttributedString(block.text))
                 .font(.system(size: 13)).lineSpacing(5).foregroundStyle(OrionTheme.textSoft).textSelection(.enabled)
         }
     }
@@ -122,13 +127,14 @@ struct ProjectPlanStepRow<Details: View>: View {
 }
 
 /// The circular status node: done is a ticked ring, doing a glowing ring with a core, next an open ring, todo a faint one.
+/// The breathing glow is its own small view on the shared ambient clock, so only the glow redraws each frame, and it
+/// stands still when the window is hidden. (w17: a `repeatForever` animation on a @State here kept a whole core busy.)
 struct ProjectPlanNode: View {
     let state: ProjectPlanStepState
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var breathe = false
 
     var body: some View {
         ZStack {
+            if state == .doing || state == .blocked { ProjectPlanGlow(blocked: state == .blocked) }
             switch state {
             case .done:
                 Circle().fill(OrionTheme.green.opacity(0.16))
@@ -136,7 +142,6 @@ struct ProjectPlanNode: View {
                 Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(OrionTheme.green)
             case .doing, .blocked:
                 let hue = state == .blocked ? OrionTheme.orange : OrionTheme.accent
-                Circle().fill(hue.opacity(0.14))
                 Circle().strokeBorder(hue, lineWidth: 1.2)
                 Circle().fill(hue).frame(width: 6, height: 6)
             case .next:
@@ -146,12 +151,23 @@ struct ProjectPlanNode: View {
             }
         }
         .frame(width: 16, height: 16)
-        .shadow(color: glow.opacity(state == .doing || state == .blocked ? (breathe ? 0.9 : 0.5) : 0), radius: breathe ? 9 : 5)
-        .onAppear {
-            guard !reduceMotion, state == .doing else { return }
-            withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) { breathe = true }
-        }
+    }
+}
+
+/// The soft fill and breathing halo behind an active node. Only `doing` breathes; `blocked` holds its mid glow.
+struct ProjectPlanGlow: View {
+    let blocked: Bool
+    private var hue: Color { blocked ? OrionTheme.orange : OrionTheme.accent }
+    /// 0...1, an eased 3.6 s round trip (1.8 s each way, as the old animation).
+    static func breath(at t: TimeInterval) -> Double { 0.5 - 0.5 * cos(2 * .pi * t / 3.6) }
+
+    var body: some View {
+        if blocked { halo(0) }
+        else { AmbientTimeline(fps: 20) { t in halo(Self.breath(at: t)) } }
     }
 
-    private var glow: Color { state == .blocked ? OrionTheme.orange : OrionTheme.accent }
+    private func halo(_ b: Double) -> some View {
+        Circle().fill(hue.opacity(0.14))
+            .shadow(color: hue.opacity(blocked ? 0.5 : 0.5 + 0.4 * b), radius: blocked ? 5 : 5 + 4 * b)
+    }
 }

@@ -52,32 +52,32 @@ final class ConsoleRuleTests: XCTestCase {
     /// The safety property a convenience feature could silently delete.
     func testOnlyAutoAndNotifyMayAppearInTheConsole() throws {
         let text = code(try source("Console.swift"))
+        let run = code(try source("Palette/ConsoleRun.swift"))
 
         XCTAssertTrue(text.contains("mayAppearInConsole"))
-        XCTAssertTrue(text.contains("filter(\\.tier.mayAppearInConsole)"),
-                      "the list has to be filtered, not merely annotated")
+        XCTAssertTrue(run.contains("guard action.tier.mayAppearInConsole"),
+                      "perform() refuses a gated action even if one is ever listed")
 
-        // No command may be declared at a gated tier. A one-keystroke button for
+        // No action may be declared at a gated tier. A one-keystroke button for
         // something that is supposed to ask first has converted "ask" into
         // "press this".
-        XCTAssertFalse(text.contains("tier: .approval"),
-                       "an APPROVAL capability must never be one keystroke away")
+        XCTAssertFalse(text.contains("return .approval"))
+        XCTAssertFalse(text.contains("return .never"))
+        XCTAssertFalse(text.contains("tier: .approval"))
         XCTAssertFalse(text.contains("tier: .never"))
     }
 
-    /// The ⌥Tab menu's command list (7 Oct 2026) lives in its own file; the
-    /// same rule holds there, and the controller still filters before showing.
-    func testTheQuickMenuCatalogOffersNoGatedCommand() throws {
-        let text = code(try source("QuickCommands.swift"))
-        XCTAssertFalse(text.contains("tier: .approval"))
-        XCTAssertFalse(text.contains("tier: .never"))
-        XCTAssertTrue(code(try source("Console.swift")).contains("guard command.tier.mayAppearInConsole"),
-                      "run() refuses a gated command even if one is ever listed")
+    /// The palette's catalog (PaletteKit, w18) holds no tier at all; the tier of every action is decided in one place,
+    /// `PaletteAction.tier`, which the controller checks before running anything.
+    func testThePaletteCatalogOffersNoGatedCommand() throws {
+        let text = code(try source("../PaletteKit/PaletteCatalog.swift"))
+        XCTAssertFalse(text.contains("approval"))
+        XCTAssertFalse(text.contains(".never"))
     }
 
     /// Provenance is typed and carried, never inferred from the words.
     func testConsoleCommandsCarryTheirOwnOrigin() throws {
-        let text = code(try source("Console.swift"))
+        let text = code(try source("Palette/ConsoleRun.swift"))
 
         XCTAssertTrue(text.contains("origin: .console"),
                       "a sentence produced by a keystroke is not trusted user speech")

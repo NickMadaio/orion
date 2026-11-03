@@ -1,5 +1,6 @@
 import XCTest
 import MobileCore
+import PaletteKit
 @testable import Orion
 
 /// The Mac's "Done early" button: its words, and that it is wired to the one planner command.
@@ -10,10 +11,11 @@ final class DoneEarlyAppTests: XCTestCase {
     }
 
     func testTheConsoleRowSaysDoneEarly() throws {
-        let row = try XCTUnwrap(QuickCommands.orionCommands(muted: false).first { $0.id == "early" })
+        let rows = PaletteRanker.results(input: .search("done early"), context: PaletteModel.emptyContext, frecency: Frecency(), now: Date())
+        let row = try XCTUnwrap(rows.first { $0.action == .finishEarly })
         XCTAssertEqual(row.title, "Done early")
-        XCTAssertEqual(row.symbol, DoneEarly.symbol)
-        XCTAssertFalse(QuickCommands.orionCommands(muted: false).contains { $0.title.localizedCaseInsensitiveContains("out early") || $0.title == "Finished early" })
+        XCTAssertEqual(row.title, DoneEarly.label)
+        XCTAssertFalse(rows.contains { $0.title.localizedCaseInsensitiveContains("out early") || $0.title == "Finished early" })
     }
 
     func testTheTasksTabButtonUsesTheSharedWordsAndNoOldWording() throws {

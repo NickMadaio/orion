@@ -91,6 +91,18 @@ let package = Package(
             name: "MouseKit",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The command palette's pure core (w18): fuzzy ranking, frecency, prefix modes, the calculator and the
+        // keyboard-navigation state. Foundation only, so every rule is tested without AppKit.
+        .target(
+            name: "PaletteKit",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "PaletteKitTests",
+            dependencies: ["PaletteKit"],
+            path: "Tests/PaletteKitTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "MouseKitTests",
             dependencies: ["MouseKit"],
@@ -109,6 +121,7 @@ let package = Package(
             dependencies: [
                 "ComputerRelay",
                 "MouseKit",
+                "PaletteKit",
                 "SessionDomain",
                 "SessionService",
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -136,7 +149,7 @@ let package = Package(
         // this one directory and off theirs.
         .testTarget(
             name: "TodayPlanAppTests",
-            dependencies: ["Orion", "SessionService", "SessionDomain", .product(name: "MobileCore", package: "OrionMobile")],
+            dependencies: ["Orion", "PaletteKit", "SessionService", "SessionDomain", .product(name: "MobileCore", package: "OrionMobile")],
             path: "Tests/TodayPlanAppTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

@@ -26,22 +26,23 @@ export function kindOfValue(value, fallback = "topic") {
   return fallback;
 }
 
-const ruleId = (action, kind, value) => `m-${createHash("sha1").update(`${action}|${kind}|${value}`).digest("hex").slice(0, 6)}`;
+const ruleId = (action, kind, value, account = "") => `m-${createHash("sha1").update(`${action}|${kind}|${value}${account ? `|${account}` : ""}`).digest("hex").slice(0, 6)}`;
 
 /** Validates and normalises a rule; throws a TypeError naming what is wrong. */
-export function makeRule({ action, kind, value, via = "cli", now = new Date() }) {
+export function makeRule({ action, kind, value, via = "cli", now = new Date(), account = "" }) {
   if (!ACTIONS.includes(action)) throw new TypeError(`action must be ${ACTIONS.join(" or ")}`);
   if (!KINDS.includes(kind)) throw new TypeError(`kind must be ${KINDS.join(", ")}`);
   const v = norm(value).replace(/^@/, "");
   if (v.length < 2 || v.length > 80) throw new TypeError("value must be 2 to 80 characters");
   // His school and the freemail providers are never ruled on as a whole: muting northeastern.edu mutes every professor (wave 14 review).
   if (kind === "domain" && onDomain(v, PROTECTED_DOMAINS)) throw new TypeError(`${v} is protected: a rule on the whole domain would cover everyone who writes from it; name the sender instead`);
-  return { id: ruleId(action, kind, v), action, kind, value: v, added: now.toISOString(), via: String(via).slice(0, 20) };
+  const acct = String(account ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);   // an account id from mail-accounts.json; empty = every account
+  return { id: ruleId(action, kind, v, acct), action, kind, value: v, ...(acct ? { account: acct } : {}), added: now.toISOString(), via: String(via).slice(0, 20) };
 }
 
 /** Adds a rule. The opposite rule on the same thing is replaced (he changed his mind); the same rule is kept once. */
 export function addRule(prefs, rule) {
-  const rules = (prefs?.rules ?? []).filter((r) => !(r.kind === rule.kind && r.value === rule.value));
+  const rules = (prefs?.rules ?? []).filter((r) => !(r.kind === rule.kind && r.value === rule.value && (r.account ?? "") === (rule.account ?? "")));
   const existing = (prefs?.rules ?? []).find((r) => r.id === rule.id);
   return { ...prefs, rules: [...rules, existing ?? rule].slice(-MAX_RULES) };
 }
@@ -62,6 +63,7 @@ const wordIn = (needle, hay) => {
 
 /** Does this rule match the mail item? */
 export function ruleMatches(rule, item) {
+  if (rule.account && rule.account !== item.accountId) return false;   // an account-specific rule (wave 17); the rest are global
   if (rule.kind === "sender") return item.fromAddress === rule.value || wordIn(rule.value, item.fromName) || (!rule.value.includes("@") && wordIn(rule.value, item.fromAddress.split("@")[0]));
   if (rule.kind === "domain") return item.domain === rule.value || item.domain.endsWith(`.${rule.value}`);
   const byDomainName = !onDomain(item.domain, PROTECTED_DOMAINS) && item.domain.split(".").includes(rule.value);
@@ -75,4 +77,4 @@ export function prefVerdict(prefs, item) {
 }
 
 /** "mute sender linkedin" for the list. */
-export const ruleLine = (r) => `${r.id}  ${r.action === "mute" ? "not important" : "always tell"}  ${r.kind}: ${r.value}  (${String(r.added).slice(0, 10)}, via ${r.via})`;
+export const ruleLine = (r) => `${r.id}  ${r.action === "mute" ? "not important" : "always tell"}  ${r.kind}: ${r.value}${r.account ? `  [${r.account} only]` : ""}  (${String(r.added).slice(0, 10)}, via ${r.via})`;

@@ -61,24 +61,29 @@ const quoteOf = (item) => {
   return s.length > 70 ? `${s.slice(0, 67).replace(/\s+\S*$/, "")} …` : s;
 };
 
-/** One mail, one line. */
-export function alertLine(item) {
-  if (isSensitive(item)) return `${whoOf(item)} sent ${sensitiveLabel(item)}`;
+/** One mail, one line, naming its account ("Yahoo: …") when the item carries one (only with several accounts). */
+export function alertLine(item, { named = true } = {}) {
+  const prefix = named && item.account ? `${tidy(item.account)}: ` : "";
+  if (isSensitive(item)) return `${prefix}${whoOf(item)} sent ${sensitiveLabel(item)}`;
   const topic = topicOf(item);
   const quote = quoteOf(item);
-  return `${whoOf(item)} emailed${topic ? ` about ${topic}` : ""}${quote ? ` — '${quote}'` : ""}`;
+  return `${prefix}${whoOf(item)} emailed${topic ? ` about ${topic}` : ""}${quote ? ` — '${quote}'` : ""}`;
 }
 
 /** Several, one line: "3 emails worth a look: A about x; B about y." */
 export function digestLine(items) {
   if (items.length === 1) return alertLine(items[0]);
+  // One account for all of them: named once up front; mixed accounts: each one named after its sender.
+  const accounts = [...new Set(items.map((i) => i.account).filter(Boolean))];
+  const lead = accounts.length === 1 && items.every((i) => i.account) ? `${tidy(accounts[0])}: ` : "";
+  const via = (i) => (!lead && i.account ? ` (${tidy(i.account)})` : "");
   const shown = items.slice(0, MAX_IN_DIGEST).map((i) => {
-    if (isSensitive(i)) return `${whoOf(i)} with ${sensitiveLabel(i)}`;
+    if (isSensitive(i)) return `${whoOf(i)}${via(i)} with ${sensitiveLabel(i)}`;
     const t = topicOf(i);
-    return `${whoOf(i)}${t ? ` about ${t}` : ""}`;
+    return `${whoOf(i)}${via(i)}${t ? ` about ${t}` : ""}`;
   });
   const more = items.length - shown.length;
-  return `${items.length} emails worth a look: ${shown.join("; ")}${more > 0 ? `; and ${more} more` : ""}.`;
+  return `${lead}${items.length} emails worth a look: ${shown.join("; ")}${more > 0 ? `; and ${more} more` : ""}.`;
 }
 
 /** The urgent sends still inside the last hour. */
@@ -102,6 +107,6 @@ export function planAlert({ queue = [], fresh = [], lastAlertAt = null, urgentSe
 /** The row kept in mail-alerts.jsonl: what the alert named, so a reply can be read against it. */
 export const alertRow = ({ id, text, items, now }) => ({
   id, at: now.toISOString(), text,
-  items: items.map((i) => ({ messageId: i.messageId, who: whoOf(i), fromAddress: i.fromAddress, domain: i.domain, topic: topicOf(i), person: !!i.person,
+  items: items.map((i) => ({ messageId: i.messageId, who: whoOf(i), ...(i.account ? { account: i.account } : {}), fromAddress: i.fromAddress, domain: i.domain, topic: topicOf(i), person: !!i.person,
     ...(isSensitive(i) ? { sensitive: sensitiveLabel(i) } : {}) })),
 });

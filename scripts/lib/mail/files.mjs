@@ -4,12 +4,13 @@
 //   mail-seen.jsonl    one row per message ORION has looked at: { key, threadId, messageId, at, level }. Append-only, tail-read.
 //   mail-prefs.json    what Nick taught it: { rules: [{ id, action: mute|boost, kind: sender|domain|topic, value, added, via }] }.
 //   mail-state.json    the poller's own clock: lastPollAt, expiredAlertedOn, lastAlertAt, queued alert items.
+//   mail-accounts.json which mailboxes to watch: [{ id, kind: gmail|imap, address, label, host?, port? }] (orion-mail-accounts; no passwords, ever).
 //   mail-alerts.jsonl  every alert sent, with the senders and subjects it named, so "not important" can be read against it.
 import { appendFileSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../awareness/io.mjs";
 
-const NAMES = Object.freeze({ seen: "mail-seen.jsonl", prefs: "mail-prefs.json", state: "mail-state.json", alerts: "mail-alerts.jsonl" });
+const NAMES = Object.freeze({ seen: "mail-seen.jsonl", prefs: "mail-prefs.json", state: "mail-state.json", alerts: "mail-alerts.jsonl", accounts: "mail-accounts.json" });
 /** How many seen rows are kept in view: far more than two days of inbox. */
 const SEEN_TAIL = 2000;
 

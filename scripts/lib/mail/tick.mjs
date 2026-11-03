@@ -6,7 +6,8 @@
 //   2. skips what mail-seen.jsonl already has; the very first poll only learns what is there, so he is not told about last week
 //   3. scores each new mail: his rules first, then signals (score.mjs); borderline mail gets the local model's opinion (model.mjs)
 //   4. important mail becomes one quiet orion-reach notice (tier low, mirrored to chat), batched and spaced (alert.mjs)
-// An expired sign-in is told once a day ("Gmail needs reconnecting"); a network failure is not told at all.
+// An expired sign-in is told once a day per account ("Gmail needs reconnecting", "Yahoo needs an app password"); a network failure is not told at all.
+// Several accounts (wave 17, mail-accounts.json): each is polled and backed off on its own, mail from all of them goes through the one pipeline.
 // Every outside thing is a dependency, so tests run it with a fake inbox, a fake model and a recording reach.
 import { localDate } from "../life/live-day.mjs";
 import { classifyGmailError } from "../gmail-status.mjs";
@@ -25,9 +26,10 @@ export const pollWaitMs = (failures = 0) => Math.min(POLL_EVERY_MS * 2 ** Math.m
 const FALLBACK_KEEP_AT = 3;
 /** Model calls per poll: 4 x the 15 s timeout stays well inside orion-watches' 2-minute budget for this tick. */
 export const MAX_MODEL_CALLS = 4;
+/** The original Gmail's sentence; other accounts get theirs from accounts.mjs reconnectText(). */
 export const RECONNECT_TEXT = "Gmail needs reconnecting, so I can't watch your inbox right now. Running gog auth add nmadaio08@gmail.com in Terminal fixes it.";
 
-const QUEUE_FIELDS = ["key", "threadId", "messageId", "fromName", "fromAddress", "domain", "subject", "snippet", "sensitive", "urgent", "person", "verifiedTeacher", "foundAt"];
+const QUEUE_FIELDS = ["account", "accountId", "key", "threadId", "messageId", "fromName", "fromAddress", "domain", "subject", "snippet", "sensitive", "urgent", "person", "verifiedTeacher", "foundAt"];
 /** What waits in mail-state.json. Sensitive mail is redacted first: its subject and snippet are never stored. */
 const queued = (item) => { const safe = redactSensitive(item); return Object.fromEntries(QUEUE_FIELDS.filter((k) => safe[k] !== undefined).map((k) => [k, safe[k]])); };
 
@@ -42,47 +44,77 @@ async function judgeItem(item, { ctx, prefs, askModel, budget }) {
   return { ...rules, level: rules.score >= FALLBACK_KEEP_AT ? "important" : "skip", by: "rules (model had no answer)" };
 }
 
-/** Told once a day, and only for an expired sign-in. */
-async function reportFailure(error, { state, today, reach }) {
-  const text = error instanceof Error ? error.message : String(error);
-  const kind = classifyGmailError(text);
-  if (kind !== "expired" || state.expiredAlertedOn === today) return { state: { ...state, problem: kind }, said: null };
-  const sent = await reach(RECONNECT_TEXT, { why: "mail: reconnect", urgent: false });
-  return { state: { ...state, problem: kind, ...(sent.ok ? { expiredAlertedOn: today } : {}) }, said: sent.ok ? RECONNECT_TEXT : null };
+/** The state of one account. The original Gmail ("gmail") keeps its fields at the top of mail-state.json, as before wave 17; the rest live under accounts[id]. */
+export const PRIMARY_ID = "gmail";
+const sliceOf = (state, id) => id === PRIMARY_ID ? state : state.accounts?.[id] ?? {};
+const patchSlice = (state, id, patch) => id === PRIMARY_ID ? { ...state, ...patch } : { ...state, accounts: { ...state.accounts, [id]: { ...(state.accounts?.[id] ?? {}), ...patch } } };
+const keyPrefix = (id) => id === PRIMARY_ID ? "" : `${id}:`;
+const dueIn = (state, account, now, force) => { const s = sliceOf(state, account.id); return force || !s.lastPollAt || now.getTime() - Date.parse(s.lastPollAt) >= pollWaitMs(s.failures); };
+
+/** "expired" for a sign-in that needs Nick (an app password counts), else gmail-status's classes (a network failure is "unreachable"). */
+function failureKind(account, text) {
+  if (account.kind === "imap" && /app password|sign-in refused|authentication failed|keychain/i.test(text) && classifyGmailError(text) !== "unreachable") return "expired";
+  return classifyGmailError(text);
 }
+
+/** Told once a day per account, and only for a sign-in that needs him. */
+async function reportFailure(account, error, { state, today, reach }) {
+  const kind = failureKind(account, error instanceof Error ? error.message : String(error));
+  const s = sliceOf(state, account.id);
+  const base = patchSlice(state, account.id, { problem: kind, failures: (s.failures ?? 0) + 1 });
+  if (kind !== "expired" || s.expiredAlertedOn === today) return { state: base, said: null, kind };
+  const text = account.reconnectText ?? RECONNECT_TEXT;
+  const sent = await reach(text, { why: `mail: reconnect ${account.id}`, urgent: false });
+  return { state: sent.ok ? patchSlice(base, account.id, { expiredAlertedOn: today }) : base, said: sent.ok ? text : null, kind };
+}
+
+/** An item from one account: its keys namespaced (except the original Gmail's), the account named in alerts only when there is more than one. */
+const tag = (item, account, multi) => ({ ...item, key: `${keyPrefix(account.id)}${item.key}`, messageId: `${keyPrefix(account.id)}${item.messageId}`, accountId: account.id, ...(multi ? { account: account.label } : {}) });
 
 /**
  * One tick.
- * deps: { dir, now, sandboxed, ctx: { people, courses, schoolDomains }, fetchInbox({ isSeen, firstPoll }) → items, askModel, reach(text, { why, urgent }) → { ok } , force }
+ * deps: { dir, now, sandboxed, ctx, fetchInbox({ isSeen, firstPoll }) → items (one Gmail), or accounts: [{ id, label, kind, reconnectText, fetchInbox }], askModel, reach(text, { why, urgent }) → { ok }, force }
  * @returns {{ polled: boolean, reason?: string, fresh?: number, said?: string|null, verdicts?: object[] }}
  */
 export async function mailTick(deps) {
   const { dir, now, sandboxed = false, ctx = {}, fetchInbox, askModel = null, reach, force = false } = deps;
+  const accounts = deps.accounts ?? [{ id: PRIMARY_ID, label: "Gmail", kind: "gmail", fetchInbox }];
+  const multi = accounts.length > 1;
   const files = { seen: mailFile(dir, "seen", { sandboxed }), state: mailFile(dir, "state", { sandboxed }), prefs: mailFile(dir, "prefs", { sandboxed }), alerts: mailFile(dir, "alerts", { sandboxed }) };
   const state = readState(files.state);
-  const wait = pollWaitMs(state.failures);
-  if (!force && state.lastPollAt && now.getTime() - Date.parse(state.lastPollAt) < wait) return { polled: false, reason: `polled under ${Math.round(wait / 60_000)} min ago` };
+  if (!accounts.length) return { polled: false, reason: "no mailboxes configured (orion-mail-accounts add-gmail or add-imap)" };
+  const due = accounts.filter((a) => dueIn(state, a, now, force));
+  if (!due.length) return { polled: false, reason: `polled under ${Math.round(pollWaitMs(sliceOf(state, accounts[0]?.id).failures) / 60_000)} min ago` };
   const today = localDate(now);
   const seen = readSeen(files.seen);
-  const polledState = { ...state, lastPollAt: now.toISOString() };
-  // Claimed before gog runs: if this process is killed mid-fetch (orion-watches' budget), the next tick still waits.
+  // Claimed before any fetch runs: if this process is killed mid-fetch (orion-watches' budget), the next tick still waits.
+  let polledState = due.reduce((acc, a) => patchSlice(acc, a.id, { lastPollAt: now.toISOString() }), state);
   writeState(files.state, polledState);
 
-  let items;
-  try {
-    items = await fetchInbox({ isSeen: (key) => !!seen?.has(key), firstPoll: seen === null });
-  } catch (error) {
-    const out = await reportFailure(error, { state: { ...polledState, failures: (state.failures ?? 0) + 1 }, today, reach });
-    writeState(files.state, out.state);
-    return { polled: true, reason: `gmail ${out.state.problem}`, said: out.said };
-  }
+  const isFirst = (a) => { const seeded = sliceOf(state, a.id).seeded; return seeded === undefined ? (a.id === PRIMARY_ID ? seen === null : true) : !seeded; };
+  const results = await Promise.all(due.map(async (a) => {
+    const firstPoll = isFirst(a);
+    try { return { a, firstPoll, items: await a.fetchInbox({ isSeen: (key) => !!seen?.has(`${keyPrefix(a.id)}${key}`), firstPoll }) }; }
+    catch (error) { return { a, firstPoll, error }; }
+  }));
 
-  const fresh = items.filter((i) => i.key && !seen?.has(i.key));
-  if (seen === null) {
-    appendLines(files.seen, fresh.map((i) => ({ key: i.key, threadId: i.threadId, messageId: i.messageId, at: now.toISOString(), level: "seeded" })));
-    writeState(files.state, { ...polledState, problem: null, failures: 0 });
-    return { polled: true, reason: "first poll: learned what is already there", fresh: 0, said: null };
+  let failureSaid = null;
+  const failed = [];
+  for (const r of results.filter((x) => x.error)) {
+    const out = await reportFailure(r.a, r.error, { state: polledState, today, reach });
+    polledState = out.state; failureSaid = failureSaid ?? out.said; failed.push({ a: r.a, kind: out.kind });
   }
+  const worked = results.filter((r) => !r.error);
+  if (!worked.length) {
+    writeState(files.state, polledState);
+    return { polled: true, reason: `${failed[0].a.id === PRIMARY_ID ? "gmail" : failed[0].a.label} ${failed[0].kind}`, said: failureSaid };
+  }
+  const tagged = worked.map((r) => ({ ...r, items: r.items.map((i) => tag(i, r.a, multi)) }));
+  for (const r of tagged) polledState = patchSlice(polledState, r.a.id, { problem: null, failures: 0, seeded: true });
+  const seedRows = tagged.filter((r) => r.firstPoll).flatMap((r) => r.items.filter((i) => i.key && !seen?.has(i.key)));
+  if (seen === null || seedRows.length || tagged.some((r) => r.firstPoll)) appendLines(files.seen, seedRows.map((i) => ({ key: i.key, threadId: i.threadId, messageId: i.messageId, at: now.toISOString(), level: "seeded" })));
+  const fresh = tagged.filter((r) => !r.firstPoll).flatMap((r) => r.items).filter((i) => i.key && !seen?.has(i.key));
+  const seededSome = tagged.some((r) => r.firstPoll);
 
   const prefs = readJson(files.prefs) ?? emptyPrefs();
   const verdicts = [];
@@ -95,7 +127,7 @@ export async function mailTick(deps) {
     .map(({ item, verdict }) => queued({ ...item, urgent: verdict.urgent, person: fromPerson(item), ...(verifiedTeacher(item, ctx) ? { verifiedTeacher: true } : {}), foundAt: now.toISOString() }));
   const urgentSentAt = recentUrgent(state.urgentSentAt ?? [], now);
   const plan = planAlert({ queue: state.queue ?? [], fresh: important, lastAlertAt: state.lastAlertAt ?? null, urgentSentAt, now });
-  let next = { ...polledState, problem: null, failures: 0, queue: plan.keep, urgentSentAt };
+  let next = { ...polledState, queue: plan.keep, urgentSentAt };
   let said = null;
   if (plan.send.length) {
     const text = digestLine(plan.send);
@@ -108,5 +140,6 @@ export async function mailTick(deps) {
     } else next = { ...next, queue: plan.send };   // not sent (a cap): tried again next poll, until it is 12 h old
   }
   writeState(files.state, next);
-  return { polled: true, fresh: fresh.length, said, reason: plan.reason, verdicts: verdicts.map(({ item, verdict }) => ({ subject: isSensitive(item) ? "(hidden: it holds a code)" : item.subject, from: item.fromAddress, level: verdict.level, by: verdict.by, score: verdict.score })) };
+  const reason = seededSome && !fresh.length && !said ? "first poll: learned what is already there" : plan.reason;
+  return { polled: true, fresh: fresh.length, said: said ?? failureSaid, reason, verdicts: verdicts.map(({ item, verdict }) => ({ subject: isSensitive(item) ? "(hidden: it holds a code)" : item.subject, from: item.fromAddress, ...(item.account ? { account: item.account } : {}), level: verdict.level, by: verdict.by, score: verdict.score })) };
 }

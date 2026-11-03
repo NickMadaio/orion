@@ -19,6 +19,10 @@ What is blocked on you, not on code. Older items are in the archive (see the las
 - Back up the Sparkle signing key. It's the only key that can sign updates, and if the Mac dies no installed copy can ever update. Run `native/Orion/.build/artifacts/sparkle/Sparkle/bin/generate_keys -x ~/Desktop/orion-sparkle-key.txt`, put the file in a password manager, delete the local copy.
 - Break ambience: drop real rain, waves and wind loops (30 to 90 seconds, seamless) into `native/Orion/Resources/Ambience/` as `rain.m4a`, `waves.m4a`, `wind.m4a`. Until then the break is silent.
 - Self-modification: seven actions (self_modify, self_plugin_modify and so on) change ORION's own code without asking you first. Decide whether that's the posture you want. Details in `docs/planning/v2/PHASE_GATES.json`.
+- More mail accounts (alerts from a second Gmail and Yahoo). Each step is yours because it signs in as you:
+  - Gmail (the first one too, its sign-in expired): `gog auth add nmadaio08@gmail.com`. A second Gmail: `gog auth add <address>`, then `scripts/orion-mail-accounts add-gmail <address>`.
+  - Yahoo: Yahoo Account Security, "Generate app password", name it ORION. Then `security add-generic-password -s 'orion-mail-imap:<you>@yahoo.com' -a '<you>@yahoo.com' -w` (it asks for the app password; type it there, never in the command). Then `scripts/orion-mail-accounts add-imap <you>@yahoo.com`.
+  - Check all: `scripts/orion-mail-accounts status`.
 - Google Calendar and Gmail: needs a Google Cloud project with an OAuth client (Desktop app, Testing mode, you as test user). Tell Claude the client ID and keep the secret in your Keychain. Only worth doing if you want ORION in your mail.
 - HealthKit: now that the developer account exists, add the HealthKit capability in Xcode so ORION can read sleep and heart data. Ask Claude to walk you through it.
 

@@ -70,12 +70,12 @@ function killGroup(child) {
  * The query reaches gog as an argv entry, never through a shell, so Gmail
  * search syntax cannot become shell syntax no matter what Nick dictates.
  *
- * options: { timeoutMs } (default 20 s; the group is killed and the call
+ * options: { account } (a gog account address; default his first Gmail), { timeoutMs } (default 20 s; the group is killed and the call
  * rejects with one plain sentence), { env } extra environment (tests).
  */
-export async function gog(orionRoot, args, { timeoutMs = GOG_TIMEOUT_MS, env = {} } = {}) {
+export async function gog(orionRoot, args, { timeoutMs = GOG_TIMEOUT_MS, env = {}, account = ACCOUNT } = {}) {
   const environment = { ...(await keyringEnvironment(orionRoot)), ...env };
-  const argv = [...args, "--account", ACCOUNT, ...SAFETY_FLAGS, "--json"];
+  const argv = [...args, "--account", account, ...SAFETY_FLAGS, "--json"];
 
   const stdout = await new Promise((resolve, reject) => {
     const child = spawn("gog", argv, { env: environment, stdio: ["ignore", "pipe", "pipe"], detached: true });
@@ -117,8 +117,8 @@ export async function gog(orionRoot, args, { timeoutMs = GOG_TIMEOUT_MS, env = {
 }
 
 /** Thread summaries for a Gmail query. Cheap: one call, no bodies. */
-export async function searchThreads(orionRoot, query, max) {
-  const result = await gog(orionRoot, ["gmail", "search", query, "--max", String(max)]);
+export async function searchThreads(orionRoot, query, max, opts = {}) {
+  const result = await gog(orionRoot, ["gmail", "search", query, "--max", String(max)], opts);
   return Array.isArray(result?.threads) ? result.threads : [];
 }
 
@@ -129,8 +129,8 @@ export async function searchThreads(orionRoot, query, max) {
  * of mail before it ever reaches the model. Email is untrusted data, and this
  * is the point where that stops being a policy and becomes a mechanism.
  */
-export async function getThread(orionRoot, threadId) {
-  return gog(orionRoot, ["gmail", "thread", "get", threadId, "--sanitize-content"]);
+export async function getThread(orionRoot, threadId, opts = {}) {
+  return gog(orionRoot, ["gmail", "thread", "get", threadId, "--sanitize-content"], opts);
 }
 
 /** The headers the mail watcher may read. Everything else (Received, DKIM, X-*) is dropped with the bodies. */
@@ -158,8 +158,8 @@ export function slimThread(payload) {
 }
 
 /** One thread as metadata and snippet only (slimThread): what the mail watcher reads. */
-export async function getThreadMeta(orionRoot, threadId) {
-  return slimThread(await getThread(orionRoot, threadId));
+export async function getThreadMeta(orionRoot, threadId, opts = {}) {
+  return slimThread(await getThread(orionRoot, threadId, opts));
 }
 
 /**

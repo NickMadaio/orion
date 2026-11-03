@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+/*
+ orion-workout-log — log a workout from his own words, and ask for what he left out (2026-11-03).
+
+   orion-workout-log --text "<what he did>" [--chat | --log] [--json]   --chat: log it, or ask ONE short follow-up when something important is missing
+                                                                        --log: log what is known now, naming what was not given; neither: just read it
+   orion-workout-log answer "<his reply>" [--skip] [--json]             fill the waiting workout from his answer; a second gap gets one more question,
+                                                                        then it logs what is known and says what was skipped. --skip ("idk"): log as it stands
+   orion-workout-log discard [--json]                                   drop the waiting workout (never mind)
+   orion-workout-log pending [--json]                                   the workout waiting on an answer, if any
+   orion-workout-log undo <WKT-id> [--json]                             remove a session this tool wrote
+
+ Nick (2026-11-03): "make it so that I can just explain or tell orion about my workout and then he can log it for me. if I forget a
+ part he can ask me about it." The resident qwen3.5:9b (Ollama HTTP, strict JSON, 40 s limit) reads the description; rules read the
+ patterns (3x8 at 135, 20 min, 3 miles) and win on every number; a number the words never contained is dropped. With the model down
+ the rules alone still work. Never more than two follow-ups. Writes health-log.json `workouts` (lib/workout/log.mjs: same lock and
+ atomic write as the food log); never during an evaluation. ORION_CONTROLLED_DIR / ORION_HEALTH_LOG redirect the state, ORION_OLLAMA_URL the model.
+ Exit 0 ok, 1 failed (one plain sentence), 2 usage.
+*/
+import { clockNow } from "./lib/clock.mjs";
+import { mergeDrafts, missingOf, questionFor, skippedLabel, summaryOf } from "./lib/workout/draft.mjs";
+import { logWorkout, undoWorkout } from "./lib/workout/log.mjs";
+import { readWorkout } from "./lib/workout/parse.mjs";
+import { clearWorkoutPending, readWorkoutPending, writeWorkoutPending } from "./lib/workout/pending.mjs";
+
+const argv = process.argv.slice(2);
+const json = argv.includes("--json");
+const USAGE = 'usage: orion-workout-log --text "<workout>" [--chat | --log] [--json] | answer "<reply>" [--skip] | discard | pending | undo <WKT-id>';
+const one = (name) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined);
+const now = clockNow();
+const MAX_ASKS = 2;
+
+function finish(result, line) {
+  console.log(json ? JSON.stringify({ ...result, say: result.say ?? line }) : line);
+  process.exit(result.ok ? 0 : 1);
+}
+const usage = () => { console.error(USAGE); process.exit(2); };
+const failLine = (error) => `I couldn't read that workout (${error}), so nothing was logged. Tell me again in a bit.`;
+const today = () => now.toDateString();
+
+/** Logs the draft with what is still missing named as skipped; the one reply. */
+function logNow(draft, text, extra = {}) {
+  const missing = missingOf(draft);
+  const skipped = missing.map(skippedLabel);
+  const logged = logWorkout(draft, { now, skipped });
+  if (!logged.ok) finish({ ok: false, error: logged.error }, logged.refused ? logged.error : `I couldn't log it: ${logged.error}.`);
+  clearWorkoutPending();
+  const say = `Logged: ${logged.summary}.${skipped.length ? ` Skipped: ${skipped.join(", ")}.` : ""} Say "undo" to take it off.`;
+  return finish({ ok: true, ...extra, summary: logged.summary, skipped, draft,
+    logged: { id: logged.entry.id, day: logged.entry.day, count: logged.count, undo: `orion-workout-log undo ${logged.entry.id}` } }, say);
+}
+
+/** Asks the one question and keeps the draft waiting on the answer. */
+function ask(draft, text, missing, asked, extra = {}) {
+  const question = questionFor(missing, { second: asked > 1 });
+  const row = writeWorkoutPending({ asked, text, draft, missing, question }, { now });
+  return finish({ ok: true, asking: true, question, missing, draft, summary: summaryOf(draft), pending: { id: row.id, ...(row.saved === false ? { note: "not kept: ORION is in an evaluation run, so an answer will not log it" } : {}) }, ...extra }, question);
+}
+
+async function describe(text) {
+  if (!text.trim() || text.length > 800) usage();
+  const read = await readWorkout(text, { today: today() });
+  if (!read.ok) finish({ ok: false, error: read.error }, failLine(read.error));
+  const meta = { via: read.via, ms: read.ms, ...(read.modelError ? { modelError: read.modelError } : {}) };
+  const missing = missingOf(read.draft);
+  if (argv.includes("--chat") && missing.length) return ask(read.draft, text, missing, 1, meta);
+  if (argv.includes("--chat") || argv.includes("--log")) return logNow(read.draft, text, meta);
+  return finish({ ok: true, ...meta, draft: read.draft, missing, summary: summaryOf(read.draft) }, `${summaryOf(read.draft) || "nothing I can read as a workout"}${missing.length ? ` (missing: ${missing.map(skippedLabel).join("; ")})` : ""}`);
+}
+
+const SKIP = /^(?:skip(?: it)?|idk|i dont know|i don'?t know|dunno|no idea|not sure|dont remember|don'?t remember|forgot|just log it|log it anyway|that'?s all|thats all|nothing else)\b/i;
+const asMinutes = (text, waiting) => (waiting.missing[0]?.key === "duration" && /^\s*(?:about|around|like|roughly|maybe|~)?\s*(\d{1,3})\s*$/i.exec(text) ? `${/(\d{1,3})/.exec(text)[1]} min` : text);
+
+async function answer(text) {
+  const waiting = readWorkoutPending({ now });
+  if (!waiting) finish({ ok: false, error: "no workout is waiting for an answer" }, "There's no workout waiting for an answer.");
+  if (argv.includes("--skip") || SKIP.test(text.trim())) return logNow(waiting.draft, waiting.text);
+  if (!text.trim() || text.length > 800) usage();
+  const reply = asMinutes(text, waiting);
+  const read = await readWorkout(reply, { prior: waiting.draft, context: waiting.text, today: today() });
+  const draft = read.ok ? read.draft : waiting.draft;
+  const missing = missingOf(draft);
+  const context = [waiting.text, text].join(" ");
+  const meta = { via: read.via, ms: read.ms };
+  if (missing.length && waiting.asked < MAX_ASKS) return ask(draft, context, missing, waiting.asked + 1, meta);
+  return logNow(draft, context, meta);
+}
+
+const [command] = argv;
+if (command === "answer") await answer(argv[1] && !argv[1].startsWith("--") ? argv[1] : "");
+else if (command === "discard") { clearWorkoutPending(); finish({ ok: true }, "Okay, not logged."); }
+else if (command === "pending") { const p = readWorkoutPending({ now }); finish({ ok: true, pending: p }, p ? p.question : "No workout is waiting."); }
+else if (command === "undo") {
+  const r = undoWorkout(argv[1], { now });
+  finish(r, r.ok ? `Took ${String(r.removed.title ?? "the workout").toLowerCase()} off (${r.removed.day}).` : r.error);
+} else if (command && !command.startsWith("--")) usage();
+else if (one("--text") !== undefined) await describe(one("--text"));
+else usage();

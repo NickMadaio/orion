@@ -26,8 +26,8 @@ struct MouseSettingsView: View {
                 ForEach(buttons, id: \.self) { buttonCard($0) }
             }
             Rectangle().fill(OrionTheme.line).frame(height: 1)
-            toggleRow("Auto-pause in games",
-                      detail: "Pauses every button shortcut while a game is running, even when you tab out of it. Turning shortcuts off yourself always wins.",
+            toggleRow("Pause when a game is in front",
+                      detail: "Turns the button shortcuts off whenever a game is in front and back on when you leave it. The shortcut key flips it any time, until you switch apps.",
                       isOn: Binding(get: { mouse.bindings.autoPauseInGames }, set: { mouse.setAutoPause($0) }))
             toggleRow("Pass through in games",
                       detail: "Minecraft, anything categorised as a game, and fullscreen games keep every button as the game expects.",
@@ -45,9 +45,9 @@ struct MouseSettingsView: View {
 
     // MARK: Header rows
 
-    /// Shown the whole time a game session runs: every button passes through, whatever the bindings below say.
+    /// Shown while a game is running and the buttons are paused (a game in front, or the gate left off).
     @ViewBuilder private var gamingBanner: some View {
-        if mouse.gameSession.active {
+        if mouse.gameSession.active, !mouse.gate.isOn {
             HStack(spacing: 8) {
                 Circle().fill(OrionTheme.accent).frame(width: 6, height: 6)
                 Text("Paused while you're gaming").font(.system(size: 12.5, weight: .medium)).foregroundStyle(OrionTheme.text)

@@ -17,8 +17,8 @@ final class MouseRemapper {
         var bindings = BindingsFile()
         var bundleId: String?
         var isGame = false
-        /// A game session is running: nothing is remapped, in any app.
-        var gameSession = false
+        /// The runtime gate (MouseGate): off passes every press through.
+        var gateOn = true
     }
 
     var onAction: ((MouseAction, Int) -> Void)?
@@ -102,7 +102,7 @@ final class MouseRemapper {
         }
         guard type == .otherMouseDown else { return Unmanaged.passUnretained(event) }
         let snap = current()
-        let action = MouseResolver.resolve(button: button, bundleId: snap.bundleId, isGame: snap.isGame, bindings: snap.bindings, gameSession: snap.gameSession)
+        let action = MouseResolver.resolve(button: button, bundleId: snap.bundleId, isGame: snap.isGame, bindings: snap.bindings, gateOn: snap.gateOn)
         DispatchQueue.main.async { [weak self] in self?.onObserved?(button) }
         guard let action else { swallowed.passDown(button); return Unmanaged.passUnretained(event) }
         swallowed.swallowDown(button)

@@ -27,8 +27,8 @@ struct MouseSetupView: View {
                 Text("Press a button on the mouse to find its row.")
                     .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textDim)
             }
-            if mouse.gameSession.active {
-                Text("Paused while you're gaming. Buttons work as the game expects until it quits.")
+            if mouse.gameSession.active, !mouse.gate.isOn {
+                Text("Paused while a game is in front. Buttons work as the game expects; the shortcut key turns them back on.")
                     .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.accent).fixedSize(horizontal: false, vertical: true)
             }
             if !mouse.accessibilityGranted {
@@ -39,7 +39,7 @@ struct MouseSetupView: View {
             }
             MouseShortcutRow(mouse: mouse, compact: true)
             HStack(alignment: .center, spacing: 12) {
-                Text("Auto-pause in games").font(.system(size: 12.5, weight: .medium)).foregroundStyle(OrionTheme.text)
+                Text("Pause when a game is in front").font(.system(size: 12.5, weight: .medium)).foregroundStyle(OrionTheme.text)
                 Spacer()
                 ProjectRoundToggle(isOn: Binding(get: { mouse.bindings.autoPauseInGames }, set: { mouse.setAutoPause($0) }))
             }

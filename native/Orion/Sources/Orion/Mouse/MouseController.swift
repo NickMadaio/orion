@@ -18,7 +18,9 @@ final class MouseController: ObservableObject {
     @Published private(set) var lastPressed: Int?
     @Published private(set) var frontmost: (bundleId: String, name: String)?
 
-    /// A game is running (w18 gamemode): every binding passes through until it quits, whatever app is in front.
+    /// The runtime gate for the buttons: off while a game is in front, on otherwise; the hotkey flips it. Not persisted.
+    @Published private(set) var gate = MouseGate()
+    /// A game is running (w18 gamemode). Drives game-prep, the reopen offer and the wheel's "In games" mode, not the buttons.
     @Published private(set) var gameSession = GameSession.idle
     /// Closing unneeded apps when a game opens. On unless switched off; the keep list lives in game-prep.json.
     @Published private(set) var autoPrep = true
@@ -116,10 +118,16 @@ final class MouseController: ObservableObject {
     func setEnabled(_ on: Bool) { change { var b = $0; b.enabled = on; return b } }
     func setAutoPause(_ on: Bool) { change { var b = $0; b.autoPauseInGames = on; return b } }
 
-    /// The global hotkey: flips every mouse button shortcut (the wheel is separate) and says so quietly.
+    /// The global hotkey: flips the runtime gate (not the file) and says so quietly.
     func toggleMouseShortcuts() {
-        change { $0.togglingEnabled() }
-        onToggled?(MouseToggleWords.line(enabled: bindings.enabled))
+        setGate(gate.toggled())
+        onToggled?(MouseToggleWords.line(enabled: gate.passes(masterEnabled: bindings.enabled)))
+    }
+
+    private func setGate(_ next: MouseGate) {
+        guard next != gate else { return }
+        gate = next
+        remapper.update { var s = $0; s.gateOn = next.isOn; return s }
     }
 
     /// A recorded shortcut ("ctrl+opt+m"). Ignored when it does not parse.
@@ -256,6 +264,7 @@ final class MouseController: ObservableObject {
         if let id, frontmost?.bundleId != id { frontmost = (id, app.localizedName ?? id) }
         guard id != lastBundle || game != lastGame else { return }
         lastBundle = id; lastGame = game
+        setGate(gate.focusChanged(frontIsGame: game, autoPause: bindings.autoPauseInGames))
         remapper.update { var s = $0; s.bundleId = id; s.isGame = game; return s }
     }
 
@@ -282,7 +291,6 @@ final class MouseController: ObservableObject {
         guard next != gameSession else { return }
         gameSession = next
         do { try sessionStore.save(next) } catch { OrionLog.write("[game] could not save the session: \(error.localizedDescription)") }
-        remapper.update { var s = $0; s.gameSession = next.active; return s }
         remapper.updateWheel { var w = $0; w.gameSession = next.active; return w }
         switch effect {
         case .started(let game): gameStarted(game)
@@ -295,7 +303,6 @@ final class MouseController: ObservableObject {
     private func restoreGameSession() {
         guard let saved = sessionStore.load(), saved.active else { return }
         gameSession = saved
-        remapper.update { var s = $0; s.gameSession = true; return s }
         remapper.updateWheel { var w = $0; w.gameSession = true; return w }
         OrionLog.write("[game] session restored: \(saved.game?.name ?? "game")")
     }

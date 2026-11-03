@@ -80,6 +80,7 @@ import { KNOWLEDGE_PROMPT, isKnowledgeAsk } from "./knowledge-ask.js";
 import { askKind, ownAnswer, readGraphFile, readHealthFile, type AskKind, type ConnectorRow, type HealthLog } from "./code-answers.js";
 import { declareOnly, readReality, runReality, undoReality, type RealityRead, type ScriptRun } from "./reality.js";
 import { pluginNow } from "./plugin-clock.js";
+import { asksTheTime, timeReply } from "./clock-answer.js";
 import { LATE_TONE_LINE, pastNudgeTime, stripLateInstruction } from "./night-hush.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn, type PendingTurn } from "./pending-reply.js";
 import { learnPersonAfter } from "./person-learn.js";
@@ -1285,6 +1286,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
     if (!on) return undefined; // shadow: fire and forget
+    // w16 (2026-11-02 23:56, clock-answer.ts): the time is the clock's, in four words; the worker parroted the room words back.
+    if (!run.ownText && asksTheTime(message)) run.ownText = timeReply((options.now ?? pluginNow)());
     // 2026-10-31 (code-answers.ts): answered from data in under a second or two, no desk call and no model loop.
     if (run.own) {
       const at = (options.now ?? pluginNow)();

@@ -100,7 +100,7 @@ describe("the worker prompt keeps a stable prefix", () => {
 });
 
 describe("the draft hand-off prompt", () => {
-  const draftTurn = (draft: string, clock: string) => build("what time is it", clock, decide({ move: "answer", answer: draft }));
+  const draftTurn = (draft: string, clock: string) => build("hows it going", clock, decide({ move: "answer", answer: draft }));
 
   it("keeps the identity and length rule first and the clock last, after the draft", async () => {
     const built = (await draftTurn("It's 3:40 PM.", "Fri 15:40")).systemPrompt;

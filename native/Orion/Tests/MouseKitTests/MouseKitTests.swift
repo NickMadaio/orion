@@ -152,7 +152,7 @@ final class MouseKitTests: XCTestCase {
         XCTAssertEqual(MouseActionLabel.label(.system("stageManager")), "Stage Manager")
         XCTAssertEqual(MouseActionLabel.label(nil), "Does nothing special")
         XCTAssertEqual(MouseActionLabel.label(.openApp("com.apple.Safari")), "Open Safari")
-        XCTAssertEqual(MouseActionLabel.presets.count, 11)
+        XCTAssertEqual(MouseActionLabel.presets.count, 12, "eleven presets plus Type to ORION")
     }
 
     func testSwallowTrackerOnlyUpsOfSwallowedDowns() {

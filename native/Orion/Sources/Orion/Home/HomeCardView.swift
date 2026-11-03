@@ -22,7 +22,7 @@ enum HomeCardStyle {
     static let corner: CGFloat = 20
 
     /// Serif title size by priority rank: the centre card's is the largest.
-    static func titleSize(rank: Int) -> CGFloat { [26, 21, 20, 19, 18][min(max(rank, 0), 4)] }
+    static func titleSize(rank: Int) -> CGFloat { [24, 20, 20, 18, 18][min(max(rank, 0), 4)] }
 }
 
 struct HomeCardView: View {
@@ -36,7 +36,8 @@ struct HomeCardView: View {
     private var hue: Color { HomeCardStyle.hue(card.kind) }
     private var top: Bool { rank == 0 }
     private var dim: Double { HomePriorityPlan.dim(rank) }
-    private var inset: CGFloat { rank >= 3 ? 18 : (top ? 26 : 22) }
+    private var inset: CGFloat { 20 }
+    private var vInset: CGFloat { 16 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -44,30 +45,29 @@ struct HomeCardView: View {
                 .font(OrionTheme.mono(top ? 10.5 : 9.5, .semibold))
                 .tracking(2.3)
                 .foregroundStyle(hue)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 12)
+                .lineLimit(1)
+                .padding(.bottom, 8)
 
             Text(card.title)
                 .font(OrionTheme.serif(HomeCardStyle.titleSize(rank: rank)))
                 .foregroundStyle(OrionTheme.text.opacity(dim))
                 .lineSpacing(1)
-                .lineLimit(top ? 4 : 5)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, card.body.isEmpty ? 18 : 10)
+                .padding(.bottom, card.body.isEmpty ? 12 : 6)
 
             if !card.body.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(card.body, id: \.self) { line in
+                    ForEach(card.body.prefix(1), id: \.self) { line in
                         Text(line)
-                            .font(.system(size: top ? 14 : 13))
+                            .font(.system(size: 13))
                             .foregroundStyle(Color.white.opacity(top ? 0.80 : 0.72))
                             .lineSpacing(3)
-                            .lineLimit(top ? 4 : 5)
+                            .lineLimit(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .padding(.bottom, 18)
+                .padding(.bottom, 12)
             }
 
             // Side by side when the card is wide enough, else the quiet link drops under the pill.
@@ -77,8 +77,8 @@ struct HomeCardView: View {
             }
         }
         .padding(.horizontal, inset)
-        .padding(.top, inset)
-        .padding(.bottom, inset)
+        .padding(.top, vInset)
+        .padding(.bottom, vInset)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(surface)
         .scaleEffect(hovering ? 1.01 : 1)

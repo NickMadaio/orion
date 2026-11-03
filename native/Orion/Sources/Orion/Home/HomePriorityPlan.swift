@@ -1,32 +1,33 @@
 import SwiftUI
 
 /*
- The priority arrangement as a small solar system (wave 17, second pass). Nick: "the highest priority item is like
- the sun and the others orbit (not moving nor are they far) ... one left one right and then one below".
- Pure, so it is tested. Rank 0 is the sun: centred, widest, level. Ranks 1 and 2 sit close on its left and right,
- a touch below its middle; rank 3 sits directly under it; with a fifth card, ranks 3 and 4 share the space under it,
- mirrored. Always symmetric about the sun's vertical axis. If the cluster is taller than the room it has, the whole
- thing is scaled down (cards re-wrap) before anything could overlap. Nothing moves on its own.
+ The priority arrangement (wave 17, third pass): a wide, short band of cards high on the page so the hologram
+ below stays clear. Nick: "make the bubbles higher, and make them wider so that they can be shorter ... without
+ covering the hologram so much." Pure, so it is tested.
+ Rank 0 is the sun: centred, widest, level, top of the band. Ranks 1 and 2 flank it in the same band. Ranks 3 and
+ 4 drop one step to the outer left and right, under ranks 1 and 2 but shifted outward, clear of the hologram.
+ Symmetric about the sun's vertical axis. If the cluster is taller than its room it shrinks (cards re-wrap)
+ before anything could overlap. Nothing moves on its own.
 */
 enum HomePriorityPlan {
     /// Of the base card width, by rank.
-    static let scales: [CGFloat] = [1.25, 0.85, 0.85, 0.8, 0.8]
+    static let scales: [CGFloat] = [1.3, 1.0, 1.0, 0.85, 0.85]
     /// Degrees. The sun is level; the pairs mirror each other.
-    static let tilts: [Double] = [0, -0.6, 0.6, -0.4, 0.4]
+    static let tilts: [Double] = [0, -0.5, 0.5, -0.4, 0.4]
     /// Rim and title brightness, by rank.
     static let dims: [Double] = [1, 0.95, 0.95, 0.9, 0.9]
     /// Clear space between neighbours, wider than a tilt can swing a corner.
-    static let gap: CGFloat = 24
-    static let maxBase: CGFloat = 280
+    static let gap: CGFloat = 22
+    static let maxBase: CGFloat = 310
     /// Below this base width the cluster cannot stay readable side by side: stack by priority.
-    static let minBase: CGFloat = 176
+    static let minBase: CGFloat = 190
     /// The narrowest a card can be before its own content (pill, a long word) pokes out of it.
-    static let minCardWidth: CGFloat = 176
+    static let minCardWidth: CGFloat = 220
     static let maxCount = 5
-    /// How far below the sun's middle the side cards sit.
-    static let sideDrop: CGFloat = 16
-    /// Two cards: the second under the sun (true) or beside it (false).
-    static var twoBelow = true
+    /// How far below the sun's middle the flanking cards sit.
+    static let sideDrop: CGFloat = 8
+    /// How far ranks 3 and 4 sit outside the cards above them.
+    static let outerShift: CGFloat = 90
 
     static func scale(_ rank: Int) -> CGFloat { scales[min(max(rank, 0), scales.count - 1)] }
     static func tilt(_ rank: Int) -> Double { tilts[min(max(rank, 0), tilts.count - 1)] }
@@ -44,7 +45,7 @@ enum HomePriorityPlan {
     static func widths(count: Int, width: CGFloat, shrink: CGFloat = 1) -> [CGFloat] {
         let count = min(max(count, 0), maxCount)
         if isStacked(count: count, width: width) {
-            return (0..<count).map { min(width, 420) * (scale($0) / scales[0] + 0.1) * shrink }
+            return (0..<count).map { min(width, 440) * (scale($0) / scales[0] + 0.1) * shrink }
         }
         return (0..<count).map { base(width: width, shrink: shrink) * scale($0) }
     }
@@ -57,52 +58,28 @@ enum HomePriorityPlan {
         if isStacked(count: count, width: width) {
             var y: CGFloat = 0
             return (0..<count).map { rank in
-                defer { y += heights[rank] + 28 }
+                defer { y += heights[rank] + 24 }
                 return CGRect(x: axis - widths[rank] / 2, y: y, width: widths[rank], height: heights[rank])
             }
         }
         var f = [CGRect](repeating: .zero, count: count)
         f[0] = CGRect(x: axis - widths[0] / 2, y: 0, width: widths[0], height: heights[0])
-        if count == 2 {
-            if twoBelow {
-                f[1] = CGRect(x: axis - widths[1] / 2, y: heights[0] + gap, width: widths[1], height: heights[1])
-            } else {
-                f[1] = CGRect(x: f[0].maxX + gap, y: sideY(heights[1], sun: f[0]), width: widths[1], height: heights[1])
-            }
-            return normalised(f, centred: twoBelow, axis: axis)
-        }
         if count >= 2 {
-            f[1] = CGRect(x: f[0].minX - gap - widths[1], y: sideY(heights[1], sun: f[0]), width: widths[1], height: heights[1])
+            f[1] = CGRect(x: f[0].minX - gap - widths[1], y: f[0].midY - heights[1] / 2 + sideDrop, width: widths[1], height: heights[1])
         }
         if count >= 3 {
-            f[2] = CGRect(x: f[0].maxX + gap, y: sideY(heights[2], sun: f[0]), width: widths[2], height: heights[2])
+            f[2] = CGRect(x: f[0].maxX + gap, y: f[0].midY - heights[2] / 2 + sideDrop, width: widths[2], height: heights[2])
         }
+        let bandBottom = f.prefix(min(count, 3)).map(\.maxY).max() ?? 0
+        let lowerY = bandBottom + gap
         if count >= 4 {
-            let single = count == 4
-            let x3 = single ? axis - widths[3] / 2 : axis - gap / 2 - widths[3]
-            var y = f[0].maxY + gap
-            // Clear the side cards when the lower row reaches out beneath them.
-            let sides = f[1...2].filter { $0 != .zero }
-            let lowerSpan = single ? (x3, x3 + widths[3]) : (x3, axis + gap / 2 + (count == 5 ? widths[4] : 0))
-            for side in sides where side.maxX > lowerSpan.0 - gap && side.minX < lowerSpan.1 + gap { y = max(y, side.maxY + gap) }
-            f[3] = CGRect(x: x3, y: y, width: widths[3], height: heights[3])
-            if count == 5 { f[4] = CGRect(x: axis + gap / 2, y: y, width: widths[4], height: heights[4]) }
+            f[3] = CGRect(x: max(0, f[1].minX - outerShift), y: lowerY, width: widths[3], height: heights[3])
         }
-        return normalised(f, centred: true, axis: axis)
-    }
-
-    private static func sideY(_ height: CGFloat, sun: CGRect) -> CGFloat { sun.midY - height / 2 + sideDrop }
-
-    /// Shifts everything so the topmost card starts at y = 0 (a tall side card can poke above the sun).
-    private static func normalised(_ frames: [CGRect], centred: Bool, axis: CGFloat) -> [CGRect] {
-        var out = frames
-        let top = frames.map(\.minY).min() ?? 0
-        if top != 0 { out = frames.map { $0.offsetBy(dx: 0, dy: -top) } }
-        if !centred, let first = out.first, let last = out.last, out.count == 2 {
-            let shift = axis - (first.minX + last.maxX) / 2
-            out = out.map { $0.offsetBy(dx: shift, dy: 0) }
+        if count >= 5 {
+            f[4] = CGRect(x: min(width - widths[4], f[2].maxX + outerShift - widths[4]), y: lowerY, width: widths[4], height: heights[4])
         }
-        return out
+        let top = f.map(\.minY).min() ?? 0
+        return top == 0 ? f : f.map { $0.offsetBy(dx: 0, dy: -top) }
     }
 
     /// Frames by rank, shrunk until the cluster fits `maxHeight` (when given). `heightAt` is how tall rank `r`
@@ -121,12 +98,6 @@ enum HomePriorityPlan {
         }
         return result
     }
-}
-
-/// The sun card's bounds, reported up so the hologram can sit behind it.
-struct HomeSunBoundsKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>?
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
 }
 
 /// Places the priority-ordered cards by HomePriorityPlan.

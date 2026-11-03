@@ -28,6 +28,8 @@ final class MouseController: ObservableObject {
     private var activationToken: NSObjectProtocol?
     private var poll: Timer?
     private var bindingsStamp: Date?
+    private var lastBundle: String?
+    private var lastGame = false
 
     init(store: MouseStore = MouseStore(controlledDir: MouseStore.defaultControlledDir())) {
         self.store = store
@@ -50,7 +52,7 @@ final class MouseController: ObservableObject {
         }
         activated(NSWorkspace.shared.frontmostApplication)
         refreshTap()
-        poll = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        poll = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             self?.tick()
         }
     }
@@ -121,7 +123,10 @@ final class MouseController: ObservableObject {
         let stamp = modified(store.bindingsURL)
         if stamp != bindingsStamp { loadBindingsFromDisk() }
         let trusted = Permissions.accessibilityTrusted
+        if !trusted, remapper.isRunning { remapper.stop() }
         if trusted != accessibilityGranted || (trusted && !remapper.isRunning) { refreshTap() }
+        // Games go fullscreen, and Java windows get their title, after activation: re-check about once a second.
+        activated(NSWorkspace.shared.frontmostApplication)
         let disk = store.loadDevices()
         if disk != devices { devices = disk }
     }
@@ -136,7 +141,9 @@ final class MouseController: ObservableObject {
         let facts = Self.facts(for: app)
         let game = GameClassifier.isGame(facts)
         let id = app.bundleIdentifier
-        if let id { frontmost = (id, app.localizedName ?? id) }
+        if let id, frontmost?.bundleId != id { frontmost = (id, app.localizedName ?? id) }
+        guard id != lastBundle || game != lastGame else { return }
+        lastBundle = id; lastGame = game
         remapper.update { var s = $0; s.bundleId = id; s.isGame = game; return s }
     }
 

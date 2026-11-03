@@ -155,6 +155,17 @@ final class MouseKitTests: XCTestCase {
         XCTAssertEqual(MouseActionLabel.presets.count, 11)
     }
 
+    func testSwallowTrackerOnlyUpsOfSwallowedDowns() {
+        var t = SwallowTracker()
+        t.swallowDown(3)
+        XCTAssertTrue(t.shouldSwallowUp(3))
+        XCTAssertFalse(t.shouldSwallowUp(3))          // one up per swallowed down
+        t.swallowDown(4); t.reset()
+        XCTAssertFalse(t.shouldSwallowUp(4))          // reset (stop / timeout) clears
+        t.swallowDown(5); t.passDown(5)
+        XCTAssertFalse(t.shouldSwallowUp(5))          // pass-through down forgets a stale entry
+    }
+
     // MARK: store
 
     func testStoreAtomicRoundTripAndMerge() throws {

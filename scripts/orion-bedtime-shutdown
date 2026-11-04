@@ -50,7 +50,9 @@ function runSeam(seam, file, argv) {
 async function lock() {
   if (process.env.ORION_LOCK_BIN) {
     const r = spawnSync(process.env.ORION_LOCK_BIN, [], { encoding: "utf8", timeout: 20_000 });
-    return { ok: r.status === 0, method: "stub" };
+    let info = {};
+    try { info = JSON.parse(String(r.stdout).trim().split("\n").at(-1)); } catch { /* a plain stub: locked */ }
+    return { ok: r.status === 0, method: info.method ?? "stub", locked: r.status === 0 && (info.locked ?? true) };
   }
   if (isolated()) return { ok: false, method: null, skipped: true };
   return lockMac();
@@ -71,12 +73,13 @@ async function run() {
   if (dry) return out({ ok: true, dryRun: true, would: parsed?.would ?? [], waitingToSave, say: `${appsSay}${saveSay} I would then lock the Mac.` });
   const locked = await lock();
   const window = tonightWindow(DIR, now);
-  const armed = inWindow(window, now) && locked.ok;
-  if (armed) save(armNight(read(), window, now));
-  log({ event: "run", closed, waitingToSave, locked: locked.ok, method: locked.method ?? null, armed });
-  const lockSay = locked.ok ? " The Mac is locked." : " I couldn't lock the Mac, so it's still open.";
+  const armed = inWindow(window, now) && locked.ok;   // a failed lock arms nothing
+  if (armed) save({ ...armNight(read(), window, now), override: false });   // a new yes ends an earlier "leave my computer alone"
+  log({ event: "run", closed, waitingToSave, locked: !!locked.locked, lockOk: locked.ok, method: locked.method ?? null, armed });
+  const lockSay = !locked.ok ? " I couldn't lock the Mac, so it's still open."
+    : locked.locked ? " The Mac is locked." : " I couldn't confirm a lock, but the display's asleep.";
   const tail = armed ? ` I'll keep it shut tonight. Say "I need 20 more minutes" if you need it.` : "";
-  return out({ ok: locked.ok && !!parsed?.ok, closed, waitingToSave, stillOpen, locked: locked.ok, lockMethod: locked.method ?? null, armed, say: `${appsSay}${saveSay}${stuckSay}${lockSay}${tail}` });
+  return out({ ok: locked.ok && !!parsed?.ok, closed, waitingToSave, stillOpen, locked: !!locked.locked, displayAsleep: locked.ok && !locked.locked, lockOk: locked.ok, lockMethod: locked.method ?? null, armed, say: `${appsSay}${saveSay}${stuckSay}${lockSay}${tail}` });
 }
 
 function macSignal() {
@@ -109,7 +112,8 @@ function pass() {
   if (!Number.isFinite(m) || m <= 0) return out({ ok: false, say: "How many minutes?" });
   const g = grantPass(read(), m, now);
   if (!dry) save(g.state);
-  const lead = g.capped ? `I can give you an hour at most, so ${g.minutes} minutes.` : `Okay, ${g.minutes} minutes.`;
+  if (g.exhausted) return out({ ok: true, minutes: 0, capped: true, exhausted: true, say: "That's the 90 minutes I give you in a night, so I'll lock the Mac on schedule." });
+  const lead = g.capped ? `I can give ${g.minutes === 60 ? "an hour" : "only " + g.minutes + " minutes"} at most (90 a night), so ${g.minutes} minutes.` : `Okay, ${g.minutes} minutes.`;
   return out({ ok: true, minutes: g.minutes, capped: g.capped, until: g.until, say: `${lead} I'll leave the Mac alone until ${hhmm(g.until)}, then I'll lock it again.` });
 }
 

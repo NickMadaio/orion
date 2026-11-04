@@ -30,7 +30,9 @@ function readYes(m: string): boolean {
 
 const LEAD = /^(?:(?:yes|yeah|yea|yep|yup|ok|okay|alright|fine|pls|please|orion|yo|hey|just|then|and|can you|could you|will you|would you|go ahead and)\s+)+/;
 const MACHINE = "(?:computer|compter|comp|mac|macbook|laptop|pc|machine)";
-const ALL_DOWN = /^(?:shut|close|quit|lock|power)\s+(?:it\s+all|everything|all\s+of\s+it|it)\s+down\b|^(?:close|quit)\s+everything\b|^lock\s+(?:it\s+all|everything)\b/;
+const ALL_DOWN = new RegExp(`^(?:shut|close|quit|lock|power)\\s+(?:it\\s+all|everything|all\\s+of\\s+it)(?:\\s+down)?\\b|^(?:shut|lock|close|quit)\\s+(?:down\\s+)?(?:my|the)\\s+${MACHINE}\\b`);
+/** "shut it down", "close it": only as an answer to the offer, never on their own. */
+const IT_DOWN = /^(?:shut|close|quit|lock)\s+it(?:\s+down)?$/;
 const PUT_BED = new RegExp(`^put\\s+(?:my|the)\\s+${MACHINE}\\s+(?:to\\s+bed|down\\s+for\\s+the\\s+night)\\b|^put\\s+(?:my|the)\\s+${MACHINE}\\s+to\\s+sleep\\s+for\\s+the\\s+night\\b`);
 
 const ON = new RegExp(`\\b(?:leave|let)\\s+(?:my\\s+)?${MACHINE}\\s+(?:alone|be)\\b|\\b(?:stop|quit)\\s+locking\\b.*\\b${MACHINE}\\b|\\b(?:don'?t|dont|do not)\\s+(?:lock|shut)\\s+(?:my\\s+)?${MACHINE}\\b`);
@@ -65,6 +67,6 @@ export function readShutdownTurn(message: string, ctx: ShutdownCtx): ShutdownTur
   const bare = m.replace(LEAD, "");
   if (PUT_BED.test(bare)) return { kind: "run" };
   if (ctx.night && ALL_DOWN.test(bare) && bare.split(" ").length <= 8) return { kind: "run" };
-  if (ctx.offered && readYes(m)) return { kind: "run" };
+  if (ctx.offered && (readYes(m) || IT_DOWN.test(bare))) return { kind: "run" };
   return null;
 }

@@ -48,6 +48,12 @@ describe("readShutdownTurn: asking for it", () => {
     expect(readShutdownTurn("put my computer to bed", day)).toEqual({ kind: "run" });
     for (const m of ["shut it all down", "close everything", "yes close everything", "lock it all down"]) expect(readShutdownTurn(m, day), m).toBeNull();
   });
+  it("a bare 'shut it down' or 'close it' is too broad: it needs everything, all, the computer, or the offer behind it", () => {
+    for (const m of ["shut it down", "close it", "lock it", "shut down", "quit it"]) expect(readShutdownTurn(m, night), m).toBeNull();
+    for (const m of ["shut my computer down", "close everything", "lock my mac", "shut the laptop down"]) expect(readShutdownTurn(m, night), m).toEqual({ kind: "run" });
+    expect(readShutdownTurn("shut it down", offered)).toEqual({ kind: "run" });
+    expect(readShutdownTurn("close it", offered)).toEqual({ kind: "run" });
+  });
   it("lookalikes never lock a Mac", () => {
     for (const m of ["put my kid to bed lol", "put the dog to bed", "i shut everything down at work", "close everything except chrome", "how do i put my mac to sleep", "shut the door", "dont shut it all down", "never close everything"])
       expect(readShutdownTurn(m, night), m).toBeNull();
@@ -97,7 +103,7 @@ describe("runShutdownTurn", () => {
 });
 
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
-function route(shutdownRun: ShutdownRun | undefined, { armed = false } = {}) {
+function route(shutdownRun: ShutdownRun | undefined, { armed = false, push = false } = {}) {
   const d = mkdtempSync(join(tmpdir(), "shutdown-chat-"));
   const handlers = new Map<string, Handler[]>();
   const api = { on: (n: string, fn: Handler) => handlers.set(n, [...(handlers.get(n) ?? []), fn]) };
@@ -106,15 +112,17 @@ function route(shutdownRun: ShutdownRun | undefined, { armed = false } = {}) {
   const nudge = new Date(2026, 10, 3, 21, 30);
   writeFileSync(join(d, "wake-plan.json"), JSON.stringify({ source: "nick", bedtimes: [{ date: "2026-11-03", nudgeAtIso: nudge.toISOString() }] }));
   if (armed) writeFileSync(join(d, "bedtime-shutdown.json"), JSON.stringify({ armed: true, night: nudge.toISOString() }));
+  if (push) writeFileSync(join(d, "outreach.jsonl"), `${JSON.stringify({ text: OFFER, at: new Date(2026, 10, 3, 22, 8).toISOString(), channel: "mac-voice" })}\n`);
   let clock = new Date(2026, 10, 3, 22, 9).getTime();
   registerLocalRouting(api, { warm: false, mode: "on", logPath: join(d, "r.jsonl"), progressDir: join(d, "tp"), stateDir: d, clock: () => "Tue 22:09", now: () => new Date(clock),
     decideImpl: async () => ({ move: "answer", answer: "DESK ANSWER" }) as Decision, brainSearch: async () => "",
     scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), readDayJson: async () => undefined, readDeadlines: async () => ({ events: [], tasks: [] }),
     listReminders: async () => [], ...(shutdownRun ? { shutdownRun } : {}) } as never);
   let n = 0;
+  const sessionKey = `agent:main:orion-chat-shutdown-${d}`;
   return async (prompt: string) => {
     clock += 30_000;
-    const ctx = { runId: `s-${n += 1}`, sessionKey: "agent:main:orion-chat-shutdown" };
+    const ctx = { runId: `s-${n += 1}`, sessionKey };
     await fire("before_model_resolve", { prompt }, ctx);
     const [direct] = (await fire("before_agent_reply", { cleanedBody: prompt }, ctx)) as Array<{ reply?: { text: string } } | undefined>;
     await fire("before_prompt_build", { prompt, messages: [] }, ctx);
@@ -142,6 +150,27 @@ describe("the routing", () => {
     expect(await turn("put my computer to bed")).toBe("did run");
     expect(await turn("i need 20 more minutes")).toBe("did pass");
     expect(calls).toEqual([["run", "--json"], ["pass", "20", "--json"]]);
+  });
+  it("the offer is consumed once answered: a second ok does not shut down again", async () => {
+    const calls: string[][] = [];
+    const turn = route(async (a) => { calls.push(a); return { stdout: JSON.stringify({ ok: true, say: "done" }), code: 0 }; });
+    expect(await turn(withOffer("Fine. Yes."))).toBe("done");
+    expect(await turn(withOffer("ok"))).not.toBe("done");
+    expect(calls).toHaveLength(1);
+  });
+  it("a yes to an unrelated question later is not an answer to the offer, even inside 30 minutes", async () => {
+    const calls: string[][] = [];
+    const turn = route(async (a) => { calls.push(a); return { stdout: JSON.stringify({ ok: true, say: "done" }), code: 0 }; }, { push: true });
+    await turn("what time is my first class");
+    expect(await turn("yeah ok")).not.toBe("done");
+    expect(calls).toEqual([]);
+  });
+  it("a yes right after the offer, with no label, still answers it, once", async () => {
+    const calls: string[][] = [];
+    const turn = route(async (a) => { calls.push(a); return { stdout: JSON.stringify({ ok: true, say: "done" }), code: 0 }; }, { push: true });
+    expect(await turn("yeah")).toBe("done");
+    expect(await turn("ok")).not.toBe("done");
+    expect(calls).toHaveLength(1);
   });
   it("with no runner wired the model path stays as it was", async () => {
     expect(await route(undefined)(withOffer("yes"))).not.toMatch(/locked/);

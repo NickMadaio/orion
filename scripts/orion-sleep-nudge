@@ -127,7 +127,7 @@ try {
         ? { ...action, text: action.text.replace(/ and locked the Mac\./, ", but the Mac wouldn't lock.") } : action;
       const r = runAct(live);
       results.push({ action: live, ...r });
-      if (action.type === "lock-screen") { lockFailed = !r.ok && !r.skipped; armGuard(); }
+      if (action.type === "lock-screen") { lockFailed = !r.ok && !r.skipped; if (r.ok) armGuard(); }   // a failed lock arms nothing
     }
     const failedMessage = results.find((r) => r.action.type === "message" && !r.ok && !r.skipped);
     // A rung whose message could not be sent stays due: keep the old state so the next tick retries it.

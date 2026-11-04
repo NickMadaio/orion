@@ -805,13 +805,20 @@ export function startWrite<R>(run: { abort?: AbortController; writeStarted?: boo
 }
 
 /** What a shutdown turn is read against: was the offer just made, is it night, did a shutdown arm the guard tonight. */
-function shutdownContext(stateDir: string, now: Date, label: string | undefined): { offered: boolean; night: boolean; armed: boolean } {
+const offerConsumed = new Map<string, { offer: string; at: number }>();
+function shutdownContext(stateDir: string, now: Date, label: string | undefined, sessionKey: string): { offered: boolean; night: boolean; armed: boolean } {
   const push = lastPush(stateDir, now);
   const recent = push && now.getTime() - Date.parse(push.at) <= 30 * 60_000 ? push.text : undefined;
   const night = pastNudgeTime(stateDir, now);
   let armed = false;
   try { armed = night && (JSON.parse(readFileSync(join(stateDir, "bedtime-shutdown.json"), "utf8")) as { armed?: boolean }).armed === true; } catch { /* not armed */ }
-  return { offered: isShutdownOffer(label ?? "") || isShutdownOffer(recent ?? ""), night, armed };
+  // The offer answers ONE turn: the next message in this chat, whatever it says, uses it up (review 2026-11-04: a later "ok" to something else
+  // shut the Mac down). A message the app labels as a reply to the offer counts only until that offer text has been seen once.
+  const offer = isShutdownOffer(label ?? "") ? label : isShutdownOffer(recent ?? "") ? recent : undefined;
+  const used = offerConsumed.get(sessionKey);
+  const offered = !!offer && !(used?.offer === offer && now.getTime() - used.at < 2 * 3600_000);
+  if (offer) offerConsumed.set(sessionKey, { offer, at: now.getTime() });
+  return { offered, night, armed };
 }
 
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
@@ -1265,8 +1272,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // w18 apps (apps-read.ts): "close the apps im not using", "quit spotify and discord", "what apps do i have open": orion-apps does it and says what it did.
     // w18 bedtime (bedtime-shutdown-read.ts): a yes to "want me to shut things down?", "put my computer to bed", "i need 20 more minutes": code runs it.
     const shutdownAt = (options.now ?? pluginNow)();
-    const shutdownTurn = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !isCrisis(message) && options.shutdownRun && options.stateDir
-      ? readShutdownTurn(message, shutdownContext(options.stateDir, shutdownAt, parseOutreach(raw)?.text)) ?? undefined : undefined;
+    const shutdownCtx = options.shutdownRun && options.stateDir ? shutdownContext(options.stateDir, shutdownAt, parseOutreach(raw)?.text, sessionKey ?? "") : undefined;
+    const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !isCrisis(message)
+      ? readShutdownTurn(message, shutdownCtx) ?? undefined : undefined;
     const appsTurn = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
     // w18 mousechat (mouse-read.ts): "make my side button do stage manager", "dont do anything in minecraft", "what are my mouse buttons set to", or a yes to a new-mouse outreach.
     const mouseAt = (options.now ?? pluginNow)();

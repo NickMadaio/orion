@@ -3,7 +3,7 @@
 //   1. the bridge's lock_screen (SACLockScreenImmediate), when this build has it
 //   2. Ctrl+Cmd+Q through System Events (the real lock; needs Accessibility, which ORION has when it can click)
 //   3. pmset displaysleepnow (no permission at all: the display sleeps and, with "require password immediately", the Mac is locked)
-// and says which one worked. A method that fails falls through to the next; if all three fail it says so. Never throws.
+// and says which one worked. A method counts as a lock only once the session reports the screen locked; display sleep alone is said as such. A method that fails falls through to the next; if all three fail it says so. Never throws.
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +25,18 @@ export const realExec = (cmd, args = [], { input, timeout = 10_000 } = {}) => ne
 
 const KEYSTROKE = 'tell application "System Events" to keystroke "q" using {control down, command down}';
 
-export async function lockMac({ exec = realExec, bridge = DEFAULT_BRIDGE, osascript = "/usr/bin/osascript", pmset = "/usr/bin/pmset" } = {}) {
+/** Is the screen really locked? CGSSessionScreenIsLocked in the root registry entry (no permission, no python). */
+export async function screenLocked(exec = realExec) {
+  for (let i = 0; i < 4; i += 1) {
+    const r = await exec("/usr/sbin/ioreg", ["-n", "Root", "-d1", "-a"]);
+    if (/CGSSessionScreenIsLocked<\/key>\s*<true\/>/.test(r.stdout ?? "")) return true;
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  return false;
+}
+
+/** { ok, method, locked, displayOnly }: locked is verified; display-sleep is ok but never claimed as a lock unless it verifies. */
+export async function lockMac({ exec = realExec, verify = () => screenLocked(exec), bridge = DEFAULT_BRIDGE, osascript = "/usr/bin/osascript", pmset = "/usr/bin/pmset" } = {}) {
   const tried = [];
   const steps = [
     ["bridge", () => exec(bridge, [], { input: `${JSON.stringify({ id: "lock", action: "lock_screen", payload: {} })}\n` }), (r) => !/"ok"\s*:\s*false/.test(r.stdout ?? "")],
@@ -34,8 +45,11 @@ export async function lockMac({ exec = realExec, bridge = DEFAULT_BRIDGE, osascr
   ];
   for (const [method, run, valid] of steps) {
     const r = await run().catch(() => ({ status: 1, stdout: "" }));
-    if (r.status === 0 && valid(r)) return { ok: true, method, tried: [...tried, method] };
+    const sent = r.status === 0 && valid(r);
+    // The first two must actually lock the screen; a keystroke can exit 0 and do nothing (no Accessibility), so it is checked.
+    if (sent && method !== "display-sleep" && await verify()) return { ok: true, method, locked: true, displayOnly: false, tried: [...tried, method] };
+    if (sent && method === "display-sleep") { const locked = await verify(); return { ok: true, method, locked, displayOnly: !locked, tried: [...tried, method] }; }
     tried.push(method);
   }
-  return { ok: false, method: null, tried };
+  return { ok: false, method: null, locked: false, displayOnly: false, tried };
 }

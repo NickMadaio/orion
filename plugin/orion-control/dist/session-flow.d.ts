@@ -4,6 +4,11 @@ export type SessionExec = (args: string[]) => Promise<{
     stdout: string;
     code: number;
 }>;
+/** orion-focus-profile / orion-focus-sites with fixed arguments. */
+export type ProfileRun = (args: string[]) => Promise<{
+    stdout: string;
+    code: number;
+}>;
 export type SessionRequest = {
     task: string;
     minutes?: number;
@@ -32,11 +37,14 @@ export declare function readApps(message: string): string[];
 export declare function parseSessionRequest(message: string, hint?: SessionHint): SessionRequest | null;
 export declare const STRICT_LINE = "Firm app blocking can't be switched on from chat, so it's the timer only; I'm not blocking anything.";
 /** One start request, end to end. Returns a FlowResult whose reply is built only from script output. */
-export declare function runSessionFlow({ message, hint, exec, resolveApp }: {
+export declare function runSessionFlow({ message, hint, exec, resolveApp, profile, sites }: {
     message: string;
     hint?: SessionHint;
     exec: SessionExec;
     resolveApp: (name: string) => Promise<string | null>;
+    /** w19: with both, a session just started also gets its task's profile and the site allow-list. */
+    profile?: ProfileRun;
+    sites?: ProfileRun;
 }): Promise<FlowResult>;
 /** "how much focus time is left", read by code (sweep 2026-10-15, q049/q053: the worker called nothing
  *  and said "still active with 15 minutes remaining"). A read only: nothing is started or changed. */

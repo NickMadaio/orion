@@ -3,7 +3,7 @@ import { updateReminders } from "../reminders/store.mjs";
 // reads it (selffix-store.ts) and only scripts/orion-selffix writes it.
 //   status: candidate (the nightly scan found it, nothing said yet) | offered (asked "now or later?") | parked (project made, waiting)
 //           | started (running) | declined (he said no) | done
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -60,4 +60,30 @@ export function nextEvening(now) {
   at.setHours(19, 30, 0, 0);
   if (now.getTime() >= at.getTime() - 30 * 60_000) at.setDate(at.getDate() + 1);
   return at;
+}
+
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+export const LOCK_STALE_MS = 2 * 60_000;
+
+/** One action at a time on the fix offers (selffix.lock, a directory: mkdir is atomic). A lock whose owner is gone or over 2 minutes old is taken over. Returns a release function, or null when another action holds it. */
+export function acquireLock(dir) {
+  const lock = join(dir, "selffix.lock");
+  mkdirSync(dir, { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      mkdirSync(lock);
+      writeFileSync(join(lock, "owner"), JSON.stringify({ pid: process.pid, at: Date.now() }));
+      return () => { try { rmSync(lock, { recursive: true, force: true }); } catch { /* already gone */ } };
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      let owner = {};
+      try { owner = JSON.parse(readFileSync(join(lock, "owner"), "utf8")); } catch { /* being written, or unreadable */ }
+      let age = 0;
+      try { age = Date.now() - statSync(lock).mtimeMs; } catch { /* gone: retry */ }
+      const stale = age > LOCK_STALE_MS || (Number.isInteger(owner.pid) && !alive(owner.pid));
+      if (!stale) return null;
+      rmSync(lock, { recursive: true, force: true });
+    }
+  }
+  return null;
 }

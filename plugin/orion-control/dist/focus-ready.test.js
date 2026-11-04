@@ -82,6 +82,18 @@ describe("ready: picks the work from the plan, starts the session, allows the ta
         expect(w.siteCalls.find((c) => c[0] === "set")?.join(" ")).toContain("--task Finish resume");
         expect(w.pending).toMatchObject({ kind: "apps", task: "Finish resume" });
     });
+    it("an old focus guard never survives into a new session: the sites are cleared first, then set", async () => {
+        const w = world();
+        await runFocusReady("im ready to work", w.deps);
+        expect(w.siteCalls.map((c) => c[0]).slice(0, 2)).toEqual(["clear", "set"]);
+    });
+    it("when the apps cannot be armed the guard is still cleared, and nothing is set", async () => {
+        const w = world();
+        const base = w.deps.exec;
+        w.deps.exec = async (a) => (a[0] === "arm" ? { stdout: "orion-session: nope", code: 1 } : base(a));
+        await runFocusReady("im ready to work", w.deps);
+        expect(w.siteCalls.map((c) => c[0])).toEqual(["clear"]);
+    });
     it("a cs lab gets the editor, terminal and browser", async () => {
         const w = world({ day: day([{ ...LAB, start: "18:00", end: "20:00" }]) });
         expect(reply(await runFocusReady("lets get started", w.deps))).toBe("Starting 50 min on CS lab 4. Allowed: Visual Studio Code, Terminal and Safari. Need anything else?");

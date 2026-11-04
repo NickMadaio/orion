@@ -201,7 +201,7 @@ describe("cluster 6: focus phrases", () => {
     it("foc-pomodoro-break-c: 'take a 10 min break then restart the session' with a session running pauses it, never finishes it", async () => {
         const r = route(() => ({ move: "tool", tool: "session", args: { do: "pause" } }), { now: MON(10, 0), session: { ok: true, status: "running", task: "econ", remainingSeconds: 120 } });
         const t = await r.turn("take a 10 min break then restart the session");
-        expect(r.sessionCalls.map((c) => c[0])).toEqual(["status", "pause"]);
+        expect(r.sessionCalls.map((c) => c[0])).toEqual(["status", "break", "pause"]); // this stub plans no break: break is refused, so it pauses
         expect(t.built?.systemPrompt).toMatch(/alarm_set[\s\S]*2026-11-02T10:10/);
         expect(t.final).not.toMatch(/Exec failed|didn't actually/);
     });

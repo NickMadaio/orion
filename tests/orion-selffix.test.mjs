@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { writeFixtureDir } from "./selfcheck-fixture.mjs";
 
 const BIN = join(import.meta.dirname, "..", "scripts", "orion-selffix");
@@ -18,14 +18,16 @@ function world(now = "2026-11-04T14:00:00Z") {
   const dir = mkdtempSync(join(tmpdir(), "selffix-"));
   const calls = join(dir, "projects-calls.log");
   const fake = join(dir, "fake-projects");
-  writeFileSync(fake, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(" ") + "\\n");\nconst [cmd] = process.argv.slice(2);\nif (cmd === "add") console.log(JSON.stringify({ id: "project-fake1", name: "x", lint: { errors: 0 } }));\nelse if (cmd === "launch" && process.env.FAKE_LAUNCH_FAIL) { console.error("A project is running or has an uncertain worker."); process.exit(1); }\nelse console.log(JSON.stringify({ launched: true, pid: 1 }));\n`);
+  writeFileSync(fake, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(" ") + "\\n");\nconst [cmd] = process.argv.slice(2);\nif (cmd === "add" && process.env.FAKE_ADD_SLOW) await new Promise((r) => setTimeout(r, 600));
+if (cmd === "add") console.log(JSON.stringify({ id: "project-fake1", name: "x", lint: { errors: 0 } }));\nelse if (cmd === "launch" && process.env.FAKE_LAUNCH_FAIL) { console.error("A project is running or has an uncertain worker."); process.exit(1); }\nelse console.log(JSON.stringify({ launched: true, pid: 1 }));\n`);
   chmodSync(fake, 0o755);
   const vault = join(dir, "vault");
   const env = { ...process.env, ORION_CONTROLLED_DIR: dir, ORION_NOW: now, TZ: "UTC", ORION_PROJECTS_BIN: fake, ORION_BRAIN_VAULT: vault, ORION_REACH_BIN: join(dir, "no-reach") };
   const run = (args, extra = {}, input) => { const r = spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8", env: { ...env, ...extra }, input }); return { ...r, out: (() => { try { return JSON.parse(r.stdout.trim().split("\n").at(-1)); } catch { return null; } })() }; };
   const state = () => JSON.parse(readFileSync(join(dir, "selffix.json"), "utf8"));
   const projectCalls = () => (existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n") : []);
-  return { dir, run, state, projectCalls, vault };
+  const runAsync = (args, extra = {}) => new Promise((resolve) => { const c = spawn(process.execPath, [BIN, ...args], { env: { ...env, ...extra } }); let out = ""; let err = ""; c.stdout.on("data", (d) => (out += d)); c.stderr.on("data", (d) => (err += d)); c.on("close", (code) => resolve({ code, out, err })); });
+  return { dir, run, runAsync, state, projectCalls, vault };
 }
 const propose = (w, d = DIAG) => w.run(["propose", "--stdin"], {}, JSON.stringify(d));
 
@@ -195,4 +197,40 @@ test("later again to the reminder re-parks the same project with one reminder", 
   assert.equal(w.projectCalls().filter((c) => c.startsWith("add")).length, 1);
   const reminders = JSON.parse(readFileSync(join(w.dir, "reminders.json"), "utf8"));
   assert.deepEqual(reminders.map((r) => r.dueAt), [Date.parse("2026-11-05T09:00:00Z")]);
+});
+
+test("the project id is saved right after add, so a crash before launch cannot make a second project", () => {
+  const w = world();
+  const id = propose(w).out.item.id;
+  const crashed = w.run(["accept", id, "--now"], { ORION_SELFFIX_CRASH_AFTER_ADD: "1" });
+  assert.notEqual(crashed.status, 0);
+  assert.equal(w.state().items[0].projectId, "project-fake1");
+  assert.equal(w.state().items[0].status, "offered");
+  const retry = w.run(["accept", id, "--now"]);
+  assert.equal(retry.out.status, "started");
+  assert.deepEqual(w.projectCalls().map((c) => c.split(" ")[0]), ["add", "launch"]);
+});
+
+test("two quick answers at once create exactly one project", async () => {
+  const w = world();
+  const id = propose(w).out.item.id;
+  const [a, b] = await Promise.all([w.runAsync(["accept", id, "--now"], { FAKE_ADD_SLOW: "1" }), w.runAsync(["accept", id, "--now"], { FAKE_ADD_SLOW: "1" })]);
+  assert.equal(w.projectCalls().filter((c) => c.startsWith("add")).length, 1);
+  assert.equal(w.projectCalls().filter((c) => c.startsWith("launch")).length, 1);
+  assert.deepEqual([a.code, b.code].sort(), [0, 3]);
+});
+
+test("a held lock refuses the action and creates nothing; a stale lock is taken over", () => {
+  const w = world();
+  const id = propose(w).out.item.id;
+  mkdirSync(join(w.dir, "selffix.lock"));
+  writeFileSync(join(w.dir, "selffix.lock", "owner"), JSON.stringify({ pid: process.pid, at: Date.now() }));
+  const held = w.run(["accept", id, "--now"]);
+  assert.equal(held.status, 3);
+  assert.match(held.stderr, /in progress/);
+  assert.deepEqual(w.projectCalls(), []);
+  const old = new Date(Date.now() - 10 * 60_000);
+  writeFileSync(join(w.dir, "selffix.lock", "owner"), JSON.stringify({ pid: 999999, at: old.getTime() }));
+  utimesSync(join(w.dir, "selffix.lock"), old, old);
+  assert.equal(w.run(["accept", id, "--now"]).out.status, "started");
 });

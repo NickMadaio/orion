@@ -67,9 +67,10 @@ describe("nothing running: the alarm-only reply, nothing started", () => {
     });
 });
 describe("a running or paused block is paused, never finished", () => {
-    it.each(["i need a break", "take a 10 min break then restart the session"])("running: %s", async (said) => {
+    it.each(["i need a break", "take a 10 min break then restart the session"])("running, no break planned after it: %s", async (said) => {
         const s = session({ ok: true, status: "running", phase: "focus", task: "econ", remainingSeconds: 1200 });
-        const out = await runBreak(readBreak(said), { exec: s.exec, now: NOW, mayStart: true });
+        const refuse = async (args) => (args[0] === "break" ? { stdout: "orion-session: No break is planned after this block.", code: 1 } : s.exec(args));
+        const out = await runBreak(readBreak(said), { exec: refuse, now: NOW, mayStart: true });
         expect(s.calls.map((c) => c[0])).toEqual(["status", "pause"]);
         expect(s.calls.some((c) => c[0] === "finish" || c[0] === "abandon")).toBe(false);
         expect(out.reminder?.say).toMatch(/^Paused econ with 20 minutes left\. Break till 10:10 AM/);
@@ -83,7 +84,7 @@ describe("a running or paused block is paused, never finished", () => {
     });
     it("a pause that fails says so and sets nothing", async () => {
         const s = session({ ok: true, status: "running", phase: "focus", task: "econ", remainingSeconds: 1200 });
-        const exec = async (args) => (args[0] === "pause" ? { stdout: "orion-session: Orion is not running", code: 3 } : s.exec(args));
+        const exec = async (args) => (args[0] === "pause" || args[0] === "break" ? { stdout: "orion-session: Orion is not running", code: 3 } : s.exec(args));
         const out = await runBreak(readBreak("i need a break"), { exec, now: NOW, mayStart: true });
         expect(out.reminder).toBeUndefined();
         expect(JSON.stringify(out.flow)).toMatch(/couldn't pause econ/);

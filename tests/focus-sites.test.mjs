@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BLOCKED, brandOf, decideDomain, domainMatches, guardStep, initialGuard, nudgeLine, normalizeDomain, resolveSiteName } from "../scripts/lib/focus/sites.mjs";
-import { backPageHtml, redirectScript, runTick, readWeb, writeWeb, webFile, newWeb, withOverride, withApps } from "../scripts/lib/focus/guard.mjs";
+import { backPageHtml, readTabScript, redirectScript, redirectViaScripts, tabHostIs, runTick, readWeb, writeWeb, webFile, newWeb, withOverride, withApps } from "../scripts/lib/focus/guard.mjs";
 
 const T0 = Date.parse("2026-11-04T18:00:00Z");
 const SAFARI = "com.apple.Safari";
@@ -123,16 +123,55 @@ test("guardStep never mutates the state it is given", () => {
 });
 
 // --- effects text, never run --------------------------------------------------------------------------------------------
-test("redirect scripts per browser, with only safe characters in them", () => {
-  const s = redirectScript(SAFARI, "youtube.com", "file:///x/focus-back.html");
+test("a tab is on the blocked site by its host, never by the words in its url", () => {
+  assert.equal(tabHostIs("https://x.com/home", "x.com"), true);
+  assert.equal(tabHostIs("https://m.x.com/a", "x.com"), true);
+  assert.equal(tabHostIs("https://www.dropbox.com/home", "x.com"), false);
+  assert.equal(tabHostIs("https://docs.google.com/?q=x.com", "x.com"), false);
+  assert.equal(tabHostIs("https://notyoutube.com/", "youtube.com"), false);
+  assert.equal(tabHostIs("https://youtube.com.evil.example/", "youtube.com"), false);
+  assert.equal(tabHostIs("file:///x/x.com", "x.com"), false);
+  assert.equal(tabHostIs("", "x.com"), false);
+});
+
+test("redirect scripts per browser: act on the exact tab that was read, only while that browser is frontmost", () => {
+  const s = redirectScript(SAFARI, "https://www.youtube.com/watch?v=1", "file:///x/focus-back.html");
   assert.equal(s.app, "Safari");
   assert.match(s.source, /URL of current tab of front window/);
-  assert.match(s.source, /youtube\.com/);
-  const c = redirectScript("com.google.Chrome", "reddit.com", "file:///x/focus-back.html");
+  assert.match(s.source, /System Events/);
+  assert.match(s.source, /com\.apple\.Safari/);
+  assert.match(s.source, /is "https:\/\/www\.youtube\.com\/watch\?v=1"/);
+  assert.ok(!/\bcontains\b/.test(s.source));
+  const c = redirectScript("com.google.Chrome", "https://reddit.com/r/x", "file:///x/focus-back.html");
   assert.match(c.source, /active tab of front window/);
-  assert.equal(redirectScript("com.apple.Pages", "youtube.com", "file:///x"), null);
-  assert.equal(redirectScript(SAFARI, 'x.com" & (do shell script "rm -rf ~") & "', "file:///x"), null);
-  assert.equal(redirectScript(SAFARI, "x.com", 'file:///x" & quit'), null);
+  assert.equal(redirectScript("com.apple.Pages", "https://youtube.com/", "file:///x"), null);
+  assert.equal(redirectScript(SAFARI, 'https://x.com/" & (do shell script "rm -rf ~") & "', "file:///x"), null);
+  assert.equal(redirectScript(SAFARI, "https://x.com/\\", "file:///x"), null);
+  assert.equal(redirectScript(SAFARI, "https://x.com/", 'file:///x" & quit'), null);
+  assert.equal(redirectScript(SAFARI, "youtube.com", "file:///x"), null);   // a full url is read from the tab, not guessed
+  assert.match(readTabScript(SAFARI).source, /URL of current tab of front window/);
+  assert.match(readTabScript("com.google.Chrome").source, /active tab of front window/);
+  assert.equal(readTabScript("com.apple.Pages"), null);
+});
+
+test("redirectViaScripts: the tab's real host is checked before anything is changed", async () => {
+  const ran = [];
+  const run = (reply) => async (source) => { ran.push(source); return reply(ran.length); };
+  // x.com is blocked; the front tab is dropbox.com (an "x.com" substring is not a match): nothing is changed.
+  let r = await redirectViaScripts({ bundleId: SAFARI, domain: "x.com", fileUrl: "file:///x/b.html", run: run(() => ({ code: 0, stdout: "https://www.dropbox.com/home\n", stderr: "" })) });
+  assert.equal(r, "gone");
+  assert.equal(ran.length, 1);
+  // The tab really is on it: the second script changes that exact url.
+  ran.length = 0;
+  r = await redirectViaScripts({ bundleId: SAFARI, domain: "x.com", fileUrl: "file:///x/b.html", run: run((n) => (n === 1 ? { code: 0, stdout: "https://x.com/home\n", stderr: "" } : { code: 0, stdout: "moved\n", stderr: "" })) });
+  assert.equal(r, "ok");
+  assert.equal(ran.length, 2);
+  assert.match(ran[1], /is "https:\/\/x\.com\/home"/);
+  // Automation refused: denied. Another browser came to the front between the two reads: gone.
+  r = await redirectViaScripts({ bundleId: SAFARI, domain: "x.com", fileUrl: "file:///x/b.html", run: async () => ({ code: 1, stdout: "", stderr: "execution error: Not authorized to send Apple events to Safari. (-1743)" }) });
+  assert.equal(r, "denied");
+  r = await redirectViaScripts({ bundleId: SAFARI, domain: "x.com", fileUrl: "file:///x/b.html", run: run((n) => (n === 1 ? { code: 0, stdout: "https://x.com/home\n", stderr: "" } : { code: 0, stdout: "gone\n", stderr: "" })) });
+  assert.equal(r, "gone");
 });
 
 test("the calm page names the task and escapes it", () => {
@@ -328,4 +367,61 @@ test("runTick reads the phone events, writes the nudge, and the answer question"
   assert.deepEqual(sent.map((m) => m.text), ["Which app do you need for Finish resume?"]);
   const pending = JSON.parse(await readFile(join(h.dir, "focus-ready-pending.json"), "utf8"));
   assert.equal(pending.kind, "apps");
+});
+
+// --- review fixes ---------------------------------------------------------------------------------------------------------------
+test("runTick re-reads the session right before a redirect: a stale 'focus' cache never redirects during a break or a pause", async (t) => {
+  const h = await harness(t, { activity: act(0) });
+  await runTick(h.deps(T0));                                   // nudge (the cache says focus)
+  await writeFile(join(h.dir, "activity.json"), JSON.stringify(act(21_000)));
+  const deps = h.deps(T0 + 21_000);
+  const r = await runTick({ ...deps, status: async () => ({ status: "running", phase: "rest", remainingSeconds: 200 }) });
+  assert.equal(r.action, "none");
+  assert.equal(h.effects.redirected.length, 0);
+  assert.equal(readWeb(webFile(h.dir)).phase, "rest");        // and the cache learns it
+  const paused = await runTick({ ...h.deps(T0 + 45_000), status: async () => ({ status: "paused" }) });
+  assert.equal(paused.action, "none");
+  assert.equal(h.effects.redirected.length, 0);
+});
+
+test("only activity.focus.active === true lets the guard act; a missing field counts as inactive", async (t) => {
+  for (const focus of [undefined, null, { active: false }, {}]) {
+    const h = await harness(t, { activity: act(0, { focus }) });
+    const r = await runTick(h.deps(T0));
+    assert.equal(r.action, "none", JSON.stringify(focus));
+    assert.deepEqual(h.effects.notified, []);
+  }
+});
+
+test("a new session never inherits an old guard: set replaces the whole file, clear deactivates it", async (t) => {
+  const { spawnSync } = await import("node:child_process");
+  const dir = await mkdtemp(join(tmpdir(), "orion-sites-new-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const env = { ...process.env, ORION_CONTROLLED_DIR: dir, ORION_SESSION_SOCKET: join(dir, "none.sock") };
+  const run = (...a) => spawnSync(process.execPath, ["scripts/orion-focus-sites", ...a], { encoding: "utf8", env });
+  run("set", "--task", "Old", "--apps", SAFARI, "--names", "Safari", "--domains", "a.com", "--json");
+  run("allow", "youtube", "--json");
+  run("set", "--task", "New", "--apps", SAFARI, "--names", "Safari", "--domains", "b.com", "--json");
+  const web = JSON.parse(run("show", "--json").stdout);
+  assert.equal(web.task, "New");
+  assert.deepEqual(web.overrides, []);
+  assert.deepEqual(web.allowedDomains, ["b.com"]);
+  run("clear", "--json");
+  assert.equal(JSON.parse(run("show", "--json").stdout).active, false);
+});
+
+test("finalize learns only from the focus stretches of the session, never from a break", async (t) => {
+  const h = await harness(t, { status: { status: "none" } });
+  const m = (n) => T0 + n * 60_000;
+  writeWeb(webFile(h.dir), { ...readWeb(webFile(h.dir)), startedAt: new Date(m(0)).toISOString(), phase: "focus", phaseEnd: new Date(m(40)).toISOString(), checkedAtMs: 0,
+    phaseLog: [{ phase: "focus", atMs: m(0) }, { phase: "rest", atMs: m(25) }, { phase: "focus", atMs: m(30) }] });
+  await runTick(h.deps(m(45)));
+  assert.deepEqual(h.effects.learned.map((l) => [l.from, l.to]), [[m(0), m(25)], [m(30), m(40)]]);   // the last stretch is capped at the phase end
+});
+
+test("the phase log follows the session between ticks", async (t) => {
+  const h = await harness(t, { activity: act(0, { domain: "github.com" }) });
+  await runTick({ ...h.deps(T0 + 31_000), status: async () => ({ status: "running", phase: "rest", remainingSeconds: 300 }) });
+  const log = readWeb(webFile(h.dir)).phaseLog;
+  assert.deepEqual(log.map((x) => x.phase), ["focus", "rest"]);
 });

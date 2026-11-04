@@ -107,6 +107,9 @@ async function startWork(deps: ReadyDeps, pick: Pick): Promise<FlowResult> {
   }
   const started = await session(deps, ["start", pick.task, ...(pick.minutes ? ["--minutes", String(pick.minutes)] : [])], ran);
   if (!started || !LIVE.has(String(started.status ?? ""))) return say(`I couldn't start the focus session on ${pick.task}, so nothing is running.`, "plain", ran.calls, ran.outputs);
+  // A new session never inherits an old guard (focus-web.json): clear it first, set it only once the apps are really armed.
+  const cleared = await deps.sites(["clear", "--json"]).catch(() => ({ stdout: "", code: 1 }));
+  record(ran, "orion-focus-sites", ["clear", "--json"], cleared.stdout);
   const allowed = await allowedFor(deps, pick.task, ran);
   let armed = false;
   if (allowed.ids.length) armed = !!(await session(deps, ["arm", "--level", "gentle", "--allow", allowed.ids.join(",")], ran));

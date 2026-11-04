@@ -10,7 +10,7 @@
  (tests).
 */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { lockMac } from "./lib/life/lock-mac.mjs";

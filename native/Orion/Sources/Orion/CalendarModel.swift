@@ -375,7 +375,7 @@ final class CalendarModel: ObservableObject {
 
             inputs.append(DayScoring.selfCareInput(
                 bottles: healthDay?.waterBottles ?? 0,
-                bottleGoal: Self.bottleGoal,
+                bottleGoal: health.nutritionGoals.water,
                 supplementsTaken: healthDay?.supplementIDs.count ?? 0,
                 supplementsPlanned: health.supplements.count
             ))
@@ -387,9 +387,6 @@ final class CalendarModel: ObservableObject {
 
         scoresByDay = scores
     }
-
-    /// Nine bottles is the day's water, as the hydration control already assumes.
-    private static let bottleGoal = 9
 
     /// History records grouped by day, so scoring does not re-read the file per
     /// cell.

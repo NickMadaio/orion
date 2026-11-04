@@ -67,6 +67,7 @@ struct PhoneHomeScreen: View {
         }
         actions.onDoneEarly = remote.finishEarly
         actions.onAddWater = addWater
+        actions.onSetWaterGoal = setWaterGoal
         actions.onOpenGlance = { kind in onOpenSection(kind == .focus ? "control" : "health") }
         actions.onOpenPlan = { onOpenSection("plan") }
         return actions
@@ -75,6 +76,13 @@ struct PhoneHomeScreen: View {
     private func reply(_ text: String, to askID: String) {
         answered = answered.union([askID])
         remote.say(text, conversation: LinkSchema.threadID, replyTo: askID)
+    }
+
+    /// Long-press on the water: the Mac keeps the goal, so this is a command to it, shown here and on the widgets at once.
+    private func setWaterGoal(_ bottles: Int) {
+        remote.log(.waterGoal(bottles: bottles))
+        if let directory = GlanceStore.directory, WaterTap.setGoal(bottles, in: directory) { WaterCourier.reloadSurfaces() }
+        waterTaps += 1
     }
 
     /// The same store the Water widget and the Siri phrase use: queued with an id, sent once, never doubled.

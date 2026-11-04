@@ -150,7 +150,7 @@ public enum PhoneHomeBuilder {
         let base = input.snapshot?.tracking.map { ($0.waterBottles, $0.waterGoal) }
             ?? input.glance?.tracking.map { ($0.water, $0.waterGoal) }
         guard let (count, goal) = base else { return nil }
-        return .init(kind: .water, label: "WATER", value: "\(max(count, input.water ?? 0))/\(goal)")
+        return .init(kind: .water, label: "WATER", value: "\(max(count, input.water ?? 0))/\(goal)", goal: goal)
     }
 
     private static func sleep(_ input: Input, format: Format) -> PhoneHome.GlanceItem? {

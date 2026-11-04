@@ -1,5 +1,6 @@
 import Foundation
 import SessionService
+import MobileCore
 
 /*
  Supplements and workouts, in one file that both sides own.
@@ -154,6 +155,22 @@ struct NutritionGoals: Codable, Equatable {
     var carbohydrates: Int = 250
     var fat: Int = 70
     var fiber: Int = 30
+    /// Bottles of water a day (1...30). Lives here so there is one place for every goal (2026-11-04).
+    var water: Int = WaterGoal.default
+
+    init() {}
+
+    /// Every key is optional on disk: ORION Link and the plugin write this object too, and a log saved before
+    /// `water` existed must still read. Water is clamped, so a hand-edited 0 cannot divide a ring by zero.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        calories = try values.decodeIfPresent(Int.self, forKey: .calories) ?? 2_200
+        protein = try values.decodeIfPresent(Int.self, forKey: .protein) ?? 150
+        carbohydrates = try values.decodeIfPresent(Int.self, forKey: .carbohydrates) ?? 250
+        fat = try values.decodeIfPresent(Int.self, forKey: .fat) ?? 70
+        fiber = try values.decodeIfPresent(Int.self, forKey: .fiber) ?? 30
+        water = WaterGoal.clamped(try values.decodeIfPresent(Int.self, forKey: .water) ?? WaterGoal.default)
+    }
 }
 
 struct HealthLogFile: Codable {
@@ -548,6 +565,19 @@ final class HealthLog: ObservableObject {
 
     func setNutritionGoals(_ goals: NutritionGoals) {
         mutate { $0.nutritionGoals = goals }
+    }
+
+    /// Today's water goal in bottles, from the one place it is kept.
+    var waterGoal: Int { nutritionGoals.water }
+
+    /// Right-click on the water: change the "out of" number. Clamped to 1...30 and written under the same lock as everything else.
+    func setWaterGoal(_ bottles: Int) {
+        let goal = WaterGoal.clamped(bottles)
+        mutate { file in
+            var goals = file.nutritionGoals ?? NutritionGoals()
+            goals.water = goal
+            file.nutritionGoals = goals
+        }
     }
 
     var recentFoods: [NutritionEntry] {

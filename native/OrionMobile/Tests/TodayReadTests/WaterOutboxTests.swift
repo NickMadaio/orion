@@ -91,4 +91,16 @@ final class WaterOutboxTests: XCTestCase {
         XCTAssertEqual(WaterTap.today(in: dir)?.water, 5)
         XCTAssertEqual(WaterTap.today(in: dir)?.goal, 9)
     }
+
+    func testAGoalChangeShowsOnTheWidgetsAtOnceAndKeepsTheCount() throws {
+        let url = dir.appendingPathComponent(GlanceFile.fileName)
+        XCTAssertFalse(WaterTap.setGoal(12, in: dir), "no glance yet, nothing to change")
+        try GlanceFile.write(OrionGlance(generatedAt: now, source: "iphone",
+                                         tracking: .init(water: 5, waterGoal: 9, calories: 0, calorieGoal: 2200, protein: 0, proteinGoal: 150)), to: url)
+        XCTAssertTrue(WaterTap.setGoal(12, in: dir))
+        XCTAssertEqual(WaterTap.today(in: dir)?.goal, 12)
+        XCTAssertEqual(WaterTap.today(in: dir)?.water, 5)
+        WaterTap.setGoal(500, in: dir)
+        XCTAssertEqual(WaterTap.today(in: dir)?.goal, 30)
+    }
 }

@@ -3728,6 +3728,68 @@
       },
       "audit": "task_ledger",
       "note": "opens one of a fixed list of home folders in Finder; catalog.ts validates the name"
+    },
+    {
+      "action": "reminder_snooze",
+      "capability": "reminder.snooze",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": true,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "reminders",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "minutes"
+        ],
+        "properties": {
+          "id": {},
+          "minutes": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "w19 reminders: snooze moves one reminder; done marks it finished"
+    },
+    {
+      "action": "reminder_done",
+      "capability": "reminder.done",
+      "domain": "calendar",
+      "risk": "low",
+      "approval_required": false,
+      "reversible": false,
+      "side_effects": [
+        "writes_files"
+      ],
+      "resource_scope": "reminders",
+      "platforms": [
+        "macos"
+      ],
+      "arguments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {}
+        }
+      },
+      "returns": {
+        "type": "object"
+      },
+      "audit": "task_ledger",
+      "note": "w19 reminders: snooze moves one reminder; done marks it finished"
     }
   ]
 }

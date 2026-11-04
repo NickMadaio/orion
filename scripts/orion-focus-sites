@@ -11,7 +11,7 @@
  on a blocked site is sent to a calm "back to <task>" page.
 */
 import { execFile } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { controlledDir } from "./lib/clock.mjs";
 import { backPageHtml, cleared, newWeb, readWeb, redirectScript, runTick, webFile, withApps, withOverride, writeWeb } from "./lib/focus/guard.mjs";
@@ -36,6 +36,8 @@ const sessionBin = process.env.ORION_SESSION_BIN || join(import.meta.dirname, "o
 const status = async () => { const r = await run(process.execPath, [sessionBin, "status", "--json"], 6000); try { return r.code === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
 
 const live = {
+  // ORION's quiet word to the phone: the alerts outbox the phone link delivers (the same one the watchers use).
+  phoneNotify: async ({ id, text }) => { if (!dry) { mkdirSync(dir, { recursive: true }); appendFileSync(join(dir, "alerts-outbox.jsonl"), `${JSON.stringify({ id, level: 1, text, kind: "checkin" })}\n`); } },
   notify: async (line) => { if (!dry) await run("/usr/bin/osascript", ["-e", `display notification ${JSON.stringify(line)} with title "ORION"`]); },
   redirect: async ({ bundleId, domain, task }) => {
     if (dry) return "dry";

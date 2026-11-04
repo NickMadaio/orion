@@ -49,7 +49,7 @@ struct PhoneHomeScreen: View {
         var focus = PhoneFocusActions()
         focus.onOpenChat = onOpenChat
         focus.onDoneEarly = { remote.focusAction("finish", session: session); focusFeedback = "Ending the session."; shield.lift() }
-        focus.onBreakNow = { remote.focusAction("pause", session: session); focusFeedback = "Paused. Your apps are open."; shield.lift() }
+        focus.onBreakNow = { remote.focusAction("break", session: session); focusFeedback = "Break started. Your apps are open."; shield.lift() }
         focus.onResume = { remote.focusAction("resume", session: session); focusFeedback = nil }
         focus.onNeedApp = {
             remote.focusAction("need-app", session: session)

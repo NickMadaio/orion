@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { BROWSERS, decideDomain, guardStep, initialGuard, normalizeDomain, nudgeLine } from "./sites.mjs";
+import { initialPhoneState, planPhoneEvents } from "./phone-events.mjs";
 
 export const STATUS_EVERY_MS = 30_000;
 export const webFile = (dir) => join(dir, "focus-web.json");
@@ -50,6 +51,21 @@ export const backPageHtml = (task) => `<!doctype html><meta charset="utf-8"><tit
 <style>html{background:#0b0d10;color:#e8e6e1;font-family:ui-serif,Georgia,serif;display:grid;place-items:center;height:100%}main{text-align:center}small{font:11px ui-monospace,monospace;letter-spacing:.3em;color:#7d8791}h1{font-weight:400;font-size:34px;margin:.4em 0}</style>
 <main><small>ORION FOCUS</small><h1>Back to ${esc(task)}</h1><p style="color:#7d8791">That site isn't part of this session. Close this tab and carry on.</p></main>`;
 
+/** The phone's focus reports (phone-events.mjs): run what the planner says. Never throws: a broken log must not stop the guard. */
+async function phoneEvents(deps, web) {
+  try {
+    const { dir, nowMs } = deps;
+    const log = readJson(join(dir, "health-log.json"));
+    const stored = readJson(join(dir, "focus-phone-events.json"));
+    const { state, actions } = planPhoneEvents({ events: log?.phoneFocusEvents, state: stored && "seen" in stored ? stored : initialPhoneState(), web, nowMs });
+    writeJson(join(dir, "focus-phone-events.json"), state);
+    for (const a of actions) {
+      if (a.kind === "notify") await deps.phoneNotify?.({ id: a.id, text: a.text });
+      if (a.kind === "pending") writeJson(join(dir, "focus-ready-pending.json"), a.pending);
+    }
+  } catch { /* the phone log is a bonus signal */ }
+}
+
 // -- the tick ------------------------------------------------------------------------------------------------------------------
 const RUNNING = new Set(["running"]);
 
@@ -58,6 +74,7 @@ export async function runTick(deps) {
   const { dir, nowMs } = deps;
   let web = readWeb(webFile(dir));
   const none = (reason) => ({ action: "none", reason });
+  await phoneEvents(deps, web);
   if (!web?.active) return none("no focus session");
   if (nowMs - (web.checkedAtMs ?? 0) >= STATUS_EVERY_MS) {
     const st = await deps.status().catch(() => null);

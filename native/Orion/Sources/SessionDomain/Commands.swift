@@ -74,6 +74,11 @@ public enum CommandKind: Codable, Equatable, Sendable {
     /// the break being short.
     case skipRest
 
+    /// End the focus block that is running now and start the break that follows it; the next focus block follows the break.
+    /// What the phone's "Break now" and "take my break now" in chat mean. Refused unless a focus block is running and a
+    /// break is planned right after it.
+    case breakNow
+
     /// Shorten the current break to a specific remaining duration.
     case shortenRest(to: TimeInterval)
 

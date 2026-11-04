@@ -263,3 +263,69 @@ test("the cli never touches a browser when asked for a dry run, and allow/show w
   assert.equal(run("clear", "--json").status, 0);
   assert.equal(JSON.parse(run("show", "--json").stdout).active, false);
 });
+
+// --- the phone's focus reports (LinkLog.focus, stored as phoneFocusEvents in health-log.json) -----------------------------------
+import { planPhoneEvents, PICKUP_EVERY_MS, initialPhoneState } from "../scripts/lib/focus/phone-events.mjs";
+
+const WEB = newWeb({ task: "Finish resume", apps: [SAFARI], names: ["Safari"], domains: [], startedAt: new Date(T0 - 600_000).toISOString(), phase: "focus", phaseEnd: new Date(T0 + 23 * 60_000 + 20_000).toISOString() });
+const ev = (action, dt = -2_000, extra = {}) => ({ action, at: new Date(T0 + dt).toISOString(), ...extra });
+const warm = { ...initialPhoneState(), cursorMs: T0 - 60_000, seen: [] };
+
+test("pickup during focus: one quiet nudge on the phone, with the minutes left", () => {
+  const r = planPhoneEvents({ events: [ev("pickup")], state: warm, web: WEB, nowMs: T0 });
+  assert.deepEqual(r.actions, [{ kind: "notify", id: `focus-pickup-${T0}`, text: "Back to Finish resume — 24 min left" }]);
+});
+
+test("a second pickup inside 10 minutes says nothing; after 10 minutes it nudges again", () => {
+  let r = planPhoneEvents({ events: [ev("pickup")], state: warm, web: WEB, nowMs: T0 });
+  r = planPhoneEvents({ events: [ev("pickup"), ev("pickup", 60_000)], state: r.state, web: WEB, nowMs: T0 + 61_000 });
+  assert.deepEqual(r.actions, []);
+  r = planPhoneEvents({ events: [ev("pickup"), ev("pickup", 60_000), ev("pickup", PICKUP_EVERY_MS + 1_000)], state: r.state, web: WEB, nowMs: T0 + PICKUP_EVERY_MS + 2_000 });
+  assert.equal(r.actions.length, 1);
+});
+
+test("an event is handled once: the same list again does nothing", () => {
+  const r1 = planPhoneEvents({ events: [ev("pickup")], state: warm, web: WEB, nowMs: T0 });
+  const r2 = planPhoneEvents({ events: [ev("pickup")], state: r1.state, web: WEB, nowMs: T0 + 1000 });
+  assert.deepEqual(r2.actions, []);
+});
+
+test("pickup with no session, on a break, or a report that is old is ignored", () => {
+  assert.deepEqual(planPhoneEvents({ events: [ev("pickup")], state: warm, web: null, nowMs: T0 }).actions, []);
+  assert.deepEqual(planPhoneEvents({ events: [ev("pickup")], state: warm, web: { ...WEB, phase: "rest" }, nowMs: T0 }).actions, []);
+  assert.deepEqual(planPhoneEvents({ events: [ev("pickup", -10 * 60_000)], state: { ...warm, cursorMs: T0 - 20 * 60_000 }, web: WEB, nowMs: T0 }).actions, []);
+});
+
+test("the first look at the log never replays what happened before ORION was watching", () => {
+  const r = planPhoneEvents({ events: [ev("pickup", -30_000), ev("finish", -20_000)], state: initialPhoneState(), web: WEB, nowMs: T0 });
+  assert.deepEqual(r.actions, []);
+  assert.equal(r.state.cursorMs, T0 - 20_000);
+});
+
+test("need-app: asks which app, and leaves the apps question open for the answer", () => {
+  const r = planPhoneEvents({ events: [ev("need-app")], state: warm, web: WEB, nowMs: T0 });
+  assert.deepEqual(r.actions[0], { kind: "notify", id: `focus-needapp-${T0}`, text: "Which app do you need for Finish resume?" });
+  assert.deepEqual(r.actions[1], { kind: "pending", pending: { kind: "apps", task: "Finish resume", at: T0 } });
+});
+
+test("finish from the phone: the early-finish question is asked on the phone and left open for the answer", () => {
+  const r = planPhoneEvents({ events: [ev("finish")], state: warm, web: WEB, nowMs: T0 });
+  assert.equal(r.actions[0].text, "Nice. Start your break now, or move to your next task?");
+  assert.deepEqual(r.actions[1], { kind: "pending", pending: { kind: "early", task: "Finish resume", askNext: true, marked: false, at: T0 } });
+});
+
+test("pause, resume and break already went to the engine through Link: nothing more to do here", () => {
+  const r = planPhoneEvents({ events: [ev("pause"), ev("resume", -1000), ev("break", -500)], state: warm, web: WEB, nowMs: T0 });
+  assert.deepEqual(r.actions, []);
+});
+
+test("runTick reads the phone events, writes the nudge, and the answer question", async (t) => {
+  const h = await harness(t, { activity: act(0, { domain: "github.com" }) });
+  await writeFile(join(h.dir, "health-log.json"), JSON.stringify({ phoneFocusEvents: [ev("need-app", -500)] }));
+  await writeFile(join(h.dir, "focus-phone-events.json"), JSON.stringify({ ...warm }));
+  const sent = [];
+  await runTick({ ...h.deps(T0), phoneNotify: async (m) => { sent.push(m); } });
+  assert.deepEqual(sent.map((m) => m.text), ["Which app do you need for Finish resume?"]);
+  const pending = JSON.parse(await readFile(join(h.dir, "focus-ready-pending.json"), "utf8"));
+  assert.equal(pending.kind, "apps");
+});

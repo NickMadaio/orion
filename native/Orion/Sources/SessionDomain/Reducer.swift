@@ -115,6 +115,9 @@ public enum SessionReducer {
         case .skipRest:
             return shortenRest(state, command: command, stamp: stamp, remaining: 0)
 
+        case .breakNow:
+            return breakNow(state, command: command, stamp: stamp)
+
         case .shortenRest(let remaining):
             return shortenRest(state, command: command, stamp: stamp, remaining: remaining)
 
@@ -222,6 +225,29 @@ public enum SessionReducer {
             id: command.requestID.raw,
             stamp: stamp,
             kind: .restShortened(index: now.phaseIndex, to: newTotal)
+        )))
+    }
+
+    /// A focus block cut short is written as the same event a shortened break is: the phase's new TOTAL is what has been served, so
+    /// the block is over and the planned break begins. Recorded as `restShortened` (the derivation applies a phase's override
+    /// whatever its kind) so a state file written by this build still reads in the one before it.
+    private static func breakNow(_ state: SessionState?,
+                                 command: Command,
+                                 stamp: ClockStamp) -> ReduceResult {
+        guard let state else { return .no(.noSession, keeping: nil) }
+        guard !state.isFinished else { return .no(.sessionFinished(state.id), keeping: state) }
+
+        let now = SessionReconciler.reconcile(state, now: stamp)
+        guard case .running(let kind) = now.status, kind == .focus else {
+            return .no(.notApplicable("A focus block has to be running to start a break from it."), keeping: state)
+        }
+        guard state.plan.phase(at: now.phaseIndex + 1)?.kind == .rest else {
+            return .no(.notApplicable("No break is planned after this block."), keeping: state)
+        }
+        return .ok(state.appending(LifecycleEvent(
+            id: command.requestID.raw,
+            stamp: stamp,
+            kind: .restShortened(index: now.phaseIndex, to: now.servedInPhase)
         )))
     }
 

@@ -130,7 +130,7 @@ final class PhoneFocusTests: XCTestCase {
 
     func testFocusReportsValidateAndRoundTrip() throws {
         let at = ISO8601DateFormatter().string(from: now)
-        for action in ["pickup", "need-app", "finish", "pause", "resume"] {
+        for action in ["pickup", "need-app", "finish", "pause", "resume", "break"] {
             let text = try LinkLog.focus(action: action, at: at, session: "s-abc").encoded()
             XCTAssertEqual(try LinkLog.decode(text), .focus(action: action, at: at, session: "s-abc"))
         }

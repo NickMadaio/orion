@@ -68,3 +68,12 @@ test("end, stop and done mean finish; cancel means abandon (2026-10-07)", async 
   }
   assert.doesNotMatch(run("cancel", "--dry-run").stderr, /unknown command/);
 });
+
+test("break (and break-now) send the engine's break-now, and are not a pause", async (t) => {
+  const run = await harness(t);
+  for (const word of ["break", "break-now"]) {
+    const r = run(word, "--dry-run");
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(request(r.stdout).op, "break");
+  }
+});

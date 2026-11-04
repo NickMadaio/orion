@@ -62,6 +62,8 @@ public struct PhoneHome: Equatable, Sendable {
         public let kind: Kind
         public let label: String
         public let value: String
+        /// Water only: the day's goal in bottles, which the long-press menu shows and changes.
+        public var goal: Int? = nil
         public var id: String { kind.rawValue }
     }
 

@@ -316,6 +316,7 @@ final class RemoteStore: ObservableObject {
         for item in pending {
             switch item.entry {
             case .water(let delta): value.waterBottles = max(0, value.waterBottles + delta)
+            case .waterGoal(let bottles): value.waterGoal = WaterGoal.clamped(bottles)
             case let .meal(title, meal, calories, protein, _, _):
                 value.meals.append(.init(id: "pending-\(item.id)", title: title, meal: meal, calories: calories, protein: protein))
                 value.calories += calories; value.protein += protein

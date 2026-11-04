@@ -39,6 +39,18 @@ struct PanelView: View {
                     .padding(.horizontal, 22)
                     .padding(.bottom, 14)
             }
+            // Reopened from the notch pill: the answer he left running, under the orb until the next turn starts.
+            if let answer = state.dockedAnswer, state.phase != .listening {
+                Text(answer)
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundStyle(Color.white.opacity(0.82))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(6)
+                    .shadow(color: .black.opacity(0.8), radius: 4)
+                    .frame(width: 260)
+                    .padding(.bottom, 10)
+                    .transition(.opacity)
+            }
             // ORION started this one (orion-reach): a readable bubble, no sound unless he chose aloud. A reply typed
             // below answers it, and the answer shows here as a mini-thread (W16-d).
             if let thread = state.bubble {
@@ -53,6 +65,7 @@ struct PanelView: View {
         // view in `PanelController`, which knows the shape of what was drawn.
 
         .animation(.easeOut(duration: 0.16), value: state.heard)
+        .animation(.easeOut(duration: 0.2), value: state.dockedAnswer)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: state.bubble)
     }
 }

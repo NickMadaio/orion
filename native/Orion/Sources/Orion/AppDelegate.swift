@@ -16,6 +16,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController!
     private var preferencesController: PreferencesWindowController!
     private let pushToTalk = PushToTalkMonitor()
+    private var notchPill: NotchPillController!
+    /// The orb is open because a wake word or push-to-talk brought it, not because he asked for it from the menu bar.
+    /// Only that kind of panel goes away when he clicks elsewhere.
+    private var panelOpenedByVoice = false
     let mouse = MouseController.shared
     private let mouseSetupPanel = MouseSetupPanelController()
     private var mouseBubbleWatch: AnyCancellable?
@@ -29,6 +33,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Resolve the voice keys now, off the main thread, so pressing talk never waits on the keychain.
         Secrets.prefetch()
         panelController = PanelController(state: state)
+        notchPill = NotchPillController(state: state, panelController: panelController)
+        notchPill.onPanelVisibilityChanged = { [weak self] in
+            guard let self else { return }
+            self.menuBarController.refresh(panelVisible: self.panelController.isVisible)
+            self.refreshEscapeWatch()
+        }
+        notchPill.onPillVisibilityChanged = { [weak self] in self?.refreshEscapeWatch() }
         textWindowController = TextWindowController(state: state)
         typedSummon = TypedSummonController(state: state)
         installTypedSummon()
@@ -84,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // voice or push-to-talk is the next intentional activation.
         textWindowController.onShown = { [weak self] in
             self?.panelController.hide()
+            self?.notchPill.dismissWithoutCancelling()
             self?.menuBarController.refresh(panelVisible: false)
             self?.refreshEscapeWatch()
         }
@@ -94,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // is the voice surface. Do not layer the small orb over it.
             guard !self.textWindowController.isInFocus, !self.typedSummon.isVisible else { return }
             if !self.panelController.isVisible {
+                self.panelOpenedByVoice = true
                 // Wake without stealing focus: the user is mid-sentence in
                 // another app and should stay there.
                 self.panelController.show()
@@ -108,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.onWantsSummon = { [weak self] in
             guard let self else { return }
             guard !self.textWindowController.isInFocus, !self.typedSummon.isVisible else { return }
+            self.panelOpenedByVoice = true
             self.panelController.summon()
             self.menuBarController.refresh(panelVisible: true)
             self.refreshEscapeWatch()
@@ -137,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pushToTalk.onReleased = { [weak self] in self?.state.endListening() }
         pushToTalk.onCancelled = { [weak self] in self?.state.cancelListeningSilently() }
         pushToTalk.onEscape = { [weak self] in self?.handleEscape() }
+        pushToTalk.onClickAway = { [weak self] in self?.handleClickAway() }
         pushToTalk.apply(state.pushToTalk)
         state.onPushToTalkChanged = { [weak self] old, new in
             guard let self else { return }
@@ -327,6 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Actions
 
     private func togglePanel() {
+        panelOpenedByVoice = false
         panelController.toggle()
         menuBarController.refresh(panelVisible: panelController.isVisible)
         refreshEscapeWatch()
@@ -346,8 +362,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // is working or wedged -- was the one moment the key did nothing.
         pushToTalk.setGlobalEscapeWatch(
             panelController.isVisible || state.phase == .speaking || state.phase == .thinking
-                || state.phase == .listening
+                || state.phase == .listening || notchPill.isShowing
         )
+        pushToTalk.setGlobalClickAwayWatch(panelController.isVisible && panelOpenedByVoice)
+    }
+
+    /// He clicked in another app while the voice panel was open. Nothing said: the panel goes. Something said and the
+    /// turn still running: it moves up into the notch pill instead of being cancelled.
+    private func handleClickAway() {
+        guard panelController.isVisible, panelOpenedByVoice, !notchPill.isShowing else { return }
+        // Mid-sentence, reading a proactive bubble, or typing a reply: a click elsewhere is not "I'm done".
+        guard state.phase != .listening, state.bubble == nil, state.composer.isEmpty else { return }
+        notchPill.requestDismiss()
     }
 
     /// ⌃⌥Space opens the typed summon: the composer at the bottom of the screen and the hologram above it, for
@@ -355,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func installTypedSummon() {
         typedSummon.onVisibilityChanged = { [weak self] visible in
             guard let self else { return }
-            if visible { self.panelController.hide() }
+            if visible { self.panelController.hide(); self.notchPill.dismissWithoutCancelling() }
             self.menuBarController?.refresh(panelVisible: self.panelController.isVisible)
             self.refreshEscapeWatch()
         }
@@ -371,6 +397,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleEscape() {
         // Escape closes the typed summon too; the stop below still applies to a turn in flight.
         if typedSummon.isVisible { typedSummon.dismiss() }
+        // Docked in the notch: Esc is "stop", as it always was.
+        if notchPill.isShowing { notchPill.cancel(); return }
+        // Panel open with a turn running that he started: Esc moves it up to the notch rather than killing it.
+        if panelController.isVisible, state.turnHasUserInput, state.phase == .thinking || state.phase == .speaking {
+            notchPill.requestDismiss()
+            return
+        }
         // `bargeIn()` sorts the two cases itself: it stops the voice when Orion
         // is speaking and cancels the turn when he is thinking. Both are "stop",
         // which is the only thing Escape has ever meant.

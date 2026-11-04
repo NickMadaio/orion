@@ -537,6 +537,55 @@ def spoken_times(text: str) -> str:
     return _CLOCK.sub(say, text)
 
 
+# Symbols and units as people say them (w18 ptt, 2026-11-04 review of two days of spoken replies). The voice model reads
+# "7.3h" as "seven point three H", reads "(nine fifty P M)" with no pause, and says "percent" only sometimes.
+_DURATION = re.compile(r"(?<![\w.:])(\d+(?:\.\d+)?)\s?h\b(?:\s+(\d{1,2})\s?m\b)?")
+_MINUTES = re.compile(r"(?<![\w.:])(\d+)\s?min\b(?=\s|$|[.,;:!?)])")
+_MD_LINK = re.compile(r"\[([^\]]+)\]\((?:https?://)[^)\s]*\)")
+_URL = re.compile(r"https?://(?:www\.)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?:[/?#][^\s]*)?")
+_PAREN = re.compile(r"\s*\(([^()\n]{1,80})\)(\s*)([.,;:!?]?)")
+
+
+def spoken_symbols(text: str) -> str:
+    """Written shorthand said the way it is spoken: "7.3h" -> "7.3 hours", "6h 33m" -> "6 hours 33 minutes",
+    "30 min" -> "30 minutes", "(aside)" -> ", aside", "8%" -> "8 percent", "&" -> "and", "48°F" -> "48 degrees
+    Fahrenheit", markdown marks and URLs dropped (a link keeps its words, a bare URL keeps its host)."""
+    if not text:
+        return text
+
+    def duration(match: "re.Match[str]") -> str:
+        hours, minutes = match.group(1), match.group(2)
+        value = float(hours)
+        out = f"{int(value) if value == int(value) else hours} {'hour' if value == 1 else 'hours'}"
+        if minutes and int(minutes):
+            out += f" {int(minutes)} {'minute' if int(minutes) == 1 else 'minutes'}"
+        return out
+
+    def minutes_only(match: "re.Match[str]") -> str:
+        n = int(match.group(1))
+        return f"{n} {'minute' if n == 1 else 'minutes'}"
+
+    def aside(match: "re.Match[str]") -> str:
+        inner, space, stop = match.group(1).strip(), match.group(2), match.group(3)
+        # An aside before a full stop or comma ends the clause with it; anywhere else it closes with a comma.
+        return f", {inner}{stop or (',' if space else '')}"
+
+    out = _MD_LINK.sub(lambda m: m.group(1), text)
+    out = _URL.sub(lambda m: m.group(1), out)
+    out = re.sub(r"\*{1,3}([^*\n]+)\*{1,3}", r"\1", out)
+    out = re.sub(r"`+([^`\n]*)`+", r"\1", out)
+    out = re.sub(r"(?m)^\s*(?:[-*\u2022]\s+|#{1,6}\s+)", "", out)
+    out = _DURATION.sub(duration, out)
+    out = _MINUTES.sub(minutes_only, out)
+    out = _PAREN.sub(aside, out)
+    out = re.sub(r"(\d)\s*%", r"\1 percent", out)
+    out = re.sub(r"(\d)\s*\u00b0\s*F\b", r"\1 degrees Fahrenheit", out)
+    out = re.sub(r"(\d)\s*\u00b0\s*C\b", r"\1 degrees Celsius", out)
+    out = re.sub(r"\s&\s", " and ", out)
+    out = re.sub(r"\s*(?:->|\u2192)\s*", " to ", out)
+    return out
+
+
 # A course code as his calendar writes it: letters glued to four digits ("CS2100", "MKTG2201").
 # "UK 1234" (a space) and "A101" (one letter) are not codes.
 _COURSE = re.compile(r"\b([A-Z]{2,4})(\d{4})\b")
@@ -1989,7 +2038,7 @@ class Synthesizer:
         emit: Callable[[dict[str, Any]], None],
     ) -> None:
         job_id = str(request.get("id") or f"job-{uuid.uuid4().hex[:10]}")
-        text = spoken_times(spoken_course_codes(str(request.get("text") or "")))
+        text = spoken_symbols(spoken_times(spoken_course_codes(str(request.get("text") or ""))))
         mode = str(request.get("mode") or "file").lower()
         voice = str(request.get("voice") or self.config.voice)
         speed = float(request.get("speed") or self.config.speed)

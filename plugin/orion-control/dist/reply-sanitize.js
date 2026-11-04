@@ -86,6 +86,8 @@ function dropLeaks(line, strict = false) {
     }
     return kept.join(" ").trim();
 }
+/** "was not found in /Applications, /Applications/Utilities, …": the app lookup's search path list, never prose (11-04 11:34). */
+const APP_PATH_LIST = /\bwas not found in (?:\/[^\s,]+(?:,\s*)?)+\.?/gi;
 const tidy = (line) => line.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
 /** The reply with raw CLI/tool spans removed (known failures become one short line). Returns the input when it is clean. */
 export function sanitizeReply(reply, ctx = {}) {
@@ -94,7 +96,7 @@ export function sanitizeReply(reply, ctx = {}) {
     let execCut = changed;
     const out = [];
     for (const raw of stripped.split("\n")) {
-        let line = raw.replace(BANNER, (label) => { changed = true; return `${label.charAt(0)}${label.slice(1).toLowerCase()}`; })
+        let line = raw.replace(APP_PATH_LIST, () => { changed = true; return "wasn't found on your Mac."; }).replace(BANNER, (label) => { changed = true; return `${label.charAt(0)}${label.slice(1).toLowerCase()}`; })
             .replace(/^(\W*Not done:\s*)Nothing was booked:\s*/i, "$1");
         const oauth = line.search(RAW_OAUTH);
         const shape = line.search(RAW_SHAPE);
@@ -207,6 +209,7 @@ function restatesMoveWithoutWrite(reply, tools, askedChange) {
         return false;
     return !calendarWrote(tools, subjectWords(claim));
 }
+const BARE_INABILITY = /^\W*(?:sorry,?\s+)?I\s+(?:could not|couldn't|can't|cannot|was unable to|wasn't able to)\s+(?:do|run|finish|complete|manage)\s+(?:that|it|this)\W*$/i;
 /*
  The last line of defence (gate run-1031202318 cluster 4). Raw tool text is cut (sanitizeReply, strict on a turn with a failed tool);
  when a tool the host ran failed, the reply must own it in words the host accepts as an acknowledgement, which also stops the host
@@ -234,5 +237,8 @@ function finalizeCore(reply, tools, ctx) {
     // Something else did change: the acknowledgement must not say nothing did.
     if (wroteSomething(tools))
         return `${clean} ${ONE_PART_FAILED} I couldn't run one of those changes.`;
+    // What is left of the worker's reply is only a bare "I could not do that.": saying it after the acknowledgement said it twice (11-04 11:21).
+    if (BARE_INABILITY.test(clean))
+        return acknowledgement(failed, changeRequest);
     return `${acknowledgement(failed, changeRequest, false)} ${clean}`;
 }

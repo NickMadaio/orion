@@ -1899,6 +1899,44 @@ class CacheIsolationTests(unittest.TestCase):
         self.assertEqual(len(engine.calls), 2)
 
 
+
+class SpokenSymbolsTest(unittest.TestCase):
+    """w18 ptt, 11-04 review of two days of spoken replies: durations, parentheses, percent and markdown were read as written."""
+
+    say = staticmethod(lambda text: daemon.spoken_symbols(text))
+
+    def test_hours_and_minutes_are_words(self):
+        self.assertEqual(self.say("Bed now still gets you about 7.3h before the alarm."), "Bed now still gets you about 7.3 hours before the alarm.")
+        self.assertEqual(self.say("Phone down — 6h 33m left."), "Phone down — 6 hours 33 minutes left.")
+        self.assertEqual(self.say("Sleep now and you get 8h 00m."), "Sleep now and you get 8 hours.")
+        self.assertEqual(self.say("It will take 1.0h."), "It will take 1 hour.")
+        self.assertEqual(self.say("Just 30 min then, and it starts now."), "Just 30 minutes then, and it starts now.")
+        self.assertEqual(self.say("Leave in 1 min."), "Leave in 1 minute.")
+
+    def test_a_parenthesis_becomes_a_pause(self):
+        self.assertEqual(self.say("It's bedtime (nine fifty P M). Alarm is five fifty A M."), "It's bedtime, nine fifty P M. Alarm is five fifty A M.")
+        self.assertEqual(self.say("Slipped: gym (no room), then lunch."), "Slipped: gym, no room, then lunch.")
+
+    def test_percent_ampersand_degrees_and_arrows(self):
+        self.assertEqual(self.say("only an 8% chance of rain"), "only an 8 percent chance of rain")
+        self.assertEqual(self.say("Program Design & Implementation"), "Program Design and Implementation")
+        self.assertEqual(self.say("a high of 48°F and 11°C"), "a high of 48 degrees Fahrenheit and 11 degrees Celsius")
+        self.assertEqual(self.say("Mon -> Tue"), "Mon to Tue")
+
+    def test_markdown_and_urls_are_not_read_out(self):
+        self.assertEqual(self.say("I **moved** it to `7pm`."), "I moved it to 7pm.")
+        self.assertEqual(self.say("- gym\n- lunch"), "gym\nlunch")
+        self.assertEqual(self.say("Opened [Amazon](https://www.amazon.com/gp/x) for you."), "Opened Amazon for you.")
+        self.assertEqual(self.say("Go to https://www.amazon.co.uk/deals?x=1 now."), "Go to amazon.co.uk now.")
+
+    def test_ordinary_text_is_untouched(self):
+        for text in ["Gym at nine thirty.", "You slept 7 hours.", "CS2100 is hard, 3 of the last 8 happened.", "ok"]:
+            self.assertEqual(self.say(text), text, text)
+
+    def test_the_daemon_applies_it_after_times(self):
+        self.assertEqual(daemon.spoken_symbols(daemon.spoken_times("It's 22:18. Phone down — 8h 10m left.")),
+                         "It's ten eighteen P M. Phone down — 8 hours 10 minutes left.")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

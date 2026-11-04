@@ -129,12 +129,14 @@ final class NotchPillController {
 
     /// He clicked away from the panel, or pressed Esc while it was open.
     func requestDismiss() {
+        OrionLog.write("[notch] dismiss requested — hasInput=\(state.turnHasUserInput) phase=\(state.phase)")
         send(.dismissRequested(hasSpeech: state.turnHasUserInput, phase: NotchTurnPhase(state.phase)))
     }
 
     /// Something else took over the turn (the dashboard opened): drop the pill but leave the turn running.
     func dismissWithoutCancelling() {
         guard isShowing else { return }
+        OrionLog.write("[notch] pill dropped — another surface took over; the turn keeps running")
         previewTimer?.cancel()
         previewTimer = nil
         model.pill = NotchPillState()
@@ -158,18 +160,23 @@ final class NotchPillController {
     private func run(_ effect: NotchPillEffect) {
         switch effect {
         case .dismissPanel:
+            OrionLog.write("[notch] panel dismissed — nothing in flight to dock")
             panelController.hide()
             onPanelVisibilityChanged?()
         case .dockPanel:
+            OrionLog.write("[notch] docked — turn in flight, pill shown")
             dock()
         case let .reopenPanel(answer):
+            OrionLog.write("[notch] pill clicked — panel reopened (\(answer.count) chars of answer)")
             state.dockedAnswer = answer.isEmpty ? nil : answer
             retractWindow()
             panelController.show()
             onPanelVisibilityChanged?()
         case .cancelTurn:
+            OrionLog.write("[notch] cancelled from the pill (x, swipe up or Esc)")
             state.bargeIn()
         case .retract:
+            OrionLog.write("[notch] pill retracted")
             retractWindow()
         case let .schedulePreviewEnd(seconds):
             previewTimer?.cancel()

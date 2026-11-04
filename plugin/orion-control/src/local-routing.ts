@@ -1412,6 +1412,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (smove && options.stateDir) {   // w19 selffix: the reply is built from orion-selfcheck's and orion-selffix's JSON
       const out = await withTimeout(runSelffixMove(smove, options.selffixRun ?? liveSelffixRun(options.stateDir), (options.now ?? pluginNow)()).catch(() => undefined), 70000);
       if (out) { run.ownText = out.text; out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 })); }
+      // A fix request that timed out is answered here, once: left to the model, "go into the code and fix it" became a tool loop (2026-11-04).
+      else if (smove.kind === "fix") run.ownText = "I couldn't finish setting up the fix project in time, so I can't say whether it started. Check the Projects tab before asking me again.";
       if (sessionKey) { if (out?.offered) fixOfferChats.set(sessionKey, (options.now ?? pluginNow)().getTime()); else fixOfferChats.delete(sessionKey); }
     } else if (sessionKey && on && !quietTurn) fixOfferChats.delete(sessionKey);   // any other turn ends the offer
     if (qmove && options.stateDir) {   // wave 12 L1: the reply is built from orion-questions' JSON

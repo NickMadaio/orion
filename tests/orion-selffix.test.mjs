@@ -234,3 +234,20 @@ test("a held lock refuses the action and creates nothing; a stale lock is taken 
   utimesSync(join(w.dir, "selffix.lock"), old, old);
   assert.equal(w.run(["accept", id, "--now"]).out.status, "started");
 });
+
+test("propose --requested overrides a recent decline: he asked for the fix just now", () => {
+  const w = world();
+  const id = propose(w).out.item.id;
+  w.run(["decline", id]);
+  assert.equal(propose(w).out.status, "declined-before");
+  const r = w.run(["propose", "--stdin", "--requested"], {}, JSON.stringify(DIAG));
+  assert.equal(r.out.status, "offered");
+});
+
+test("propose --requested still reports an open fix as a duplicate (one project, never two)", () => {
+  const w = world();
+  const first = propose(w).out.item;
+  const r = w.run(["propose", "--stdin", "--requested"], {}, JSON.stringify(DIAG));
+  assert.equal(r.out.status, "duplicate");
+  assert.equal(r.out.item.id, first.id);
+});

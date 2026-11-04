@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type FixItem = { id: string; signature: string; title: string; status: string; offeredAt?: string; remindAt?: string; projectId?: string; diagnosis?: { failingExample?: { message?: string } } };
+export type FixItem = { id: string; signature: string; title: string; status: string; offeredAt?: string; createdAt?: string; startedAt?: string; remindAt?: string; projectId?: string; diagnosis?: { failingExample?: { message?: string } } };
 
 export const OFFER_ANSWER_MS = 3 * 3600_000;
 export const REMINDER_ANSWER_MS = 6 * 3600_000;

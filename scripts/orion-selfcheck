@@ -3,8 +3,9 @@
  orion-selfcheck — ORION reading his own recent turns, read-only (w19 selffix, 2026-11-04).
 
    orion-selfcheck last [--n 5] [--json]               the last n turns: what he was asked, the route, the tools that ran, what he said
-   orion-selfcheck why [--about "<his words>"] [--exclude "<this message>"] [--n 6] --json
-                                                       the turn he is asking about, diagnosed in first person (selfcheck/diagnose.mjs)
+   orion-selfcheck why [--about "<his words>"] [--exclude "<this message>"] [--n 6] [--request] --json
+                                                       the turn he is asking about, diagnosed in first person (selfcheck/diagnose.mjs);
+                                                       --request: he asked for a fix, so a turn with no clear fault becomes a fixable "requested" diagnosis
    orion-selfcheck scan [--day YYYY-MM-DD] [--json]    the clear failures of one local day (default: yesterday)
 
  Sources: chats/*.json, local-routing/shadow.jsonl and task-ledger.jsonl in the controlled dir (ORION_CONTROLLED_DIR). Reads only; secrets are
@@ -13,7 +14,7 @@
 import { controlledDir } from "./lib/clock.mjs";
 import { clockNow } from "./lib/life/bridge-path.mjs";
 import { buildTurns, loadSources, recentTurns } from "./lib/selfcheck/turns.mjs";
-import { diagnoseTurn, findFailures, pickTurn } from "./lib/selfcheck/diagnose.mjs";
+import { diagnoseTurn, findFailures, pickTurn, requestedDiagnosis } from "./lib/selfcheck/diagnose.mjs";
 
 const argv = process.argv.slice(2);
 const VALUE_FLAGS = ["--n", "--about", "--exclude", "--day"];
@@ -38,7 +39,7 @@ if (command === "last") {
   emit({ turns }, lines.length ? lines.join("\n") : "No recent turns on record.");
 } else if (command === "why") {
   const turn = pickTurn(turnsSince(now.getTime() - WINDOW_MS), { about: flag("--about") ?? "", n: Math.max(n, 6), exclude: flag("--exclude") });
-  const diagnosis = turn ? diagnoseTurn(turn) : null;
+  const diagnosis = turn ? (argv.includes("--request") ? requestedDiagnosis(turn) : diagnoseTurn(turn)) : null;
   emit({ diagnosis }, diagnosis ? diagnosis.says : "I have no recent turns on record to look at.");
 } else if (command === "scan") {
   const day = flag("--day") ?? new Date(now.getTime() - 86_400_000).toLocaleDateString("en-CA");
@@ -48,6 +49,6 @@ if (command === "last") {
   const failures = findFailures(turns, { now: now.getTime() });
   emit({ day, turns: turns.length, failures }, `${day}: ${turns.length} turns, ${failures.length} clear failures${failures.map((f) => `\n- ${f.at.slice(11, 16)} ${f.kind}: ${f.message}`).join("")}`);
 } else {
-  console.error('usage: orion-selfcheck last [--n 5] [--json] | why [--about "…"] [--exclude "…"] --json | scan [--day YYYY-MM-DD] [--json]');
+  console.error('usage: orion-selfcheck last [--n 5] [--json] | why [--about "…"] [--exclude "…"] [--request] --json | scan [--day YYYY-MM-DD] [--json]');
   process.exit(2);
 }

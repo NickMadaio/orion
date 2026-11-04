@@ -4,6 +4,8 @@ export type FixItem = {
     title: string;
     status: string;
     offeredAt?: string;
+    createdAt?: string;
+    startedAt?: string;
     remindAt?: string;
     projectId?: string;
     diagnosis?: {

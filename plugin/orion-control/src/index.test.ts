@@ -221,6 +221,25 @@ describe("orion-control plugin", () => {
     expect(hook?.({ ...event, toolCallId: "call-4" }, { runId: "loop-run" })).toBeUndefined();
   });
 
+  it("the same tool with the same arguments a third time in one turn ends the turn with an honest message, even when not consecutive", () => {
+    const harness = hostHarness({});
+    const hook = harness.hooks.get("before_tool_call");
+    const a = "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda today";
+    const b = "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda tasks";
+    const call = (i: number, command: string) => hook?.({ toolName: "exec", params: { command }, runId: "three-run", toolCallId: `t${i}` }, { runId: "three-run" });
+    expect(call(1, a)).toBeUndefined();
+    expect(call(2, b)).toBeUndefined();
+    expect(call(3, a)).toBeUndefined();
+    expect(call(4, b)).toBeUndefined();
+    const third = call(5, a);
+    expect(third).toMatchObject({ block: true, blockReason: expect.stringContaining("three times") });
+    expect(third).toMatchObject({ blockReason: expect.stringContaining("Do not call any tool") });
+    // the turn is over: even a different call is refused
+    expect(call(6, "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda upcoming")).toMatchObject({ block: true, blockReason: expect.stringContaining("Reply to Nick NOW") });
+    harness.hooks.get("agent_end")?.({ runId: "three-run", messages: [], success: true }, {});
+    expect(call(7, a)).toBeUndefined();
+  });
+
   it("a run the guard keeps blocking gets no more tools at all, so it has to answer", () => {
     const harness = hostHarness({});
     const hook = harness.hooks.get("before_tool_call");

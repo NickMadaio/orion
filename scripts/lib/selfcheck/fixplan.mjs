@@ -20,7 +20,9 @@ export function buildFixPlan(diagnosis, { id } = {}) {
   const task = {
     id: taskId,
     title: title.slice(0, 120),
-    objective: `After this task, the failing example in the brief no longer fails: ${diagnosis.cause}. A test using the exact failing phrase passes, and the same kind of request is handled by the right route.`,
+    objective: diagnosis.kind === "requested"
+      ? `After this task, the problem Nick reported in the brief's example is fixed: find the cause in the code that handled it, then change it. A test using the exact phrase passes, and the same kind of request is handled correctly.`
+      : `After this task, the failing example in the brief no longer fails: ${diagnosis.cause}. A test using the exact failing phrase passes, and the same kind of request is handled by the right route.`,
     context: `READ ${files.slice(0, 3).join(", ")} first (where this kind of request is routed). The failing example and decisions are in the brief ${taskId}.md.`,
     scope,
     nonScope: ["Do not widen permissions, the exec allowlist or any authority table.", "Do not edit files outside scope, and never touch ~/.openclaw in tests."],

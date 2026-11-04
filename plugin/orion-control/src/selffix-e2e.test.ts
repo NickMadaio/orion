@@ -14,7 +14,7 @@ const SCRIPTS = fileURLToPath(new URL("../../../scripts/", import.meta.url));
 const NOW = new Date(2026, 10, 4, 14, 0);
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
 
-function world() {
+function world(opts: { launchFail?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "w19-selffix-"));
   const dir = join(root, "ctl"); mkdirSync(join(dir, "chats"), { recursive: true });
   const at = (h: number, m: number, s = 0): string => new Date(2026, 10, 4, h, m, s).toISOString();
@@ -25,9 +25,9 @@ function world() {
   writeFileSync(join(dir, "task-ledger.jsonl"), `${JSON.stringify({ taskId: "t1", status: "failed", createdAt: at(13, 0, 5), steps: [{ stepId: "s", status: "failed_permanent", request: { action: "app_open", arguments: { application: "amazon uk" } }, error: "Application \"amazon uk\" was not found in /Applications." }] })}\n`);
   const calls = join(root, "projects.log");
   const fake = join(root, "fake-projects");
-  writeFileSync(fake, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(calls)}, process.argv.slice(2)[0] + "\\n");\nconsole.log(JSON.stringify(process.argv[2] === "add" ? { id: "project-e2e" } : { launched: true }));\n`);
+  writeFileSync(fake, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(calls)}, process.argv.slice(2)[0] + "\\n");\nif (process.argv[2] === "launch" && process.env.FAKE_LAUNCH_FAIL) { console.error(process.env.FAKE_LAUNCH_FAIL); process.exit(1); }\nconsole.log(JSON.stringify(process.argv[2] === "add" ? { id: "project-e2e" } : { launched: true }));\n`);
   chmodSync(fake, 0o755);
-  const env = { ...process.env, ORION_CONTROLLED_DIR: dir, ORION_NOW: NOW.toISOString(), ORION_PROJECTS_BIN: fake, ORION_BRAIN_VAULT: join(root, "vault"), ORION_BRIDGE_BIN: "/nonexistent" };
+  const env = { ...process.env, ORION_CONTROLLED_DIR: dir, ORION_NOW: NOW.toISOString(), ORION_PROJECTS_BIN: fake, ORION_BRAIN_VAULT: join(root, "vault"), ORION_BRIDGE_BIN: "/nonexistent", ...(opts.launchFail ? { FAKE_LAUNCH_FAIL: opts.launchFail } : {}) };
   const run: SelffixRun = (script, args, input) => new Promise((resolve) => {
     const child = execFile(process.execPath, [join(SCRIPTS, script), ...args], { env }, (e, stdout) => resolve({ stdout: String(stdout ?? ""), code: e ? 1 : 0 }));
     child.stdin?.end(input ?? "");
@@ -98,5 +98,41 @@ describe("why did you do that, then now / later / no", () => {
     expect(await w.reply("nah leave it")).toMatch(/dropped it/);
     expect(w.projectCalls()).toEqual([]);
     expect((JSON.parse(readFileSync(join(w.dir, "selffix.json"), "utf8")) as { items: Array<{ status: string }> }).items[0]!.status).toBe("declined");
+  });
+});
+
+describe("go into the code and fix it (Nick, 2026-11-04: he just looped)", () => {
+  const ask = ["go into the code and fix it", "can you fix that yourself", "fix your code", "Can you modify something in your own code?"];
+  it.each(ask)("%s: one project, started, and where to watch it; the desk is never asked", async (phrase) => {
+    const w = world();
+    const text = await w.reply(phrase);
+    expect(text).toMatch(/started a fix project/i);
+    expect(text).toMatch(/Projects tab/);
+    expect(text).toMatch(/nothing edits my live code directly/);
+    expect(w.projectCalls()).toEqual(["add", "launch"]);
+    expect(w.desk).toEqual([]);
+  });
+  it("asking again, in any of his phrasings, never makes a second project or a second launch", async () => {
+    const w = world();
+    await w.reply("go into the code and fix it");
+    for (const phrase of ask) expect(await w.reply(phrase)).toMatch(/already started/);
+    expect(w.projectCalls()).toEqual(["add", "launch"]);
+  });
+  it("reuses the earlier diagnosis: a why, then 'fix your code', is the same one project", async () => {
+    const w = world();
+    expect(await w.reply("why didnt you open amazon uk")).toMatch(/now, or later\?$/);
+    expect(await w.reply("can you fix that yourself")).toMatch(/started a fix project/i);
+    const items = (JSON.parse(readFileSync(join(w.dir, "selffix.json"), "utf8")) as { items: Array<{ status: string }> }).items;
+    expect(items).toHaveLength(1);
+    expect(items[0]!.status).toBe("started");
+    expect(w.projectCalls()).toEqual(["add", "launch"]);
+  });
+  it("a runtime that cannot execute: one message with the exact reason, no retry, no loop", async () => {
+    const w = world({ launchFail: "Execution is disabled. Choose Enable & start to enable local execution." });
+    const text = await w.reply("fix your code");
+    expect(text).toMatch(/couldn't start it/);
+    expect(text).toContain("Execution is disabled. Choose Enable & start to enable local execution.");
+    expect(w.projectCalls()).toEqual(["add", "launch"]);
+    expect(w.desk).toEqual([]);
   });
 });

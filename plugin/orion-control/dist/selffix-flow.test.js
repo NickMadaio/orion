@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asksWhy, laterAt, readSelffixMove, runSelffixMove, spokenWhen } from "./selffix-flow.js";
+import { asksFix, asksWhy, laterAt, readSelffixMove, runSelffixMove, spokenWhen } from "./selffix-flow.js";
 const NOW = new Date(2026, 10, 4, 14, 0, 0);
 const iso = (d) => d.toISOString();
 const offered = { id: "sf-aaaaaa", signature: "wrong-tool:app_open", title: "t", status: "offered", offeredAt: iso(new Date(NOW.getTime() - 10 * 60_000)) };
@@ -121,5 +121,88 @@ describe("running a move", () => {
         expect((await runSelffixMove({ kind: "no", id: "sf-1" }, script({ "orion-selffix decline": { ok: true } }), NOW)).text).toMatch(/dropped it/);
         expect((await runSelffixMove({ kind: "now", id: "sf-1" }, script({}), NOW)).text).toMatch(/nothing was started/);
         expect((await runSelffixMove({ kind: "later", id: "sf-1" }, script({}), NOW)).text).toMatch(/nothing was created/);
+    });
+});
+describe("fix requests (his exact words, then held-out)", () => {
+    it.each([
+        "Can you modify something in your own code?", "can you go ahead and go into the code and fix it", "go into the code and fix it", "can you fix that yourself",
+        "fix your code", "Fix your code.", "can u fix ur code", "fix it yourself", "fix urself pls", "go in and fix your own code", "can you change your own code to fix that",
+        "just go into your code and fix it lol", "ok so fix ur code then", "can you fix yourself", "modify your code so it stops doing that", "why dont you just fix your code",
+        "can you edit your own code", "i want you to fix that in your code",
+    ])("%s is a fix request", (m) => { expect(asksFix(m)).toBe(true); expect(readSelffixMove(m, ctx())).toEqual({ kind: "fix", about: m.trim() }); });
+    it.each([
+        "fix my resume", "can you fix the wifi", "fix it", "fix that", "update yourself", "how do i fix my code", "can you fix the bug in my project code", "open vs code",
+        "what does your code do", "fix the typo in my essay", "remind me to fix the sink", "my code wont compile can you fix it", "can you fix this sentence for me",
+    ])("%s is not", (m) => { expect(asksFix(m)).toBe(false); expect(readSelffixMove(m, ctx())?.kind).not.toBe("fix"); });
+    it("a fix request to one of his own pushes is left to the outreach flow", () => {
+        expect(readSelffixMove("fix your code", ctx([], { outreach: true }))).toBeUndefined();
+    });
+    it("it wins over a waiting offer: 'fix your code' while an offer is open is a request, not a bare answer", () => {
+        expect(readSelffixMove("fix your code", ctx([offered]))?.kind).toBe("fix");
+    });
+});
+const started = { ok: true, status: "started", item: { id: "sf-1", title: "Fix: wrong tool on \"open amazon uk\"", status: "started" } };
+const item = (status, extra = {}) => ({ id: "sf-1", title: "Fix: wrong tool on \"open amazon uk\"", status, projectId: "project-1", ...extra });
+const FIX = { kind: "fix", about: "go into the code and fix it" };
+const fixable = { ok: true, diagnosis: { says: "You asked me to fix this.", fixable: true, kind: "requested" } };
+describe("running a fix request", () => {
+    it("no earlier diagnosis: diagnoses with --request, proposes, accepts now, and says what started and where to watch it", async () => {
+        const run = script({ "orion-selffix list": { ok: true, items: [] }, "orion-selfcheck why": fixable, "orion-selffix propose": { ok: true, status: "offered", item: item("offered") }, "orion-selffix accept": started });
+        const out = await runSelffixMove(FIX, run, NOW);
+        expect(run.calls[1]).toMatch(/^orion-selfcheck why .*--request --json$/);
+        expect(run.calls.some((c) => c.startsWith("orion-selffix propose --stdin --requested"))).toBe(true);
+        expect(run.calls.at(-1)).toBe("orion-selffix accept sf-1 --now");
+        expect(out.text).toMatch(/started a fix project/i);
+        expect(out.text).toContain("open amazon uk");
+        expect(out.text).toMatch(/Projects tab/);
+        expect(out.text).toMatch(/nothing edits my live code directly/);
+        expect(out.offered).toBeUndefined();
+    });
+    it("reuses a recent offered diagnosis: no new diagnosis, no second propose", async () => {
+        const run = script({ "orion-selffix list": { ok: true, items: [item("offered", { offeredAt: new Date(NOW.getTime() - 3600_000).toISOString() })] }, "orion-selffix accept": started });
+        const out = await runSelffixMove(FIX, run, NOW);
+        expect(run.calls.map((c) => c.split(" ").slice(0, 2).join(" "))).toEqual(["orion-selffix list", "orion-selffix accept"]);
+        expect(out.text).toMatch(/Projects tab/);
+    });
+    it("a parked project is started, not duplicated", async () => {
+        const run = script({ "orion-selffix list": { ok: true, items: [item("parked", { remindAt: new Date(NOW.getTime() + 3600_000).toISOString() })] }, "orion-selffix start": started });
+        const out = await runSelffixMove(FIX, run, NOW);
+        expect(run.calls.at(-1)).toBe("orion-selffix start sf-1");
+        expect(out.text).toMatch(/Projects tab/);
+    });
+    it("one already started: said once, nothing else runs", async () => {
+        const run = script({ "orion-selffix list": { ok: true, items: [item("started", { startedAt: new Date(NOW.getTime() - 600_000).toISOString() })] } });
+        const out = await runSelffixMove(FIX, run, NOW);
+        expect(run.calls).toHaveLength(1);
+        expect(out.text).toMatch(/already started/);
+        expect(out.text).toMatch(/Projects tab/);
+    });
+    it("the second ask while the first is open is a duplicate from propose: still one project", async () => {
+        const run = script({ "orion-selffix list": { ok: true, items: [] }, "orion-selfcheck why": fixable, "orion-selffix propose": { ok: true, status: "duplicate", item: item("started") } });
+        const out = await runSelffixMove(FIX, run, NOW);
+        expect(run.calls.some((c) => c.startsWith("orion-selffix accept"))).toBe(false);
+        expect(out.text).toMatch(/already started/);
+    });
+    it("a refused start (execution disabled) is one message with the exact reason, and nothing is retried", async () => {
+        const run = script({ "orion-selffix list": { ok: true, items: [item("offered", { offeredAt: NOW.toISOString() })] }, "orion-selffix accept": { ok: true, status: "parked", reason: "Execution is disabled. Choose Enable & start to enable local execution.", remindAt: new Date(2026, 10, 4, 19, 30).toISOString() } });
+        const out = await runSelffixMove(FIX, run, NOW);
+        expect(out.text).toMatch(/couldn't start it/);
+        expect(out.text).toContain("Execution is disabled. Choose Enable & start to enable local execution.");
+        expect(out.text).toMatch(/Projects tab/);
+        expect(run.calls.filter((c) => c.startsWith("orion-selffix accept"))).toHaveLength(1);
+        expect(out.offered).toBeUndefined();
+    });
+    it("a script failure says why from its own words and stops", async () => {
+        const run = (async (s, a) => (a[0] === "list" ? { stdout: JSON.stringify({ ok: true, items: [] }), code: 0 } : s === "orion-selfcheck" ? { stdout: JSON.stringify(fixable), code: 0 } : a[0] === "propose" ? { stdout: JSON.stringify({ ok: true, status: "offered", item: item("offered") }), code: 0 } : { stdout: "", code: 3, stderr: "NOTHING WAS CHANGED: the project could not be created: disk full" }));
+        const out = await runSelffixMove(FIX, run, NOW);
+        expect(out.text).toContain("disk full");
+        expect(out.text).toMatch(/nothing was started/);
+    });
+    it("nothing on record and an unreadable record are both said plainly, with no project", async () => {
+        const none = script({ "orion-selffix list": { ok: true, items: [] }, "orion-selfcheck why": { ok: true, diagnosis: null } });
+        expect((await runSelffixMove(FIX, none, NOW)).text).toMatch(/nothing was started/);
+        expect(none.calls.some((c) => c.startsWith("orion-selffix propose"))).toBe(false);
+        const broken = script({ "orion-selffix list": { ok: true, items: [] } });
+        expect((await runSelffixMove(FIX, broken, NOW)).text).toMatch(/couldn't read back/);
     });
 });

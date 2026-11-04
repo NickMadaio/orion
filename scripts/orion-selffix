@@ -3,7 +3,8 @@
  orion-selffix — ORION's fix projects for his own mistakes (w19 selffix, 2026-11-04). Called by code (the plugin's selffix flow, orion-daily,
  orion-proactive), not run by the model. A project is only ever created after Nick answers "now or later"; nothing is created silently.
 
-   orion-selffix propose --stdin            a diagnosis (JSON on stdin) -> an offer (status offered), or a duplicate / declined-before
+   orion-selffix propose --stdin [--requested]   a diagnosis (JSON on stdin) -> an offer (status offered), or a duplicate / declined-before
+                                            (--requested: he asked for the fix just now, so a recent decline does not block it; an open fix still does)
    orion-selffix accept <id> --now          create the project from the plan and start its run
    orion-selffix accept <id> --later [--at ISO]   create it parked and schedule a reminder (default: this evening 19:30, or tomorrow's)
    orion-selffix start <id>                 start a parked project (he said yes to the reminder)
@@ -121,7 +122,8 @@ if (command === "propose") {
   try { d = JSON.parse(readFileSync(0, "utf8")); } catch { fail(2, "propose needs a diagnosis as JSON on stdin"); }
   if (!d?.signature || !d.failingExample || !Array.isArray(d.files) || d.fixable !== true) fail(3, "that is not a fixable diagnosis");
   const state = readState(dir);
-  const hit = blockingItem(state.items, d.signature, now.getTime());
+  const found = blockingItem(state.items, d.signature, now.getTime());
+  const hit = found && found.status === "declined" && argv.includes("--requested") ? undefined : found;
   if (hit) say({ status: hit.status === "declined" ? "declined-before" : "duplicate", item: hit });
   const item = { id: newId(state.items), signature: d.signature, title: d.title, status: "offered", source: "chat", createdAt: now.toISOString(), offeredAt: now.toISOString(), diagnosis: d };
   save({ ...state, items: [...state.items.filter((i) => !(i.status === "candidate" && i.signature === d.signature)), item] });

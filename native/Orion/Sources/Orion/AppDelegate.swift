@@ -175,7 +175,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch command {
             case "talk": self.state.beginListening()
             case "dashboard": self.textWindowController.show()
-            case "type": NSWorkspace.shared.open(MouseSetupEntry.typeURL)   // the typed overlay lives behind orion://type
+            // Nick, 11-04: "summon orion" from the mouse is the text bar at the bottom of the screen. The corner bubble
+            // is only for when ORION speaks first. The typed overlay lives behind orion://type.
+            case "type", "summon": NSWorkspace.shared.open(MouseSetupEntry.typeURL)
             default: self.state.onWantsSummon?()
             }
         }

@@ -9,7 +9,7 @@
 */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isBlockedSite, normalizeDomain } from "./sites.mjs";
+import { isBlockedSite, isWorkSite, normalizeDomain } from "./sites.mjs";
 
 export const MIN_STAY_MS = 120_000;
 
@@ -93,8 +93,9 @@ export function rememberApps(store, task, apps = [], domains = [], now = NOW) {
   return { version: 1, tasks: { ...(store?.tasks ?? {}), [key]: entry } };
 }
 
-// Frontmost time that says nothing about the work: the games, feeds and media he stays in, and the machine's own surfaces.
-const NOT_WORK_CATEGORY = new Set(["game", "social", "media", "system"]);
+// Only work, study and the browser are learned on its own. Chat, games, feeds, media, system and anything of no known kind are not:
+// those come only from his own "i need X".
+const LEARNABLE_CATEGORY = new Set(["work", "study", "browser"]);
 const NEVER = new Set(["com.nickmadaio.orion.app", "com.apple.finder", "com.apple.loginwindow", "com.apple.systempreferences", "com.apple.SecurityAgent", "com.apple.dock"]);
 
 function spans(rows, key, from, to) {
@@ -115,9 +116,9 @@ function spans(rows, key, from, to) {
 export function learnFromHistory(rows, { from, to }) {
   const stays = (list) => list.filter((s) => s.end - s.start > MIN_STAY_MS);
   const apps = stays(spans(rows, (r) => r.bundleId ?? null, from, to))
-    .filter((s) => s.value && !NEVER.has(s.value) && !NOT_WORK_CATEGORY.has(s.row.category)).map((s) => s.value);
+    .filter((s) => s.value && !NEVER.has(s.value) && LEARNABLE_CATEGORY.has(s.row.category)).map((s) => s.value);
   const domains = stays(spans(rows, (r) => normalizeDomain(r.domain), from, to))
-    .filter((s) => s.value && !isBlockedSite(s.value)).map((s) => s.value);
+    .filter((s) => s.value && !isBlockedSite(s.value) && isWorkSite(s.value) && (!s.row.siteCategory || ["work", "study"].includes(s.row.siteCategory))).map((s) => s.value);
   return { apps: uniq(apps), domains: uniq(domains) };
 }
 

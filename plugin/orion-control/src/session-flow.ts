@@ -162,6 +162,9 @@ async function applyProfile(task: string, named: { ids: string[]; names: string[
   exec: SessionExec; resolveApp: (name: string) => Promise<string | null>; profile: ProfileRun; sites: ProfileRun;
 }): Promise<{ calls: string[]; outputs: string[]; line: string }> {
   const calls: string[] = [], outputs: string[] = [];
+  // A new session never inherits an old guard: clear it first, set it only once the apps are really armed.
+  const cleared = await d.sites(["clear", "--json"]).catch(() => ({ stdout: "", code: 1 }));
+  calls.push("exec orion-focus-sites clear --json"); outputs.push(cleared.stdout);
   const pick = parse((await d.profile(["pick", task, "--json"]).catch(() => ({ stdout: "", code: 1 }))).stdout);
   const raw = (Array.isArray(pick?.apps) ? pick.apps : []) as Array<{ name: string; bundleId: string | null }>;
   const domains = Array.isArray(pick?.domains) ? (pick.domains as string[]) : [];

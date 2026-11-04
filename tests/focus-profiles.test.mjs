@@ -129,3 +129,16 @@ test("cli: learn reads the activity history for the window and persists what sta
   assert.ok(p.domains.includes("github.com"));
   assert.equal(run("learn", "cs lab 4", "--from", at(0), "--to", at(14), "--json").status, 0);
 });
+
+test("chat apps and apps of no known kind are never learned; only work, study and the browser", () => {
+  const rows = [row(0, "com.hnc.Discord", "chat"), row(10, "com.example.unknownthing", "other"), row(20, "com.apple.Pages", "work"), row(30, "com.apple.Notes", "study"), row(40, "com.apple.Safari", "browser", "github.com")];
+  const out = learnFromHistory(rows, { from: T0, to: T0 + 50 * 60_000 });
+  assert.deepEqual(out.apps.sort(), ["com.apple.Notes", "com.apple.Pages", "com.apple.Safari"].sort());
+});
+
+test("only work and study sites are learned: an unknown entertainment site (poki.com) never is, however long he stayed", () => {
+  const rows = [row(0, "com.apple.Safari", "browser", "poki.com"), row(10, "com.apple.Safari", "browser", "github.com"), row(20, "com.apple.Safari", "browser", "canvas.northeastern.edu"),
+    row(30, "com.apple.Safari", "browser", "games.example.com"), row(40, "com.apple.Safari", "browser", "scholar.google.com"), row(50, "com.apple.Safari", "browser", "cs.cornell.edu")];
+  const out = learnFromHistory(rows, { from: T0, to: T0 + 60 * 60_000 });
+  assert.deepEqual(out.domains.sort(), ["canvas.northeastern.edu", "cs.cornell.edu", "github.com", "scholar.google.com"].sort());
+});

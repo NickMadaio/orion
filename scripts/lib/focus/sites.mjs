@@ -90,3 +90,18 @@ export function resolveSiteName(word) {
   if (!w) return null;
   return BY_BRAND.get(w) ?? normalizeDomain(w);
 }
+
+// Sites that count as work or study, for what ORION may learn on its own. Anything else is added only when Nick says "i need X".
+export const WORK_SITES = [
+  "docs.google.com", "drive.google.com", "slides.google.com", "sheets.google.com", "scholar.google.com", "mail.google.com", "calendar.google.com",
+  "github.com", "gitlab.com", "stackoverflow.com", "stackexchange.com", "developer.mozilla.org", "developer.apple.com", "docs.python.org", "docs.oracle.com",
+  "chat.openai.com", "chatgpt.com", "claude.ai", "overleaf.com", "notion.so", "figma.com", "canva.com", "leetcode.com", "gradescope.com", "piazza.com",
+  "canvas.northeastern.edu", "northeastern.edu", "wikipedia.org", "khanacademy.org", "coursera.org", "quizlet.com", "jstor.org", "arxiv.org", "desmos.com",
+  "wolframalpha.com", "grammarly.com", "linkedin.com", "handshake.com", "indeed.com", "zotero.org", "w3schools.com", "geeksforgeeks.org", "readthedocs.io",
+];
+const WORK_HOST = /(?:^|\.)(?:edu|ac\.[a-z]{2}|gov)$/;
+/** A site that is plainly work or study: on the list, a school or government host, or a docs. / library. subdomain. */
+export function isWorkSite(domain) {
+  const d = normalizeDomain(domain);
+  return !!d && (WORK_SITES.some((w) => domainMatches(d, w)) || WORK_HOST.test(d) || /^(?:docs|library|learn|canvas)\./.test(d));
+}

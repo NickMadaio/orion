@@ -177,7 +177,7 @@ describe("session flow — the task's profile and sites", () => {
         const flow = await runSessionFlow({ message: "start a focus session on my resume", exec: s.exec, resolveApp, profile: t.profileRun, sites: t.sitesRun });
         expect(t.profile[0]).toEqual(["pick", "my resume", "--json"]);
         expect(s.calls.at(-1)).toEqual(["arm", "--level", "gentle", "--allow", "com.apple.iWork.Pages,com.apple.Safari", "--json"]);
-        expect(t.sites[0]).toEqual(["set", "--task", "my resume", "--apps", "com.apple.iWork.Pages,com.apple.Safari", "--names", "Pages,Safari", "--domains", "docs.google.com,chat.openai.com"]);
+        expect(t.sites.find((a) => a[0] === "set")).toEqual(["set", "--task", "my resume", "--apps", "com.apple.iWork.Pages,com.apple.Safari", "--names", "Pages,Safari", "--domains", "docs.google.com,chat.openai.com"]);
         if (flow.outcome !== "done")
             throw new Error("expected done");
         expect(flow.reply).toMatch(/Pages and Safari are allowed/);
@@ -186,13 +186,18 @@ describe("session flow — the task's profile and sites", () => {
         const s = fakeSession(), t = tools();
         const flow = await runSessionFlow({ message: "start a focus session, allow only Safari and ChatGPT", exec: s.exec, resolveApp, profile: t.profileRun, sites: t.sitesRun });
         expect(s.calls.at(-1)).toEqual(["arm", "--level", "gentle", "--allow", "com.apple.Safari,com.openai.codex", "--json"]);
-        expect(t.sites[0]).toContain("--apps");
-        expect(t.sites[0][t.sites[0].indexOf("--apps") + 1]).toBe("com.apple.Safari,com.openai.codex");
+        const set = t.sites.find((a) => a[0] === "set");
+        expect(set[set.indexOf("--apps") + 1]).toBe("com.apple.Safari,com.openai.codex");
         expect(t.profile.some((a) => a[0] === "remember")).toBe(true);
         if (flow.outcome !== "done")
             throw new Error("expected done");
         expect(flow.reply).toMatch(/Safari and ChatGPT are allowed/);
         expect(flow.reply).not.toMatch(/Only/);
+    });
+    it("the old guard is cleared before the new one is set", async () => {
+        const s = fakeSession(), t = tools();
+        await runSessionFlow({ message: "start a focus session on my resume", exec: s.exec, resolveApp, profile: t.profileRun, sites: t.sitesRun });
+        expect(t.sites.map((a) => a[0])).toEqual(["clear", "set"]);
     });
     it("without the tools (an old caller) nothing changes", async () => {
         const s = fakeSession();

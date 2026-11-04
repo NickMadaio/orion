@@ -140,6 +140,10 @@ async function allowApps(apps, exec, resolveApp) {
  *  Apps he named stay authoritative: the profile only adds apps when he named none. Sites always come from the profile. */
 async function applyProfile(task, named, d) {
     const calls = [], outputs = [];
+    // A new session never inherits an old guard: clear it first, set it only once the apps are really armed.
+    const cleared = await d.sites(["clear", "--json"]).catch(() => ({ stdout: "", code: 1 }));
+    calls.push("exec orion-focus-sites clear --json");
+    outputs.push(cleared.stdout);
     const pick = parse((await d.profile(["pick", task, "--json"]).catch(() => ({ stdout: "", code: 1 }))).stdout);
     const raw = (Array.isArray(pick?.apps) ? pick.apps : []);
     const domains = Array.isArray(pick?.domains) ? pick.domains : [];

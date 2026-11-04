@@ -8,7 +8,7 @@
 */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { BROWSERS, decideDomain, guardStep, initialGuard, normalizeDomain, nudgeLine } from "./sites.mjs";
+import { BROWSERS, decideDomain, domainMatches, guardStep, initialGuard, normalizeDomain, nudgeLine } from "./sites.mjs";
 import { initialPhoneState, planPhoneEvents } from "./phone-events.mjs";
 
 export const STATUS_EVERY_MS = 30_000;
@@ -27,23 +27,58 @@ export const writeWeb = writeJson;
 
 const uniq = (l) => [...new Set(l)];
 export const newWeb = ({ task, apps = [], names = [], domains = [], startedAt, checkedAtMs = 0, phase = "focus", phaseEnd = null }) =>
-  ({ version: 1, active: true, task, allowedApps: uniq(apps), allowedAppNames: uniq(names), allowedDomains: uniq(domains.map(normalizeDomain).filter(Boolean)), overrides: [], startedAt, phase, phaseEnd, checkedAtMs });
+  ({ version: 1, active: true, task, allowedApps: uniq(apps), allowedAppNames: uniq(names), allowedDomains: uniq(domains.map(normalizeDomain).filter(Boolean)), overrides: [], startedAt, phase, phaseEnd, checkedAtMs, phaseLog: [{ phase: "focus", atMs: Date.parse(startedAt) || 0 }] });
 export const withApps = (web, apps) => ({ ...web, allowedApps: uniq([...web.allowedApps, ...apps.map((a) => a.bundleId)]), allowedAppNames: uniq([...web.allowedAppNames, ...apps.map((a) => a.name)]) });
 export const withOverride = (web, domain) => { const d = normalizeDomain(domain); return d ? { ...web, overrides: uniq([...(web.overrides ?? []), d]) } : web; };
 export const cleared = (web) => ({ ...web, active: false, phase: null, phaseEnd: null });
 
 // -- effects as text -----------------------------------------------------------------------------------------------------------
-const SAFE_HOST = /^[a-z0-9.-]+\.[a-z]{2,}$/;
 const SAFE_URL = /^file:\/\/[\w%/.~+-]+$/;
 const FAMILY = { "com.apple.Safari": ["Safari", "current tab"], "com.google.Chrome": ["Google Chrome", "active tab"], "com.google.Chrome.canary": ["Google Chrome Canary", "active tab"],
   "com.brave.Browser": ["Brave Browser", "active tab"], "com.microsoft.edgemac": ["Microsoft Edge", "active tab"], "company.thebrowser.Browser": ["Arc", "active tab"] };
 
-/** The AppleScript that sends the front tab to the calm page, only if it is still on `domain`. null for an unknown browser or unsafe text. */
-export function redirectScript(bundleId, domain, fileUrl) {
+const SAFE_TAB_URL = /^https?:\/\/[^\s"\\]+$/;
+const frontmostIs = (bundleId) => `tell application "System Events" to set fb to bundle identifier of first application process whose frontmost is true\nif fb is not "${bundleId}" then return "gone"`;
+
+/** True when the tab's url is on `domain` by its HOST (exact or a subdomain): "dropbox.com" and "?q=x.com" are not "x.com". */
+export function tabHostIs(url, domain) {
+  try {
+    const u = new URL(String(url ?? "").trim());
+    return (u.protocol === "https:" || u.protocol === "http:") && domainMatches(u.hostname, domain);
+  } catch { return false; }
+}
+
+/** AppleScript that prints the front tab's url, but only while that browser is frontmost. null for a browser it cannot drive. */
+export function readTabScript(bundleId) {
   const family = FAMILY[bundleId];
-  if (!family || !SAFE_HOST.test(domain ?? "") || !SAFE_URL.test(fileUrl ?? "")) return null;
+  if (!family) return null;
   const [app, tab] = family;
-  return { app, source: `tell application "${app}"\nif (count of windows) is 0 then return "none"\nset u to URL of ${tab} of front window\nif u contains "${domain}" then\nset URL of ${tab} of front window to "${fileUrl}"\nreturn "moved"\nend if\nreturn "gone"\nend tell` };
+  return { app, source: `${frontmostIs(bundleId).replace('return "gone"', 'return ""')}\ntell application "${app}"\nif (count of windows) is 0 then return ""\nreturn URL of ${tab} of front window\nend tell` };
+}
+
+/** AppleScript that sends the front tab to the calm page, only if that browser is still frontmost and the tab still has exactly the
+ *  url that was read. null for an unknown browser, or a url or file url with anything unsafe in it. */
+export function redirectScript(bundleId, url, fileUrl) {
+  const family = FAMILY[bundleId];
+  if (!family || !SAFE_TAB_URL.test(url ?? "") || !SAFE_URL.test(fileUrl ?? "")) return null;
+  const [app, tab] = family;
+  return { app, source: `${frontmostIs(bundleId)}\ntell application "${app}"\nif (count of windows) is 0 then return "gone"\nif (URL of ${tab} of front window) is "${url}" then\nset URL of ${tab} of front window to "${fileUrl}"\nreturn "moved"\nend if\nreturn "gone"\nend tell` };
+}
+
+const denied = (r) => /-1743|not authori[sz]ed/i.test(r.stderr ?? "");
+/** Two steps, so the decision is made on the real host: read the front tab, check its host, then change exactly that tab. run(source) -> {code, stdout, stderr}. */
+export async function redirectViaScripts({ bundleId, domain, fileUrl, run }) {
+  const read = readTabScript(bundleId);
+  if (!read) return "failed";
+  const first = await run(read.source);
+  if (first.code !== 0) return denied(first) ? "denied" : "failed";
+  const url = first.stdout.trim();
+  if (!tabHostIs(url, domain)) return "gone";
+  const change = redirectScript(bundleId, url, fileUrl);
+  if (!change) return "failed";
+  const second = await run(change.source);
+  if (second.code !== 0) return denied(second) ? "denied" : "failed";
+  return second.stdout.trim() === "moved" ? "ok" : "gone";
 }
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -67,9 +102,27 @@ async function phoneEvents(deps, web) {
 }
 
 // -- the tick ------------------------------------------------------------------------------------------------------------------
-const RUNNING = new Set(["running"]);
 
-/** One guard tick. deps: {dir, nowMs, status(): session json|null, notify(line), redirect({bundleId,domain,task}): "ok"|"denied"|"gone"|"failed", learn(task,fromMs,toMs)}. */
+const phaseOf = (st) => (String(st.status) === "running" ? (st.phase === "focus" || st.phase === undefined ? "focus" : "rest") : "paused");
+/** The web file with what the session just said: its phase, when it ends, and a log of when the phase changed (what learning reads). */
+function withStatus(web, st, nowMs) {
+  const phase = phaseOf(st);
+  const log = Array.isArray(web.phaseLog) && web.phaseLog.length ? web.phaseLog : [{ phase: web.phase ?? "focus", atMs: Date.parse(web.startedAt) || nowMs }];
+  return { ...web, phase, phaseEnd: new Date(nowMs + Number(st.remainingSeconds ?? 0) * 1000).toISOString(), checkedAtMs: nowMs,
+    phaseLog: log.at(-1).phase === phase ? log : [...log.slice(-40), { phase, atMs: nowMs }] };
+}
+
+/** The [from, to] stretches of the session that were focus, the last one capped at the phase end. A break or a pause is never in one. */
+export function focusStretches(web, nowMs) {
+  const log = Array.isArray(web.phaseLog) && web.phaseLog.length ? web.phaseLog : [{ phase: "focus", atMs: Date.parse(web.startedAt) || nowMs }];
+  const end = Math.min(nowMs, Date.parse(web.phaseEnd) || nowMs);
+  return log.flatMap((entry, i) => {
+    const to = Math.min(i + 1 < log.length ? log[i + 1].atMs : end, end);
+    return entry.phase === "focus" && to > entry.atMs ? [[entry.atMs, to]] : [];
+  });
+}
+
+/** One guard tick. deps: {dir, nowMs, status(): session json|null, notify(line), redirect({bundleId,domain,task}): "ok"|"denied"|"gone"|"failed", learn(task,fromMs,toMs), phoneNotify?}. */
 export async function runTick(deps) {
   const { dir, nowMs } = deps;
   let web = readWeb(webFile(dir));
@@ -81,12 +134,12 @@ export async function runTick(deps) {
     if (!st) return none("the session could not be read");
     const live = ["running", "paused", "waiting-for-return"].includes(String(st.status ?? ""));
     if (!live) {
-      await deps.learn(web.task, Date.parse(web.startedAt), nowMs).catch(() => {});
+      for (const [from, to] of focusStretches(web, nowMs)) await deps.learn(web.task, from, to).catch(() => {});
       writeWeb(webFile(dir), cleared(web));
       writeJson(stateFile(dir), initialGuard());
       return { action: "finalized", task: web.task };
     }
-    web = { ...web, phase: RUNNING.has(String(st.status)) ? (st.phase === "focus" || st.phase === undefined ? "focus" : "rest") : "paused", phaseEnd: new Date(nowMs + Number(st.remainingSeconds ?? 0) * 1000).toISOString(), checkedAtMs: nowMs };
+    web = withStatus(web, st, nowMs);
     writeWeb(webFile(dir), web);
   }
   const activity = readJson(join(dir, "activity.json"));
@@ -94,12 +147,20 @@ export async function runTick(deps) {
   const stored = readJson(stateFile(dir));
   const prev = stored && "domain" in stored ? stored : initialGuard();
   const { state, action, domain } = guardStep(prev, {
-    nowMs, active: web.phase === "focus" && activity.focus?.active !== false, activityAtMs: Date.parse(activity.at), bundleId: activity.app?.bundleId,
+    // Only an activity.json that says a focus session is active lets the guard act: a missing field counts as inactive.
+    nowMs, active: web.phase === "focus" && activity.focus?.active === true, activityAtMs: Date.parse(activity.at), bundleId: activity.app?.bundleId,
     domain: activity.domain, allowed: web.allowedDomains, overrides: web.overrides,
   });
   let next = state, result;
   if (action === "nudge") await deps.notify(nudgeLine(domain)).catch(() => {});
   if (action === "redirect") {
+    // The phase cache can be 30 s old: ask the session again right before touching a tab.
+    const st = await deps.status().catch(() => null);
+    if (!st || phaseOf(st) !== "focus") {
+      if (st) writeWeb(webFile(dir), withStatus(web, st, nowMs));
+      writeJson(stateFile(dir), { ...state, actedAt: prev.actedAt });
+      return none("not in a focus phase right now");
+    }
     result = await deps.redirect({ bundleId: activity.app.bundleId, domain, task: web.task }).catch(() => "failed");
     if (result === "denied") next = { ...state, deniedAt: nowMs };
   }

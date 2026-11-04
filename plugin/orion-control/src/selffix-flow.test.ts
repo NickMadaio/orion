@@ -5,7 +5,7 @@ import type { FixItem } from "./selffix-store.js";
 const NOW = new Date(2026, 10, 4, 14, 0, 0);
 const iso = (d: Date): string => d.toISOString();
 const offered: FixItem = { id: "sf-aaaaaa", signature: "wrong-tool:app_open", title: "t", status: "offered", offeredAt: iso(new Date(NOW.getTime() - 10 * 60_000)) };
-const ctx = (items: FixItem[] = [], extra = {}) => ({ stateDir: "/x", now: NOW, items, ...extra });
+const ctx = (items: FixItem[] = [], extra = {}) => ({ stateDir: "/x", now: NOW, items, bound: true, ...extra });
 
 describe("why phrasings (held-out, casual)", () => {
   it.each([
@@ -13,6 +13,9 @@ describe("why phrasings (held-out, casual)", () => {
     "u messed that up", "why didnt you open safari", "why didn't you just open it", "u got that wrong", "what went wrong there", "why would you open an app called amazon uk",
   ])("%s is a why", (m) => { expect(asksWhy(m)).toBe(true); expect(readSelffixMove(m, ctx())?.kind).toBe("why"); });
   it.each(["why is the sky blue", "open safari for me", "why am i so tired", "what time is gym", "remind me why i started this"])("%s is not", (m) => {
+    expect(readSelffixMove(m, ctx())).toBeUndefined();
+  });
+  it.each(["why did u put get a gp first??", "why did you schedule gym before class", "why did you put econ at 9"])("%s is about his plan, left to the plan-why flow", (m) => {
     expect(readSelffixMove(m, ctx())).toBeUndefined();
   });
   it("a why to one of his own pushes is left to the outreach flow", () => {
@@ -29,6 +32,19 @@ describe("answering the offer", () => {
     expect(m).toMatchObject({ kind: "later", id: "sf-aaaaaa" });
     expect(new Date((m as { at: string }).at).getHours()).toBe(9);
     expect(new Date((m as { at: string }).at).getDate()).toBe(5);
+  });
+  it("an answer binds only when the offer was ORION's last message in that chat", () => {
+    for (const m of ["yes", "no", "later", "tomorrow at 9", "start it"]) expect(readSelffixMove(m, ctx([offered], { bound: false }))).toBeUndefined();
+    expect(readSelffixMove("yes", { stateDir: "/x", now: NOW, items: [offered] })).toBeUndefined();
+  });
+  it.each([
+    "ok set a 25 min timer", "start my focus session", "tomorrow i have a quiz", "no i dont think the gym is open", "sure what time is it", "yes i finished the quiz",
+    "later i need to study for econ", "no add gym tomorrow", "start the gym block", "tonight im going out", "ok remind me at 5",
+  ])("%s is not an answer to the fix offer even while it is waiting", (m) => {
+    expect(readSelffixMove(m, ctx([offered]))).toBeUndefined();
+  });
+  it.each(["yes.", "Yes please", "ok", "Now!", "tonight", "tomorrow morning", "at 8pm", "tomorrow at 9am", "no thanks", "skip", "nvm"])("%s is a bare answer", (m) => {
+    expect(readSelffixMove(m, ctx([offered]))).toBeDefined();
   });
   it("answers nothing without an open offer, or after 3 hours, or when he asks for something else", () => {
     expect(readSelffixMove("yes", ctx())).toBeUndefined();

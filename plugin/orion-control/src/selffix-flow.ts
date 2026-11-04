@@ -24,8 +24,10 @@ export type SelffixMove =
   | { kind: "later"; id: string; at?: string; reparking?: boolean }
   | { kind: "no"; id: string }
   | { kind: "start"; id: string };
-export type SelffixOut = { text: string; calls: string[]; outputs: string[] };
-export type SelffixCtx = { stateDir: string; now: Date; outreach?: boolean; items?: FixItem[] };
+/** `offered`: the reply ends in "now or later?", so his next bare answer is about this offer. */
+export type SelffixOut = { text: string; calls: string[]; outputs: string[]; offered?: boolean };
+/** `bound`: the offer (or the reminder to start it) was ORION's last message in this chat, so a bare answer is about it. Set by the caller. */
+export type SelffixCtx = { stateDir: string; now: Date; outreach?: boolean; items?: FixItem[]; bound?: boolean };
 
 const WHY = [
   /\bwhy\s*(?:did|didn'?t|didnt|would|wouldn'?t|wont|won'?t|cant|can'?t|couldn'?t|do|dont|don'?t)\s+(?:you|u|ya|yu)\b/,
@@ -36,16 +38,24 @@ const WHY = [
   /\b(?:you|u)\s+(?:got|did)\s+(?:that|it|this)\s+wrong\b/,
   /\bwhat\s+(?:went|was)\s+wrong\b/,
 ];
-const NO = /^(?:no|nah|nope|no thanks|no thx|dont|don'?t|skip it|skip|drop it|forget it|nvm|never ?mind|not needed|leave it|no need)\b/;
-const LATER = /\b(?:later|tonight|tomorrow|tmrw|tmr|this evening|evening|after (?:class|dinner|gym|work|lunch)|not now|when i'?m free|in the morning|some ?other ?time|next week|snooze|at \d)/;
-const NOW = /^(?:yes|yeah|yep|yup|ya|yea|sure|ok(?:ay)?|do it|go(?: ahead)?|now|right now|start(?: it| now)?|asap|please|pls|yes please|go for it|let'?s go|lets go|get on it)\b/;
+// An answer to the offer is a BARE answer: every word is one of these, and one core word says which. Anything else ("ok set a 25 min timer",
+// "tomorrow i have a quiz", "start my focus session") is a different turn, never an answer.
+const words = (core: string, filler: string): { all: Set<string>; core: Set<string> } => ({ core: new Set(core.split(" ")), all: new Set(`${core} ${filler}`.split(" ")) });
+const NOW_W = words("yes yeah yep yup ya yea sure ok okay do go start now asap please pls", "it ahead right for lets let's get on");
+const NO_W = words("no nah nope skip nvm nevermind never drop forget leave dont don't", "thanks thx it mind pls please not needed need");
+const LATER_W = words("later tonight tomorrow tmrw tmr evening morning night after snooze week at", "not now this in the dinner class gym work lunch next some other time yes yeah ok okay sure pls please am pm");
+const CLOCK_TOKEN = /^\d{1,2}(?::\d{2})?(?:am|pm)?$/;
+const bare = (m: string, set: { all: Set<string>; core: Set<string> }): boolean => {
+  const ws = m.replace(/[.!,]+/g, " ").split(" ").filter(Boolean);
+  return ws.length > 0 && ws.length <= 5 && ws.every((w) => set.all.has(w) || (set === LATER_W && CLOCK_TOKEN.test(w))) && ws.some((w) => set.core.has(w) || (set === LATER_W && CLOCK_TOKEN.test(w) && ws.includes("at")));
+};
 const START_FIX = /\b(?:start|run|launch|begin|kick off|get on)\s+(?:the|that|my|ur|your)\s+(?:self[- ]?)?(?:fix|fix project|repair)\b/;
-const REQUEST = /\b(?:move|add|put|book|schedule|reschedule|cancel|remind|text|email|play|clear|delete|remove|log|push)\b|\b(?:can|could|would|will) (?:you|u)\b|\bturn (?:on|off)\b/;
-const OWN_QUESTION = /^(?:what|whats|what's|when|where|who|whos|how|why|is|are|do|does|did|can|could|should|will)\b[^?]*\?\s*$/;
 
 const low = (s: string): string => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
 const wordCount = (s: string): number => s.split(" ").filter(Boolean).length;
-export const asksWhy = (message: string): boolean => { const m = low(message); return wordCount(m) <= 28 && WHY.some((p) => p.test(m)); };
+// "why did you put X first / schedule X before Y" asks about his plan, which the plan-why flow answers from the plan itself.
+const PLAN_WHY = /\bwhy\b.*\b(?:put|puts|placed?|schedule[ds]?|moved?|order(?:ed)?|list(?:ed)?)\b.*\b(?:first|last|before|after|at|there|then|so (?:late|early))\b/;
+export const asksWhy = (message: string): boolean => { const m = low(message); return wordCount(m) <= 28 && !PLAN_WHY.test(m) && WHY.some((p) => p.test(m)); };
 
 /** The time a "later" answer names ("tomorrow at 9", "tonight at 8"): an ISO instant, or undefined to take the default evening slot. */
 export function laterAt(message: string, now: Date): string | undefined {
@@ -78,10 +88,10 @@ export function readSelffixMove(message: string, ctx: SelffixCtx): SelffixMove |
   const due = dueParked(items, ctx.now);
   const waiting = offer ?? due;
   if (START_FIX.test(m)) { const p = due ?? parkedAny(items); if (p) return { kind: "start", id: p.id }; }
-  if (waiting && wordCount(m) <= 12 && !REQUEST.test(m) && !OWN_QUESTION.test(m) && !(wordCount(m) > 3 && m.endsWith("?"))) {
-    if (NO.test(m)) return { kind: "no", id: waiting.id };
-    if (LATER.test(m) && !/^now\b/.test(m)) { const at = laterAt(m, ctx.now); return { kind: "later", id: waiting.id, ...(at ? { at } : {}), ...(waiting.status === "parked" ? { reparking: true } : {}) }; }
-    if (NOW.test(m)) return waiting.status === "parked" ? { kind: "start", id: waiting.id } : { kind: "now", id: waiting.id };
+  if (waiting && ctx.bound === true) {
+    if ((bare(m, LATER_W) || /^not now[.!]*$/.test(m)) && !/^now$/.test(m)) { const at = laterAt(m, ctx.now); return { kind: "later", id: waiting.id, ...(at ? { at } : {}), ...(waiting.status === "parked" ? { reparking: true } : {}) }; }
+    if (bare(m, NO_W)) return { kind: "no", id: waiting.id };
+    if (bare(m, NOW_W)) return waiting.status === "parked" ? { kind: "start", id: waiting.id } : { kind: "now", id: waiting.id };
   }
   if (!ctx.outreach && asksWhy(m)) return { kind: "why", about: message.trim() };
   return undefined;
@@ -122,7 +132,7 @@ export async function runSelffixMove(move: SelffixMove, run: SelffixRun, now: Da
       if (!offer) return { ...log, text: `${d.says} I couldn't set up a fix offer just now.` };
       if (offer.status === "duplicate") return { ...log, text: `${d.says} I already have a fix project for this (${STATUS_WORDS[offer.item?.status as string] ?? "open"}), so I won't open another.` };
       if (offer.status === "declined-before") return { ...log, text: `${d.says} You told me not to open a fix for this one recently, so I'll leave it unless you say otherwise.` };
-      return { ...log, text: `${d.says} I can open a fix project for this. Start on it now, or later?` };
+      return { ...log, offered: true, text: `${d.says} I can open a fix project for this. Start on it now, or later?` };
     }
     case "now": {
       const out = await call(run, "orion-selffix", ["accept", move.id, "--now"], log);

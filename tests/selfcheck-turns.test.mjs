@@ -49,3 +49,13 @@ test("missing sources give no turns instead of an error", () => {
   const dir = mkdtempSync(join(tmpdir(), "selfcheck-empty-"));
   assert.deepEqual(buildTurns(loadSources(dir, { sinceMs: 0 })), []);
 });
+
+test("spoken secrets with no colon or equals are redacted too", () => {
+  for (const text of ["my password is hunter2xyz", "the wifi password is Correct-Horse", "pin is 4821", "my pin was 4821", "my code is 884213", "passcode is abc123", "cvv is 123", "card 4111 1111 1111 1111 please"]) {
+    const out = redact(text);
+    assert.doesNotMatch(out, /hunter2xyz|Correct-Horse|4821|884213|abc123|\b123\b|4111/, `${text} -> ${out}`);
+    assert.match(out, /\[redacted\]/);
+  }
+  assert.equal(redact("open amazon uk"), "open amazon uk");
+  assert.equal(redact("the pin on the map"), "the pin on the map");
+});

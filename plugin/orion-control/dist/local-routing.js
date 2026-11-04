@@ -738,6 +738,8 @@ export function registerLocalRouting(api, options) {
     const runs = new Map();
     /** Per session: his last message (stitched) and the scheduler changes it made. */
     const lastTurn = new Map();
+    // w19 selffix: the chats whose last message from ORION was the fix offer ("now or later?"). Any other turn in that chat clears it.
+    const fixOfferChats = new Map();
     /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
     const sessionChanges = new Map();
     /** Per session: what the last reality statement did (declared facts, calendar writes), for its "undo" (reality.ts). Any later change forgets it. */
@@ -1222,8 +1224,12 @@ export function registerLocalRouting(api, options) {
         // 2026-10-30: a statement of what happened ("i dont have classes today") is code's from the start: no desk, no model needed for its effect.
         const quietTurn = hushed || quietStart !== undefined;
         // Wave 12 L1 (questions-flow.ts): "any questions for me", "forget that question", or his answer to ORION's question owns the whole turn.
+        const selffixBound = (key, label, at) => {
+            const asked = key ? fixOfferChats.get(key) : undefined;
+            return (asked !== undefined && at.getTime() - asked < 3 * 3600_000) || (!!label && /fix project/i.test(label));
+        };
         // w19 selffix (selffix-flow.ts): "why did you do that" / "that was wrong" (he reads his own last turns and answers), or his now / later / no to a fix offer.
-        const smove = on && !cutOff && !quietTurn && !isCrisis(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw) }) : undefined;
+        const smove = on && !cutOff && !quietTurn && !isCrisis(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()) }) : undefined;
         const qmove = on && !cutOff && !quietTurn && !smove && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
         // Wave 14 (mail-flow.ts): "not important" / "this matters" to a mail alert, or "stop telling me about X emails", owns the whole turn.
         const mmove = on && !cutOff && !quietTurn && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
@@ -1375,7 +1381,15 @@ export function registerLocalRouting(api, options) {
                 run.ownText = out.text;
                 out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
             }
+            if (sessionKey) {
+                if (out?.offered)
+                    fixOfferChats.set(sessionKey, (options.now ?? pluginNow)().getTime());
+                else
+                    fixOfferChats.delete(sessionKey);
+            }
         }
+        else if (sessionKey && on && !quietTurn)
+            fixOfferChats.delete(sessionKey); // any other turn ends the offer
         if (qmove && options.stateDir) { // wave 12 L1: the reply is built from orion-questions' JSON
             const out = await withTimeout(runQuestionsMove(qmove, options.questionsRun ?? liveQuestionsRun(options.stateDir)).catch(() => undefined), 12000);
             if (out) {

@@ -84,6 +84,8 @@ final class PushToTalkMonitor {
     var onPressed: (() -> Void)?
     var onReleased: (() -> Void)?
     var onEscape: (() -> Void)?
+    /// A mouse button went down in some other app while the click-away watch was on.
+    var onClickAway: (() -> Void)?
     /// A turn that had started was really a shortcut (Option held, then a key
     /// or click). Drop it without delivering anything.
     var onCancelled: (() -> Void)?
@@ -96,6 +98,7 @@ final class PushToTalkMonitor {
     private var watchTokens: [Any] = []
     private var localEscapeToken: Any?
     private var globalEscapeToken: Any?
+    private var clickAwayToken: Any?
     private var cancelTimer: (() -> Void)?
 
     /// True only while the key monitors are installed.
@@ -167,6 +170,7 @@ final class PushToTalkMonitor {
         if let token = localEscapeToken { source.remove(token) }
         localEscapeToken = nil
         setGlobalEscapeWatch(false)
+        setGlobalClickAwayWatch(false)
     }
 
     /// Only installed while Orion has something to dismiss, so the app is not
@@ -181,6 +185,18 @@ final class PushToTalkMonitor {
         } else {
             if let token = globalEscapeToken { source.remove(token) }
             globalEscapeToken = nil
+        }
+    }
+
+    /// Only installed while the voice panel is open, so the app is not watching every click on the machine the rest of
+    /// the time. Global monitors never see clicks on Orion's own windows, which is exactly what "away" means.
+    func setGlobalClickAwayWatch(_ enabled: Bool) {
+        if enabled {
+            guard clickAwayToken == nil else { return }
+            clickAwayToken = source.addGlobal([.mouseDown]) { [weak self] _ in self?.onClickAway?() }
+        } else {
+            if let token = clickAwayToken { source.remove(token) }
+            clickAwayToken = nil
         }
     }
 

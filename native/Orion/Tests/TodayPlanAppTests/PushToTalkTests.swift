@@ -587,4 +587,24 @@ final class PushToTalkMonitorTests: XCTestCase {
         source.deliver(keyEvent(.keyDown, 53))
         XCTAssertEqual(escapes, 1)
     }
+
+    // MARK: Click away (notch pill)
+
+    func testClickAwayWatchIsInstalledOnlyOnRequestAndOnlyGlobally() {
+        let monitor = makeMonitor()
+        var clicks = 0
+        monitor.onClickAway = { clicks += 1 }
+        monitor.apply(.default)
+        source.deliver(PTTEvent(kind: .mouseDown, keyCode: 0))
+        XCTAssertEqual(clicks, 0, "no watch, no clicks")
+        monitor.setGlobalClickAwayWatch(true)
+        monitor.setGlobalClickAwayWatch(true)
+        XCTAssertEqual(source.entries.filter { $0.global && $0.kinds == [.mouseDown] }.count, 1, "idempotent")
+        source.deliver(PTTEvent(kind: .mouseDown, keyCode: 0))
+        XCTAssertEqual(clicks, 1)
+        monitor.setGlobalClickAwayWatch(false)
+        source.deliver(PTTEvent(kind: .mouseDown, keyCode: 0))
+        XCTAssertEqual(clicks, 1)
+        XCTAssertFalse(source.entries.contains { $0.global && $0.kinds == [.mouseDown] })
+    }
 }

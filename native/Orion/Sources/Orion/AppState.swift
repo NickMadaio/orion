@@ -85,6 +85,11 @@ final class AppState: ObservableObject {
     /// Dropdown / pop-out state for the to-do float, remembered across launches.
     let todoFloat = TodoFloatModel()
     var hideSummon: (() -> Void)?
+    /// The answer to show under the orb when he reopens the panel from the notch pill; cleared when the next turn starts.
+    @Published var dockedAnswer: String?
+    /// True from the moment he has said (or typed) something until the turn is over. The notch pill docks a turn only
+    /// when this is set; a panel with nothing said simply closes.
+    private(set) var turnHasUserInput = false
     private let chatStore = try? ChatStore(directory: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/chats"))
     var chatModels: [ModelChoice] { FileManager.default.contents(atPath: ModelContract.path).map(ChatModels.choices(fromModelRoles:)) ?? [] }
     func refreshEarlyContext() {
@@ -1534,6 +1539,8 @@ final class AppState: ObservableObject {
             scheduleBubbleClear(after: bubble?.keepFor)
         }
         phase = next
+        if next == .idle || next == .listening || next == .error { turnHasUserInput = false }
+        if next == .listening || next == .thinking { dockedAnswer = nil }
         if next != .thinking { voiceCompanion?.stop(); voiceCompanion = nil; progressReader.stop() }
         hologram.setState(next.hologramState)
         onSpeakingChanged?(next == .speaking)
@@ -1782,6 +1789,7 @@ final class AppState: ObservableObject {
         // crashing the installed app.
         assert(Thread.isMainThread, "AppState.append called off the main thread")
         turns.append(Turn(role: role, text: text))
+        if role == .you { turnHasUserInput = true }
         if role == .you { saveChat(.user, text: text) }
         if turns.count > 60 {
             turns.removeFirst(turns.count - 60)
@@ -2249,8 +2257,10 @@ final class AppState: ObservableObject {
 
     func endListening() {
         guard speechInput.isRunning else { return }
+        let heardSomething = !heard.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         statusLine = "Thinking…"
         setPhase(.thinking)
+        turnHasUserInput = heardSomething
         speechInput.stop()
     }
 

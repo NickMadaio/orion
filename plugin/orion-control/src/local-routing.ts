@@ -38,7 +38,8 @@ import { isSessionStart, startsSession, type SessionExec, type SessionHint } fro
 import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-run-wiring.js";
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
-import { appOpenName, isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
+import { openRequest } from "./open-request.js";
+import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { readIntent } from "./calendar-intent.js";
@@ -1459,7 +1460,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run && isCrisis(run.message) && !run.afterCrisis) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
       if (run && (run.room || run.hushed || run.pending || run.preference || run.sleepTurn || run.phoneBlock || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
       if (run?.ownText) return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
-      if (run && appOpenName(run.message)) return undefined;   // w18 voiceself: opening an app is app_open, never a drafted "I can't pull up apps"
+      if (run && openRequest(run.message)) return undefined;   // w18 voiceself: opening an app is app_open, never a drafted "I can't pull up apps"
       if (run && isOverwhelmed(run.message)) return undefined;
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;

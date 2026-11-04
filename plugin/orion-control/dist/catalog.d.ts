@@ -141,7 +141,7 @@ export type ExecutionPolicy = {
     authority?: boolean;
 } | {
     kind: "app_control";
-    operation: "open" | "quit";
+    operation: "open" | "quit" | "open_folder";
     applicationArgument: string;
 } | BrowserControlPolicy | MediaControlPolicy | {
     kind: "ambient_read";
@@ -452,6 +452,8 @@ export declare function isMutableRoot(value: unknown): value is MutableRoot;
  */
 export declare const MAX_URL_LENGTH = 2048;
 export declare function browserUrlIssues(value: unknown): string[];
+/** Folders Finder may be asked to show: his own, named, never a path. */
+export declare const OPENABLE_FOLDERS: readonly string[];
 export declare const SUPPORTED_BROWSERS: readonly ["Opera Air", "Opera", "Safari", "Google Chrome"];
 export type SupportedBrowser = (typeof SUPPORTED_BROWSERS)[number];
 export declare function resolveBrowserName(value: unknown): SupportedBrowser | undefined;

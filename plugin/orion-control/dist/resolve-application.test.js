@@ -17,4 +17,7 @@ describe.runIf(process.platform === "darwin")("resolveApplication", () => {
         await expect(resolveApplication("../../bin/sh")).rejects.toThrow(/plain app name/);
         await expect(resolveApplication("No Such App 123")).rejects.toThrow(/CoreServices/);
     });
+    it("opens an app that is a symlink into the system cryptex (Safari, macOS 26)", async () => {
+        await expect(resolveApplication("Safari")).resolves.toMatchObject({ bundleId: "com.apple.Safari" });
+    });
 });

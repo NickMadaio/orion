@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+/*
+ orion-selffix — ORION's fix projects for his own mistakes (w19 selffix, 2026-11-04). Called by code (the plugin's selffix flow, orion-daily,
+ orion-proactive), not run by the model. A project is only ever created after Nick answers "now or later"; nothing is created silently.
+
+   orion-selffix propose --stdin            a diagnosis (JSON on stdin) -> an offer (status offered), or a duplicate / declined-before
+   orion-selffix accept <id> --now          create the project from the plan and start its run
+   orion-selffix accept <id> --later [--at ISO]   create it parked and schedule a reminder (default: this evening 19:30, or tomorrow's)
+   orion-selffix start <id>                 start a parked project (he said yes to the reminder)
+   orion-selffix decline <id>               "no": drop it and record the decision (not offered again for a week)
+   orion-selffix list [--json]
+   orion-selffix scan-night [--day YYYY-MM-DD]   nightly: scan the day for clear failures, write a self-review line to his ORION note (#orion),
+                                            keep at most one candidate
+   orion-selffix offer-morning [--send]     8-12 local, one a day: offer the candidate ("now or later?"); --send pushes it through orion-reach
+
+ The project runs through the normal project pipeline (orion-projects add / launch, with its reviews); this never edits live code. An
+ isolated run (ORION_CONTROLLED_DIR not live) refuses to touch the real project library unless ORION_PROJECTS_BIN names a stand-in.
+ Exit 0 done, 2 bad arguments, 3 refused (nothing changed).
+*/
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { controlledDir, isolated, toOutbox } from "./lib/clock.mjs";
+import { clockNow } from "./lib/life/bridge-path.mjs";
+import { findNoteFile, learnIntoNote, learnedLine } from "./lib/brain/questions-notes.mjs";
+import { buildTurns, loadSources } from "./lib/selfcheck/turns.mjs";
+import { findFailures } from "./lib/selfcheck/diagnose.mjs";
+import { buildFixPlan } from "./lib/selfcheck/fixplan.mjs";
+import { addReminder, blockingItem, dropReminder, newId, nextEvening, readState, withItem, writeState } from "./lib/selfcheck/store.mjs";
+
+const argv = process.argv.slice(2);
+const VALUE_FLAGS = ["--at", "--day"];
+const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+const [command, ...rest] = argv.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(argv[i - 1]));
+const now = clockNow();
+const dir = controlledDir();
+const here = import.meta.dirname;
+const say = (data) => { console.log(JSON.stringify({ ok: true, ...data })); process.exit(0); };
+const fail = (code, text) => { console.error(code === 2 ? text : `NOTHING WAS CHANGED: ${text}`); process.exit(code); };
+const short = (text, n = 40) => String(text).replace(/\s+/g, " ").trim().slice(0, n);
+const reminderLabel = (item) => `the fix project for '${short(item.diagnosis.failingExample.message)}' is waiting. Start it?`;
+const save = (state) => writeState(dir, state);
+const find = (state, id) => { const item = state.items.find((i) => i.id === id); if (!item) fail(3, `no fix offer ${id}`); return item; };
+
+const projectsBin = () => {
+  const bin = process.env.ORION_PROJECTS_BIN || (isolated() ? "" : join(here, "orion-projects"));
+  if (!bin) fail(3, "this is an isolated run and ORION_PROJECTS_BIN is not set, so the real project library is not touched");
+  return bin;
+};
+const projects = (args) => spawnSync(process.execPath, [projectsBin(), ...args], { encoding: "utf8", timeout: 120_000, env: process.env });
+
+/** Writes the plan and briefs, registers the project, returns its id. Registered once: a second call reuses the recorded id. */
+function ensureProject(item) {
+  if (item.projectId) return item.projectId;
+  const built = buildFixPlan(item.diagnosis, { id: item.id.slice(3) });
+  const root = join(dir, "selffix", item.id);
+  mkdirSync(join(root, "plan.briefs"), { recursive: true });
+  writeFileSync(join(root, "plan.md"), built.plan);
+  writeFileSync(join(root, "plan.briefs", "common.md"), built.briefs.common);
+  writeFileSync(join(root, "plan.briefs", `${built.taskId}.md`), built.briefs.task);
+  const r = projects(["add", join(root, "plan.md"), built.title.slice(0, 120)]);
+  let id = null;
+  try { id = JSON.parse(r.stdout).id; } catch { /* not JSON */ }
+  if (r.status !== 0 || !id) fail(3, `the project could not be created: ${(r.stderr || r.stdout || "unknown error").trim().slice(0, 200)}`);
+  return id;
+}
+
+function park(state, item, projectId, { at, reason }) {
+  const dueAt = at ?? nextEvening(now);
+  const reminderId = addReminder(dir, { label: reminderLabel(item), dueAt: dueAt.getTime(), now: now.getTime() });
+  const next = { ...item, status: "parked", projectId, remindAt: dueAt.toISOString(), reminderId, decidedAt: now.toISOString() };
+  save(withItem(state, next));
+  say({ status: "parked", item: next, projectId, remindAt: next.remindAt, ...(reason ? { reason } : {}) });
+}
+
+function launch(state, item, projectId) {
+  const r = projects(["launch", projectId, "--until-stopped"]);
+  if (r.status !== 0) {
+    const reason = (r.stderr || r.stdout || "the run did not start").trim().slice(0, 200);
+    return park(state, item, projectId, { reason });
+  }
+  dropReminder(dir, item.reminderId);
+  const next = { ...item, status: "started", projectId, startedAt: now.toISOString(), decidedAt: item.decidedAt ?? now.toISOString(), reminderId: null };
+  save(withItem(state, next));
+  say({ status: "started", item: next, projectId });
+}
+
+function writeOwnNote(day, failures) {
+  const counts = failures.reduce((m, f) => ({ ...m, [f.signature]: (m[f.signature] ?? 0) + 1 }), {});
+  const top = failures.find((f) => f.fixable) ?? failures[0];
+  const text = `self-review ${day}: ${failures.length} clear failures (${Object.entries(counts).map(([k, v]) => `${k} x${v}`).join(", ")}). First: ${short(top.says, 160)}`;
+  const line = learnedLine("self-review", text, day, { own: true });
+  if (isolated() && !process.env.ORION_BRAIN_VAULT) { toOutbox("brain", { note: "ORION", line }, { by: "orion-selffix" }); return "outbox"; }
+  const vault = process.env.ORION_BRAIN_VAULT || join(homedir(), "Documents/orionBrain");
+  return keepLine(vault, day, line);
+}
+
+const noteFile = (vault) => findNoteFile(vault, "ORION") ?? "";
+
+function keepLine(vault, day, line) {
+  try {
+    const text = readFileSync(noteFile(vault), "utf8");
+    if (text.includes(`self-review ${day}:`)) return "already";
+  } catch { return "no"; }
+  try { return learnIntoNote(vault, "ORION", line) ? "vault" : "no"; } catch { return "no"; }
+}
+
+if (command === "propose") {
+  if (!argv.includes("--stdin")) fail(2, "usage: orion-selffix propose --stdin");
+  let d;
+  try { d = JSON.parse(readFileSync(0, "utf8")); } catch { fail(2, "propose needs a diagnosis as JSON on stdin"); }
+  if (!d?.signature || !d.failingExample || !Array.isArray(d.files) || d.fixable !== true) fail(3, "that is not a fixable diagnosis");
+  const state = readState(dir);
+  const hit = blockingItem(state.items, d.signature, now.getTime());
+  if (hit) say({ status: hit.status === "declined" ? "declined-before" : "duplicate", item: hit });
+  const item = { id: newId(state.items), signature: d.signature, title: d.title, status: "offered", source: "chat", createdAt: now.toISOString(), offeredAt: now.toISOString(), diagnosis: d };
+  save({ ...state, items: [...state.items.filter((i) => !(i.status === "candidate" && i.signature === d.signature)), item] });
+  say({ status: "offered", item });
+} else if (command === "accept") {
+  const state = readState(dir);
+  const item = find(state, rest[0] ?? "");
+  if (!["offered", "candidate"].includes(item.status)) fail(3, `${item.id} is ${item.status}, not waiting for an answer`);
+  const projectId = ensureProject(item);
+  if (argv.includes("--now")) launch(state, item, projectId);
+  else if (argv.includes("--later")) {
+    const at = flag("--at") ? new Date(flag("--at")) : undefined;
+    if (at && (Number.isNaN(at.getTime()) || at.getTime() <= now.getTime())) fail(2, "--at must be a future ISO time");
+    park(state, item, projectId, { at });
+  } else fail(2, "accept needs --now or --later");
+} else if (command === "start") {
+  const state = readState(dir);
+  const item = find(state, rest[0] ?? "");
+  if (item.status !== "parked" || !item.projectId) fail(3, `${item.id} is ${item.status}, not a parked project`);
+  launch(state, item, item.projectId);
+} else if (command === "decline") {
+  const state = readState(dir);
+  const item = find(state, rest[0] ?? "");
+  if (!["offered", "candidate", "parked"].includes(item.status)) fail(3, `${item.id} is ${item.status}`);
+  dropReminder(dir, item.reminderId);
+  const next = { ...item, status: "declined", decidedAt: now.toISOString(), reminderId: null };
+  save(withItem(state, next));
+  say({ status: "declined", item: next });
+} else if (command === "list") {
+  const state = readState(dir);
+  if (argv.includes("--json")) say({ items: state.items });
+  console.log(state.items.length ? state.items.map((i) => `${i.id} [${i.status}] ${i.title}${i.remindAt ? ` (reminder ${i.remindAt})` : ""}`).join("\n") : "No fix offers.");
+} else if (command === "scan-night") {
+  const day = flag("--day") ?? new Date(now.getTime() - 86_400_000).toLocaleDateString("en-CA");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail(2, "--day must be YYYY-MM-DD");
+  const since = Date.parse(`${day}T00:00:00`) - 3_600_000;
+  const turns = buildTurns(loadSources(dir, { sinceMs: since })).filter((t) => new Date(t.at).toLocaleDateString("en-CA") === day);
+  const failures = findFailures(turns, { now: now.getTime() });
+  if (!failures.length) say({ day, failures: 0, candidate: null, note: "none" });
+  const note = writeOwnNote(day, failures);
+  const state = readState(dir);
+  const tally = failures.filter((f) => f.fixable).reduce((m, f) => ({ ...m, [f.signature]: [...(m[f.signature] ?? []), f] }), {});
+  const best = Object.values(tally).filter((g) => !blockingItem(state.items, g[0].signature, now.getTime())).sort((a, b) => b.length - a.length)[0]?.[0];
+  if (!best) say({ day, failures: failures.length, candidate: null, note });
+  const kept = state.items.filter((i) => i.status !== "candidate");
+  const old = state.items.find((i) => i.status === "candidate");
+  const item = old?.signature === best.signature ? old : { id: newId(state.items), signature: best.signature, title: best.title, status: "candidate", source: "nightly", createdAt: now.toISOString(), diagnosis: best };
+  save({ ...state, items: [...kept, item] });
+  say({ day, failures: failures.length, candidate: { id: item.id, signature: item.signature, title: item.title }, note });
+} else if (command === "offer-morning") {
+  const state = readState(dir);
+  const today = now.toLocaleDateString("en-CA");
+  const hour = now.getHours();
+  const candidate = state.items.find((i) => i.status === "candidate");
+  if (state.lastOfferDay === today) say({ offered: false, why: "already offered today" });
+  if (!candidate) say({ offered: false, why: "nothing to offer" });
+  if (hour < 8 || hour >= 12) say({ offered: false, why: "not morning yet" });
+  const text = `Morning. Last night I noticed I got something wrong: ${candidate.diagnosis.says} I can open a fix project for this. Start on it now, or later?`;
+  if (argv.includes("--send")) {
+    const bin = process.env.ORION_REACH_BIN || join(here, "orion-reach");
+    const r = spawnSync(process.execPath, [bin, text, "--kind", "question", "--why", "self-review: fix offer"], { encoding: "utf8", timeout: 30_000, env: process.env });
+    if (r.status !== 0) say({ offered: false, why: "could not send", text });
+  }
+  const next = { ...candidate, status: "offered", offeredAt: now.toISOString() };
+  save({ ...withItem(state, next), lastOfferDay: today });
+  say({ offered: true, id: next.id, text });
+} else {
+  fail(2, "usage: orion-selffix propose --stdin | accept <id> --now|--later [--at ISO] | start <id> | decline <id> | list | scan-night [--day D] | offer-morning [--send]");
+}

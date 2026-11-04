@@ -1,0 +1,53 @@
+#!/usr/bin/env node
+/*
+ orion-selfcheck — ORION reading his own recent turns, read-only (w19 selffix, 2026-11-04).
+
+   orion-selfcheck last [--n 5] [--json]               the last n turns: what he was asked, the route, the tools that ran, what he said
+   orion-selfcheck why [--about "<his words>"] [--exclude "<this message>"] [--n 6] --json
+                                                       the turn he is asking about, diagnosed in first person (selfcheck/diagnose.mjs)
+   orion-selfcheck scan [--day YYYY-MM-DD] [--json]    the clear failures of one local day (default: yesterday)
+
+ Sources: chats/*.json, local-routing/shadow.jsonl and task-ledger.jsonl in the controlled dir (ORION_CONTROLLED_DIR). Reads only; secrets are
+ redacted before anything is printed. Exit 0 done, 2 bad arguments.
+*/
+import { controlledDir } from "./lib/clock.mjs";
+import { clockNow } from "./lib/life/bridge-path.mjs";
+import { buildTurns, loadSources, recentTurns } from "./lib/selfcheck/turns.mjs";
+import { diagnoseTurn, findFailures, pickTurn } from "./lib/selfcheck/diagnose.mjs";
+
+const argv = process.argv.slice(2);
+const VALUE_FLAGS = ["--n", "--about", "--exclude", "--day"];
+const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
+const [command] = argv.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(argv[i - 1]));
+const json = argv.includes("--json");
+const now = clockNow();
+const WINDOW_MS = 3 * 86_400_000;
+const emit = (data, text) => { console.log(json ? JSON.stringify({ ok: true, ...data }) : text); process.exit(0); };
+const n = Math.min(40, Math.max(1, Number(flag("--n") ?? 5) || 5));
+const localDay = (iso) => new Date(iso).toLocaleDateString("en-CA");
+const turnsSince = (sinceMs) => buildTurns(loadSources(controlledDir(), { sinceMs }));
+
+if (command === "last") {
+  const turns = recentTurns(turnsSince(now.getTime() - WINDOW_MS), { n });
+  const lines = turns.map((t) => {
+    const r = t.route;
+    const route = r.move ? `${r.move}${r.tool ? ` ${r.tool}` : ""}${r.flow ? ` / ${r.flow}` : ""}` : "unknown";
+    const tools = t.tools.length ? t.tools.map((x) => `${x.action} ${x.status}${x.error ? ` (${x.error})` : ""}`).join("; ") : "none";
+    return `${t.at.slice(11, 16)} you: ${t.message}\n  route: ${route}  tools: ${tools}\n  me: ${t.reply || "(no reply)"}`;
+  });
+  emit({ turns }, lines.length ? lines.join("\n") : "No recent turns on record.");
+} else if (command === "why") {
+  const turn = pickTurn(turnsSince(now.getTime() - WINDOW_MS), { about: flag("--about") ?? "", n: Math.max(n, 6), exclude: flag("--exclude") });
+  const diagnosis = turn ? diagnoseTurn(turn) : null;
+  emit({ diagnosis }, diagnosis ? diagnosis.says : "I have no recent turns on record to look at.");
+} else if (command === "scan") {
+  const day = flag("--day") ?? new Date(now.getTime() - 86_400_000).toLocaleDateString("en-CA");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) { console.error("--day must be YYYY-MM-DD"); process.exit(2); }
+  const since = Date.parse(`${day}T00:00:00`) - 3_600_000;
+  const turns = turnsSince(Math.min(since, now.getTime() - WINDOW_MS)).filter((t) => localDay(t.at) === day);
+  const failures = findFailures(turns, { now: now.getTime() });
+  emit({ day, turns: turns.length, failures }, `${day}: ${turns.length} turns, ${failures.length} clear failures${failures.map((f) => `\n- ${f.at.slice(11, 16)} ${f.kind}: ${f.message}`).join("")}`);
+} else {
+  console.error('usage: orion-selfcheck last [--n 5] [--json] | why [--about "…"] [--exclude "…"] --json | scan [--day YYYY-MM-DD] [--json]');
+  process.exit(2);
+}

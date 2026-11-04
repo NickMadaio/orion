@@ -1,3 +1,4 @@
+import { updateReminders } from "../reminders/store.mjs";
 // The fix offers ORION has made about his own mistakes (selffix.json in the controlled dir). One file, written atomically; the plugin
 // reads it (selffix-store.ts) and only scripts/orion-selffix writes it.
 //   status: candidate (the nightly scan found it, nothing said yet) | offered (asked "now or later?") | parked (project made, waiting)
@@ -36,30 +37,21 @@ export function blockingItem(items, signature, now) {
 /** A copy of the state with one item replaced (immutable update). */
 export const withItem = (state, item) => ({ ...state, items: state.items.map((i) => (i.id === item.id ? item : i)) });
 
-/** Writes a reminder in the shape the Mac app polls (reminders.json: id, kind, label, dueAt, createdAt). Returns the id. */
+/** Writes a reminder into the one reminders.json (lib/reminders/store.mjs: locked, so it never races the clock or the plugin). Returns the id. */
 export function addReminder(dir, { label, dueAt, now }) {
-  const file = join(dir, "reminders.json");
-  let live = [];
-  try { const parsed = JSON.parse(readFileSync(file, "utf8")); if (Array.isArray(parsed)) live = parsed; } catch { /* none yet */ }
-  let stamp = now;
-  while (live.some((r) => r.id === `f${stamp.toString(36).slice(-5)}`)) stamp += 1;
-  const reminder = { id: `f${stamp.toString(36).slice(-5)}`, kind: "alarm", label, dueAt, createdAt: now };
-  const tmp = `${file}.${process.pid}.tmp`;
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(tmp, JSON.stringify([...live, reminder], null, 2), { mode: 0o600 });
-  renameSync(tmp, file);
-  return reminder.id;
+  let id = "";
+  updateReminders(dir, (live) => {
+    let stamp = now;
+    while (live.some((r) => r.id === `f${stamp.toString(36).slice(-5)}`)) stamp += 1;
+    id = `f${stamp.toString(36).slice(-5)}`;
+    return [...live, { id, kind: "alarm", label, dueAt, createdAt: now }];
+  });
+  return id;
 }
 
 export function dropReminder(dir, id) {
-  const file = join(dir, "reminders.json");
-  if (!id || !existsSync(file)) return;
-  try {
-    const live = JSON.parse(readFileSync(file, "utf8"));
-    const tmp = `${file}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(live.filter((r) => r.id !== id), null, 2), { mode: 0o600 });
-    renameSync(tmp, file);
-  } catch { /* an unreadable reminder file is left alone */ }
+  if (!id) return;
+  updateReminders(dir, (live) => (live.some((r) => r.id === id) ? live.filter((r) => r.id !== id) : undefined));
 }
 
 /** This evening at 19:30 local, or tomorrow's once it is past 19:00. */

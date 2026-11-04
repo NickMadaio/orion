@@ -262,7 +262,7 @@ describe("cluster 10: days, times, alarms and labels", () => {
     it("cha-phone-call-c 'orion remind me to call my mom on sunday at 6': Sunday 6 PM, not Saturday", async () => {
         const sat = new Date(2026, 9, 31, 13, 30);
         const plan = await planReminder({ message: "orion remind me to call my mom on sunday at 6", now: sat, extract: async () => ({ time: "18:00", label: "call my mom" }), list: async () => [] });
-        expect(plan).toMatchObject({ kind: "call", at: "2026-11-01T18:00", reply: "Reminder set for Sunday at 6:00 PM: call my mom." });
+        expect(plan).toMatchObject({ kind: "call", at: "2026-11-01T18:00", reply: "I'll remind you Sunday at 6:00 PM to call my mom." });
         const next = await planReminder({ message: "remind me to pay rent next monday at 9am", now: at("10:00"), extract: async () => ({ time: "09:00", label: "pay rent" }), list: async () => [] });
         expect(next).toMatchObject({ at: "2026-11-09T09:00" });
     });
@@ -271,7 +271,7 @@ describe("cluster 10: days, times, alarms and labels", () => {
         expect(leaveAsReminder("im leaving at 6 for the gym")).toBe("remind me to leave for gym at 6");
         expect(leaveAsReminder("i'll leave whenever")).toBeUndefined();
         const plan = await planReminder({ message: leaveAsReminder("ill leave at 1:05 for marketing"), now: at("12:47"), extract: async () => ({ time: "01:05", label: "leave for marketing" }), list: async () => [] });
-        expect(plan).toMatchObject({ kind: "call", at: "2026-11-02T13:05", reply: "Reminder set for Monday at 1:05 PM: leave for marketing." });
+        expect(plan).toMatchObject({ kind: "call", at: "2026-11-02T13:05", reply: "I'll remind you at 1:05 PM to leave for marketing." });
         const direct = await planReminder({ message: "remind me to leave at 1:05", now: at("12:47"), extract: async () => ({ time: "01:05", label: "leave" }), list: async () => [] });
         expect(direct).toMatchObject({ at: "2026-11-02T13:05" });
     });
@@ -289,7 +289,7 @@ describe("cluster 10: days, times, alarms and labels", () => {
             built = (await fn({ prompt: "ill leave at 1:05 for marketing", messages: [] }, ctx));
         expect(built?.systemPrompt).toMatch(/alarm_set/);
         expect(built?.systemPrompt).toMatch(/2026-11-02T13:05/);
-        expect(built?.systemPrompt).toMatch(/Reminder set for Monday at 1:05 PM: leave for marketing\./);
+        expect(built?.systemPrompt).toMatch(/I'll remind you at 1:05 PM to leave for marketing\./);
     });
     it("sch-alarm-push-c 'move tomorrow morning alarm from 8 to 9am' is the wake alarm, set to 9:00, never a reminder", () => {
         expect(parseWake("move tomorrow morning alarm from 8 to 9am", { move: "escalate" }, at("22:00"))).toEqual({ kind: "set", time: "09:00" });

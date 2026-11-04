@@ -4,7 +4,7 @@ import { type ReplanAsk } from "./day-replan.js";
 import { parseEdit, type EditTarget } from "./edit-followup.js";
 import { type ComputerDeps } from "./computer-loop.js";
 import { type MessagesRead, type ReadOutcome } from "./messages-read.js";
-import { type StoredReminder } from "./reminder-flow.js";
+import { type OfferPort, type StoredReminder } from "./reminder-flow.js";
 import { type DeadlineRead } from "./deadline-read.js";
 import { type ReadyDeps } from "./focus-ready.js";
 import { type FocusRow } from "./focus-status.js";
@@ -143,6 +143,8 @@ export type LocalRoutingOptions = {
     } | null>;
     /** Reads the live reminder store, to list and to find what to cancel (tests pass a stub; wired from index.ts). */
     listReminders?: () => Promise<StoredReminder[]>;
+    /** Reminders ORION offers (a thing he says he has to do, a deadline) and his "yes" to them (reminder-offers.ts). */
+    offerPort?: OfferPort;
     /** The current time for reminder arithmetic (tests pin it). */
     now?: () => Date;
     /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */

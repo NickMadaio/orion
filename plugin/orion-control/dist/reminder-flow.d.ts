@@ -1,7 +1,19 @@
+import { type Repeat } from "./reminder-schedule.js";
+import { type OfferPort } from "./reminder-offers.js";
+export type { OfferPort, PendingOffer } from "./reminder-offers.js";
+/** A reminder as the plan reads it: the store's entry, whatever the clock has since written on it. */
 export type StoredReminder = {
     id: string;
     label: string;
     dueAt: number;
+    repeat?: Repeat;
+    place?: string;
+    important?: boolean;
+    firedAt?: number | null;
+    snoozedAt?: number | null;
+    kind?: "alarm" | "timer";
+    createdAt?: number;
+    open?: number | null;
 };
 export type Extracted = {
     time: string | null;
@@ -17,7 +29,7 @@ export type ReminderPlan = {
     kind: "call";
     args: string;
     reply: string;
-    action: "alarm_set" | "reminder_cancel";
+    action: "alarm_set" | "reminder_cancel" | "reminder_snooze" | "reminder_done";
     label?: string;
     at?: string;
 };
@@ -31,6 +43,8 @@ export type ReminderInput = {
         label: string;
         at: string;
     };
+    /** Offered reminders (a thing he says he has to do; a deadline ORION suggested). Without it nothing is offered or accepted. */
+    offers?: OfferPort;
 };
 /** A correction names no new subject: a message that names something else ("move gym to 6pm") is a new request (review, 2026-10-16). */
 export declare function isCorrection(message: string): boolean;

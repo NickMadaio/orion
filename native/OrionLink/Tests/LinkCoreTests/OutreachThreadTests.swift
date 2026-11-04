@@ -32,6 +32,26 @@ final class OutreachThreadTests: XCTestCase {
         XCTAssertEqual(try store.load(LinkSchema.threadID).messages.count, 1)
     }
 
+    /// w19-reminders: a reminder he set carries Snooze and Done on its phone notification; nothing else does.
+    func testAReminderOutreachGetsTheReminderCategory() throws {
+        var row = nudge
+        row["category"] = "orion.reminder"
+        let entry = try XCTUnwrap(OutreachThread.entry(from: row))
+        XCTAssertEqual(entry.category, OutreachThread.reminderCategory)
+        XCTAssertEqual(OutreachThread.reminderCategory, "orion.reminder")
+        XCTAssertEqual(try XCTUnwrap(OutreachThread.entry(from: nudge)).category, OutreachThread.checkinCategory, "an ordinary nudge keeps the check-in buttons")
+        // A question is still a question, whatever else the row says.
+        var ask = row
+        ask["category"] = "orion.ask"
+        XCTAssertEqual(try XCTUnwrap(OutreachThread.entry(from: ask)).category, OutreachThread.askCategory)
+    }
+
+    /// The words the notification buttons send into the chat, read by the plugin as a snooze and a done.
+    func testTheReminderButtonsSendWordsTheReminderFlowReads() {
+        XCTAssertEqual(OutreachThread.reminderSnoozeText, "snooze 10 min")
+        XCTAssertEqual(OutreachThread.reminderDoneText, "done")
+    }
+
     /// W16-d: a reply Nick typed into the Mac's proactive bubble, and ORION's answer, mirrored as one answered turn of his.
     func testABubbleExchangeIsHisTurnAnsweredNotANewOrionMessage() throws {
         let row: [String: Any] = ["id": "bubble-reach-1-1800000000", "text": "Okay — want it at 9:30 PM?", "said": "nah plans changed",

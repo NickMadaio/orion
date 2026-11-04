@@ -148,7 +148,7 @@ export type ExecutionPolicy = {
     operation: "weather" | "clock" | "system_status";
 } | {
     kind: "reminder";
-    operation: "timer_set" | "alarm_set" | "reminder_list" | "reminder_cancel";
+    operation: "timer_set" | "alarm_set" | "reminder_list" | "reminder_cancel" | "reminder_snooze" | "reminder_done";
 } | {
     kind: "self_tuning";
     operation: "read" | "write";

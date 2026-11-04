@@ -53,10 +53,14 @@ describe("other flows: a desk- or extractor-invented value writes nothing", () =
         expect(plan).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
         const pills = await planReminder({ message: "remind me to take 2 pills", now: NIGHT, extract: async () => ({ time: "07:00", label: "take 2 pills" }), list: async () => [] });
         expect(pills).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
-        for (const said of ["remind me tonight to call mom", "remind me tomorrow to call mom", "remind me this morning to call mom"]) {
-            const day = await planReminder({ message: said, now: NIGHT, extract: async () => ({ time: "20:00", label: "call mom" }), list: async () => [] });
-            expect(day, said).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
-        }
+        // A day with no part of it ("tomorrow") still asks: the extractor's 20:00 is invented. (w19: a part of the day he SAID is a default
+        // worked out by code from his words, never the extractor's: "tonight" is 8 PM whatever it guessed; tomorrow morning is 9.)
+        const day = await planReminder({ message: "remind me tomorrow to call mom", now: NIGHT, extract: async () => ({ time: "20:00", label: "call mom" }), list: async () => [] });
+        expect(day).toMatchObject({ kind: "say", text: expect.stringMatching(/What time/) });
+        const tonight = await planReminder({ message: "remind me tonight to call mom", now: NIGHT, extract: async () => ({ time: "07:00", label: "call mom" }), list: async () => [] });
+        expect(tonight).toMatchObject({ kind: "call", at: expect.stringMatching(/T20:00$/) });
+        const gone = await planReminder({ message: "remind me this morning to call mom", now: new Date(NIGHT.getFullYear(), NIGHT.getMonth(), NIGHT.getDate(), 15, 0), extract: async () => ({ time: "20:00", label: "call mom" }), list: async () => [] });
+        expect(gone).toMatchObject({ kind: "say", text: expect.stringMatching(/already past 9:00 AM/) });
         const named = await planReminder({ message: "remind me to take out the bins at 7am", now: NIGHT, extract: async () => ({ time: "07:00", label: "take out the bins" }), list: async () => [] });
         expect(named).toMatchObject({ kind: "call", action: "alarm_set" });
     });

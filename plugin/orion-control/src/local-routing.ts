@@ -60,7 +60,7 @@ import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksR
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply, type LateExec } from "./late-flow.js";
 import { parseMessagesRead, readNote, type MessagesRead, type ReadOutcome } from "./messages-read.js";
-import { isBareTime, isReminderTurn, leaveAsReminder, planReminder, type StoredReminder } from "./reminder-flow.js";
+import { isBareTime, isReminderTurn, leaveAsReminder, planReminder, type OfferPort, type StoredReminder } from "./reminder-flow.js";
 import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
 import { SPEAK_AS_I } from "./self-voice.js";
 import { readPlanReasons, whyFirstAnswer, whyFirstAsk } from "./plan-why.js";
@@ -191,6 +191,8 @@ export type LocalRoutingOptions = {
   extractReminder?: (message: string, clock?: string) => Promise<{ time: string | null; label: string } | null>;
   /** Reads the live reminder store, to list and to find what to cancel (tests pass a stub; wired from index.ts). */
   listReminders?: () => Promise<StoredReminder[]>;
+  /** Reminders ORION offers (a thing he says he has to do, a deadline) and his "yes" to them (reminder-offers.ts). */
+  offerPort?: OfferPort;
   /** The current time for reminder arithmetic (tests pin it). */
   now?: () => Date;
   /** Reads his day as a numbered list for questions (tests pass a stub; wired from index.ts). */
@@ -250,7 +252,7 @@ type Run = {
   findings: string[][];
   cloud?: boolean;
   /** A reminder the worker must set: the exact orion_task_run arguments and what to tell him. */
-  reminder?: { args: string; say: string; action?: "alarm_set" | "reminder_cancel"; label?: string; at?: string };
+  reminder?: { args: string; say: string; action?: "alarm_set" | "reminder_cancel" | "reminder_snooze" | "reminder_done"; label?: string; at?: string };
   /** Code put the data in the prompt (his day, brain snippets, the overwhelm note): no lookup is owed. */
   provided?: boolean;
   /** What code read for the worker this turn ("day", "day-tomorrow", "notes", "learned", "deadlines", ...), for the routing log (2026-10-16 r8). */
@@ -1800,7 +1802,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const last = lastReminder.get(key);
         const plan = await planReminder({ message: followUp ?? leaveAsReminder(run.message) ?? run.message, now: (options.now ?? pluginNow)(),
           extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
-          list: options.listReminders ?? (async () => []), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
+          list: options.listReminders ?? (async () => []), ...(options.offerPort ? { offers: options.offerPort } : {}), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
         if (plan?.kind === "say") {
           run.flow = { outcome: "say", kind: "plain", text: plan.text };
           if (plan.pending && key) reminderAsk.set(key, { text: followUp ?? run.message, at: Date.now(), ...(plan.askLabel ? { label: true } : {}) });
@@ -2277,7 +2279,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           await record({ revised: true });
           return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
         }
-        if (!called) { owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?" : "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
+        if (!called) { owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?"
+          : action === "reminder_snooze" ? "I didn't manage to snooze that — nothing was changed. Say it again?"
+          : action === "reminder_done" ? "I didn't manage to mark that done — nothing was changed. Say it again?"
+          : "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
         // Wave 6 B (foc-pomodoro-break-v): once it is set, the reply is code's line (worded on pluginNow), never the worker's paraphrase of the tool result.
         else if (!run.flow && run.reminder.say) run.flow = { outcome: "done", calls: [], outputs: [], reply: run.reminder.say };
       }

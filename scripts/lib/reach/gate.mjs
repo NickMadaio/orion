@@ -19,7 +19,7 @@ const ms = (t) => (t instanceof Date ? t.getTime() : Number(t));
  * A break (`rest`), `waiting`, `none` and `unknown` deliver: a break is when held things come out.
  * @returns {{ action: "deliver"|"hold", reason: string, heldFor?: "quiet"|"focus"|"class" }}
  */
-export function gate(aw, { kind = null, urgentKind = null, now = Date.now(), why = null, tier = null, text = "" } = {}) {
+export function gate(aw, { kind = null, urgentKind = null, now = Date.now(), why = null, tier = null, text = "", holdInFocus = false } = {}) {
   const t = ms(now);
   // What he is doing (w19): a time-critical line goes but owns it ("I know you're in Minecraft, but..."); a soft nudge while he
   // is gaming or watching is one gentle line, then silence; the same line twice in 30 min never goes. `text` is optional:
@@ -29,7 +29,11 @@ export function gate(aw, { kind = null, urgentKind = null, now = Date.now(), why
     const a = activityVerdict({ activity: aw?.activity ?? null, recent: aw?.activityRecent ?? [], msg: { urgentKind, tier, kind, why, text }, now: t });
     return a.action === "hold" ? a : { ...verdict, ...(a.text && text && a.text !== text ? { text: a.text, activityNote: a.reason } : {}) };
   };
-  if (bypassesQuiet({ urgentKind })) return byActivity({ action: "deliver", reason: "a reminder he set or a class he is about to miss always goes" });
+  if (bypassesQuiet({ urgentKind })) {
+    // A reminder he did not mark important still waits for the end of a focus session (w19-reminders); sleep and class do not hold it.
+    if (holdInFocus && urgentKind === "reminder" && aw?.session?.state === "focus") return { action: "hold", reason: "a focus session is running - this reminder is not marked important, so it comes out at the break", heldFor: "focus" };
+    return byActivity({ action: "deliver", reason: "a reminder he set or a class he is about to miss always goes" });
+  }
   if (aw?.sleep?.state === "asleep") return { action: "hold", reason: "quiet hours - it waits until he is up", heldFor: "quiet" };
   const routine = routineHold(aw, { kind, why, tier });   // learned routine (lib/patterns): no bedtime nag on his usual night out
   if (routine) return { action: "hold", reason: routine, heldFor: "routine" };

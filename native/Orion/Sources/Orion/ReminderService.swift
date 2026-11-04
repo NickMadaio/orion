@@ -4,6 +4,10 @@ import Foundation
 /*
  The half of a timer that actually goes off.
 
+ (w19-reminders) It no longer decides anything: it notices that a reminder is due and runs `orion-reminders tick`,
+ which words it, picks the channel (phone when he is away, bubble and voice at the Mac, phone in a game or a
+ meeting, held in focus unless important), rolls recurring ones on, and says what the Mac slept through.
+
  The plugin can write a timer down, but it cannot wake up: it exists only for
  the moment a tool call is running. Something has to be alive at the minute the
  timer is due, and the only thing that always is, is this app. So the plugin
@@ -18,6 +22,11 @@ import Foundation
  file on disk has very little room to lie.
  */
 
+struct RepeatRule: Codable, Equatable {
+    var days: [Int]
+    var time: String
+}
+
 struct StoredReminder: Codable, Equatable {
     var id: String
     var kind: String
@@ -25,45 +34,70 @@ struct StoredReminder: Codable, Equatable {
     /// Epoch milliseconds, matching `Date.now()` on the plugin side.
     var dueAt: Double
     var createdAt: Double
+    /// Set once delivered (epoch ms); a recurring reminder keeps its last one while `dueAt` rolls on.
+    var firedAt: Double? = nil
+    /// "Every Monday at 9": the schedule the script rolls `dueAt` along.
+    var repeatRule: RepeatRule? = nil
+    /// "When I get home": fires on arrival, `dueAt` is only its expiry.
+    var place: String? = nil
+    /// Delivered and not yet answered (epoch ms): the one resurface after 30 minutes hangs on it.
+    var open: Double? = nil
+    var nudged: Bool? = nil
+    /// A tick has this one in hand (epoch ms); another tick leaves it alone for a minute.
+    var inflight: Double? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, label, dueAt, createdAt, firedAt, place, open, nudged, inflight
+        case repeatRule = "repeat"
+    }
 
     var dueDate: Date { Date(timeIntervalSince1970: dueAt / 1000) }
 }
 
 final class ReminderService {
 
-    /// Announce a due reminder. Set by `AppState`, which owns the voice.
-    var onDue: ((StoredReminder) -> Void)?
-
     private let url: URL
+    private let script: URL
+    private let node: URL
     private var timer: Timer?
+    private var wakeObserver: NSObjectProtocol?
+    private var lastSlowTick = Date.distantPast
+    private var ticking = false
+    private var warnedMissingScript = false
 
-    /// Ids already announced.
-    ///
-    /// The store is rewritten by the plugin, not by this app, so a fired
-    /// reminder may still be sitting in the file the next time it is read —
-    /// there is a window between firing and the plugin's next prune. Without
-    /// this, a timer would announce itself once every poll for as long as that
-    /// window lasts, which is the kind of bug that is merely annoying at 2pm
-    /// and genuinely awful at 3am.
-    private var announced = Set<String>()
-
-    /// Every two seconds. Fine enough that "your timer is up" lands when it
-    /// should, coarse enough to be free.
+    /// Every two seconds. Fine enough that a reminder lands within seconds of its time, coarse enough to be free.
     private static let pollInterval: TimeInterval = 2
-
-    /// How late is too late to still be worth saying.
-    ///
-    /// A Mac that was asleep for an hour should not wake and read out a timer
-    /// that expired forty minutes ago as though it just happened. Anything
-    /// older than this is dropped silently — the moment has passed, and saying
-    /// so is worse than saying nothing.
-    private static let staleAfter: TimeInterval = 120
+    /// "When I get home" and "still open?" depend on where he is and what he did, not on the clock: a minute is plenty.
+    private static let slowInterval: TimeInterval = 60
+    /// A tick that claimed a reminder has a minute to deliver it before another tick may take it over.
+    private static let claimMs: Double = 60_000
 
     init(path: String? = nil) {
         let resolved = path ?? NSString(
             string: "~/.openclaw/orion-controlled/reminders.json"
         ).expandingTildeInPath
         self.url = URL(fileURLWithPath: resolved)
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        self.script = home.appendingPathComponent(".openclaw/orion-remote/scripts/orion-reminders")
+        self.node = home.appendingPathComponent(".openclaw/tools/node-v24.15.0/bin/node")
+    }
+
+    /// Whether something in the store is due for the clock to act on right now. A reminder the Mac slept through
+    /// counts however late it is: the script decides to say it as missed, or to drop it as too old.
+    static func needsTick(_ reminders: [StoredReminder], now: Date) -> Bool {
+        let t = now.timeIntervalSince1970 * 1000
+        return reminders.contains { r in
+            if let claimed = r.inflight, t - claimed < claimMs { return false }
+            if r.place != nil && r.firedAt == nil { return t >= r.dueAt }
+            return t >= r.dueAt && (r.repeatRule != nil || r.firedAt == nil)
+        }
+    }
+
+    /// Reminders that wait on him rather than the clock: a place to arrive at, or an answer to a fired one.
+    static func wantsSlowTick(_ reminders: [StoredReminder], now: Date) -> Bool {
+        reminders.contains { r in
+            (r.place != nil && r.firedAt == nil) || (r.open != nil && r.nudged != true)
+        }
     }
 
     func start() {
@@ -77,34 +111,63 @@ final class ReminderService {
         // would mean a timer that fires only once the user stops interacting.
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        // A Mac that wakes has reminders it slept through: say them as soon as it is awake and the network is back.
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self?.poll(force: true) }
+        }
         poll()
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        wakeObserver = nil
     }
 
-    private func poll() {
+    private func poll(force: Bool = false) {
         let now = Date()
         let reminders = load()
+        guard !reminders.isEmpty else { return }
+        let slow = ReminderService.wantsSlowTick(reminders, now: now) && now.timeIntervalSince(lastSlowTick) >= ReminderService.slowInterval
+        guard force || slow || ReminderService.needsTick(reminders, now: now) else { return }
+        if slow || force { lastSlowTick = now }
+        runTick()
+    }
 
-        // Forget ids that are no longer in the store, so `announced` cannot
-        // grow without bound over a long uptime.
-        let liveIds = Set(reminders.map(\.id))
-        announced.formIntersection(liveIds)
-
-        for reminder in reminders {
-            guard !announced.contains(reminder.id) else { continue }
-            let overdue = now.timeIntervalSince(reminder.dueDate)
-            guard overdue >= 0 else { continue }
-            announced.insert(reminder.id)
-            guard overdue <= ReminderService.staleAfter else {
-                OrionLog.write("[reminder] \(reminder.id) was \(Int(overdue))s late — dropped")
-                continue
+    /// The whole decision (what to say, through which channel, snooze, missed, recurring) lives in
+    /// `orion-reminders tick`, which is tested; this only wakes it. Two ticks never overlap here, and the script
+    /// claims each reminder under a lock, so the app and orion-proactive's backstop can both call it safely.
+    private func runTick() {
+        guard !ticking else { return }
+        guard FileManager.default.isExecutableFile(atPath: script.path) else {
+            if !warnedMissingScript {
+                warnedMissingScript = true
+                OrionLog.write("[reminder] orion-reminders is not installed at \(script.path): reminders will NOT fire until the scripts are deployed")
             }
-            OrionLog.write("[reminder] firing \(reminder.id) “\(reminder.label)”")
-            onDue?(reminder)
+            return
+        }
+        ticking = true
+        let node = self.node, script = self.script
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let process = Process()
+            process.executableURL = node
+            process.arguments = [script.path, "tick"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            do {
+                try process.run()
+                process.waitUntilExit()
+                let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !out.isEmpty && out != "Nothing due." { OrionLog.write("[reminder] \(out)") }
+            } catch {
+                OrionLog.write("[reminder] could not run the clock: \(error.localizedDescription)")
+            }
+            DispatchQueue.main.async { self?.ticking = false }
         }
     }
 

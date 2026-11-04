@@ -18,6 +18,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { decide } from "./lib/reach/proactive.mjs";
+import { deadlineOffers, readOffers, recordOffer } from "./lib/reminders/offers.mjs";
+import { readReminders } from "./lib/reminders/store.mjs";
 import { announced, markAnnounced } from "./lib/reach/announce.mjs";
 import { readHeld, releaseHeldAlerts } from "./lib/reach/held.mjs";
 import { deliveryOutcome } from "./lib/reach/delivery.mjs";
@@ -174,7 +176,10 @@ const questionsFile = questionsPath(DIR);
 const questionCheck = dayOk && !chasing(checkins) ? questionAsk(aw, { now, rows: readQuestions(questionsFile), ledger, turns, day, wakeGrace, otherAsk: actions.some((a) => a.action === "ask") }) : null;
 if (questionCheck && !sent[questionCheck.key]) actions.push(questionCheck);
 const said = actions.filter((a) => a.action === "say");
-const messages = [...said, ...decide({ ...ctxBase, declared: declaredToday, awakeLate: awakeLateFor({ dir: DIR, now })?.message ?? null, skipLadder: true })];
+// A reminder offered the evening before a deadline (w19-reminders): a few a day, once each, remembered for his "yes".
+const offers = dayOk ? deadlineOffers({ now, minute, todos, tomorrowDay: tomorrowDay ?? [], tomorrow, reminders: readReminders(DIR), state: readOffers(DIR) })
+  .map((o) => ({ key: o.key, text: o.text, kind: "question", offer: o.offer })) : [];
+const messages = [...said, ...decide({ ...ctxBase, declared: declaredToday, awakeLate: awakeLateFor({ dir: DIR, now })?.message ?? null, skipLadder: true }), ...offers];
 
 // Close plan loops that now have evidence; start a loop for a block not started; send the asks.
 const closed = [];
@@ -232,6 +237,7 @@ for (const m of messages) {
   // A refusal (exit 3) or a failed delivery (exit 4) stays unsaid so the next tick retries, and a failure is recorded.
   const outcome = deliveryOutcome({ status: r.status, stdout: r.stdout });
   if (outcome.said && m.claim) markAnnounced(DIR, localDate(now), m.claim, "proactive");
+  if (outcome.said && m.offer) { try { recordOffer(DIR, m.offer, now); } catch { /* the offer was made; a missed note only costs his "yes" */ } }
   if (outcome.said) { sent[m.key] = true; for (const k of m.also ?? []) sent[k] = true; }
   // dropped by a budget or the ceiling: NOT marked said. orion-reach logged it with its cooldown (doubling) and gives it up after
   // dropMaxPerDay, so the retry on later ticks is cheap and bounded, and a message the budget frees up later still goes.
@@ -244,6 +250,9 @@ if (!dry && (messages.length || closed.length)) {
   const keep = Object.fromEntries(Object.entries({ ...state, [dayKey]: sent }).sort().slice(-7));
   writeFileSync(`${STATE}.tmp`, JSON.stringify(keep, null, 2)); renameSync(`${STATE}.tmp`, STATE);
 }
+// The reminder clock's backstop (w19-reminders): the app calls it the second one is due; this catches whatever it missed
+// (the app was restarting, the Mac just woke) and fires "when I get home" on a place event. Idempotent, so both is safe.
+if (!dry) { try { spawnSync(process.execPath, [join(here, "orion-reminders"), "tick"], { encoding: "utf8", timeout: 60000, env: process.env }); } catch { /* the proactive tick goes on */ } }
 // Release what was held back (quiet hours, a focus session) once neither applies: the app's phase hook does it the moment
 // a break starts; this is the backstop for a missed hook. orion-reach decides through its gate whether anything goes
 // out (a break, the end, a pause over 3 min); orion-notify flushes Discord updates the same way.

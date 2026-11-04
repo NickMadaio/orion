@@ -167,7 +167,17 @@ export function briefingTop({ todos = [], headHistory = [], today }) {
   return topOfList({ candidates, history: headHistory, now: { date: today } });
 }
 
-export function composeBriefing({ now, day = [], travel = [], todos = [], today, weather, calendar = "ok", missed = [], headHistory = [] }) {
+const spokenTime = (ms) => { const d = new Date(ms); return `${spokenClock(d.getHours() * 60 + d.getMinutes())} ${d.getHours() < 12 ? "AM" : "PM"}`; };
+
+/** Today's reminders as one line ("Reminders today: call mom at 10 AM and gym bag at 5:30 PM."), or null when there are none. */
+export function remindersLine(reminders) {
+  const list = [...(reminders ?? [])].sort((a, b) => a.dueAt - b.dueAt);
+  if (!list.length) return null;
+  const said = list.slice(0, 4).map((r) => (r.place ? `${r.label} when you get home` : `${r.label} at ${spokenTime(r.dueAt)}`));
+  return `Reminders today: ${listOf(said)}${list.length > 4 ? ` and ${list.length - 4} more` : ""}.`;
+}
+
+export function composeBriefing({ now, day = [], travel = [], todos = [], today, weather, calendar = "ok", missed = [], headHistory = [], reminders = [] }) {
   const nowMinute = minuteOf(now);
   const greeting = nowMinute < 12 * 60 ? "Morning, Nick." : "Hey Nick, you're up.";
   const real = day.filter((b) => !/^commute|^getting (to|back)/i.test(b.title));
@@ -199,6 +209,8 @@ export function composeBriefing({ now, day = [], travel = [], todos = [], today,
     const top = briefingTop({ todos, headHistory, today });
     if (top.text) parts.push(top.text);
   }
+  const remind = remindersLine(reminders);
+  if (remind) parts.push(remind);
   const sky = weatherLine(weather, nowMinute);
   // weather === null means it was asked for and failed (undefined: not asked): say so instead of dropping it silently.
   if (sky) parts.push(sky);

@@ -1924,7 +1924,7 @@ export function registerLocalRouting(api, options) {
                 const last = lastReminder.get(key);
                 const plan = await planReminder({ message: followUp ?? leaveAsReminder(run.message) ?? run.message, now: (options.now ?? pluginNow)(),
                     extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
-                    list: options.listReminders ?? (async () => []), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
+                    list: options.listReminders ?? (async () => []), ...(options.offerPort ? { offers: options.offerPort } : {}), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
                 if (plan?.kind === "say") {
                     run.flow = { outcome: "say", kind: "plain", text: plan.text };
                     if (plan.pending && key)
@@ -2506,7 +2506,10 @@ export function registerLocalRouting(api, options) {
                     return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
                 }
                 if (!called) {
-                    owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?" : "I didn't manage to set that reminder — nothing was set. Can you say it again?";
+                    owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?"
+                        : action === "reminder_snooze" ? "I didn't manage to snooze that — nothing was changed. Say it again?"
+                            : action === "reminder_done" ? "I didn't manage to mark that done — nothing was changed. Say it again?"
+                                : "I didn't manage to set that reminder — nothing was set. Can you say it again?";
                     remember([runId, sessionKeyNow], owed);
                 }
                 // Wave 6 B (foc-pomodoro-break-v): once it is set, the reply is code's line (worded on pluginNow), never the worker's paraphrase of the tool result.

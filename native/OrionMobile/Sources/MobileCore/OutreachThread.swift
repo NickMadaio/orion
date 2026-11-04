@@ -30,6 +30,11 @@ public enum OutreachThread {
     /// The category a question gets (text reply); everything else keeps the check-in buttons.
     public static let askCategory = "orion.ask"
     public static let checkinCategory = "orion.checkin"
+    /// A reminder he set (w19-reminders): Snooze and Done on the notification.
+    public static let reminderCategory = "orion.reminder"
+    /// What those buttons say in the chat; the plugin's reminder flow reads them against the reminder that just went off.
+    public static let reminderSnoozeText = "snooze 10 min"
+    public static let reminderDoneText = "done"
     /// How long a proactive message stays the thing a typed reply answers (spec 3.5: an ask is answered late).
     public static let replyWindow: TimeInterval = 90 * 60
 
@@ -38,10 +43,11 @@ public enum OutreachThread {
         guard let id = item["id"] as? String, !id.isEmpty, let text = item["text"] as? String, !text.isEmpty else { return nil }
         let kind = item["kind"] as? String ?? "message"
         let wantsAsk = item["category"] as? String == askCategory || kind == "question" || item["askId"] != nil
+        let wantsReminder = item["category"] as? String == reminderCategory
         let urgent = (item["urgent"] as? Bool) == true || (item["timeSensitive"] as? Bool) == true
         let said = (item["said"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return Entry(id: id, text: text, conversationID: LinkSchema.threadID, push: item["push"] as? Bool == true,
-                     category: wantsAsk && said == nil ? askCategory : checkinCategory, level: urgent ? 2 : 1, kind: kind, said: said)
+                     category: wantsAsk && said == nil ? askCategory : wantsReminder && said == nil ? reminderCategory : checkinCategory, level: urgent ? 2 : 1, kind: kind, said: said)
     }
 
     /// A check-in tick or ORION-app alert (alerts-outbox.jsonl) is a message too, and answerable.

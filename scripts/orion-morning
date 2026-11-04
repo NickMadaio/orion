@@ -29,6 +29,7 @@ import { deliveryOutcome } from "./lib/reach/delivery.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
 import { actualWake } from "./lib/life/night.mjs";
 import { isRealClass } from "./lib/reach/class-ladder.mjs";
+import { readReminders, todaysReminders } from "./lib/reminders/store.mjs";
 import { shouldBrief, alarmClock, composeBriefing, buildView, briefingTop } from "./lib/reach/morning.mjs";
 import { readHeads, recordHead } from "./lib/reach/brief-heads.mjs";
 import { weatherWithRetry } from "./lib/reach/weather.mjs";
@@ -180,7 +181,9 @@ async function gather() {
   const missed = day.filter((b) => isRealClass(b) && b.end <= nowMinute && classAttendance(b, { wokeAt, phone }) === "missed");
   // the heads of earlier briefs: the same item first three days running is said as slipping (lib/reach/brief-heads.mjs)
   const headHistory = readHeads(DIR, today);
-  const facts = { now, day, travel, todos, today, weather: sky, calendar, missed, headHistory };
+  // Today's reminders (w19-reminders): what he set and has not yet heard, in time order.
+  const reminders = todaysReminders(readReminders(DIR), now).map((r) => ({ label: r.label, dueAt: r.dueAt, ...(r.place ? { place: r.place } : {}) }));
+  const facts = { now, day, travel, todos, today, weather: sky, calendar, missed, headHistory, reminders };
   const top = briefingTop({ todos, headHistory, today });
   return { text: composeBriefing(facts), view: buildView(facts), day, head: top.head?.key ?? null };
 }

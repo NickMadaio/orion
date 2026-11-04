@@ -1,0 +1,56 @@
+#!/usr/bin/env node
+/*
+ orion-reminders — the clock for reminders he asked for (w19-reminders).
+
+   orion-reminders tick [--json]            fire what is due through orion-reach: on time, once, missed ones on wake,
+                                            "when I get home", recurring roll-over, one resurface of an unanswered one.
+                                            Called by the Mac app the moment one is due, and by orion-proactive every tick.
+   orion-reminders list [--json]            what is set (soonest first)
+   orion-reminders today                    what is still to come today, as one sentence
+   orion-reminders snooze [id|last] <min>   a one-off moves; a recurring one keeps its schedule and gets a one-off copy
+   orion-reminders done [id|last]           a one-off goes; a recurring one carries on
+
+ The store is reminders.json, shared with the plugin (alarm_set). See lib/reminders/.
+*/
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { controlledDir, clockNow } from "./lib/clock.mjs";
+import { readAwareness } from "./lib/awareness/state.mjs";
+import { runTick } from "./lib/reminders/tick.mjs";
+import { readReminders, snoozeReminder, doneReminder, todaysReminders } from "./lib/reminders/store.mjs";
+import { clock12, describeRepeat } from "./lib/reminders/schedule.mjs";
+
+const DIR = controlledDir();
+const now = clockNow(process.env, ["ORION_REMINDERS_NOW"]);
+const args = process.argv.slice(2);
+const [command, ...rest] = args.filter((a) => !a.startsWith("--"));
+const json = args.includes("--json");
+const out = (v) => console.log(json ? JSON.stringify(v) : v);
+const readJson = (f) => { try { return JSON.parse(readFileSync(join(DIR, f), "utf8")); } catch { return null; } };
+const hhmm = (ms) => { const d = new Date(ms); return clock12(`${d.getHours()}:${d.getMinutes()}`); };
+const when = (r) => (r.repeat ? describeRepeat(r.repeat) : r.place ? "when he gets home" : `at ${hhmm(r.dueAt)}`);
+
+if (command === "tick") {
+  const aw = readAwareness({ dir: DIR, now });
+  const result = await runTick({ dir: DIR, now, aw, activity: readJson("activity.json") });
+  out(json ? result : result.fired.length ? result.fired.map((f) => `${f.sent ? "Fired" : "NOT SENT"} ${f.id} (${f.reason}): ${f.text}`).join("\n") : "Nothing due.");
+} else if (command === "list") {
+  const list = readReminders(DIR).filter((r) => r.repeat || r.place || !Number.isFinite(r.firedAt)).sort((a, b) => a.dueAt - b.dueAt);
+  out(json ? list : list.length ? list.map((r) => `${r.id}  ${r.label} ${when(r)}${r.important ? " (important)" : ""}`).join("\n") : "No reminders set.");
+} else if (command === "today") {
+  const left = todaysReminders(readReminders(DIR), now);
+  out(json ? left : left.length ? `Reminders today: ${left.map((r) => `${r.label} ${when(r)}`).join("; ")}.` : "No reminders left today.");
+} else if (command === "snooze") {
+  const minutes = Number(rest.at(-1));
+  const key = rest.length > 1 ? rest[0] : "last";
+  const r = snoozeReminder(DIR, key, minutes, now);
+  out(json ? r : r.ok ? `Snoozed until ${hhmm(r.dueAt)}.` : `Not snoozed: ${r.reason}.`);
+  process.exit(r.ok ? 0 : 1);
+} else if (command === "done") {
+  const r = doneReminder(DIR, rest[0] ?? "last", now);
+  out(json ? r : r.ok ? `Done: ${r.reminder.label}.` : `Not marked done: ${r.reason}.`);
+  process.exit(r.ok ? 0 : 1);
+} else {
+  console.error("usage: orion-reminders tick|list|today|snooze [id|last] <minutes>|done [id|last]  [--json]");
+  process.exit(2);
+}

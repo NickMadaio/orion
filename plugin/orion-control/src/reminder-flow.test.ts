@@ -123,11 +123,11 @@ describe("reminders — the time is worked out by code (sweep 2026-10-15)", () =
     expect(prompt).toMatch(/What time/);
   });
 
-  it("q038 'alarm for 6:45 weekdays' says repeating alarms aren't supported and sets nothing", async () => {
+  it("q038 'alarm for 6:45 weekdays' is a repeating reminder now (w19), not a refusal and not one alarm on Thursday", async () => {
     const h = harness({ now: at(2026, 10, 15, 12, 0), extract: () => ({ time: "06:45", label: "alarm for 6:45 weekdays" }) });
     const prompt = await h.turn("alarm for 6:45 weekdays pls");
-    expect(prompt).not.toMatch(/alarm_set/);
-    expect(prompt).toMatch(/repeating/i);
+    expect(prompt).toMatch(/"repeat":\{"days":\[1,2,3,4,5\],"time":"06:45"\}/);
+    expect(prompt).toMatch(/every weekday at 6:45 AM/);
   });
 
   it("alarm_set refuses a timestamp that has already passed instead of storing it as due in 0 seconds", () => {

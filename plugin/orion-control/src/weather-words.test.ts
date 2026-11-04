@@ -26,6 +26,24 @@ describe("fahrenheitWords", () => {
     expect(fahrenheitWords(said)).toBe(said);
     for (const t of ["Gym at 5 PM, 50% chance of rain.", "meeting at 9:30 F1 room", "CS2100 lecture at 3", "Pack 2 jackets, 70% likely"]) expect(fahrenheitWords(t)).toBe(t);
   });
+  it("never reads a food macro triple as a temperature (2026-11-04: '8F' was spoken as '8 degrees Fahrenheit')", () => {
+    for (const t of [
+      "~190 kcal · 6P 23C 8F (nature valley protein salted caramel nut bar; assumed standard single-serving bar size). Log it?",
+      "Logged ~570 kcal — nature valley protein bar: 18P 69C 24F. Fix anything?",
+      "Logged chicken burrito as lunch: 667 kcal, 27P 99C 18F. 1450 kcal today.",
+      "about 42P 70C 18F and 650 kcal, a high protein lunch",
+    ]) expect(fahrenheitWords(t)).toBe(t);
+    expect(finalizeReply("~190 kcal · 6P 23C 8F (a bar). Log it?", [])).not.toMatch(/Fahrenheit/);
+  });
+  it("a bare F with no degree sign converts only with weather context", () => {
+    expect(fahrenheitWords("It is 55 F outside, feels like 50 F.")).toBe("It is 55 degrees Fahrenheit outside, feels like 50 degrees Fahrenheit.");
+    expect(fahrenheitWords("Forecast: 46 F tonight")).toBe("Forecast: 46 degrees Fahrenheit tonight");
+    expect(fahrenheitWords("high 55F, low 46F")).toBe("high of 55 degrees Fahrenheit, low of 46 degrees Fahrenheit");
+    expect(fahrenheitWords("Today is 8F")).toBe("Today is 8F");
+  });
+  it("°F always converts, even beside macros", () => {
+    expect(fahrenheitWords("6P 23C 8F, and it is 55°F")).toBe("6P 23C 8F, and it is 55 degrees Fahrenheit");
+  });
   it("toF rounds", () => { expect(toF(13)).toBe(55); expect(toF(8.4)).toBe(47); });
 });
 

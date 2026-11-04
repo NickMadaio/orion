@@ -29,6 +29,7 @@ import { estimateMeal } from "./lib/food/estimate.mjs";
 import { readImages } from "./lib/food/ollama.mjs";
 import { latestUncounted, logEstimate, undoEntry, healthLogPath } from "./lib/food/log.mjs";
 import { claimPending, clearPending, livePending, loggedLine, loggedOffer, openOffers, restorePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
+import { macroWords } from "./lib/food/macros.mjs";
 import { runInbox } from "./lib/food/inbox.mjs";
 import { answerLine, focusOf, isFoodQuestion } from "./lib/food/question.mjs";
 import { readFileSync } from "node:fs";
@@ -203,7 +204,7 @@ function logPendingCommand() {
   const last = done.at(-1).logged;
   const e = last.entry;
   const say = done.length === 1
-    ? `${last.filled ? "Updated" : "Logged"} the ${done[0].offer.name}, ~${e.calories} kcal (${e.meal.toLowerCase()} · ${e.protein}P ${e.carbohydrates}C ${e.fat}F). ${last.dayCalories} kcal today.`
+    ? `${last.filled ? "Updated" : "Logged"} the ${done[0].offer.name}, ~${e.calories} kcal (${e.meal.toLowerCase()} · ${macroWords({ p: e.protein, c: e.carbohydrates, f: e.fat })}). ${last.dayCalories} kcal today.`
     : `Logged ${listOf(done.map(({ offer, logged }) => `the ${offer.name} (~${logged.entry.calories} kcal)`))}. ${last.dayCalories} kcal today.`;
   return finish({ ok: true, say, logged: { id: e.id, ids: done.map((d) => d.logged.entry.id), day: last.day, filled: last.filled, dayCalories: last.dayCalories, undo: `orion-food-estimate undo ${e.id}` },
     entry: e, summary: done[0].offer.summary }, say);

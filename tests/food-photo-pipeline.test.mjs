@@ -40,7 +40,7 @@ test("a real JPEG in the inbox is sent to the model as base64, logged at once, i
   assert.equal(sent.images.length, 1);
   assert.deepEqual(Buffer.from(sent.images[0], "base64"), readFileSync(photo), "the model gets the exact JPEG bytes");
   assert.match(sent.content, /just one slice/);
-  assert.match(told[0], /^Logged ~\d+ kcal — pizza slice, chicken topping: \d+P \d+C \d+F\. Fix anything\?$/);
+  assert.match(told[0], /^Logged ~\d+ kcal — pizza slice, chicken topping: \d+ g protein, \d+ g carbs, \d+ g fat\. Fix anything\?$/);
 
   const log = JSON.parse(readFileSync(join(dir, "health-log.json"), "utf8"));
   const [entry] = log.nutritionLog["2026-11-03"];

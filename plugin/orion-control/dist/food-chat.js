@@ -78,7 +78,7 @@ function loggedLine(j) {
         return `${j.say} Say "undo" to take it off.`; // the script names what it logged
     const e = (j.entry ?? {});
     const l = (j.logged ?? {});
-    return `${l.filled ? "Updated" : "Logged"} ${lower(e.title)} as ${lower(e.meal)}: ${e.calories} kcal, ${e.protein}P ${e.carbohydrates}C ${e.fat}F. ${l.dayCalories} kcal today. Say "undo" to take it off.`;
+    return `${l.filled ? "Updated" : "Logged"} ${lower(e.title)} as ${lower(e.meal)}: ${e.calories} kcal, ${e.protein} g protein, ${e.carbohydrates} g carbs, ${e.fat} g fat. ${l.dayCalories} kcal today. Say "undo" to take it off.`;
 }
 /** Carries out one food turn. Never throws; a failure is one honest sentence. */
 export async function runFoodTurn(turn, deps) {

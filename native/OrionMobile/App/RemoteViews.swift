@@ -535,10 +535,10 @@ struct RemoteSections: View {
                         PhoneRing(symbol: symbol(run.status), tint: tint(run.status), size: 46, live: run.status == .working)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(run.project).font(.system(size: 16, weight: .semibold)).foregroundStyle(Phone.text)
-                            Text(runLine(run)).font(Phone.mono(11, .medium)).foregroundStyle(Phone.soft)
+                            Text(runLine(run)).font(Phone.mono(11, .medium)).foregroundStyle(Phone.soft).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 0)
-                        Text("\(run.percent)%").font(.system(size: 22, weight: .light, design: .rounded)).foregroundStyle(Phone.text)
+                        PhoneGauge(label: "Done", figure: "\(run.percent)", fraction: Double(run.percent) / 100, unit: nil, tint: tint(run.status), size: 56)
                     }
                     if let task = run.activeTask {
                         Text(run.step.map { "\(task) — \($0)" } ?? task).font(.system(size: 14)).foregroundStyle(Phone.soft)
@@ -549,7 +549,7 @@ struct RemoteSections: View {
                     HStack(spacing: 10) {
                         if run.live && run.status == .working {
                             Button { remote.agent(.stop, run) } label: { Label("Stop", systemImage: "stop.fill") }
-                                .buttonStyle(PhoneButtonStyle(tint: Phone.text, prominent: true))
+                                .buttonStyle(PhoneButtonStyle(tint: Phone.red))
                             Button { remote.agent(.pause, run) } label: { Label("Pause", systemImage: "pause.fill") }
                                 .buttonStyle(PhoneButtonStyle(tint: Phone.accent))
                         } else if run.status == .paused || (run.status == .stopped && run.accepted < run.total) {

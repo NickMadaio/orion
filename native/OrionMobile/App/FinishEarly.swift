@@ -13,11 +13,9 @@ struct FinishEarlyButton: View {
             Button(action: onPress) {
                 Label(DoneEarly.label, systemImage: DoneEarly.symbol)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Phone.soft)
-                    .padding(.horizontal, 12).padding(.vertical, 9)
-                    .background(Phone.wash(0.04), in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(Phone.text)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PhoneButtonStyle(tint: Phone.green))
             .accessibilityLabel(DoneEarly.accessibilityLabel(for: context))
             .accessibilityHint(DoneEarly.accessibilityHint(for: context))
             if let feedback {

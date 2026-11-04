@@ -274,6 +274,9 @@ final class NightRoutine: ObservableObject {
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(Self.prefix) }
         center.removePendingNotificationRequests(withIdentifiers: pending)
         guard settings.nudges, !inBed, !Self.macIsHandlingNight else { return }
+        #if targetEnvironment(simulator)
+        if RemoteStore.fixture { return }   // screenshot mode: no permission prompt over the screen
+        #endif
         _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
         // Out tonight: no "wind down" while he's at the club; start at the new bedtime.
         var moments: [(Date, Int)] = plan.nightOut == nil
@@ -412,6 +415,9 @@ final class NightRoutine: ObservableObject {
         guard settings.wakeAlarm else { UserDefaults.standard.removeObject(forKey: Self.alarmKey); alarmState = "Off"; reportAlarms([], state: "Off"); return }
         guard !wanted.isEmpty else { UserDefaults.standard.removeObject(forKey: Self.alarmKey); alarmState = "Not set"; reportAlarms([], state: "Not set"); return }
         do {
+            #if targetEnvironment(simulator)
+            if RemoteStore.fixture { return }   // screenshot mode: no permission prompt over the screen
+            #endif
             if !unmatched.isEmpty, manager.authorizationState == .notDetermined { _ = try await manager.requestAuthorization() }
             if !unmatched.isEmpty, manager.authorizationState != .authorized { alarmState = "Allow Alarms for ORION in Settings"; return }
             for item in unmatched {
@@ -511,17 +517,17 @@ struct TonightCard: View {
     }
 
     private func lateNight(_ plan: NightPlan, now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionLabel("It's \(NightPlan.clock(now))", tint: Phone.orange)
-            Text("Go to sleep.").font(Phone.display(30, .bold)).foregroundStyle(Phone.text)
+        PhoneCard(tint: Phone.sleep, tilt: -0.5) {
+          VStack(alignment: .leading, spacing: 12) {
+            SectionLabel("It's \(NightPlan.clock(now))", tint: Phone.sleep)
+            Text("Go to sleep.").font(Phone.display(30, .regular)).foregroundStyle(Phone.text)
             Text("\(NightPlan.duration(plan.sleepLeft(at: now))) left before your alarm\(plan.reason.map { " · \($0)" } ?? "").")
                 .font(.system(size: 15)).foregroundStyle(Phone.soft)
             Button { routine.goingToBed() } label: { Label("Going to bed", systemImage: "moon.zzz.fill") }
-                .buttonStyle(PhoneButtonStyle(tint: Phone.violet, prominent: true))
+                .buttonStyle(PhoneButtonStyle(tint: Phone.sleep, prominent: true))
                 .accessibilityIdentifier("goingToBed")
+          }
         }
-        .padding(16)
-        .background(Phone.violet.opacity(0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func tonight(_ plan: NightPlan) -> some View {
@@ -532,15 +538,16 @@ struct TonightCard: View {
             }
             if let out = plan.nightOut {
                 Label("Out tonight: \(out). No bedtime nudges until it's over — bed by \(NightPlan.clock(plan.bed)).", systemImage: "sparkles")
-                    .font(.system(size: 14)).foregroundStyle(Phone.violet).fixedSize(horizontal: false, vertical: true)
+                    .font(.system(size: 14)).foregroundStyle(Phone.sleep).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                SectionLabel("Tonight", tint: Phone.violet)
-                Button("Adjust") { editing = true }.font(.system(size: 13, weight: .semibold)).foregroundStyle(Phone.accent)
+                SectionLabel("Tonight", tint: Phone.sleep)
+                Button("Adjust") { editing = true }.font(.system(size: 13, weight: .semibold)).foregroundStyle(Phone.soft)
+                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             HStack(alignment: .top, spacing: 18) {
-                PhoneStat(label: "Bed by", value: NightPlan.clock(plan.bed), detail: routine.inBed ? "you're in bed" : "\(routine.settings.sleepMinutes / 60)h of sleep", tint: Phone.violet)
-                PhoneStat(label: "Alarm", value: NightPlan.clock(plan.wake), detail: plan.reason ?? routine.alarmState, tint: Phone.accent)
+                PhoneStat(label: "Bed by", value: NightPlan.clock(plan.bed), detail: routine.inBed ? "you're in bed" : "\(routine.settings.sleepMinutes / 60)h of sleep", tint: Phone.sleep)
+                PhoneStat(label: "Alarm", value: NightPlan.clock(plan.wake), detail: plan.reason ?? routine.alarmState, tint: Phone.text)
             }
             if routine.alarmState.hasPrefix("Allow") || routine.alarmState.hasPrefix("Could") {
                 Text(routine.alarmState).font(.footnote).foregroundStyle(Phone.orange)

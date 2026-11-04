@@ -1,117 +1,101 @@
 import SwiftUI
 import MobileCore
 
-/// Health on the phone: the Mac's daily log (WHOOP and manual), carried in the
-/// link snapshot. Numbers are shown only when recorded; a missing reading is a
-/// dash, never a zero.
+/// Health on the phone, as the Mac Health tab reads: rings for recovery, sleep and strain, a verdict and plain lines,
+/// then the day's water, food and supplements. A missing reading is a dash, never a zero.
 struct HealthView: View {
     @ObservedObject var remote: RemoteStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var days: [LinkSnapshot.HealthDay] { remote.snapshot?.health ?? [] }
     private var latest: LinkSnapshot.HealthDay? { days.last }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                PhoneHeader(eyebrow: "Tracking · recovery · sleep", title: "Health")
-                TrackingSection(remote: remote)
+            VStack(alignment: .leading, spacing: 32) {
+                PhoneHeader(eyebrow: latest.map { label($0.date) } ?? "Recovery · sleep · strain", title: "Health", tint: Phone.green)
                 if let day = latest {
-                    SectionLabel("Recovery", tint: Phone.green).padding(.top, 6)
-                    today(day)
-                    week
-                    Text(footer(day)).font(.footnote).foregroundStyle(Phone.dim)
-                } else if remote.snapshot != nil {
-                    Text("Connect WHOOP in ORION on your Mac and recovery, sleep and strain show up here.")
-                        .font(.system(size: 14)).foregroundStyle(Phone.soft)
+                    vitals(day).softReveal(true)
+                    TrackingSection(remote: remote).softReveal(true)
+                    if days.count > 1 { week.softReveal(true) }
+                } else {
+                    if remote.snapshot != nil {
+                        Text(HealthReadout.empty).font(.system(size: 15)).foregroundStyle(Phone.soft).lineSpacing(3)
+                    }
+                    TrackingSection(remote: remote)
                 }
             }
-            .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 30)
+            .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 36)
         }
         .phoneScreen()
         .navigationTitle("Health")
     }
 
-    private func today(_ day: LinkSnapshot.HealthDay) -> some View {
+    private func vitals(_ day: LinkSnapshot.HealthDay) -> some View {
         VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 22) {
-                RecoveryRing(value: day.recovery)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(label(day.date)).font(Phone.mono(10)).tracking(1.2).foregroundStyle(Phone.dim)
-                    Text(verdict(day.recovery)).font(Phone.display(22)).foregroundStyle(Phone.text)
-                    Text("Recovery").font(.system(size: 13)).foregroundStyle(Phone.soft)
-                }
+            HStack(alignment: .top, spacing: 0) {
+                PhoneGauge(label: "Recovery", figure: day.recovery.map { "\($0)" } ?? "—", fraction: day.recovery.map { Double($0) / 100 },
+                           unit: "%", tint: RecoveryRing.tint(day.recovery), size: 96)
+                    .frame(maxWidth: .infinity)
+                PhoneGauge(label: "Sleep", figure: day.sleepHours.map { String(format: "%.1f", $0) } ?? "—",
+                           fraction: HealthReadout.sleepFraction(day), unit: "hours", tint: Phone.sleep, size: 96)
+                    .frame(maxWidth: .infinity)
+                PhoneGauge(label: "Strain", figure: day.strain.map { String(format: "%.1f", $0) } ?? "—",
+                           fraction: HealthReadout.strainFraction(day), unit: "of 21", tint: Phone.purple, size: 96)
+                    .frame(maxWidth: .infinity)
             }
-            HStack(alignment: .top, spacing: 16) {
-                PhoneStat(label: "Sleep", value: day.sleepHours.map { String(format: "%.1f h", $0) } ?? "—",
-                          detail: day.sleepPerformance.map { "\($0)% of need" })
-                PhoneStat(label: "HRV", value: day.hrv.map { "\($0)" } ?? "—", detail: day.hrv == nil ? nil : "ms")
-                PhoneStat(label: "Resting HR", value: day.restingHeartRate.map { "\($0)" } ?? "—", detail: day.restingHeartRate == nil ? nil : "bpm")
-                PhoneStat(label: "Strain", value: day.strain.map { String(format: "%.1f", $0) } ?? "—", tint: Phone.violet)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(HealthReadout.verdict(recovery: day.recovery)).font(Phone.display(24, .regular)).foregroundStyle(Phone.text)
+                ForEach(HealthReadout.lines(day), id: \.self) { line in
+                    Text(line).font(.system(size: 14.5)).foregroundStyle(Phone.soft).lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
 
+    /// The last days as small recovery rings, oldest first.
     private var week: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionLabel("Recovery · last \(days.count) day\(days.count == 1 ? "" : "s")", tint: Phone.green)
-            HStack(alignment: .bottom, spacing: 10) {
+        VStack(alignment: .leading, spacing: 16) {
+            SectionLabel("Recovery · last \(days.count) days", tint: Phone.green)
+            HStack(spacing: 6) {
                 ForEach(days) { day in
-                    VStack(spacing: 6) {
-                        Text(day.recovery.map { "\($0)" } ?? "—").font(Phone.mono(10, .medium)).foregroundStyle(Phone.soft)
-                        Capsule().fill(RecoveryRing.tint(day.recovery).opacity(day.recovery == nil ? 0.2 : 0.9))
-                            .frame(width: 18, height: max(6, CGFloat(day.recovery ?? 6) * 1.1))
-                        Text(weekday(day.date)).font(Phone.mono(9, .medium)).foregroundStyle(Phone.dim)
+                    VStack(spacing: 8) {
+                        ZStack {
+                            Circle().stroke(Phone.wash(0.08), lineWidth: 3)
+                            Circle().trim(from: 0, to: CGFloat(day.recovery ?? 0) / 100)
+                                .stroke(RecoveryRing.tint(day.recovery), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                                .rotationEffect(.degrees(-90))
+                            Text(day.recovery.map { "\($0)" } ?? "—").font(Phone.mono(10, .medium)).foregroundStyle(Phone.soft)
+                        }
+                        .frame(width: 38, height: 38)
+                        Text(weekday(day.date)).font(Phone.mono(9.5, .medium)).foregroundStyle(Phone.dim)
                     }
                     .frame(maxWidth: .infinity)
+                    .accessibilityElement(children: .combine)
                 }
             }
-            .frame(height: 150, alignment: .bottom)
+            .animation(PhoneMotion.spring(PhoneMotion.enter, reduce: reduceMotion), value: days)
         }
-    }
-
-    private func verdict(_ recovery: Int?) -> String {
-        guard let recovery else { return "Not recorded" }
-        if recovery >= 67 { return "Ready to push" }
-        if recovery >= 34 { return "Steady, not a peak day" }
-        return "Take it easy"
     }
 
     private static let dayFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f }()
     private func label(_ key: String) -> String {
         guard let date = Self.dayFormat.date(from: key) else { return key }
-        if Calendar.current.isDateInToday(date) { return "TODAY" }
-        if Calendar.current.isDateInYesterday(date) { return "YESTERDAY" }
-        return date.formatted(.dateTime.weekday(.wide).day().month()).uppercased()
+        if Calendar.current.isDateInToday(date) { return "Today" }
+        if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
+        return date.formatted(.dateTime.weekday(.wide).day().month())
     }
     private func weekday(_ key: String) -> String {
         guard let date = Self.dayFormat.date(from: key) else { return "" }
         return date.formatted(.dateTime.weekday(.narrow))
     }
-    private func footer(_ day: LinkSnapshot.HealthDay) -> String {
-        let seen = remote.snapshot?.generatedAt.formatted(.relative(presentation: .named)) ?? "—"
-        return "From ORION on your Mac · updated \(seen). Raw health stays in your private iCloud."
-    }
 }
 
-/// WHOOP's colours: green 67+, yellow 34–66, red below.
-struct RecoveryRing: View {
-    let value: Int?
+/// Recovery's colours: green 67+, yellow 34-66, red below.
+enum RecoveryRing {
     static func tint(_ value: Int?) -> Color {
         guard let value else { return Phone.dim }
-        return value >= 67 ? Phone.green : value >= 34 ? Color(red: 1, green: 0.84, blue: 0.3) : Phone.red
-    }
-    var body: some View {
-        ZStack {
-            Circle().stroke(Phone.wash(0.08), lineWidth: 9)
-            Circle().trim(from: 0, to: CGFloat(value ?? 0) / 100)
-                .stroke(Self.tint(value), style: StrokeStyle(lineWidth: 9, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            VStack(spacing: 0) {
-                Text(value.map { "\($0)" } ?? "—").font(.system(size: 38, weight: .light, design: .rounded)).foregroundStyle(Phone.text)
-                Text("%").font(Phone.mono(10)).foregroundStyle(Phone.dim)
-            }
-        }
-        .frame(width: 118, height: 118)
-        .animation(.easeOut(duration: 0.6), value: value)
+        return value >= 67 ? Phone.green : value >= 34 ? Phone.yellow : Phone.red
     }
 }

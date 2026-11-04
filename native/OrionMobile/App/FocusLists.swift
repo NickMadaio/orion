@@ -113,7 +113,7 @@ struct FocusListsView: View {
                             Text(list.title).foregroundStyle(Phone.text)
                             Spacer()
                             Text(lists.isEmpty(list) ? "Pick apps" : "\(lists.selection(for: list).applicationTokens.count) apps").foregroundStyle(Phone.dim)
-                            if lists.blocked.contains(list) { Image(systemName: "lock.fill").foregroundStyle(Phone.violet).accessibilityLabel("Blocked") }
+                            if lists.blocked.contains(list) { Image(systemName: "lock.fill").foregroundStyle(Phone.orange).accessibilityLabel("Blocked") }
                         }.padding(.vertical, 12).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                     Rectangle().fill(Phone.hairline).frame(height: 1)

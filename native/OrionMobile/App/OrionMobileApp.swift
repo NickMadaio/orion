@@ -252,13 +252,7 @@ struct PhoneRootView: View {
                         },
                         onLogFood: { drawerOpen = false; loggingFood = true })
         }
-        .sheet(isPresented: $loggingFood) {
-            FoodCaptureSheet(onSent: { id, note, _ in
-                remote.noteFoodPhoto(id: id, note: note, conversation: conversationID)
-                loggingFood = false
-            }, onClose: { loggingFood = false })
-            .tint(Phone.accent).preferredColorScheme(colorScheme)
-        }
+        .foodLogging(trigger: $loggingFood, remote: remote, conversationID: conversationID)
     }
 
     @ViewBuilder private var sectionScreen: some View {
@@ -266,6 +260,9 @@ struct PhoneRootView: View {
         case "plan": plan
         case "health": HealthView(remote: remote)
         case "control": control
+        #if targetEnvironment(simulator)
+        case "lists": FocusListsView()   // Simulator only: `--tab lists`, for screenshot checks
+        #endif
         default: today
         }
     }
@@ -285,6 +282,7 @@ struct PhoneRootView: View {
         .task {
             #if targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("--sample") { loadSample() }
+            if ProcessInfo.processInfo.arguments.contains("--food") { loggingFood = true }
             if reviewsConnection {
                 do { reviewedSetup = try PhoneHTTPReadSession.loadSetup() }
                 catch { setupStatus = "Connection setup is unavailable. Start a new preview on your Mac." }
@@ -497,7 +495,7 @@ struct PhoneRootView: View {
                     let now = sample.current(at: sampleNow)
                     VStack(alignment: .leading, spacing: 8) {
                         SectionLabel("Now", tint: Phone.accent)
-                        Text(now?.title ?? "Open time").font(Phone.display(30, .bold)).foregroundStyle(Phone.text)
+                        Text(now?.title ?? "Open time").font(Phone.display(30, .regular)).foregroundStyle(Phone.text)
                         if let now {
                             Text("Until \(time(now.start.addingTimeInterval(TimeInterval(now.minutes * 60)))) · \(now.minutes) min")
                                 .font(Phone.mono(13, .medium)).foregroundStyle(Phone.soft)
@@ -603,7 +601,7 @@ struct PhoneRootView: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel(current == nil ? "Next" : "Now", tint: Phone.accent)
             if let item = current ?? next {
-                Text(item.title).font(Phone.display(30, .bold)).foregroundStyle(Phone.text)
+                Text(item.title).font(Phone.display(30, .regular)).foregroundStyle(Phone.text)
                 Text(current != nil
                      ? "Until \(item.end.formatted(date: .omitted, time: .shortened)) · \(item.isOrion ? "ORION plan" : item.detail)"
                      : "At \(item.start.formatted(date: .omitted, time: .shortened)) · \(item.isOrion ? "ORION plan" : item.detail)")
@@ -619,13 +617,14 @@ struct PhoneRootView: View {
                 Button { withAnimation(.spring(response: 0.3)) { planner.toggle(todo) } } label: {
                     HStack(spacing: 12) {
                         Circle().stroke(Phone.soft, lineWidth: 1.4).frame(width: 20, height: 20)
-                        Text(todo.title).font(.system(size: 16)).foregroundStyle(Phone.text)
+                        Text(todo.title).font(.system(size: 16)).foregroundStyle(Phone.text).multilineTextAlignment(.leading)
                         Spacer()
                         if let due = todo.due, Calendar.current.isDateInToday(due) {
                             Text(due.formatted(date: .omitted, time: .shortened)).font(Phone.mono(11, .medium))
                                 .foregroundStyle(due < now ? Phone.orange : Phone.dim)
                         }
                     }
+                    .frame(minHeight: 44).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Complete \(todo.title)")
@@ -813,10 +812,12 @@ struct PhoneRootView: View {
                     Spacer()
                     Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(Phone.dim)
                 }
-                .padding(14)
-                .background(Phone.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.horizontal, 16).frame(minHeight: 56)
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Phone.orange.opacity(0.55), lineWidth: 0.9))
+                .shadow(color: Phone.orange.opacity(0.12), radius: 10)
+                .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PhonePressStyle())
         }
         TonightCard(routine: routine)
         if planner.access == .granted { todayFromPlanner } else { connectPlanner }

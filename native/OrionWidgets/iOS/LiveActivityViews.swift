@@ -48,7 +48,7 @@ struct OrionLiveActivity: Widget {
 
     static func tint(_ state: OrionActivityAttributes.ContentState) -> Color {
         if state.mode == "checkin" { return state.level >= 2 ? W.red : W.accent }
-        if state.mode == "snoozed" { return W.gold }
+        if state.mode == "snoozed" { return W.highlight }
         if state.mode == "active" { return W.violet }
         return W.tint(state.kind)
     }

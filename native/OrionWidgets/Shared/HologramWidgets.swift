@@ -98,7 +98,7 @@ struct StatStrip: View {
                 stat("Kcal", "\(t.calories)", W.orange)
                 stat("Protein", "\(t.protein)g", W.green)
             }
-            if let recovery = glance.recovery { stat("Recovery", "\(recovery)%", recovery >= 67 ? W.green : recovery >= 34 ? W.gold : W.red) }
+            if let recovery = glance.recovery { stat("Recovery", "\(recovery)%", recovery >= 67 ? W.green : recovery >= 34 ? W.highlight : W.red) }
             if glance.approvals > 0 { stat("Waiting", "\(glance.approvals)", W.accent) }
             Spacer(minLength: 0)
         }

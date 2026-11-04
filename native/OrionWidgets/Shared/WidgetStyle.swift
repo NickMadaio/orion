@@ -26,8 +26,6 @@ enum W {
     static let orange = Color(red: 1.00, green: 0.58, blue: 0.20)
     static let violet = Color(red: 0.70, green: 0.52, blue: 1.00)
     static let red = Color(red: 1.00, green: 0.38, blue: 0.38)
-    /// Was gold; the calm and paused tint is now the pale azure highlight.
-    static let gold = highlight
 
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
@@ -51,7 +49,7 @@ enum W {
 
     static func tint(_ mood: OrionGlance.Mood) -> Color {
         switch mood {
-        case .calm: return gold
+        case .calm: return highlight
         case .focus: return violet
         case .asking: return accent
         case .alert: return red

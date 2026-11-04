@@ -276,7 +276,7 @@ struct TonightView: View {
                     Eyebrow("Alarm", tint: W.accent)
                     Text(night.alarm.map(W.clock) ?? "Off").font(W.mono(30, .bold)).foregroundStyle(W.text)
                     if let left { Text("\(W.duration(left)) of sleep").font(.system(size: 11)).foregroundStyle(W.soft) }
-                    if let note = night.note { Text(note).font(.system(size: 10)).foregroundStyle(W.gold).lineLimit(2) }
+                    if let note = night.note { Text(note).font(.system(size: 10)).foregroundStyle(W.highlight).lineLimit(2) }
                     Spacer(minLength: 0)
                 }
             }

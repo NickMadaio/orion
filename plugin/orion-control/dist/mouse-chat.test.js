@@ -64,6 +64,11 @@ describe("readMouseTurn: held-out casual phrasings", () => {
             expect(readMouseTurn(m)?.kind, m).not.toBe("shortcuts");
         }
     });
+    it("the top button (a mouse button remapped to F13) is a button he can name", () => {
+        expect(readMouseTurn("make the top button on my mouse open orion typing")).toEqual(set("top button", "open orion typing"));
+        expect(readMouseTurn("set my f13 button to mission control")).toEqual(set("f13 button", "mission control"));
+        expect(readMouseTurn("unbind the top button")).toEqual({ kind: "clear", button: "top button" });
+    });
     it("status, clear and setup", () => {
         expect(readMouseTurn("what are my mouse buttons set to")).toEqual({ kind: "status" });
         expect(readMouseTurn("what does the back button on my mouse do rn")).toEqual({ kind: "status" });

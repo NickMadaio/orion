@@ -7,9 +7,11 @@ public struct AttachedMouse: Equatable {
     public var name: String
     public var transport: String
     public var buttonCount: Int
-    public init(vendorId: Int, productId: Int, name: String, transport: String, buttonCount: Int) {
+    /// The same device also shows up as a keyboard (a mouse whose onboard memory sends a key, such as F13).
+    public var keyboardInterface: Bool
+    public init(vendorId: Int, productId: Int, name: String, transport: String, buttonCount: Int, keyboardInterface: Bool = false) {
         self.vendorId = vendorId; self.productId = productId; self.name = name
-        self.transport = transport; self.buttonCount = buttonCount
+        self.transport = transport; self.buttonCount = buttonCount; self.keyboardInterface = keyboardInterface
     }
     public var id: String { "\(vendorId):\(productId)" }
 }
@@ -28,6 +30,21 @@ public enum DeviceRegistry {
         count > 3 ? Array(3..<count) : []
     }
 
+    /// What the device offers now: the descriptor's buttons, the top button when it also acts as a keyboard, and anything
+    /// already learned (a press seen beyond the descriptor, a key button) that the descriptor still does not explain.
+    static func extras(for m: AttachedMouse, previous: [Int], previousCount: Int = 0) -> [Int] {
+        let fromDescriptor = extraButtons(count: m.buttonCount)
+        let keys = m.keyboardInterface ? [KeyButtons.defaultId] : []
+        let learned = previous.filter { $0 >= max(previousCount, m.buttonCount) && !KeyButtons.isKeyButton($0) }
+        let kept = previous.filter { KeyButtons.isKeyButton($0) && $0 != KeyButtons.defaultId }
+        return Array(Set(fromDescriptor + keys + learned + kept)).sorted()
+    }
+
+    /// Key buttons the connected mice send; the remapper only treats these keys as buttons.
+    public static func activeKeyButtons(in file: DevicesFile) -> Set<Int> {
+        Set(file.devices.filter(\.connected).flatMap(\.extraButtons).filter(KeyButtons.isKeyButton))
+    }
+
     /// A never-seen device with more than three buttons is "new".
     public static func attached(_ m: AttachedMouse, into file: DevicesFile, now: String) -> DevicesFile {
         guard !isIgnored(m) else { return file }
@@ -35,10 +52,12 @@ public enum DeviceRegistry {
         if let i = next.devices.firstIndex(where: { $0.id == m.id }) {
             var d = next.devices[i]
             d.lastSeen = now; d.connected = true; d.name = m.name; d.transport = m.transport
-            if m.buttonCount > d.buttonCount { d.buttonCount = m.buttonCount; d.extraButtons = extraButtons(count: m.buttonCount) }
+            let previousCount = d.buttonCount
+            d.buttonCount = m.buttonCount
+            d.extraButtons = extras(for: m, previous: d.extraButtons, previousCount: previousCount)
             next.devices[i] = d
         } else {
-            let extras = extraButtons(count: m.buttonCount)
+            let extras = Self.extras(for: m, previous: [])
             next.devices.append(MouseDevice(id: m.id, name: m.name, vendorId: m.vendorId, productId: m.productId,
                 transport: m.transport, buttonCount: m.buttonCount, extraButtons: extras, firstSeen: now,
                 lastSeen: now, connected: true, setupState: extras.isEmpty ? .configured : .new))
@@ -55,7 +74,7 @@ public enum DeviceRegistry {
 
     /// An observed press of a button the descriptor did not list widens extraButtons.
     public static func observed(button: Int, into file: DevicesFile) -> DevicesFile {
-        guard button >= 3 else { return file }
+        guard button >= 3, !KeyButtons.isKeyButton(button) else { return file }
         var next = file
         for i in next.devices.indices where next.devices[i].connected && !next.devices[i].extraButtons.contains(button) {
             next.devices[i].extraButtons = (next.devices[i].extraButtons + [button]).sorted()

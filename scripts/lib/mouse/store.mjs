@@ -28,7 +28,9 @@ export function validAction(a) {
   }
 }
 
-const validButtons = (map) => !!map && typeof map === "object" && Object.entries(map).every(([k, v]) => /^\d{1,2}$/.test(k) && Number(k) >= 3 && validAction(v));
+// Real extra buttons are CGEvent numbers 3..31; a button whose mouse sends F13..F20 is 113..120 (100 + the F number).
+const validButtonKey = (k) => /^\d{1,3}$/.test(k) && ((Number(k) >= 3 && Number(k) <= 31) || (Number(k) >= 113 && Number(k) <= 120));
+const validButtons = (map) => !!map && typeof map === "object" && Object.entries(map).every(([k, v]) => validButtonKey(k) && validAction(v));
 
 /**
  * Asks the Mac app to open its mouse-setup popup: appends ONE line to <controlled dir>/outreach.jsonl,

@@ -4,7 +4,7 @@ import Foundation
 import MouseKit
 
 /*
- The event tap for extra mouse buttons and the mouse wheel. It listens to otherMouseDown/otherMouseUp and scrollWheel ONLY: never mouse-move, left or right.
+ The event tap for extra mouse buttons and the mouse wheel. It listens to otherMouseDown/otherMouseUp, scrollWheel and keyDown/keyUp (for F13...F20 sent by a mouse, see KeyButtons) ONLY: never mouse-move, left or right.
  The callback does no file IO and no allocation-heavy work: bindings and the frontmost-app facts are cached in a
  lock-protected snapshot that the main thread refreshes (on file change, on app activation). A mapped down is swallowed
  and its action is dispatched to the main queue; the matching up is swallowed too, so the app never sees half a click.
@@ -19,6 +19,8 @@ final class MouseRemapper {
         var isGame = false
         /// The runtime gate (MouseGate): off passes every press through.
         var gateOn = true
+        /// Key buttons (F13...) that a connected mouse sends; any other key is left alone.
+        var keyButtons = Set<Int>()
     }
 
     var onAction: ((MouseAction, Int) -> Void)?
@@ -63,6 +65,7 @@ final class MouseRemapper {
         guard Permissions.accessibilityTrusted else { return false }
         let mask = (CGEventMask(1) << CGEventType.otherMouseDown.rawValue) | (CGEventMask(1) << CGEventType.otherMouseUp.rawValue)
             | (CGEventMask(1) << CGEventType.scrollWheel.rawValue)
+            | (CGEventMask(1) << CGEventType.keyDown.rawValue) | (CGEventMask(1) << CGEventType.keyUp.rawValue)
         let context = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                           eventsOfInterest: mask, callback: { _, type, event, refcon in
@@ -95,6 +98,7 @@ final class MouseRemapper {
             return Unmanaged.passUnretained(event)
         }
         if type == .scrollWheel { return reverseWheel(event) }
+        if type == .keyDown || type == .keyUp { return handleKey(type, event) }
         let button = Int(event.getIntegerValueField(.mouseEventButtonNumber))
         guard button >= 3 else { return Unmanaged.passUnretained(event) }
         if type == .otherMouseUp {
@@ -102,6 +106,25 @@ final class MouseRemapper {
         }
         guard type == .otherMouseDown else { return Unmanaged.passUnretained(event) }
         let snap = current()
+        let action = MouseResolver.resolve(button: button, bundleId: snap.bundleId, isGame: snap.isGame, bindings: snap.bindings, gateOn: snap.gateOn)
+        DispatchQueue.main.async { [weak self] in self?.onObserved?(button) }
+        guard let action else { swallowed.passDown(button); return Unmanaged.passUnretained(event) }
+        swallowed.swallowDown(button)
+        DispatchQueue.main.async { [weak self] in self?.onAction?(action, button) }
+        return nil
+    }
+
+    /// F13...F20 from a mouse (its onboard memory remapped a button to a key). Same rules as a button: a mapped down is swallowed
+    /// with its repeats and its up, a game, the gate or no binding leaves the key alone. Every other key costs one set lookup.
+    private func handleKey(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
+        let snap = current()
+        guard !snap.keyButtons.isEmpty else { return Unmanaged.passUnretained(event) }
+        let code = event.getIntegerValueField(.keyboardEventKeycode)
+        let modifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
+        guard let button = KeyButtons.press(keyCode: code, hasModifiers: !event.flags.intersection(modifiers).isEmpty, active: snap.keyButtons)
+        else { return Unmanaged.passUnretained(event) }
+        if type == .keyUp { return swallowed.shouldSwallowUp(button) ? nil : Unmanaged.passUnretained(event) }
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 { return swallowed.isSwallowed(button) ? nil : Unmanaged.passUnretained(event) }
         let action = MouseResolver.resolve(button: button, bundleId: snap.bundleId, isGame: snap.isGame, bindings: snap.bindings, gateOn: snap.gateOn)
         DispatchQueue.main.async { [weak self] in self?.onObserved?(button) }
         guard let action else { swallowed.passDown(button); return Unmanaged.passUnretained(event) }

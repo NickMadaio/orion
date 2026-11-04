@@ -22,6 +22,8 @@ public enum MouseSetupPlan {
         switch button {
         case 3: return "Back button"
         case 4: return "Front button"
+        case KeyButtons.defaultId: return "Top button"
+        case _ where KeyButtons.isKeyButton(button): return "Key button F\(KeyButtons.fNumber(button))"
         default: return "Button \(button + 1)"
         }
     }

@@ -91,7 +91,7 @@ struct MouseSettingsView: View {
         let apps = mouse.bindings.apps.filter { $0.value[key] != nil }.keys.sorted()
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("BUTTON \(button + 1)").font(OrionTheme.mono(9, .semibold)).tracking(2).foregroundStyle(OrionTheme.accent)
+                Text(MouseSetupPlan.title(button).uppercased()).font(OrionTheme.mono(9, .semibold)).tracking(2).foregroundStyle(OrionTheme.accent)
                 if mouse.lastPressed == button {
                     Text("that is the one").font(OrionTheme.mono(9.5)).foregroundStyle(OrionTheme.accent)
                 }

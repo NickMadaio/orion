@@ -6,7 +6,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseAction, parseButton, parseKeys, resolveApp } from "../scripts/lib/mouse/names.mjs";
+import { buttonLabel, parseAction, parseButton, parseKeys, resolveApp } from "../scripts/lib/mouse/names.mjs";
 import { assertBindings, emptyBindings, validAction } from "../scripts/lib/mouse/store.mjs";
 
 const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "orion-mouse");
@@ -203,4 +203,32 @@ test("wheel: other bindings survive a wheel change, and a fresh bindings file de
   const b = s.bindingsNow();
   assert.equal(b.reverseWheel, "always");
   assert.deepEqual(b.default["3"], { kind: "system", name: "stageManager" });
+});
+
+test("top button: a mouse button its own memory turned into F13 is button 113, by word, key name or number", () => {
+  for (const [said, n] of [["top button", 113], ["the top one", 113], ["top", 113], ["sensitivity button", 113], ["dpi button", 113], ["f13", 113], ["F13 button", 113], ["f14", 114], ["f20", 120], ["113", 113], ["120", 120]]) {
+    assert.deepEqual(parseButton(said), { n }, said);
+  }
+  assert.deepEqual(parseButton("front"), { n: 4 });
+  for (const bad of ["112", "121", "f12", "f21", "100"]) assert.ok(parseButton(bad).error, bad);
+  assert.equal(buttonLabel(113), "top button");
+  assert.equal(buttonLabel(114), "F14 key button");
+  assert.equal(buttonLabel(5), "button 6");
+});
+
+test("top button: bindings accept 113 through 120 and nothing between 32 and 112", () => {
+  assert.doesNotThrow(() => assertBindings({ ...emptyBindings(), default: { 113: { kind: "orion", command: "type" } } }));
+  assert.doesNotThrow(() => assertBindings({ ...emptyBindings(), apps: { "com.apple.Safari": { 120: { kind: "passthrough" } } } }));
+  for (const k of [100, 112, 121, 999]) assert.throws(() => assertBindings({ ...emptyBindings(), default: { [k]: { kind: "passthrough" } } }), String(k));
+});
+
+test("top button: set and status through the CLI", () => {
+  const devices = { version: 1, devices: [{ id: "5426:185", name: "Razer Basilisk V3 X HyperSpeed", transport: "USB", buttonCount: 6, extraButtons: [3, 4, 5, 113], connected: true, setupState: "configured" }] };
+  const s = sandbox({ devices });
+  const r = s.run("set", "top button", "mission control");
+  assert.equal(r.code, 0); assert.match(r.out.say, /top button now does Mission Control/);
+  assert.deepEqual(s.bindingsNow().default, { 113: { kind: "system", name: "missionControl" } });
+  assert.match(s.run("status").out.say, /top button/);
+  const lacking = sandbox({ devices: { ...devices, devices: [{ ...devices.devices[0], extraButtons: [3, 4] }] } });
+  assert.equal(lacking.run("set", "f13", "stage manager").code, 1);
 });

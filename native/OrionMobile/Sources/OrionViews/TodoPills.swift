@@ -75,7 +75,12 @@ struct TodoPill: View {
         .foregroundStyle(tone.text)
         .padding(.horizontal, density == .touch ? 8 : 6.5)
         .padding(.vertical, density == .touch ? 3.5 : 2.5)
-        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(density == .pointer ? Color.clear : tone.fill))
+        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(density == .pointer ? Color.clear : tone.fill.opacity(0.35)))
+        .overlay {
+            if density == .touch && !placeholder {
+                RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(tone.text.opacity(0.4), lineWidth: 0.8)
+            }
+        }
         .overlay {
             if placeholder {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)

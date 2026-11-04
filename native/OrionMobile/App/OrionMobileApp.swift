@@ -4,6 +4,7 @@ import CloudKit
 import Security
 import CryptoKit
 import MobileCore
+import OrionViews
 
 @main
 struct OrionMobileApp: App {
@@ -261,7 +262,21 @@ struct PhoneRootView: View {
         case "health": HealthView(remote: remote)
         case "control": control
         #if targetEnvironment(simulator)
-        case "lists": FocusListsView()   // Simulator only: `--tab lists`, for screenshot checks
+        // Simulator only (`--tab lists|night|todos`): screens that need a tap to reach, for screenshot checks.
+        case "lists": FocusListsView()
+        case "night": RoutineSettingsSheet(routine: routine)
+        case "todos":
+            ScrollView {
+                PhoneHeader(eyebrow: "Plan", title: "To-dos").padding(.horizontal, 22)
+                TodoListScreen(items: [
+                    TodoItem(id: "1", title: "Reply to Prof. Hale", due: Date().addingTimeInterval(7200), priority: .high, notes: "Tags: school"),
+                    TodoItem(id: "2", title: "Essay outline", due: Date().addingTimeInterval(86_400), priority: .medium),
+                    TodoItem(id: "3", title: "Book the gym", done: true),
+                ], actions: TodoActions(add: { _ in }, toggle: { _ in }, rename: { _, _ in }, setPriority: { _, _ in }, setDue: { _, _ in },
+                                        setNotes: { _, _ in }, delete: { _ in }, reorder: { _ in }), density: .touch)
+                    .padding(.horizontal, 22)
+            }
+            .phoneScreen()
         #endif
         default: today
         }
@@ -654,13 +669,14 @@ struct PhoneRootView: View {
     private var dayBar: some View {
         HStack(spacing: 14) {
             Button { planner.show(Calendar.current.date(byAdding: .day, value: -1, to: planner.day) ?? planner.day) } label: {
-                Image(systemName: "chevron.left")
+                Image(systemName: "chevron.left").frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel("Previous day")
             Button("Today") { planner.show(Date()) }
                 .font(.system(size: 14, weight: .semibold))
                 .disabled(Calendar.current.isDateInToday(planner.day))
+                .frame(minHeight: 44)
             Button { planner.show(Calendar.current.date(byAdding: .day, value: 1, to: planner.day) ?? planner.day) } label: {
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.right").frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel("Next day")
             Spacer()
             Button { creatingEvent = true } label: { Label("Event", systemImage: "plus") }
@@ -668,6 +684,7 @@ struct PhoneRootView: View {
                 .accessibilityIdentifier("newEvent")
         }
         .foregroundStyle(Phone.accent)
+        .padding(.leading, -12)
     }
 
     @ViewBuilder private var connectPlanner: some View {
@@ -912,7 +929,7 @@ struct PhoneRootView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 ForEach(Array(plan.blocks.enumerated()), id: \.element.id) { index, block in
                                     TimelineRow(time: time(block.start, zone: plan.timeZone), title: block.title,
-                                                detail: "\(block.minutes) minutes · \(kindName(block.kind))", tint: tint(block.kind),
+                                                detail: "\(Plural.count(block.minutes, "minute")) · \(kindName(block.kind))", tint: tint(block.kind),
                                                 isLast: index == plan.blocks.count - 1)
                                 }
                             }

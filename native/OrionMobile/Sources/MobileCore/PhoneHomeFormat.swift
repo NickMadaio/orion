@@ -53,3 +53,8 @@ extension PhoneHomeBuilder {
         }
     }
 }
+
+/// "1 minute", "2 minutes": one word for every place that counts something in a sentence.
+public enum Plural {
+    public static func count(_ value: Int, _ noun: String) -> String { "\(value) \(noun)\(value == 1 ? "" : "s")" }
+}

@@ -57,7 +57,7 @@ struct HealthView: View {
     /// The last days as small recovery rings, oldest first.
     private var week: some View {
         VStack(alignment: .leading, spacing: 16) {
-            SectionLabel("Recovery · last \(days.count) days", tint: Phone.green)
+            SectionLabel("Recovery · last \(Plural.count(days.count, "day"))", tint: Phone.green)
             HStack(spacing: 6) {
                 ForEach(days) { day in
                     VStack(spacing: 8) {

@@ -74,7 +74,7 @@ public enum TodayPlanScheduler {
         var budget = max(0, available - preferences.freeMinutes)
         if available < preferences.freeMinutes {
             if let pinned = pinnedBlocks.first { throw TodayPlanError.pinConflict(pinned.title) }
-            warnings.append("Only \(available) minutes remain free around commitments; the \(preferences.freeMinutes)-minute free-time target cannot fit.")
+            warnings.append("Only \(Plural.count(available, "minute")) remain free around commitments; the \(preferences.freeMinutes)-minute free-time target cannot fit.")
         }
         let pinnedIDs = Set(pins.map(\.taskID))
         var remaining = tasks.filter { !$0.completedInSource && !completedIDs.contains($0.id) && !pinnedIDs.contains($0.id) }

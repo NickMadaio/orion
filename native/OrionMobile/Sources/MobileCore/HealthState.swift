@@ -194,7 +194,7 @@ public enum HealthStateEngine {
         let direction = difference < 0 ? "below" : "above"
         let reason = value == .atBaseline
             ? "in line with your usual \(Int(baseline.value)) minutes"
-            : "\(minutes) minutes \(direction) your usual \(Int(baseline.value))"
+            : "\(Plural.count(minutes, "minute")) \(direction) your usual \(Int(baseline.value))"
         return HealthStateReading(
             value: value, reason: reason, baseline: baseline,
             confidence: baseline.confidence, freshness: baseline.freshness

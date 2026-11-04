@@ -145,7 +145,7 @@ public struct ExperimentResult: Sendable, Equatable {
         case .running:
             return "\(experiment.behaviour.rawValue.capitalized) versus "
                 + "\(experiment.metric.label): \(observedDays) of "
-                + "\(experiment.durationDays) days recorded. No reading until it finishes."
+                + "\(Plural.count(experiment.durationDays, "day")) recorded. No reading until it finishes."
         case .complete:
             if inconclusive {
                 let names = confoundersSeen.map(\.rawValue).joined(separator: ", ")

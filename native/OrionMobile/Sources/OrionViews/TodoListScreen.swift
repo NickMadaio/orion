@@ -65,7 +65,7 @@ public struct TodoListScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 Text("to-do list")
-                    .font(.system(size: density == .touch ? 22 : 19, weight: .bold, design: .monospaced))
+                    .font(density == .touch ? .system(size: 24, weight: .regular, design: .serif) : .system(size: 19, weight: .bold, design: .monospaced))
                 Spacer()
                 let open = TodoBoard.open(items).count, done = TodoBoard.done(items).count
                 Text("\(open) to do · \(done) done")
@@ -82,7 +82,7 @@ public struct TodoListScreen: View {
                         HStack(spacing: 0) {
                             Rectangle().fill(TodoTone.palette[4].text.opacity(0.8)).frame(width: 2)
                             // No fill behind the Mac's motto (2026-10-16 UI audit #7).
-                            TodoTone.palette[4].fill.opacity(density == .pointer ? 0 : 0.35)
+                            Color.clear
                         }
                     )
             }
@@ -105,7 +105,9 @@ public struct TodoListScreen: View {
                         }
                         .foregroundStyle(selected ? ViewTokens.text : ViewTokens.dim)
                         .padding(.horizontal, density == .touch ? 11 : 9).padding(.vertical, density == .touch ? 6 : 4.5)
-                        .background(Capsule().fill(selected ? Color.white.opacity(0.1) : .clear))
+                        .frame(minHeight: density == .touch ? 44 : 0)
+                        .background(Capsule().fill(selected ? ViewTokens.accent.opacity(0.08) : .clear))
+                        .overlay(Capsule().strokeBorder(selected ? ViewTokens.accent.opacity(0.6) : .clear, lineWidth: 1).padding(.vertical, density == .touch ? 5 : 0))
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)

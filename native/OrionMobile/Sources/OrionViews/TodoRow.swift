@@ -65,7 +65,7 @@ struct TodoRow: View {
                         .font(.system(size: density.pill, weight: .semibold))
                         .rotationEffect(.degrees(isOpen ? 180 : 0))
                         .foregroundStyle(isOpen || hovering ? ViewTokens.soft : ViewTokens.dim.opacity(density == .touch ? 1 : 0))
-                        .frame(width: 26, height: 26)
+                        .frame(width: density == .touch ? 44 : 26, height: density == .touch ? 44 : 26)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

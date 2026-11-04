@@ -65,7 +65,7 @@ struct TodoDetail: View {
             header(title, icon: icon, trailing: nil)
             content()
                 .padding(.horizontal, 9).padding(.vertical, 7)
-                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.04)))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(ViewTokens.hairline, lineWidth: 0.8))
         }
     }
 

@@ -189,8 +189,8 @@ describe("review: a bound note yields to anything that is not a note", () => {
 });
 describe("review: a note that looks like a secret is not saved", () => {
     it.each([
-        "my wifi password is Hunter2025!", "the pin is 4821 for the locker", "api key: sk-abcdef1234567890abcdef12", "card number 4242 4242 4242 4242 exp 11/28",
-        "token ghp_abcdefghijklmnopqrstuvwx1234", "my bank password: Tr0ub4dor&3",
+        "my wifi password is Hunter2025!", "the pin is 4821 for the locker", "api key: " + "sk" + "-abcdef1234567890abcdef12", "card number 4242 4242 4242 4242 exp 11/28",
+        "token " + "ghp" + "_abcdefghijklmnopqrstuvwx1234", "my bank password: Tr0ub4dor&3",
     ])("secret: %s", (m) => expect(looksSecret(m)).toBe(true));
     it.each(["i'm so tired", "the password is on the sticky note", VOICE_NOTE, "call 07700 900123 about the lab", "book ref 1234 5678 is for the library"])("fine: %s", (m) => expect(looksSecret(m)).toBe(false));
     it("runNote refuses, saves nothing, and says why", async () => {

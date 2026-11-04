@@ -16,7 +16,7 @@ struct ChatTopBar: View {
 
     var body: some View {
         ZStack {
-            titleMenu
+            titleMenu.padding(.horizontal, 100)
             HStack {
                 barButton("line.3.horizontal", label: "Menu", id: "openDrawer", action: onMenu)
                 Spacer()
@@ -24,7 +24,10 @@ struct ChatTopBar: View {
                 barButton("square.and.pencil", label: "New chat", id: "newChat", action: onNew)
             }
         }
-        .padding(.horizontal, 8).frame(height: 48)
+        .padding(.horizontal, 8).frame(height: 52)
+        .overlay(alignment: .bottom) {
+            LinearGradient(colors: [.clear, Phone.wash(0.14), .clear], startPoint: .leading, endPoint: .trailing).frame(height: 0.5)
+        }
     }
 
     private var titleMenu: some View {
@@ -34,12 +37,14 @@ struct ChatTopBar: View {
         } label: {
             VStack(spacing: 1) {
                 HStack(spacing: 4) {
-                    Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Phone.text)
+                    Text(title).font(Phone.display(19)).tracking(1.5).foregroundStyle(Phone.text).lineLimit(1).minimumScaleFactor(0.7)
                     if !models.isEmpty { Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(Phone.dim) }
                 }
                 HStack(spacing: 5) {
                     Circle().fill(online ? Phone.green : Phone.dim).frame(width: 5, height: 5)
-                    Text(subtitle).font(.system(size: 11)).foregroundStyle(Phone.dim)
+                        .shadow(color: online ? Phone.green.opacity(0.7) : .clear, radius: 3)
+                    Text(subtitle.uppercased()).font(Phone.mono(9, .medium)).tracking(1.3).foregroundStyle(Phone.dim)
+                        .lineLimit(1).minimumScaleFactor(0.7)
                 }
             }
         }

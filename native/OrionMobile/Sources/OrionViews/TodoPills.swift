@@ -70,7 +70,7 @@ struct TodoPill: View {
                 Circle().fill(tone.text).frame(width: 4, height: 4)
             }
             if let icon { Image(systemName: icon).font(.system(size: density.pill - 1.5, weight: .semibold)) }
-            Text(text).font(.system(size: density.pill, weight: .medium, design: .monospaced)).lineLimit(1)
+            Text(text).font(.system(size: density.pill, weight: .medium, design: .monospaced)).lineLimit(1).minimumScaleFactor(0.7)
         }
         .foregroundStyle(tone.text)
         .padding(.horizontal, density == .touch ? 8 : 6.5)

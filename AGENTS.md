@@ -424,6 +424,12 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 `native/Orion` and is a reasonable thing for a later session to do.
 
 ## Traps that have already bitten, do not reintroduce
+- **/Applications/Safari.app is a symlink into the system cryptex on macOS 26.** Before 2026-11-04, `resolveApplication` skipped symlinks, so "open safari" and every browser action failed with "not found". Resolve symlinks, but only into Apple-owned roots.
+- **Stage Manager ignores `defaults write com.apple.WindowManager GloballyEnabled` on macOS 26**, even after `killall WindowManager`. Toggle the Control Center AX checkbox instead (StageManagerToggle.swift).
+- **The Mac bundle is built to native/Orion/.build/Orion.app**, not native/Orion/Orion.app. On 11-03 a `cp` from the wrong path ran right after `rm -rf /Applications/Orion.app`, and ORION was missing until it was copied again. Check that the source exists before you remove the installed copy.
+- **Fake secrets in tests trip the CI secret scan and block deploys.** Build them at runtime instead ("sk" + "-…").
+- **A merge can silently drop an import.** On 11-04 the bedtime merge lost `readFileSync`. `keptOpen` swallowed the ReferenceError in a try/catch and always answered "not kept". Run the touched script's tests after every conflict resolution.
+- **Wall-clock tests fail at night.** orion-watch, check-in and delivery tests held messages for quiet hours at 01:30. Pin `ORION_NOW`.
 
 - **The deployed OrionMacBridge release binary predates dim, quit_app and lock_screen.** On 2026-11-03 the 23:08 dim and 23:53 lockdown
   all failed with "Unknown native action" while the lockdown message said "locked the Mac"; and Nick's "Fine. Yes." at 22:09 reached the

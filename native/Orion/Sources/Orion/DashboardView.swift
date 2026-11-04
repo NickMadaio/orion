@@ -49,6 +49,7 @@ struct DashboardView: View {
     @StateObject private var phoneTicker = RefreshTicker(interval: 3)
     @State private var phonePlans = PhonePlanRequests()
     @State private var lifeWatch = LifeWatch()
+    @State private var focusWebGuard = FocusWebGuard()
     @State private var glanceExport = GlanceExport()
     /// The Knowledge tab's graph and his edits to it (KnowledgeStore.swift).
     @StateObject private var knowledge = KnowledgeStore()
@@ -250,6 +251,7 @@ struct DashboardView: View {
         .onReceive(phoneTicker.$tick) { _ in
             phonePlans.check(model: todayPlan, agenda: agenda, reminders: reminders)
             lifeWatch.tick()
+            focusWebGuard.tick()
             glanceExport.tick()
         }
         // Phase 52: what ORION is waiting on you for, and what it is running.

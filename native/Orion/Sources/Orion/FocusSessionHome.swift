@@ -218,6 +218,7 @@ struct FocusSessionHome: View {
                     .tracking(1.5)
                     .foregroundStyle(OrionTheme.textDim)
             }
+            if !isPreview { FocusWebStrip() }
         }
     }
 

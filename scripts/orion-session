@@ -26,7 +26,9 @@
    orion-session today [--day YYYY-MM-DD]   focus time for the whole day
    (start and recover take --dry-run: print the request, send nothing)
    orion-session pause | resume | back | idle
-   orion-session skip                 end the current break now
+   orion-session break                break now: the focus block ends, its break starts, the next block follows
+                                      (refused when no break is planned after this block; pause is the fallback)
+ orion-session skip                 end the current break now
    orion-session shorten 3            leave three minutes of the break
    orion-session finish               done, archived as a success
    orion-session abandon              gave up, archived as abandoned
@@ -64,7 +66,8 @@ const SOCKET =
 // `orion-session end` → "unknown command", then the visible thinking said a
 // tool had failed). Each maps to the one real command.
 const ALIASES = { end: "finish", stop: "finish", done: "finish", complete: "finish", wrap: "finish",
-  cancel: "abandon", quit: "abandon", "give-up": "abandon", begin: "start", unpause: "resume", continue: "resume", "end-break": "skip" };
+  cancel: "abandon", quit: "abandon", "give-up": "abandon", begin: "start", unpause: "resume", continue: "resume", "end-break": "skip",
+  "break-now": "break", "take-break": "break" };
 const [rawCommand, ...rest] = process.argv.slice(2);
 const command = ALIASES[rawCommand] ?? rawCommand;
 const wantsJSON = rest.includes("--json");
@@ -343,6 +346,7 @@ async function main() {
 
     case "pause":
     case "resume":
+    case "break":
     case "skip":
     case "finish":
     case "abandon":

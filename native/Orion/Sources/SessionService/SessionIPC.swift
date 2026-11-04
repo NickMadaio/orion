@@ -514,6 +514,7 @@ public final class SessionIPC {
         case "pause":   kind = .pause
         case "resume":  kind = .resume
         case "skip":    kind = .skipRest
+        case "break":   kind = .breakNow
         case "shorten":
             guard let minutes = request.minutes else {
                 return .failure("shorten needs the minutes to leave")

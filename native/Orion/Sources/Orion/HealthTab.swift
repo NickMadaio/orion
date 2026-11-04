@@ -1,4 +1,5 @@
 import MobileCore
+import OrionViews
 import SwiftUI
 
 /*
@@ -26,7 +27,8 @@ struct HealthTab: View {
     @State private var nutritionSheetVisible = false
     @State private var calorieDraft = ""
 
-    private let bottleTarget = 9
+    /// The day's water goal: one setting (HealthLog.waterGoal), changed from the right-click menu on the water.
+    private var bottleTarget: Int { health.waterGoal }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 44) {
@@ -335,6 +337,7 @@ struct HealthTab: View {
                         RailCircleButton(symbol: "plus", tint: OrionTheme.blue, help: "Drank one") { health.logHydration() }
                     }
                 }
+                .waterGoalMenu(goal: bottleTarget) { health.setWaterGoal($0) }
                 RowHairline()
                 logLine(label: "Calories", value: health.caloriesToday > 0 ? "\(health.caloriesToday)" : "—",
                         unit: "of \(health.nutritionGoals.calories)",
@@ -454,6 +457,7 @@ struct HealthTab: View {
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .waterGoalMenu(goal: bottleTarget) { health.setWaterGoal($0) }
     }
 
     private var calories: some View {

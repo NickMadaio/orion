@@ -62,6 +62,14 @@ export declare function planOutreachReply(o: Outreach, message: string, late?: b
 /** argv for orion-checkin acting on loop `id`. */
 export declare const loopArgs: (act: LoopAct, id: string) => string[];
 export declare function asksWhy(message: string): boolean;
+export declare function asksYourQuestion(message: string): boolean;
+/** The first question sentence of what ORION said, and what else it said. */
+export declare function splitQuestion(text: string): {
+    question: string;
+    rest: string;
+} | undefined;
+/** The worker's instruction when he asks what ORION's question was (his own answer may ride in the same message). */
+export declare function yourQuestionNote(text: string): string;
 /** The worker's instruction for a why-question: explain THAT message, from what it said and why it was sent, looking up live facts first. */
 export declare function whyNote(text: string, minutes?: number): string;
 /** For the worker when code does not answer: ORION's own message, as the conversation it is, and how to read his answer. */

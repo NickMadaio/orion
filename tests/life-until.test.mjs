@@ -21,7 +21,7 @@ function world(t) {
   writeFileSync(join(home, "cal.json"), JSON.stringify([{ identifier: "w", title: "work on orion", start: at(16, 59), end: at(17, 29), orion: "side_project" }]));
   writeFileSync(join(home, "rem.json"), JSON.stringify(["finish resume", "research backpacking stuff", "send internship applications", "do 20 minutes of marketing work."]
     .map((title, i) => ({ identifier: `r${i}`, title, list: "Orion" }))));
-  writeFileSync(join(home, "life.json"), JSON.stringify({ freeMinutesKept: 0 }));
+  writeFileSync(join(home, "life.json"), JSON.stringify({ freeMinutesKept: 0, planBreaks: { enabled: false } }));   // about the --until window and title lengths, not the breaks (reschedule-todos-priority.test.mjs)
   const env = { ...process.env, HOME: home, ORION_BRIDGE_BIN: BRIDGE, FAKE_CALENDAR: join(home, "cal.json"), FAKE_REMINDERS: join(home, "rem.json"),
     ORION_LIFE_CONFIG: join(home, "life.json"), ORION_RESCHEDULE_UNDO: join(home, "undo.json"), ORION_RESCHEDULE_NOW: new Date(2030, 9, 8, 16, 59).toISOString() };
   const run = (...a) => { const r = spawnSync(process.execPath, [SCRIPT, ...a], { encoding: "utf8", env }); return { code: r.status, out: r.stdout + r.stderr }; };

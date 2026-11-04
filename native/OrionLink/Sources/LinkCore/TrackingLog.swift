@@ -24,11 +24,12 @@ public struct TrackingLog {
     public let file: URL
     /// Before this hour you are still in yesterday -- the app's OrionDay rule.
     public static let cutoffHour = 4
-    public static let waterGoal = 9
     /// How many geofence events are kept (C6).
     public static let placeEventLimit = 500
     /// How many phone event ids are remembered to refuse a repeat (2026-11-02).
     public static let eventIDLimit = 500
+    /// How many focus-session reports (pickups, "I need an app") are kept.
+    public static let focusEventLimit = 300
     static let staleLockAfter: TimeInterval = 15
     static let giveUpAfter: TimeInterval = 6
 
@@ -64,12 +65,22 @@ public struct TrackingLog {
             .flatMap { (nutrition[$0] as? [[String: Any]] ?? []).reversed().compactMap(Self.meal) }
             .filter { !$0.id.hasPrefix("manual-total") && seen.insert($0.title.lowercased()).inserted }
             .prefix(8)
-        return .init(day: day, waterBottles: Self.int(record["waterBottles"]) ?? 0, waterGoal: Self.waterGoal,
+        return .init(day: day, waterBottles: Self.int(record["waterBottles"]) ?? 0, waterGoal: WaterGoal.value(from: goals),
                      calories: meals.isEmpty ? (Self.int(record["calories"]) ?? 0) : meals.reduce(0) { $0 + $1.calories },
                      calorieGoal: Self.int(goals["calories"]) ?? 2_200,
                      protein: meals.reduce(0) { $0 + $1.protein }, proteinGoal: Self.int(goals["protein"]) ?? 150,
                      meals: meals, supplements: supplements, recentFoods: Array(recent))
     }
+
+    /// The water goal as the health log has it (the default before one is set).
+    public func waterGoal() -> Int {
+        guard let data = try? Data(contentsOf: file),
+              let log = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return WaterGoal.default }
+        return WaterGoal.value(from: log["nutritionGoals"] as? [String: Any])
+    }
+
+    /// Every key the app's `NutritionGoals` needs, with its defaults, under what is there: the app's decoder wants a whole object.
+    static let defaultGoals: [String: Any] = ["calories": 2_200, "protein": 150, "carbohydrates": 250, "fat": 70, "fiber": 30]
 
     static func meal(_ item: [String: Any]) -> LinkSnapshot.Tracking.Meal? {
         guard let id = item["id"] as? String, let title = item["title"] as? String else { return nil }
@@ -107,7 +118,13 @@ public struct TrackingLog {
             case .water(let delta):
                 let bottles = max(0, (Self.int(record["waterBottles"]) ?? 0) + delta)
                 record["waterBottles"] = bottles
-                reply = "Water: \(bottles) of \(Self.waterGoal) bottles."
+                reply = "Water: \(bottles) of \(WaterGoal.value(from: log["nutritionGoals"] as? [String: Any])) bottles."
+            case .waterGoal(let bottles):
+                var goals = Self.defaultGoals
+                for (key, value) in log["nutritionGoals"] as? [String: Any] ?? [:] { goals[key] = value }
+                goals["water"] = WaterGoal.clamped(bottles)
+                log["nutritionGoals"] = goals
+                reply = "Water goal: \(WaterGoal.clamped(bottles)) bottles a day. You're at \(Self.int(record["waterBottles"]) ?? 0)."
             case let .meal(title, meal, calories, protein, carbohydrates, fat):
                 meals.append(["id": UUID().uuidString, "title": title, "meal": meal, "calories": calories,
                               "protein": protein, "carbohydrates": carbohydrates, "fat": fat, "fiber": 0,
@@ -153,6 +170,13 @@ public struct TrackingLog {
                 events.append(item)
                 log["placeEvents"] = Array(events.suffix(Self.placeEventLimit))
                 reply = "Noted."
+            case let .focus(action, at, session):
+                var events = log["phoneFocusEvents"] as? [[String: Any]] ?? []
+                var item: [String: Any] = ["action": action, "at": at]
+                if let session { item["session"] = session }
+                events.append(item)
+                log["phoneFocusEvents"] = Array(events.suffix(Self.focusEventLimit))
+                reply = "Noted."
             case let .screen(at, locked, until, why, graceUntil, usedMinutes):
                 // The latest state (what ORION reads) plus a short history for patterns.
                 var state: [String: Any] = ["at": at, "locked": locked]
@@ -172,7 +196,7 @@ public struct TrackingLog {
                 log["sleepLog"] = Array(sleepLog.suffix(400))
                 reply = event == "bed" ? "Logged: going to bed." : "Logged: up."
             }
-            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .place = entry {} else if case .screen = entry {} else if case .alarms = entry {} else {
+            if case .water = entry {} else if case .waterGoal = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .place = entry {} else if case .screen = entry {} else if case .alarms = entry {} else if case .focus = entry {} else {
                 nutrition[day] = meals
                 log["nutritionLog"] = nutrition
                 record["calories"] = meals.reduce(0) { $0 + (Self.int($1["calories"]) ?? 0) }

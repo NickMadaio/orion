@@ -134,6 +134,7 @@ struct HomePressStyle: ButtonStyle {
 struct PhoneHomeGlanceRow: View {
     let items: [PhoneHome.GlanceItem]
     let onAddWater: () -> Void
+    var onSetWaterGoal: (Int) -> Void = { _ in }
     let onOpen: (PhoneHome.GlanceItem.Kind) -> Void
     @Environment(\.colorScheme) private var scheme
 
@@ -151,7 +152,16 @@ struct PhoneHomeGlanceRow: View {
         }
     }
 
+    @ViewBuilder
     private func cell(_ item: PhoneHome.GlanceItem, ink: PhoneHomeInk) -> some View {
+        if item.kind == .water, let goal = item.goal {
+            cellBody(item, ink: ink).waterGoalMenu(goal: goal, onChange: onSetWaterGoal)
+        } else {
+            cellBody(item, ink: ink)
+        }
+    }
+
+    private func cellBody(_ item: PhoneHome.GlanceItem, ink: PhoneHomeInk) -> some View {
         HStack(spacing: 8) {
             Button { onOpen(item.kind) } label: {
                 VStack(alignment: .leading, spacing: 3) {

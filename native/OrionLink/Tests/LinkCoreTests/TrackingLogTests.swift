@@ -139,6 +139,23 @@ final class TrackingLogTests: XCTestCase {
         XCTAssertNil(try json()["nutritionLog"].flatMap { ($0 as? [String: Any])?["2026-11-02"] }, "an alarm receipt is not a meal day")
     }
 
+    /// W19: a phone pickup or "I need an app" during focus is history ORION nudges on, kept in order and capped, and is not a meal day.
+    func testFocusReportsFromThePhoneAreKeptInOrderAndCapped() throws {
+        let log = TrackingLog(file: file)
+        _ = try log.apply(.focus(action: "pickup", at: "2026-11-04T14:01:00Z", session: "s-abc"), now: now)
+        _ = try log.apply(.focus(action: "need-app", at: "2026-11-04T14:02:00Z", session: nil), now: now)
+        let events = try XCTUnwrap(try json()["phoneFocusEvents"] as? [[String: Any]])
+        XCTAssertEqual(events.map { $0["action"] as? String }, ["pickup", "need-app"])
+        XCTAssertEqual(events.first?["session"] as? String, "s-abc")
+        XCTAssertNil(events.last?["session"])
+        XCTAssertEqual((try json()["futureField"] as? [String: Any])?["kept"] as? Bool, true)
+        XCTAssertNil(try json()["nutritionLog"].flatMap { ($0 as? [String: Any])?["2026-11-02"] })
+        for minute in 0..<(TrackingLog.focusEventLimit + 5) {
+            _ = try log.apply(.focus(action: "pickup", at: "2026-11-04T15:\(String(format: "%02d", minute % 60)):00Z", session: nil), now: now)
+        }
+        XCTAssertEqual((try json()["phoneFocusEvents"] as? [[String: Any]])?.count, TrackingLog.focusEventLimit)
+    }
+
     /// 2026-10-01: ORION told Nick nothing was locked; it could not see the phone.
     func testTheScreenLockStateIsKeptWhereOrionReadsIt() throws {
         let log = TrackingLog(file: file)
@@ -154,6 +171,66 @@ final class TrackingLogTests: XCTestCase {
         XCTAssertThrowsError(try LinkLog.screen(at: "yesterday", locked: true, until: nil, why: nil, graceUntil: nil).validated())
         XCTAssertThrowsError(try LinkLog.screen(at: "2026-10-01T00:02:00Z", locked: true, until: nil, why: "boredom", graceUntil: nil).validated())
     }
+    // MARK: - The water goal (2026-11-04)
+
+    private func goals() throws -> [String: Any] { (try json()["nutritionGoals"] as? [String: Any]) ?? [:] }
+
+    func testTheGoalDefaultsToNineAndTheSnapshotAndReplyUseTheSetting() throws {
+        let log = TrackingLog(file: file)
+        XCTAssertEqual(log.today(now: now)?.waterGoal, 9)
+        XCTAssertEqual(try log.apply(.waterGoal(bottles: 12), now: now), "Water goal: 12 bottles a day. You're at 2.")
+        XCTAssertEqual(log.today(now: now)?.waterGoal, 12)
+        XCTAssertEqual(try log.apply(.water(delta: 1), now: now), "Water: 3 of 12 bottles.")
+    }
+
+    func testTheGoalRoundTripsThroughTheFileKeepsOtherGoalsAndWritesAWholeGoalsObject() throws {
+        let log = TrackingLog(file: file)
+        _ = try log.apply(.waterGoal(bottles: 7), now: now)
+        let stored = try goals()
+        XCTAssertEqual(stored["water"] as? Int, 7)
+        for key in ["calories", "protein", "carbohydrates", "fat", "fiber"] {
+            XCTAssertNotNil(stored[key], "the app's NutritionGoals needs \(key) or it cannot read the whole file")
+        }
+        XCTAssertEqual(log.waterGoal(), 7)
+        XCTAssertEqual((try json()["futureField"] as? [String: Any])?["kept"] as? Bool, true)
+        // A calorie goal the app saved earlier survives a water change.
+        var object = try json(); object["nutritionGoals"] = ["calories": 2600, "protein": 180, "carbohydrates": 250, "fat": 70, "fiber": 30, "water": 7]
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        _ = try log.apply(.waterGoal(bottles: 8), now: now)
+        XCTAssertEqual(try goals()["calories"] as? Int, 2600)
+        XCTAssertEqual(log.today(now: now)?.calorieGoal, 2600)
+        XCTAssertEqual(log.today(now: now)?.proteinGoal, 180)
+    }
+
+    func testAnOutOfRangeStoredGoalIsClampedAndABadOneIsTheDefault() throws {
+        var object = try json()
+        object["nutritionGoals"] = ["water": 400]
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        XCTAssertEqual(TrackingLog(file: file).today(now: now)?.waterGoal, 30)
+        object["nutritionGoals"] = ["water": 0]
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        XCTAssertEqual(TrackingLog(file: file).today(now: now)?.waterGoal, 1)
+        object["nutritionGoals"] = ["water": "many"]
+        try JSONSerialization.data(withJSONObject: object).write(to: file)
+        XCTAssertEqual(TrackingLog(file: file).today(now: now)?.waterGoal, 9)
+    }
+
+    func testChangingTheGoalDoesNotTouchTodaysMealsOrWater() throws {
+        let log = TrackingLog(file: file)
+        _ = try log.apply(.meal(title: "Bowl", meal: "Lunch", calories: 500, protein: 30, carbohydrates: 40, fat: 10), now: now)
+        _ = try log.apply(.waterGoal(bottles: 10), now: now)
+        let today = try XCTUnwrap(log.today(now: now))
+        XCTAssertEqual(today.calories, 500)
+        XCTAssertEqual(today.meals.count, 1)
+        XCTAssertEqual(today.waterBottles, 2)
+    }
+
+    func testTheGoalChangeWorksWithNoFileYet() throws {
+        let fresh = TrackingLog(file: dir.appendingPathComponent("new.json"))
+        _ = try fresh.apply(.waterGoal(bottles: 11), now: now)
+        XCTAssertEqual(fresh.waterGoal(), 11)
+    }
+
 }
 
 final class PlanLinkTests: XCTestCase {

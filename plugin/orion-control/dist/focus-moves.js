@@ -105,7 +105,7 @@ function justEndedWorkBlock(day, now) {
 }
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 /** The nearest deadline or dated to-do from today on. */
-function topDeadline(due, now) {
+export function topDeadline(due, now) {
     const today = ymd(now);
     const rows = [...(due?.events ?? []).map((e) => ({ title: e.title, at: e.start })), ...(due?.tasks ?? []).map((t) => ({ title: t.title, at: t.due }))]
         .filter((r) => r.title && r.at.slice(0, 10) >= today).sort((a, b) => a.at.localeCompare(b.at));

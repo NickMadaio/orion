@@ -14,6 +14,7 @@ struct PhoneHomeScreen: View {
     @ObservedObject var planner: PlannerStore
     @ObservedObject var routine: NightRoutine
     @ObservedObject private var lock = FocusLock.shared
+    @ObservedObject private var shield = FocusSessionShield.shared
     let onOpenChat: () -> Void
     let onOpenSection: (String) -> Void
 
@@ -21,11 +22,42 @@ struct PhoneHomeScreen: View {
     @State private var answered: Set<String> = []
     /// Bumped after a water tap so the count re-reads the store.
     @State private var waterTaps = 0
+    @State private var focusFeedback: String?
 
     var body: some View {
-        PhoneHomeView(home: home, status: status, actions: actions)
-            .toolbar(.hidden, for: .navigationBar)
-            .sensoryFeedback(.success, trigger: waterTaps)
+        Group {
+            // A focus session turns Home into the focus view; when it ends (PhoneFocus.face says idle) Home comes back.
+            if let session = remote.snapshot?.focusSession, PhoneFocus.face(session, now: remote.now).mode != .idle {
+                PhoneFocusHome(session: session, status: focusStatus(session), actions: focusActions(session))
+                    .transition(.opacity)
+            } else {
+                PhoneHomeView(home: home, status: status, actions: actions)
+            }
+        }
+        .animation(.easeInOut(duration: 0.4), value: remote.snapshot?.focusSession?.phase)
+        .toolbar(.hidden, for: .navigationBar)
+        .sensoryFeedback(.success, trigger: waterTaps)
+    }
+
+    private func focusStatus(_ session: LinkSnapshot.FocusSession) -> PhoneFocusStatus {
+        let line = shield.line(for: PhoneFocus.face(session, now: remote.now).mode)
+        return PhoneFocusStatus(online: remote.presence == .online, presence: presenceLine, shield: line?.text,
+                                shieldNeedsAction: line?.needsAction ?? false, feedback: focusFeedback)
+    }
+
+    private func focusActions(_ session: LinkSnapshot.FocusSession) -> PhoneFocusActions {
+        var focus = PhoneFocusActions()
+        focus.onOpenChat = onOpenChat
+        focus.onDoneEarly = { remote.focusAction("finish", session: session); focusFeedback = "Ending the session."; shield.lift() }
+        focus.onBreakNow = { remote.focusAction("break", session: session); focusFeedback = "Break started. Your apps are open."; shield.lift() }
+        focus.onResume = { remote.focusAction("resume", session: session); focusFeedback = nil }
+        focus.onNeedApp = {
+            remote.focusAction("need-app", session: session)
+            shield.pause(minutes: 5, session: session)
+            focusFeedback = "Five minutes. I'm timing it."
+        }
+        focus.onPickApps = { onOpenSection("focus") }
+        return focus
     }
 
     private var home: PhoneHome {
@@ -67,6 +99,7 @@ struct PhoneHomeScreen: View {
         }
         actions.onDoneEarly = remote.finishEarly
         actions.onAddWater = addWater
+        actions.onSetWaterGoal = setWaterGoal
         actions.onOpenGlance = { kind in onOpenSection(kind == .focus ? "control" : "health") }
         actions.onOpenPlan = { onOpenSection("plan") }
         return actions
@@ -75,6 +108,13 @@ struct PhoneHomeScreen: View {
     private func reply(_ text: String, to askID: String) {
         answered = answered.union([askID])
         remote.say(text, conversation: LinkSchema.threadID, replyTo: askID)
+    }
+
+    /// Long-press on the water: the Mac keeps the goal, so this is a command to it, shown here and on the widgets at once.
+    private func setWaterGoal(_ bottles: Int) {
+        remote.log(.waterGoal(bottles: bottles))
+        if let directory = GlanceStore.directory, WaterTap.setGoal(bottles, in: directory) { WaterCourier.reloadSurfaces() }
+        waterTaps += 1
     }
 
     /// The same store the Water widget and the Siri phrase use: queued with an id, sent once, never doubled.

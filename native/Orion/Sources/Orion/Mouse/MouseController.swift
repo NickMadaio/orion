@@ -152,14 +152,19 @@ final class MouseController: ObservableObject {
 
     private var outreachURL: URL { MouseStore.defaultControlledDir().appendingPathComponent("outreach.jsonl") }
 
-    func setSetupOpen(_ open: Bool) { setupOpen = open; if !open { lastPressed = nil } }
+    private var setupBaseline: BindingsFile?
+    func setSetupOpen(_ open: Bool) {
+        setupOpen = open
+        if open { setupBaseline = bindings } else { lastPressed = nil }
+    }
 
-    /// Done: saves the suggested defaults left untouched, marks the device configured, returns the confirmation line.
+    /// Done: saves the suggested defaults only on a mouse with no bindings yet, marks the device configured, returns the confirmation line.
     func finishSetup() -> String {
         let buttons = Array(Set(devices.devices.filter(\.connected).flatMap(\.extraButtons)).union(bindings.default.keys.compactMap(Int.init))).sorted()
+        let before = setupBaseline ?? bindings
         change { MouseSetupPlan.finalized($0, buttons: buttons) }
         markConfigured()
-        return MouseSetupPlan.confirmation(bindings, buttons: buttons)
+        return MouseSetupPlan.doneLine(before: before, after: bindings, buttons: buttons)
     }
 
     /// New `setup-open` lines appended to outreach.jsonl since launch (the chat side's trigger).
@@ -328,7 +333,7 @@ final class MouseController: ObservableObject {
         if let question = GameWords.gameOver(reopenApps) { onGameOver?(question) }
     }
 
-    private static func facts(for app: NSRunningApplication) -> GameClassifier.Facts {
+    static func facts(for app: NSRunningApplication) -> GameClassifier.Facts {
         var category: String?
         if let url = app.bundleURL, let info = Bundle(url: url)?.infoDictionary {
             category = info["LSApplicationCategoryType"] as? String
@@ -346,7 +351,7 @@ final class MouseController: ObservableObject {
         return all.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }
     }
 
-    private static func windowTitle(pid: pid_t) -> String? {
+    static func windowTitle(pid: pid_t) -> String? {
         windowInfo(pid: pid).compactMap { $0[kCGWindowName as String] as? String }.first { !$0.isEmpty }
     }
 

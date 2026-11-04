@@ -20,12 +20,13 @@ function world(t, slips, due = {}) {
   const dir = join(home, ".openclaw/orion-controlled"); mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "slips.jsonl"), slips.map((s) => `${JSON.stringify(s)}\n`).join(""));
   writeFileSync(join(home, "calendar.json"), "[]");
+  writeFileSync(join(home, "life.json"), JSON.stringify({ planBreaks: { enabled: false } }));   // these tests are about WHICH to-dos are planned, not the breaks around them (reschedule-todos-priority.test.mjs)
   writeFileSync(join(home, "reminders.json"), JSON.stringify(["finish resume", "review CS lect 2"].map((title) => ({ identifier: title, title, list: "Orion", ...(due[title] ? { due: due[title] } : {}) }))));
   const reach = join(home, "reach"); writeFileSync(reach, `#!/bin/sh\necho "$@" >> "${home}/reach.log"\n`); chmodSync(reach, 0o755);
   const run = (...extra) => {
     const r = spawnSync(process.execPath, [SCRIPT, "day", "--todos", "--date", DATE, ...extra], { encoding: "utf8",
       env: { ...process.env, HOME: home, ORION_CONTROLLED_DIR: dir, ORION_BRIDGE_BIN: BRIDGE, FAKE_CALENDAR: join(home, "calendar.json"), FAKE_REMINDERS: join(home, "reminders.json"),
-        ORION_RESCHEDULE_UNDO: join(home, "u.json"), ORION_RESCHEDULE_PINS: join(home, "p.json"), ORION_LIFE_CONFIG: join(home, "none.json"), ORION_REACH_BIN: reach } });
+        ORION_RESCHEDULE_UNDO: join(home, "u.json"), ORION_RESCHEDULE_PINS: join(home, "p.json"), ORION_LIFE_CONFIG: join(home, "life.json"), ORION_REACH_BIN: reach } });
     return { code: r.status, out: r.stdout + r.stderr };
   };
   const titles = () => JSON.parse(readFileSync(join(home, "calendar.json"), "utf8")).map((e) => e.title);

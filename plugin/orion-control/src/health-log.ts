@@ -18,12 +18,13 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { FlowResult } from "./schedule-flow.js";
 import { sandboxNowMs } from "./plugin-clock.js";
+import { readWaterGoal, runWaterGoal, type WaterGoalRead } from "./water-goal.js";
 import { mutate, readHealthLog, today as dayOf, type HealthLogFile } from "./health.js";
 
 export type MealRead = { kind: "meal"; meal: string; title: string; notes: string; at: Date };
 export type GymRead = { kind: "gym"; scope: "week" | "last7" | "recent" };
 export type BedtimeRead = { kind: "bedtime"; read: boolean; time?: string; week: boolean };
-export type HealthRead = MealRead | GymRead | BedtimeRead;
+export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const clock12 = (d: Date) => `${(d.getHours() + 11) % 12 + 1}:${pad(d.getMinutes())} ${d.getHours() < 12 ? "AM" : "PM"}`;
@@ -140,7 +141,7 @@ export function readBedtime(message: string): BedtimeRead | null {
 
 /** The first health phrase in his message, or null. Pure. */
 export function readHealthIntent(message: string, now: Date): HealthRead | null {
-  return readBedtime(message) ?? readGym(message) ?? readMeal(message, now);
+  return readWaterGoal(message) ?? readBedtime(message) ?? readGym(message) ?? readMeal(message, now);
 }
 
 // ---- meals ----
@@ -274,5 +275,5 @@ export async function sleepLine(stateDir: string, now: Date): Promise<string> {
 
 /** Runs one health read. */
 export async function runHealthIntent(read: HealthRead, deps: { stateDir: string; now: Date }): Promise<FlowResult> {
-  return read.kind === "meal" ? runMeal(read, deps) : read.kind === "gym" ? runGym(read, deps) : runBedtime(read, deps);
+  return read.kind === "water" ? runWaterGoal(read, deps) : read.kind === "meal" ? runMeal(read, deps) : read.kind === "gym" ? runGym(read, deps) : runBedtime(read, deps);
 }

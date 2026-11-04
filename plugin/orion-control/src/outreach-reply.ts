@@ -161,6 +161,30 @@ export function asksWhy(message: string): boolean {
   return m.split(" ").length <= 4 || WHY_POINTS.test(m);
 }
 
+/** "what was your question", "what did you ask", "what were you asking": he wants ORION's own question again (w18 audit2, 11-04 10:34). */
+const YOUR_QUESTION = /\bwhat(?:'?s| is| was| were)? (?:your|the) (?:question|ask)\b(?! (?:on|in|about|for|of)\b)|\bwhat (?:did|do) you (?:just )?ask\b|\bwhat (?:were|are) you (?:just )?asking\b|^\W*what question\b/;
+export function asksYourQuestion(message: string): boolean {
+  const m = message.trim().toLowerCase().replace(/[‘’]/g, "'");
+  return YOUR_QUESTION.test(m);
+}
+
+/** The first question sentence of what ORION said, and what else it said. */
+export function splitQuestion(text: string): { question: string; rest: string } | undefined {
+  const t = text.trim();
+  const at = t.indexOf("?");
+  if (at < 1) return undefined;
+  const start = Math.max(t.lastIndexOf(". ", at), t.lastIndexOf("! ", at)) + 1;
+  const question = t.slice(start, at + 1).trim();
+  const rest = `${t.slice(0, start)}${t.slice(at + 1)}`.replace(/\s+/g, " ").trim();
+  return question.length > 3 ? { question, rest } : undefined;
+}
+
+/** The worker's instruction when he asks what ORION's question was (his own answer may ride in the same message). */
+export function yourQuestionNote(text: string): string {
+  const q = splitQuestion(text)?.question ?? text.slice(0, 200);
+  return `[Conversation so far: YOU (ORION) messaged him first: "${text.slice(0, 300)}". He is asking what your question was. It was: "${q}". Say it back in one short sentence. If his message also tells you the answer, take that as his answer and act on it. Never say you see no question and never say you asked because he did not answer.]`;
+}
+
 /** The worker's instruction for a why-question: explain THAT message, from what it said and why it was sent, looking up live facts first. */
 export function whyNote(text: string, minutes?: number): string {
   const when = minutes !== undefined ? `${minutes} min ago ` : "";
@@ -169,6 +193,7 @@ export function whyNote(text: string, minutes?: number): string {
 
 /** For the worker when code does not answer: ORION's own message, as the conversation it is, and how to read his answer. */
 export function outreachNote(o: Outreach, message = ""): string {
+  if (message && asksYourQuestion(message) && splitQuestion(o.text)) return yourQuestionNote(o.text);
   if (message && asksWhy(message)) return whyNote(o.text, o.minutes);
   const meaning = o.kind === "bedtime" ? "it was a bedtime reminder: whatever he says, no more bedtime reminders tonight; never ask when he started something"
     : o.kind === "start" ? `it was about starting ${o.title ? q(o.title) : "a planned block"}: "not yet"/"in 10" means later (defer the open check-in about it, with his reason), "already did" means done, something else he is doing means it waits; never a calendar change and never a cancel unless he asks for one`

@@ -4,6 +4,7 @@ import XCTest
 
 /// 2026-10-23 voice latency (docs/audits/2026-10-23-voice-latency.md): the cue, the spoken progress and the 45 s handoff.
 final class VoiceFluidTests: XCTestCase {
+    override func setUp() { super.setUp(); VoiceTurnCompanion.resetCueHistory() }
     private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func stage(_ id: String, _ label: String, _ detail: String? = nil) -> ProgressStage {
@@ -15,18 +16,42 @@ final class VoiceFluidTests: XCTestCase {
     func testNoCueWhenTheReplyArrivesWithinTheHold() {
         XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 0.5, replyReady: false, alreadyPlayed: false, heardSpeechAgo: nil), .wait)
         XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 1.1, replyReady: true, alreadyPlayed: false, heardSpeechAgo: nil), .skip)
-        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 1.19, replyReady: false, alreadyPlayed: false, heardSpeechAgo: nil), .wait)
+        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 1.99, replyReady: false, alreadyPlayed: false, heardSpeechAgo: nil), .wait)
     }
 
     func testCuePlaysOnceAtTheHoldWhenNoReply() {
-        XCTAssertEqual(VoiceCuePolicy.hold, 1.2)
-        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 1.2, replyReady: false, alreadyPlayed: false, heardSpeechAgo: nil), .play)
-        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 1.5, replyReady: false, alreadyPlayed: true, heardSpeechAgo: nil), .skip)
+        XCTAssertEqual(VoiceCuePolicy.hold, 2.0)
+        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 2.0, replyReady: false, alreadyPlayed: false, heardSpeechAgo: nil), .play)
+        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 2.5, replyReady: false, alreadyPlayed: true, heardSpeechAgo: nil), .skip)
+    }
+
+    // w18 audit2: "On it." was said 149 times in two days. The cue waits 2 s, is not repeated within 25 s, and cycles through its phrases.
+    func testACueRightAfterAnotherIsSkippedButALaterOneIsNot() {
+        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 2.5, replyReady: false, alreadyPlayed: false, heardSpeechAgo: nil, sinceLastCue: 8), .skip)
+        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 2.5, replyReady: false, alreadyPlayed: false, heardSpeechAgo: nil, sinceLastCue: 26), .play)
+        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 2.5, replyReady: false, alreadyPlayed: false, heardSpeechAgo: nil, sinceLastCue: nil), .play)
+    }
+
+    func testNoPhraseDominatesAndNeverTwiceInARow() {
+        var recent: [String] = []
+        var counts: [String: Int] = [:]
+        var last: String?
+        for seed in 0..<60 {
+            let phrase = VoiceCuePolicy.phrase(for: .change, avoidingAny: recent, seed: seed)
+            XCTAssertNotEqual(phrase, last)
+            XCTAssertFalse(recent.contains(phrase))
+            counts[phrase, default: 0] += 1
+            recent = Array((recent + [phrase]).suffix(3))
+            last = phrase
+        }
+        XCTAssertGreaterThanOrEqual(counts.count, 5)
+        XCTAssertLessThanOrEqual(counts.values.max() ?? 0, 15)
+        XCTAssertGreaterThanOrEqual(VoiceCuePolicy.phrases[.change]!.count, 6)
     }
 
     func testCueNeverTalksOverHimAndGoesStale() {
-        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 1.5, replyReady: false, alreadyPlayed: false, heardSpeechAgo: 0.2), .wait)
-        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 1.5, replyReady: false, alreadyPlayed: false, heardSpeechAgo: 1.0), .play)
+        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 2.5, replyReady: false, alreadyPlayed: false, heardSpeechAgo: 0.2), .wait)
+        XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 2.5, replyReady: false, alreadyPlayed: false, heardSpeechAgo: 1.0), .play)
         XCTAssertEqual(VoiceCuePolicy.decide(elapsed: 4.0, replyReady: false, alreadyPlayed: false, heardSpeechAgo: 0.1), .skip)
     }
 
@@ -235,6 +260,7 @@ final class VoiceFluidTests: XCTestCase {
 }
 
 final class VoiceHandoffTests: XCTestCase {
+    override func setUp() { super.setUp(); VoiceTurnCompanion.resetCueHistory() }
     func testHandedOffAnswerExpiresAfterTwoHours() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let command = try XCTUnwrap(VoiceHandoff.phoneCommand(answer: "Done.", node: "/n", scriptsDir: "/s", now: now, exists: { _ in true }))
@@ -283,6 +309,7 @@ final class VoiceHandoffTests: XCTestCase {
 
 /// The independent review of feat/voice-fluid: each fix reproduces its scenario.
 final class VoiceFluidReviewTests: XCTestCase {
+    override func setUp() { super.setUp(); VoiceTurnCompanion.resetCueHistory() }
     private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
     // MARK: HIGH 1 — stopping a cue never starts the answer

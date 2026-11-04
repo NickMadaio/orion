@@ -169,7 +169,8 @@ async function gather() {
   try {
     const raw = JSON.parse((await withTimeout(bridgeRequest("list_incomplete_reminders", { list: loadConfig().todoList }), 20000)).reminders_json ?? "[]");
     const titles = raw.map((t) => t.title);
-    todos = raw.map((t) => ({ title: t.title, dueDate: t.due ? localDate(new Date(t.due)) : null,
+    todos = raw.map((t) => ({ title: t.title, priority: t.priority, notes: t.notes, dueDate: t.due ? localDate(new Date(t.due)) : null,
+      dueMinute: t.due ? new Date(t.due).getHours() * 60 + new Date(t.due).getMinutes() : null,
       booked: day.some((b) => same(b.title, t.title)), waiting: !!waitsFor(t.notes, titles.filter((x) => x !== t.title)) }));
   } catch {}
   // Classes that already happened, with EVIDENCE he missed them (WHOOP wake after the start, phone on its charger).

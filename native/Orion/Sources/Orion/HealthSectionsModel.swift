@@ -59,7 +59,7 @@ struct HealthSectionsModel {
             recovery: Int? = nil, sleepPerformance: Int? = nil, sleepHours: Double? = nil,
             hrv: Int? = nil, restingHeartRate: Int? = nil, strain: Double? = nil,
             calories: Int = 0, calorieTarget: Int = 2_200,
-            waterBottles: Int = 0, waterTarget: Int = 9,
+            waterBottles: Int = 0, waterTarget: Int = WaterGoal.default,
             recoverySampleCount: Int = 0, sleepSampleCount: Int = 0,
             strainSampleCount: Int = 0, readingAgeHours: Double? = nil,
             recentSleepHours: [Double] = [], recentRecovery: [Double] = [],

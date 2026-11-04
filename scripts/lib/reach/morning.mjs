@@ -5,6 +5,7 @@
 // like." Pure: the gate and the words. scripts/orion-morning does the reading.
 
 import { topOfList } from "../life/morning-brief.mjs";
+import { rankTodos } from "../life/todo-rank.mjs";
 import { toF } from "./fahrenheit.mjs";
 
 export const SIGNALS = ["unplugged", "used", "up"];
@@ -160,7 +161,9 @@ export function rainLabel(rain) {
  * @returns {{ head: { title, key } | null, streak, text: string | null }}
  */
 export function briefingTop({ todos = [], headHistory = [], today }) {
-  const candidates = todos.filter((t) => !t.waiting).map((t) => ({ title: cleanTitle(t.title), ...(t.dueDate ? { due: t.dueDate } : {}) }));
+  const open = todos.filter((t) => !t.waiting);
+  const scores = new Map(rankTodos(open.map((t, key) => ({ ...t, key })), { today }).map((r) => [r.key, r.score]));
+  const candidates = open.map((t, key) => ({ title: cleanTitle(t.title), score: scores.get(key), ...(t.dueDate ? { due: t.dueDate } : {}) }));
   return topOfList({ candidates, history: headHistory, now: { date: today } });
 }
 
@@ -242,7 +245,7 @@ export function buildView({ now, day = [], travel = [], todos = [], today, weath
     .slice(0, 7).map((b) => ({ title: cleanTitle(b.title), start: clock(b.start), half: half(b.start), end: clock(b.end), kind: b.kind ?? "other", fixed: !!b.fixed }));
   const leave = travel.filter((w) => /^(commute to|getting to)/i.test(w.title) && w.start >= nowMinute).sort((a, b) => a.start - b.start)[0];
   const due = todos.filter((t) => t.dueDate === today && !t.booked).map((t) => cleanTitle(t.title)).slice(0, 4);
-  const top = due.length ? [] : todos.filter((t) => !t.waiting).map((t) => cleanTitle(t.title)).slice(0, 3);
+  const top = due.length ? [] : rankTodos(todos.filter((t) => !t.waiting), { today }).map((t) => cleanTitle(t.title)).slice(0, 3);
   const hours = (weather?.hours ?? []).filter((h) => h.day === "today" && Number(h.time.slice(11, 13)) * 60 >= nowMinute - 59);
   const sky = hours.length ? (() => {
     const temps = hours.map((h) => Math.round(h.tempC));

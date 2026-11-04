@@ -33,9 +33,11 @@ import { controlledDir } from "./lib/clock.mjs";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { parseSpread, planSessions, taskImportance, waitsFor } from "./lib/life/task-spread.mjs";
+import { rankTodos } from "./lib/life/todo-rank.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
 import { parseTaskNotes, formatTaskNotes, progressOf } from "./lib/life/task-notes.mjs";
 import { todoMatches } from "./lib/life/todo-match.mjs";
+import { orderTodos, isOverdue } from "./lib/life/todo-order.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -137,7 +139,9 @@ async function plan(list, days, open = list) {
   const horizon = Array.from({ length: days }, (_, i) => addDays(today, i));
   const perDate = new Map(horizon.map((d) => [d, { book: [], drop: [] }]));
   const report = [];
-  for (const task of list) {
+  // Most urgent first (lib/life/todo-rank.mjs): the sessions are booked in this order, so a due or high-priority one gets the earlier time.
+  const urgent = rankTodos(list.map((t, key) => ({ ...t, key })), { today }).map((r) => list[r.key]);
+  for (const task of urgent) {
     // "Only schedule this once X is complete": nothing until X is ticked off;
     // sessions already booked for it come off (2026-10-06).
     const blocker = waitsFor(task.notes, open.filter((t) => t.title !== task.title).map((t) => t.title));
@@ -183,13 +187,14 @@ try {
     const list = await tasks();
     if (!list.length) { console.log(`Nothing on ${config.todoList}.`); process.exit(0); }
     const events = await calendarEvents();
-    for (const t of list) {
+    // One order everywhere (lib/life/todo-order.mjs): overdue, high to none, earliest due.
+    for (const t of orderTodos(list, now)) {
       const booked = Array.from({ length: 7 }, (_, i) => addDays(today, i)).flatMap((d) => toBlocks(events, d)
         .filter((b) => b.source === "orion" && same(t.title, b.title)).map((b) => `${d.slice(5)} ${b.end - b.start} min`));
       const n = parseTaskNotes(t.notes);
       const blocker = waitsFor(t.notes, list.filter((x) => x.title !== t.title).map((x) => x.title));
       const progress = progressOf(n.subtasks);
-      console.log(`- ${t.title}${t.dueDate ? ` · due ${t.dueDate}` : ""}${t.priority ? ` · ${t.priority}` : ""}${n.spread ? ` · "${n.spread}"` : ""}${progress !== null ? ` · ${progress}% overall` : ""}${blocker ? ` · waits for "${blocker}"` : ""}${booked.length ? ` · booked: ${booked.join(", ")}` : ""}`);
+      console.log(`- ${t.title}${isOverdue(t, now) ? " · OVERDUE" : ""}${t.dueDate ? ` · due ${t.dueDate}` : ""}${t.priority ? ` · ${t.priority}` : ""}${n.spread ? ` · "${n.spread}"` : ""}${progress !== null ? ` · ${progress}% overall` : ""}${blocker ? ` · waits for "${blocker}"` : ""}${booked.length ? ` · booked: ${booked.join(", ")}` : ""}`);
       for (const sub of n.subtasks) console.log(`    ${sub.done ? "✓" : "·"} ${sub.title} — ${sub.percent}%`);
     }
   } else if (command === "add") {

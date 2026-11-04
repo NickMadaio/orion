@@ -41,6 +41,26 @@ public struct OrionGlance: Codable, Equatable, Sendable {
         public init(id: String, title: String, due: Date? = nil, priority: Int = 0, done: Bool = false) {
             self.id = id; self.title = title; self.due = due; self.priority = priority; self.done = done
         }
+
+        /// The shared to-do order's view of this to-do (`priority` is the glance rank: 1 high, 2 medium, 3 low, 0 none).
+        public var orderKey: TodoOrdering.Key {
+            TodoOrdering.Key(done: done, priority: TodoPriority(glanceRank: priority), due: due, title: title, id: id)
+        }
+    }
+
+    /// EventKit's 1 (high) ... 9 (low) as the glance rank 1...3; 0 stays none. One mapping for the Mac export and the phone's.
+    public static func rank(eventKit priority: Int) -> Int {
+        switch priority {
+        case 1...4: return 1
+        case 5: return 2
+        case 6...9: return 3
+        default: return 0
+        }
+    }
+
+    /// To-dos in the shared order (TodoOrdering): overdue, high to none, earliest due.
+    public static func ordered(_ todos: [Todo], now: Date = Date()) -> [Todo] {
+        TodoOrdering.sorted(todos, now: now, key: \.orderKey)
     }
 
     public struct Project: Codable, Equatable, Sendable, Identifiable {
@@ -172,12 +192,9 @@ extension OrionGlance {
         Array(blocks.filter { $0.end > moment && $0.kind != "free" }.prefix(limit))
     }
 
-    public func openTodos(limit: Int = 6) -> [Todo] {
-        Array(todos.filter { !$0.done }.sorted { a, b in
-            let pa = a.priority == 0 ? 99 : a.priority, pb = b.priority == 0 ? 99 : b.priority
-            if pa != pb { return pa < pb }
-            return (a.due ?? .distantFuture) < (b.due ?? .distantFuture)
-        }.prefix(limit))
+    /// Open to-dos, most pressing first (TodoOrdering), cut to `limit` AFTER ordering.
+    public func openTodos(limit: Int = 6, now: Date = Date()) -> [Todo] {
+        Array(Self.ordered(todos.filter { !$0.done }, now: now).prefix(limit))
     }
 
     public func upcomingDeadlines(after moment: Date, limit: Int = 3) -> [Deadline] {

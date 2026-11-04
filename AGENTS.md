@@ -771,6 +771,15 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 - **Missing health data is not zero.** `SessionDomain/DayScore.swift` excludes
   absent inputs and redistributes their weight. Scoring a missing input as zero
   tells the user they had a bad day because a watch did not sync.
+- **A to-do's order is its urgency, not its age or its list position (2026-11-04).** `day --todos`, `orion-tasks` and the morning
+  brief rank with `scripts/lib/life/todo-rank.mjs` (his priority + how close the deadline is + coursework; days overdue are NOT a
+  score: an 11-day-stale medium "finish resume" led every day because the planner only read overdue yes/no and kept list order, the
+  brief sorted by due-soonest and never saw priority, and the rebuild keeps time order so a block laid first stayed first). A to-do
+  ORION itself put on today and not started is ranked again each run. Breaks (`lib/life/day-breaks.mjs`, config `planBreaks`:
+  break 15 min after 60 of work, never over 120, lunch/dinner windows, a transition before a class) are blocks tagged `autobreak`,
+  re-laid each run; `--no-breaks` or `planBreaks.enabled:false` turns them off. Each booked to-do's reason is left in
+  `plan-reasons.json` for "why is X first" (plugin `plan-why.ts`). Not done: the Swift `TodayPlanScheduler` (Plan tab) has its own
+  priority+due sort and no breaks yet; it is a separate planner from this calendar one.
 
 ---
 

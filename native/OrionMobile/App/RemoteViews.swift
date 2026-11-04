@@ -39,6 +39,7 @@ final class RemoteStore: ObservableObject {
                 if let self {
                     let fresh = self.snapshot.flatMap { Date().timeIntervalSince($0.generatedAt) < 90 ? $0 : nil }
                     FocusLists.shared.applyRemote(fresh?.focusLists ?? [], plan: fresh?.focusPlan)
+                    FocusSessionShield.shared.sync(self.snapshot?.focusSession)
                 }
                 await self?.flushOutbox()
             }
@@ -52,6 +53,7 @@ final class RemoteStore: ObservableObject {
             guard let self else { return }
             self.snapshot = value
             if let names = value?.focusLists { FocusLists.shared.applyRemote(names, plan: value?.focusPlan) }
+            FocusSessionShield.shared.sync(value?.focusSession)
             // The widgets and lock screen follow the Mac even when no screen is showing.
             if !Self.fixture { GlanceWriter.publish(snapshot: value) }
             self.reconcile(self.link.messages)
@@ -110,6 +112,14 @@ final class RemoteStore: ObservableObject {
                                           .init(id: "r2", title: "Chicken rice bowl", meal: "Lunch", calories: 860, protein: 58)]),
             plan: Self.fixturePlan(now),
             planRequest: .init(id: "p1", action: "plan", state: .done, message: "3 tasks placed · 150 min kept free", at: now.addingTimeInterval(-300)))
+        // `--focus focus|break` shows the focus Home, the banner and the Live Activity from a fixed session.
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--focus"), index + 1 < arguments.count {
+            let isBreak = arguments[index + 1] == "break"
+            snapshot?.focusSession = .init(sessionId: "s-fixture", task: "Finish resume", phase: isBreak ? "break" : "focus",
+                                           endsAt: now.addingTimeInterval(isBreak ? 290 : 1_920), phaseSeconds: isBreak ? 600 : 3_000,
+                                           block: 1, blocks: 3, allowed: nil)
+        }
         conversation = [
             .init(id: "m0", text: "", sentAt: now.addingTimeInterval(-3 * 3600), kind: .chat, status: .done,
                   reply: "Morning. Your recovery is 84%, so today is a good one for the hard session. What are you planning to get done before the seminar?",
@@ -306,6 +316,7 @@ final class RemoteStore: ObservableObject {
         for item in pending {
             switch item.entry {
             case .water(let delta): value.waterBottles = max(0, value.waterBottles + delta)
+            case .waterGoal(let bottles): value.waterGoal = WaterGoal.clamped(bottles)
             case let .meal(title, meal, calories, protein, _, _):
                 value.meals.append(.init(id: "pending-\(item.id)", title: title, meal: meal, calories: calories, protein: protein))
                 value.calories += calories; value.protein += protein
@@ -316,7 +327,7 @@ final class RemoteStore: ObservableObject {
                 }
             case let .supplement(id, taken):
                 if let index = value.supplements.firstIndex(where: { $0.id == id }) { value.supplements[index].taken = taken }
-            case .sleep, .signal, .place, .screen, .checkin, .note, .alarms:
+            case .sleep, .signal, .place, .screen, .checkin, .note, .alarms, .focus:
                 break
             }
         }
@@ -647,6 +658,12 @@ struct ProgressStrip: View {
 
 
 extension RemoteStore {
+    /// Done early, Break now (a pause), Resume and "I need an app" during a focus session. Sent quietly: the Mac drops a
+    /// tap that arrives late, so a retry from the outbox can never end a later session.
+    func focusAction(_ action: String, session: LinkSnapshot.FocusSession) {
+        logQuietly(.focus(action: action, at: ISO8601DateFormatter().string(from: Date()), session: session.sessionId))
+    }
+
     /// "Done early": the Mac decides what is current and answers; its first line is shown under the button.
     func finishEarly() {
         guard !earlyWorking, let text = try? LinkLog.checkin(action: DoneEarly.linkAction).encoded() else { return }

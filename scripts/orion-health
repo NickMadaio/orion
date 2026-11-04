@@ -29,7 +29,7 @@ const out = {
   wearableDay,
   sleep: { hours: w.sleepHours ?? null, performance: w.sleepPerformance ?? null },
   recovery: w.recovery ?? null, hrv: w.hrv ?? null, restingHeartRate: w.restingHeartRate ?? null, strain: w.strain ?? null,
-  water: { bottles: t.waterBottles ?? 0, goal: 9 },
+  water: { bottles: t.waterBottles ?? 0, goal: typeof log.nutritionGoals?.water === "number" && Number.isFinite(log.nutritionGoals.water) ? Math.min(30, Math.max(1, Math.round(log.nutritionGoals.water))) : 9 },
   food: { calories: meals.reduce((a, m) => a + (m.calories ?? 0), 0), protein: meals.reduce((a, m) => a + (m.protein ?? 0), 0),
           goal: log.nutritionGoals?.calories ?? 2200, meals: meals.map((m) => `${m.title} (${m.calories} kcal)`) },
   supplements,

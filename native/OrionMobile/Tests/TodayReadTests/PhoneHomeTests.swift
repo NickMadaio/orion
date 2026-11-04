@@ -175,6 +175,14 @@ final class PhoneHomeTests: XCTestCase {
         XCTAssertEqual(build(snapshot: snapshot(tracking: tracking), water: 3).glance.first?.value, "4/9")
     }
 
+    func testTheWaterItemCarriesTheGoalFromTheSnapshot() {
+        let tracking = LinkSnapshot.Tracking(day: "2026-11-02", waterBottles: 4, waterGoal: 12, calories: 0, calorieGoal: 0, protein: 0,
+                                             proteinGoal: 0, meals: [], supplements: [])
+        let water = build(snapshot: snapshot(tracking: tracking)).glance.first
+        XCTAssertEqual(water?.value, "4/12")
+        XCTAssertEqual(water?.goal, 12)
+    }
+
     func testFocusPrefersThePhoneLockThenFreeTime() {
         let glance = OrionGlance(generatedAt: now, source: "iphone")
         XCTAssertEqual(build(glance: glance, lockedUntil: at(20, 40)).glance.last?.value, "apps locked till 8:40 PM")

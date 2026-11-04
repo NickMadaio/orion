@@ -25,6 +25,9 @@ enum W {
     static let green = Color(red: 0.36, green: 0.92, blue: 0.60)
     static let orange = Color(red: 1.00, green: 0.58, blue: 0.20)
     static let violet = Color(red: 0.70, green: 0.52, blue: 1.00)
+    /// A focus session's phase colours (PhoneFocusHue in the app): teal for focus, amber for the break.
+    static let focusHue = Color(red: 0.30, green: 0.85, blue: 0.78)
+    static let breakHue = Color(red: 1.00, green: 0.72, blue: 0.38)
     static let red = Color(red: 1.00, green: 0.38, blue: 0.38)
 
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {

@@ -27,6 +27,7 @@ export declare const isSessionStart: (message: string, opts?: StartOpts) => bool
 /** His words start a session, or the front desk read a start and nothing in his words rules one out (a calendar item does: review of efc37af).
  *  REV5: when a casual start is not allowed (spoken, not to ORION), a desk-read start needs a session word in his words. */
 export declare const startsSession: (message: string, hint?: SessionHint, opts?: StartOpts) => boolean;
+export declare function readApps(message: string): string[];
 /** His request, or null. A front-desk start (hint.start) counts only when nothing in his words rules a start out. */
 export declare function parseSessionRequest(message: string, hint?: SessionHint): SessionRequest | null;
 export declare const STRICT_LINE = "Firm app blocking can't be switched on from chat, so it's the timer only; I'm not blocking anything.";
@@ -42,6 +43,7 @@ export declare function runSessionFlow({ message, hint, exec, resolveApp }: {
 export declare function runSessionStatus({ exec }: {
     exec: SessionExec;
 }): Promise<FlowResult>;
+export declare const liveResolveApp: (name: string) => Promise<string | null>;
 /** orion-session with fixed arguments (no shell), for the focus moves (focus-moves.ts). Wired in by index.ts only. */
 export declare const liveSessionExec: SessionExec;
 /** The real flow: Orion.app's session socket through orion-session. Wired in by index.ts only. */

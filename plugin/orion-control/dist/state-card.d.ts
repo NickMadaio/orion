@@ -71,6 +71,8 @@ export type CardInputs = {
     routines: Routine[];
     lastOutreach: Outreach | null;
     essentials: string[];
+    /** "Right now: playing Minecraft for 40 min" (activity.json, w19). Absent when nothing fresh is known. */
+    activityLine?: string | null;
 };
 /** "1:30 PM" in the machine's zone (Europe/London on his Mac). */
 export declare function clockOf(at: string | number | Date | undefined): string | null;

@@ -89,6 +89,9 @@ import { finishEarly } from "./lib/life/early.mjs";
 import { findCurrent, findOwn, checkContext, linkOf, matchTodo, closeLoops, endFocusSession, nextItem, summaryLine, nothingLine, classLine } from "./lib/life/done-early.mjs";
 import { evalMode } from "./lib/eval-mode.mjs";
 import { todoTag } from "./lib/life/todo-match.mjs";
+import { rankTodos, firstBecause } from "./lib/life/todo-rank.mjs";
+import { planRests, breakSettings, mealAllowance, withBreakShare } from "./lib/life/day-breaks.mjs";
+import { writeJsonAtomic } from "./lib/awareness/io.mjs";
 import { namesTitle } from "./lib/life/block-names.mjs";
 import { breakFor, shortBlock, extendWithin } from "./lib/life/freed-time.mjs";
 import { planLog, planDisplace, dueAnchors, clock as clockOf, slipRow } from "./lib/life/reality.mjs";
@@ -113,7 +116,7 @@ const [command, ...restRaw] = positional;
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
 const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--length-explicit", "--minutes", "--named", "--no-replan", "--notify", "--now", "--plan",
-  "--only", "--replace", "--say", "--shift", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
+  "--no-breaks", "--only", "--replace", "--say", "--shift", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
   console.error(`NOTHING WAS CHANGED: orion-reschedule has no ${unknown.join(", ")} option. Options: ${[...KNOWN].join(" ")}. See the header for which command takes which.`);
@@ -340,6 +343,11 @@ if (flag("--until") !== undefined && !["extend", "move"].includes(command) && un
 const statedStart = command === "add" ? minute(flag("--at")) : null;
 let window = { start: statedStart !== null && statedStart >= nowMinute ? Math.min(Math.max(wakeMinute - 60, 360), Math.max(statedStart, 300)) : Math.max(wakeMinute - 60, 360), end: Math.min(1440, asleepBy, untilMinute ?? 1440) };
 const blocked = []; let add = [];
+let restacked = []; let todoPlan = null;   // day --todos: today's unstarted to-do blocks that are ranked again, and the ranking (with its reasons)
+// Breaks and meals ORION added earlier today are laid again with the rest (day --todos), never stacked on top of the old ones.
+const breakSet = breakSettings(config);
+const breaksWanted = command === "day" && args.includes("--todos") && breakSet.enabled && !args.includes("--no-breaks");
+const staleBreaks = breaksWanted ? blocks.filter((b) => !b.fixed && b.source === "orion" && (b.tags ?? []).includes("autobreak") && b.start >= nowMinute) : [];
 // ORION's own planning (fill, tidy, his to-do list) does not book work into a confident learned routine (his usual night out);
 // anything he places himself, or that is already there, is left alone (lib/patterns).
 if (["fill", "tidy"].includes(command) || (command === "day" && args.includes("--todos"))) blocked.push(...routineWalls({ dir: controlledDir(), date, existing: toBlocks(events, date) }));
@@ -754,6 +762,10 @@ if (command === "late") {
   const skipped = []; const cooled = [];
   const pastSlips = readSlips(); const clears = readClears(); const cooledCmd = [];
   const includes = new Set(args.flatMap((a, i) => (a === "--include" && args[i + 1] ? [normTitle(args[i + 1])] : [])));
+  const cands = [];
+  // One that ORION itself put on today and that has not started is ranked again with the rest: a block laid down first stayed first for days
+  // (2026-11-04: "finish resume" led every day because the rebuild keeps time order). His pinned times, started and other blocks stay.
+  const restackable = (b) => b.source === "orion" && !b.fixed && !b.pinned && b.kind !== "class" && b.start >= nowMinute;
   for (const r of reminders) {
     const title = clean(r.title ?? "");
     if (!title) continue;
@@ -768,8 +780,16 @@ if (command === "late") {
     // A to-do with a spread in its notes is orion-tasks's to plan, session by session.
     const blocker = waitsFor(r.notes, reminders.filter((x) => x !== r).map((x) => clean(x.title ?? "")));
     if (blocker) { skipped.push(`${title} (waits until "${blocker}" is done)`); continue; }
-    if (parseSpread(parseTaskNotes(r.notes).spread)) { skipped.push(`${title} (spread across days by orion-tasks)`); continue; }
-    if (onCalendar.some((b) => sameThingEarly(title, b.title))) { skipped.push(`${title} (already on the calendar)`); continue; }
+    // A spread session already on today and not started is ranked with the rest (it keeps its length): a low-priority one must not hold
+    // the room a high-priority or due to-do needs (2026-11-04: "practice leetcode" stayed while "CS Lab", high, had no room).
+    const session = onCalendar.filter((b) => b.kind !== "class" && normTitle(b.title) === normTitle(title) && restackable(b));
+    if (parseSpread(parseTaskNotes(r.notes).spread) && session.length !== 1) { skipped.push(`${title} (spread across days by orion-tasks)`); continue; }
+    // A class never stands in for a to-do: "DS Lab 05" was left off as "already on the calendar" because of the class "CS2100 … — Lab" (2026-11-04).
+    // …and a block that is exactly ANOTHER open to-do's ("DS Lab 05") is not this one's ("CS Lab").
+    const there = onCalendar.filter((b) => b.kind !== "class" && sameThingEarly(title, b.title)
+      && !reminders.some((x) => x !== r && normTitle(clean(x.title ?? "")) === normTitle(b.title) && normTitle(b.title) !== normTitle(title)));
+    const again = there.length === 1 && normTitle(there[0].title) === normTitle(title) && restackable(there[0]);
+    if (there.length && !again) { skipped.push(`${title} (already on the calendar)`); continue; }
     let estimate = { minutes: 45, optional: false };
     // A length in the to-do itself wins ("do 20 minutes of marketing work" is 20, not 45).
     const stated = minutesIn(title);
@@ -778,12 +798,22 @@ if (command === "late") {
       const tasks = parseTodos(title, { now: { date, minute: nowMinute } }).tasks;
       estimate = { minutes: stated ?? (tasks.length === 1 ? tasks[0].minutes : 45), optional: tasks.some((t) => t.optional) };
     } catch { /* keep the default */ }
+    if (again) { restacked.push(there[0]); estimate = { ...estimate, minutes: there[0].end - there[0].start }; }
     // A to-do is work he does, never a class or a deadline ("DS lab" is homework).
     const todoKind = ["class", "deadline"].includes(classify(title)) ? "study" : classify(title);
     // The block carries its to-do's link (a todo-<key> tag) so "Done early" ticks off the right one.
-    add.push({ title, kind: todoKind, minutes: estimate.minutes, ...(todoTag(r.identifier) ? { tags: [todoTag(r.identifier)] } : {}),
-      importance: estimate.optional ? 2 : dueDate && dueDate <= date ? 0 : 1, fixed: false });
+    const dueAt = r.due ? new Date(r.due) : null;
+    cands.push({ todo: { title, priority: r.priority, dueDate, dueMinute: dueAt ? dueAt.getHours() * 60 + dueAt.getMinutes() : null, notes: r.notes, minutes: estimate.minutes },
+      item: { title, kind: todoKind, minutes: estimate.minutes, ...(todoTag(r.identifier) ? { tags: [todoTag(r.identifier)] } : {}),
+        importance: estimate.optional ? 2 : dueDate && dueDate <= date ? 0 : 1, fixed: false } });
   }
+  // Rank by real urgency (lib/life/todo-rank.mjs: his priority, how close the deadline is, coursework), not by his list order. The deadlines
+  // his classes and assignments put on the calendar count too. This order is the order they are laid down in.
+  const deadlineRows = await bridge("list_deadlines", {}).then((r) => JSON.parse(r.events_json ?? "[]")).catch(() => []);
+  const ranked = rankTodos(cands.map((c, key) => ({ ...c.todo, key })), { today: date,
+    deadlines: deadlineRows.map((e) => ({ title: String(e.title ?? "").replace(/^DUE \d\d:\d\d — /, ""), date: localDate(new Date(e.start)) })) });
+  add = ranked.map((x) => cands[x.key].item);
+  todoPlan = { ranked };
   // Never dropped silently: the question goes out once (an automatic run sends it; otherwise the reply says it).
   cooled.forEach((q, i) => {
     console.log(`ASK: ${q}`);
@@ -793,12 +823,15 @@ if (command === "late") {
   // Keep time genuinely free (config.freeMinutesKept), as fill does: due first,
   // then his list order; what does not fit is named, not crammed in.
   const home = homeFrom(blocks, { commuteMinutes: config.commuteMinutes, wake: wakeMinute });
-  let budget = freeGaps(blocks, { start: Math.max(home, nowMinute, window.start), end: window.end }, { minimum: 15 })
+  let budget = freeGaps(blocks.filter((b) => !restacked.includes(b) && !staleBreaks.includes(b)), { start: Math.max(home, nowMinute, window.start), end: window.end }, { minimum: 15 })
     .reduce((sum, g) => sum + g.end - g.start, 0) - config.freeMinutesKept;
-  const ordered = [...add].sort((a, b) => a.importance - b.importance);
+  const ordered = [...add];   // already in rank order
   const kept = []; const noRoom = [];
-  for (const item of ordered) { if (item.minutes <= budget) { kept.push(item); budget -= item.minutes; } else noRoom.push(item.title); }
-  add = kept;   // overdue and due-today first, so they get the earliest time
+  // The day's breaks and meals are time too (2026-11-04): the room a to-do needs includes the break it earns, and a lunch or dinner still ahead comes off first.
+  const remains = blocks.filter((b) => !restacked.includes(b) && !staleBreaks.includes(b));
+  if (breaksWanted) budget -= mealAllowance(remains, { now: nowMinute, window, settings: breakSet });
+  for (const item of ordered) { const need = breaksWanted ? withBreakShare(item.minutes, breakSet) : item.minutes; if (need <= budget) { kept.push(item); budget -= need; } else noRoom.push(item.title); }
+  add = kept;   // most urgent first, so they get the earliest time
   if (noRoom.length) skipped.push(...noRoom.map((t) => `${t} (no room today)`));
   if (!add.length && !planArgs.length) { console.log(`NOTHING TO PLAN: no open to-do fits on ${dayName}${skipped.length ? ` (left out: ${skipped.join(", ")})` : ""}.`); process.exit(0); }
   if (skipped.length) console.log(`Left out: ${skipped.join(", ")}.`);
@@ -1252,7 +1285,7 @@ let removed = replaceDay || clearMovable
   ? blocks.filter((block) => block.end > nowMinute
       && block.kind !== "class" && block.kind !== "deadline" && !keptIds.has(block.id)
       && (replaceDay || !block.fixed))
-  : [...dropped, ...restated, ...onlyCleared];
+  : [...new Set([...dropped, ...restated, ...onlyCleared, ...restacked, ...staleBreaks])];   // a block may be named by two of them: removed once
 const removedIds = new Set(removed.map((block) => block.id));
 const planningBlocks = blocks.filter((block) => !removedIds.has(block.id));
 
@@ -1288,7 +1321,7 @@ let rebuilt = !replaceDay && !anchorsOnly;
 let basis = planningBlocks; let removedBase = removed;
 const shrunkLines = [];
 let squeezed = [];   // his blocks that no longer fit after the replan: removed, so the review and he must hear of them
-let result = replan(planningBlocks, { now: nowMinute, window, blocked, soft, add, rebuild: rebuilt , buffer: config.bufferMinutes, keepFree: config.freeMinutesKept, config });
+let result = replan(planningBlocks, { now: nowMinute, window, blocked, soft, add, rebuild: rebuilt , buffer: breaksWanted ? Math.max(config.bufferMinutes, breakSet.classBufferMinutes) : config.bufferMinutes, keepFree: config.freeMinutesKept, config });
 // Normal changes are incremental. If that cannot fit something, retry the
 // whole remaining movable day before bothering Nick: fixed commitments stay as
 // walls, then must-haves, ordinary work and optional fillers are laid down.
@@ -1350,7 +1383,9 @@ if (command === "day" && args.includes("--fill")) {
     removed = [...removedBase, ...squeezed];
   }
   const second = replan(result.blocks.map((b) => ({ ...b, id: `kept-${b.id}`, fixed: true })), { now: nowMinute, window, soft, add: asks.filter((a) => !a.anchor), buffer: config.bufferMinutes, keepFree: config.freeMinutesKept, config });
-  result = { ...result, created: [...result.created, ...second.created], unplaced: [...result.unplaced, ...second.unplaced] };
+  // The fill's blocks get their own ids (both replans number theirs new-0, new-1…) and join the day, so the breaks pass sees them.
+  const filled = second.created.map((c) => ({ ...c, id: `fill-${c.id}` }));
+  result = { ...result, created: [...result.created, ...filled], blocks: [...result.blocks, ...filled], unplaced: [...result.unplaced, ...second.unplaced] };
 }
 /*
  day … --only is all or nothing (2026-10-25 review): every plan he named is booked exactly as he said, or NOTHING is written and nothing
@@ -1366,13 +1401,41 @@ if (onlyStated) {
   }
   result = { ...result, moves: [...result.moves, ...keptUnderWay.map((k) => ({ id: k.block.id, title: k.block.title, from: k.block.start, to: k.block.start, toEnd: k.end }))] };
 }
+/*
+ Real breaks (2026-11-04, lib/life/day-breaks.mjs): a meal in the lunch and dinner windows, a transition before a class, a short break after
+ each stretch of work, never two hours without one. Later movable blocks slide just far enough; a wall that stops one skips it, and it is said.
+*/
+const breakNotes = [];
+if (breaksWanted && !result.unplaced.some((u) => u.importance === 0)) {
+  const rests = planRests(result.blocks, { window, now: nowMinute, settings: breakSet, soft, buffer: config.bufferMinutes });
+  const slid = new Map(rests.shifts.map((x) => [x.id, x]));
+  const freshIds = new Set(result.created.map((c) => c.id));
+  const movedIds = new Set(result.moves.map((m) => m.id));
+  result = { ...result,
+    created: [...result.created.map((c) => (slid.has(c.id) ? { ...c, start: slid.get(c.id).to, end: slid.get(c.id).toEnd } : c)), ...rests.added],
+    moves: [...result.moves.map((m) => (slid.has(m.id) ? { ...m, to: slid.get(m.id).to, ...(m.toEnd !== undefined ? { toEnd: slid.get(m.id).toEnd } : {}) } : m)),
+      ...rests.shifts.filter((x) => !freshIds.has(x.id) && !movedIds.has(x.id) && !rests.added.some((a) => a.id === x.id)).map((x) => ({ id: x.id, title: x.title, from: x.from, to: x.to }))],
+    blocks: rests.blocks };
+  for (const u of rests.unsatisfied) breakNotes.push(`NO BREAK before ${u.before}: ${u.why}`);
+}
+/** The ranked to-dos that were actually booked, in the order they sit in the day, with where. */
+function placedOrder(res, plan) {
+  const norm = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return plan.ranked.map((r) => ({ ...r, block: res.created.find((c) => norm(c.title) === norm(r.title)) })).filter((r) => r.block)
+    .sort((a, b) => a.block.start - b.block.start).map((r, i) => ({ ...r, rank: i + 1 }));
+}
 const byId = new Map(blocks.map((b) => [b.id, b]));
 // A block kept from before now has its real span in the undo journal, not the span it was pinned to for planning.
 for (const k of keptUnderWay) byId.set(k.block.id, k.block);
+const shownRemoved = removed.filter((b) => !restacked.includes(b) && !staleBreaks.includes(b));   // re-ranked and re-laid blocks are not "cleared"
 const lines = [
   ...(rebuilt ? ["rebuilt the remaining day from fixed commitments and must-haves first"] : []),
   ...(alreadyFixed.length ? [`kept already-scheduled fixed plan${alreadyFixed.length === 1 ? "" : "s"}: ${alreadyFixed.join(", ")}`] : []),
-  ...(removed.length ? [`cleared ${removed.length} prior schedule block${removed.length === 1 ? "" : "s"}: ${removed.map((b) => b.title).join(", ")}`] : []),
+  ...(shownRemoved.length ? [`cleared ${shownRemoved.length} prior schedule block${shownRemoved.length === 1 ? "" : "s"}: ${shownRemoved.map((b) => b.title).join(", ")}`] : []),
+  ...(todoPlan && result.created.length ? [`ORDER (most urgent first): ${placedOrder(result, todoPlan).map((r) => `${r.title} (${r.reason})`).join("; ")}`, ...(firstBecause(placedOrder(result, todoPlan)) ? [`WHY FIRST: ${firstBecause(placedOrder(result, todoPlan))}`] : [])] : []),
+  ...restacked.filter((b) => !result.created.some((c) => normalizedTitle(c.title) === normalizedTitle(b.title)))
+    .map((b) => `DROPPED FROM TODAY (no room once what is due and high priority went first; it was ${hhmm(b.start)}–${hhmm(b.end)}): ${b.title}`),
+  ...breakNotes,
   ...(replaceDay ? (() => { const gone = removed.filter((b) => !add.some((a) => sameThing(a.title, b.title) || sameThing(b.title, a.title)));
     return gone.length ? [`DROPPED (he did not mention them, so they are gone — tell him by name): ${gone.map((b) => b.title).join(", ")}`] : []; })() : []),
   ...(onlyCleared.length ? [`DROPPED (he said only what he named today): ${onlyCleared.map((b) => b.title).join(", ")}`] : []),
@@ -1414,6 +1477,11 @@ if (missingMustHaves.length) {
 refuseIfBroken(projectDay(blocks, { moves: result.moves, created: result.created, removed }), nowMinute, "this change");
 if (!dry) await applyPlan({ date, moves: result.moves, created: result.created, removed, blocksById: byId, config, pinCreated: result.created.filter(c => add.some(a => a.title === c.title && Number.isInteger(a.at))).map(c => c.id) }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
 if (!dry) await verifyWritten(date, nowMinute);
+// What "why is X first?" is answered from (plugin plan-why.ts): each booked to-do's rank and reason. Only a real write leaves it.
+if (!dry && todoPlan) {
+  const items = placedOrder(result, todoPlan).map((r) => ({ title: r.title, rank: r.rank, reason: r.reason, why: r.why, priority: r.priority ?? null, due: r.dueDate ?? null, start: r.block.start, end: r.block.end }));
+  try { writeJsonAtomic(controlledDir(), "plan-reasons.json", { version: 1, date, generatedAt: nowDate.toISOString(), items }); } catch { /* the plan is written; only the explanation is lost */ }
+}
 // An anchor "only these today" took off is skipped for the day: the wake fill never books it back or bumps his plan for it (review).
 if (!dry && onlyStated) skipAnchors(date, anchorsFrom(config).filter((a) => onlyCleared.some((b) => b.kind === a.kind || sameThing(a.title, b.title))).map((a) => a.title));
 // What this write took out of his day (it did not fit) is a slip for the nightly review, and he is told in plain words, once.

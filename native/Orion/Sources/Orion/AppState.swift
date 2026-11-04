@@ -57,6 +57,7 @@ final class AppState: ObservableObject {
     /// Applies this requested visual lift once, rather than compounding it on
     /// every launch.
     private let scheduleFocusWatcher = ScheduleFocusWatcher()
+    private let activityWriter = ActivityWriter()   // w19: activity.json, what he is doing right now
     private lazy var wakeAlarm = MainActor.assumeIsolated { WakeAlarmController() }
     private static let hologramBrightnessBoostKey = "OrionHologramBrightnessBoost20260801"
 
@@ -515,6 +516,8 @@ final class AppState: ObservableObject {
     /// What the turn now at the gateway asked, and what the paused one asked (TurnRelation.swift compares them).
     private var liveTurnText = ""
     private var pausedTurnText = ""
+    /// What each paused turn asked, by generation, so a failure can name it (LostTurn).
+    private var pausedQuestions: [Int: String] = [:]
     /// A second question's answer waiting for the first one's, so they arrive in the order he asked (TurnRelation.swift).
     private var answerOrder = AnswerOrder()
     private var heldReplies: [Int: (reply: GatewayReply, origin: ReplyOrigin)] = [:]
@@ -749,6 +752,7 @@ final class AppState: ObservableObject {
         wireSession()
         refreshFocusConfiguration()
         scheduleFocusWatcher.start { [weak self] in self?.focusExtras.quitDistractions ?? false }
+        activityWriter.start()
         MainActor.assumeIsolated { wakeAlarm.start() }
     }
 
@@ -1065,6 +1069,11 @@ final class AppState: ObservableObject {
         musicControl.onLog = { OrionLog.write($0) }
         focusShield.onLog = { OrionLog.write($0) }
         focusShield.onReleaseGuard = { [weak self] in self?.sessionTabModel.release() }
+        // The Finish early button ends the block, then asks once what is next (focus-ready.ts answers it in chat).
+        sessionTabModel.onFinishedEarly = { [weak self] task in
+            FocusEarlyPrompt.write(task: task, to: FocusEarlyPrompt.defaultURL)
+            self?.append(.system, FocusEarlyPrompt.line(task: task))
+        }
 
         switch clipLibrary.ensureBuiltInFocusTrack() {
         case .success(let clip):
@@ -1492,6 +1501,7 @@ final class AppState: ObservableObject {
         stopProgressPolling()
         pausedGeneration = askGeneration
         pausedTurnText = liveTurnText
+        pausedQuestions[askGeneration] = liveTurnText
         // Its answer was already here, waiting on an earlier one: it is held for "continue" like any paused answer.
         if let held = heldReplies.removeValue(forKey: askGeneration) {
             pausedReplacementText = held.reply.text
@@ -2014,6 +2024,7 @@ final class AppState: ObservableObject {
         guard !text.isEmpty else {
             OrionLog.write("[voice-turn] final transcript empty — \(preservedTranscript.isEmpty ? "nothing heard, back to idle" : "sending the preserved fragment")")
             if preservedTranscript.isEmpty {
+                landHeldPausedAnswer()   // w18 audit2: a held answer is his; the window closing on silence must not strand it
                 setPhase(.idle)
                 statusLine = "Nothing heard"
             } else {
@@ -2128,6 +2139,8 @@ final class AppState: ObservableObject {
             orphanedAnswers = orphanedAnswers.adding(paused)
         }
         let landed = landHeldPausedAnswer()
+        // w18 audit2: a refused sentence that was plainly a question or a command is not dropped without a word.
+        if let skipped = LostTurn.skippedLine(text: text) { append(.system, skipped) }
         weakAdmitsInARow = 0
         endConversation()
         resumeAfterRefusedBargeIn(landedAnswer: landed)
@@ -2177,6 +2190,7 @@ final class AppState: ObservableObject {
         preservedTranscript = ""
         continuationChainRemaining = AppState.maxContinuationChain
         guard !text.isEmpty else {
+            landHeldPausedAnswer()
             setPhase(.idle)
             statusLine = "Nothing heard"
             return
@@ -2488,6 +2502,7 @@ final class AppState: ObservableObject {
                         self.saveChat(.orion, text: reply.text, thinking: reply.thinking)
                         self.speakRefusedPauseAnswer(reply.text, origin: origin)
                     }
+                    if case .failure = result { self.sayTurnLost(generation) }
                     self.releaseAnswers(after: generation)
                     return
                 }
@@ -2511,6 +2526,10 @@ final class AppState: ObservableObject {
                             self.pausedReplacementText = reply.text
                             self.append(.system, "(The paused answer is ready — say \"continue\" to hear it.)")
                         }
+                    } else if self.pausedGeneration == generation, case .failure = result {
+                        self.pausedGeneration = nil
+                        self.pausedSeedWasRoom = false
+                        self.sayTurnLost(generation)
                     }
                     return
                 }
@@ -2529,6 +2548,14 @@ final class AppState: ObservableObject {
                 }
             }
         }
+    }
+
+    /// w18 audit2: a paused or orphaned turn failed. He asked; he is told it was lost rather than hearing nothing.
+    private func sayTurnLost(_ generation: Int) {
+        OrionLog.write("[think] a paused turn failed — telling him it was lost")
+        let line = LostTurn.failedLine(question: pausedQuestions.removeValue(forKey: generation) ?? "")
+        append(.orion, line)
+        saveChat(.orion, text: line)
     }
 
     /// w17 (2026-11-03 10:51): the speech that paused this turn was refused, so its answer is still said, unless a newer turn is live.

@@ -22,8 +22,13 @@ final class ScreenMonitor: DeviceActivityMonitor {
         return all[activity.rawValue] ?? [:]
     }
 
+    /// A focus session's shield (apart from the usage and night shields in `store`).
+    private let sessionStore = ManagedSettingsStore(named: .init("orion.focus.session"))
+
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         super.eventDidReachThreshold(event, activity: activity)
+        // A minute on the picked apps during a focus session: a pickup for ORION to nudge on.
+        if activity.rawValue == "focussession" { reportFocus("pickup"); return }
         // Three minutes on the phone after the alarm: he is up (2026-10-08).
         if activity.rawValue.hasPrefix("morning") {
             record(activity: activity.rawValue, event: event.rawValue)
@@ -72,6 +77,13 @@ final class ScreenMonitor: DeviceActivityMonitor {
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
         super.intervalDidEnd(for: activity)
+        // The focus phase is over: the shield comes off, even with ORION closed.
+        if activity.rawValue == "focussession" {
+            sessionStore.clearAllSettings()
+            defaults?.removeObject(forKey: "orion.focus.session")
+            defaults?.removeObject(forKey: "orion.focus.session.monitored")
+            return
+        }
         // Extra time ORION granted is over: back on, if the lock's own window still runs.
         if activity.rawValue == "grace" {
             defaults?.removeObject(forKey: "orion.screen.graceUntil")
@@ -192,6 +204,27 @@ final class ScreenMonitor: DeviceActivityMonitor {
                 if case .failure = result { defaults?.set(at, forKey: "orion.wake.unsent") }
                 done.signal()
             }
+        _ = done.wait(timeout: .now() + 20)
+    }
+
+    /// A focus report for the Mac (LinkLog.focus), the same LinkCommand shape as the app's CloudLink.sendNow.
+    private func reportFocus(_ action: String) {
+        let at = ISO8601DateFormatter().string(from: Date())
+        var body = "{\"focus\":{\"action\":\"\(action)\",\"at\":\"\(at)\""
+        if let data = defaults?.data(forKey: "orion.focus.session"),
+           let id = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["id"] as? String,
+           id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) { body += ",\"session\":\"\(id)\"" }
+        body += "}}"
+        let zone = CKRecordZone.ID(zoneName: "OrionLink", ownerName: CKCurrentUserDefaultName)
+        let record = CKRecord(recordType: "LinkCommand", recordID: CKRecord.ID(recordName: UUID().uuidString, zoneID: zone))
+        record["text"] = body as CKRecordValue
+        record["sentAt"] = Date() as CKRecordValue
+        record["status"] = "pending" as CKRecordValue
+        record["device"] = "iphone" as CKRecordValue
+        record["kind"] = "log" as CKRecordValue
+        let done = DispatchSemaphore(value: 0)
+        CKContainer(identifier: "iCloud.com.nickmadaio.orion").privateCloudDatabase
+            .modifyRecords(saving: [record], deleting: [], savePolicy: .allKeys, atomically: false) { _ in done.signal() }
         _ = done.wait(timeout: .now() + 20)
     }
 

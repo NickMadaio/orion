@@ -6,6 +6,7 @@ import { type ComputerDeps } from "./computer-loop.js";
 import { type MessagesRead, type ReadOutcome } from "./messages-read.js";
 import { type OfferPort, type StoredReminder } from "./reminder-flow.js";
 import { type DeadlineRead } from "./deadline-read.js";
+import { type ReadyDeps } from "./focus-ready.js";
 import { type FocusRow } from "./focus-status.js";
 import { type PendingRun } from "./schedule-pending.js";
 import { type Probe, type QueuedMessage } from "./model-outage.js";
@@ -14,6 +15,7 @@ import { type ScriptRun } from "./reality.js";
 import { type PhoneTimeRun } from "./phone-block-flow.js";
 import { type SleepRun } from "./sleep-plan-flow.js";
 import { type KnowledgeRun } from "./knowledge-run.js";
+import { type SelffixRun } from "./selffix-flow.js";
 import { type QuestionsRun } from "./questions-flow.js";
 import { type FoodRun } from "./food-chat.js";
 import { type AppsRun } from "./apps-chat.js";
@@ -128,6 +130,8 @@ export type LocalRoutingOptions = {
     noteFlow?: (message: string, bound?: boolean) => Promise<FlowResult>;
     /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
     sessionExec?: SessionExec;
+    /** "im ready to work", finishing a session early, one-time site allow (focus-ready.ts). Tests pass stubs; wired from index.ts. */
+    focusReady?: Pick<ReadyDeps, "exec" | "profile" | "sites" | "tasks" | "resolveApp" | "pending">;
     /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
     sessionStatus?: () => Promise<FlowResult>;
     /** The focus history rows, for "how long have i been focusing today" (tests pass a stub; default reads the real file, read-only). */
@@ -158,6 +162,8 @@ export type LocalRoutingOptions = {
     brainSearch?: (query: string) => Promise<string>;
     /** Wave 6 (knowledge-run.ts): orion-brain forget/links/profile and orion-trash. Unset, those moves are not taken. */
     knowledgeRun?: KnowledgeRun;
+    /** w19 selffix (selffix-flow.ts): orion-selfcheck and orion-selffix; unset, the real scripts with stateDir. */
+    selffixRun?: SelffixRun;
     /** Wave 12 L1 (questions-flow.ts): orion-questions; unset, the real script with stateDir. */
     questionsRun?: QuestionsRun;
     /** Wave 14 (mail-flow.ts): orion-mail-prefs; unset, the real script with stateDir. */

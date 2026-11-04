@@ -275,6 +275,12 @@ if (!dry && reason === "tick" && knowsAnchors && aw.sleep?.state === "awake" && 
   // (one message). The day is closed so the fill is not retried, and he is not told twice.
   else if (r.status === 1 && /NO ROOM: /.test(r.stdout ?? "")) { sent[`anchors-${dayKey}`] = true; closed.push("anchors"); }
 }
+// w19 selffix: the morning after the nightly self-review, ONE offer to open a fix project for something he got wrong ("now or later?"),
+// once a day at most, only while he is up and not in a session. orion-selffix decides the hour and the day; its reply binds in the plugin.
+if (!dry && reason === "tick" && dayOk && aw.sleep?.state === "awake" && !heldBack && !sent[`selffix-${dayKey}`]) {
+  const r = spawnSync(process.execPath, [join(here, "orion-selffix"), "offer-morning", "--send"], { encoding: "utf8", timeout: 60000 });
+  try { if (JSON.parse(String(r.stdout).trim().split("\n").at(-1)).offered) { sent[`selffix-${dayKey}`] = true; closed.push("selffix"); } } catch { /* nothing offered */ }
+}
 // The nightly review of what actually happened: at 22:00, or 60 min before bedtime if that is earlier, and never after
 // midnight. It describes the day that is ending (dayKey is the evening's date until 6 AM, but a review is only ever sent
 // on that same calendar day), spoken if he is home, a text otherwise, once a night. A missed one is not sent next morning.

@@ -1,4 +1,5 @@
 import type { FlowResult } from "./schedule-flow.js";
+import { type WaterGoalRead } from "./water-goal.js";
 export type MealRead = {
     kind: "meal";
     meal: string;
@@ -16,7 +17,7 @@ export type BedtimeRead = {
     time?: string;
     week: boolean;
 };
-export type HealthRead = MealRead | GymRead | BedtimeRead;
+export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead;
 export declare function readMeal(message: string, now: Date): MealRead | null;
 export declare function readGym(message: string): GymRead | null;
 export declare function readBedtime(message: string): BedtimeRead | null;

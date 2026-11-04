@@ -125,3 +125,16 @@ public enum AlarmPlanner {
         return byDay.values.filter { $0.fireAt < limit }.sorted { $0.fireAt < $1.fireAt }
     }
 }
+
+/// What the phone tells the Mac about the alarms it holds (W18). Sent when the held set changes, never on every refresh.
+public enum AlarmReceipt {
+    public static func entry(fires: [Date], state: String, at: Date) -> LinkLog {
+        let out = ISO8601DateFormatter(); out.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return .alarms(at: ISO8601DateFormatter().string(from: at), fires: fires.sorted().map { out.string(from: $0) }, state: String(state.prefix(80)))
+    }
+
+    /// Whole seconds of every held alarm, sorted: the same set gives the same text, so an unchanged set is not sent twice.
+    public static func signature(_ fires: [Date]) -> String {
+        fires.map { String(Int($0.timeIntervalSince1970.rounded())) }.sorted().joined(separator: ",")
+    }
+}

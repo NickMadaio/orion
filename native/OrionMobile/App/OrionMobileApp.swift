@@ -302,7 +302,10 @@ struct PhoneRootView: View {
                 return
             }
             #endif
-            routine.log = { [weak remote] entry in remote?.log(entry) }
+            routine.log = { [weak remote] entry in
+                // An alarm receipt is a quiet report, not a tracking entry to show as pending.
+                if case .alarms = entry { remote?.logQuietly(entry) } else { remote?.log(entry) }
+            }
             PhoneSignals.shared.log = { [weak remote] entry in remote?.logQuietly(entry) }
             PhoneSignals.shared.flushOutbox = { [weak remote] in await remote?.flushOutbox() }
             PhoneSignals.shared.start()

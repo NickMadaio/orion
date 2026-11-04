@@ -127,6 +127,18 @@ final class TrackingLogTests: XCTestCase {
         XCTAssertNoThrow(try TrackingLog(file: file).apply(.water(delta: 1), now: now), "waits for the other writer")
         XCTAssertFalse(FileManager.default.fileExists(atPath: lock), "released after writing")
     }
+    /// W18 wake: the phone's alarm receipt is kept where `orion-sleepplan alarms` reads it, replacing the last one, and nothing else moves.
+    func testThePhonesAlarmReceiptReplacesTheLastOneAndKeepsOtherFields() throws {
+        let log = TrackingLog(file: file)
+        _ = try log.apply(.alarms(at: "2026-11-02T20:01:00Z", fires: ["2026-11-03T06:45:00.000Z"], state: "Set for 6:45 AM"), now: now)
+        _ = try log.apply(.alarms(at: "2026-11-02T20:05:00Z", fires: ["2026-11-03T07:05:00.000Z", "2026-11-04T07:00:00.000Z"], state: "Set for 7:05 AM (+1 more)"), now: now)
+        let held = try XCTUnwrap(try json()["phoneAlarms"] as? [String: Any])
+        XCTAssertEqual(held["fires"] as? [String], ["2026-11-03T07:05:00.000Z", "2026-11-04T07:00:00.000Z"])
+        XCTAssertEqual(held["state"] as? String, "Set for 7:05 AM (+1 more)")
+        XCTAssertEqual((try json()["futureField"] as? [String: Any])?["kept"] as? Bool, true)
+        XCTAssertNil(try json()["nutritionLog"].flatMap { ($0 as? [String: Any])?["2026-11-02"] }, "an alarm receipt is not a meal day")
+    }
+
     /// 2026-10-01: ORION told Nick nothing was locked; it could not see the phone.
     func testTheScreenLockStateIsKeptWhereOrionReadsIt() throws {
         let log = TrackingLog(file: file)

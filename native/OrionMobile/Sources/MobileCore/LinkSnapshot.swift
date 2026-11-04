@@ -425,6 +425,9 @@ public enum LinkLog: Codable, Equatable, Sendable {
     /// Something noted on the phone ("remember…", an idea, or an offline
     /// conversation), filed into ORION's memory journal for that day by the Mac.
     case note(text: String, at: String)
+    /// W18: the alarms the phone really holds (AlarmKit), sent after it schedules, so the Mac can say "set on your phone" only
+    /// when it is true. `fires` are ISO-8601 instants, earliest first; empty means none are set. `state` is the phone's own words.
+    case alarms(at: String, fires: [String], state: String)
 
     public static let meals = ["Breakfast", "Lunch", "Dinner", "Snack", "Other"]
     public static let audioRoutes = ["bluetooth", "wired", "speaker", "unknown"]
@@ -486,6 +489,11 @@ public enum LinkLog: Codable, Equatable, Sendable {
             return .screen(at: at, locked: locked, until: until, why: why, graceUntil: graceUntil, usedMinutes: usedMinutes)
         case .checkin(let action):
             guard ["started", "snooze", "done", "early-block", "early-out-of-class", DoneEarly.linkAction].contains(action) || DoneEarly.checkinID(fromLinkAction: action) != nil else { throw LinkError.invalidCommand("not a check-in answer") }
+            return self
+        case let .alarms(at, fires, state):
+            guard ISO8601DateFormatter().date(from: at) != nil else { throw LinkError.invalidCommand("not a time") }
+            guard fires.count <= 20, fires.allSatisfy({ WakePlan.parseISO($0) != nil }) else { throw LinkError.invalidCommand("alarms are up to 20 times") }
+            guard state.count <= 80 else { throw LinkError.invalidCommand("the alarm state is too long") }
             return self
         case let .sleep(event, at):
             guard ["bed", "up", "unplugged", "used"].contains(event) else { throw LinkError.invalidCommand("sleep event is bed, up, unplugged or used") }

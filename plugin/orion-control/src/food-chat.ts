@@ -81,7 +81,7 @@ function loggedLine(j: Json): string {
   if (typeof j.say === "string") return `${j.say} Say "undo" to take it off.`;   // the script names what it logged
   const e = (j.entry ?? {}) as Record<string, unknown>;
   const l = (j.logged ?? {}) as Record<string, unknown>;
-  return `${l.filled ? "Updated" : "Logged"} ${lower(e.title)} as ${lower(e.meal)}: ${e.calories} kcal, ${e.protein}P ${e.carbohydrates}C ${e.fat}F. ${l.dayCalories} kcal today. Say "undo" to take it off.`;
+  return `${l.filled ? "Updated" : "Logged"} ${lower(e.title)} as ${lower(e.meal)}: ${e.calories} kcal, ${e.protein} g protein, ${e.carbohydrates} g carbs, ${e.fat} g fat. ${l.dayCalories} kcal today. Say "undo" to take it off.`;
 }
 
 export type FoodDeps = { run: FoodRun; stateDir: string; now: Date };

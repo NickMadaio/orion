@@ -13,6 +13,7 @@
 // lock) BEFORE it writes the meal, so the same offer id can never log twice; a failed log puts the offer back (restorePending).
 // Never written during an evaluation (eval-mode marker): an offer made then is said, not kept, so a gate never leaves one behind.
 import { readFileSync, renameSync, unlinkSync, writeFileSync, mkdirSync, openSync, closeSync, statSync } from "node:fs";
+import { macroWords } from "./macros.mjs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { controlledDir } from "../clock.mjs";
@@ -156,7 +157,7 @@ export function loggedLine(entry, estimate, verb = "Logged") {
   const kcal = entry.calories >= 100 ? Math.round(entry.calories / 10) * 10 : entry.calories;
   const names = [...new Set((estimate?.items ?? []).map((i) => String(i.name).toLowerCase()))];
   const what = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3} more` : names.join(", ");
-  return `${verb} ~${kcal} kcal — ${what || entry.title.toLowerCase()}: ${entry.protein}P ${entry.carbohydrates}C ${entry.fat}F. Fix anything?`;
+  return `${verb} ~${kcal} kcal — ${what || entry.title.toLowerCase()}: ${macroWords({ p: entry.protein, c: entry.carbohydrates, f: entry.fat })}. Fix anything?`;
 }
 
 /** The newest live offer that is an already-logged photo: what a correction is about, wherever it sits among the open offers. */

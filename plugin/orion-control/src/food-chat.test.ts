@@ -9,8 +9,8 @@ import { registerLocalRouting } from "./local-routing.js";
 import type { Decision } from "./front-desk.js";
 
 const NOW = new Date(2026, 10, 2, 13, 0);
-const OFFER = "~670 kcal · 27P 99C 18F (chicken burrito and coke, ~640 g). Log it?";
-const ESTIMATE = { ok: true, summary: "~670 kcal · 27P 99C 18F (chicken burrito and coke, ~640 g)", estimate: { items: [], totals: { kcal: 667 } }, offer: { id: "fp-1", text: OFFER } };
+const OFFER = "~670 kcal · 27 g protein, 99 g carbs, 18 g fat (chicken burrito and coke, ~640 g). Log it?";
+const ESTIMATE = { ok: true, summary: "~670 kcal · 27 g protein, 99 g carbs, 18 g fat (chicken burrito and coke, ~640 g)", estimate: { items: [], totals: { kcal: 667 } }, offer: { id: "fp-1", text: OFFER } };
 const LOGGED = { ok: true, logged: { id: "FOOD-0E0C7C2A-6B8B-4E0B-9C1A-3F7E3C0D8A11", day: "2026-11-02", filled: false, dayCalories: 1450 }, entry: { id: "FOOD-0E0C7C2A-6B8B-4E0B-9C1A-3F7E3C0D8A11", title: "Chicken burrito and coke", meal: "Lunch", calories: 667, protein: 27, carbohydrates: 99, fat: 18 } };
 
 function fakeRun(answers: Record<string, unknown>, calls: string[][] = []): FoodRun {
@@ -45,12 +45,12 @@ describe("runFoodTurn", () => {
     const out = await runFoodTurn(turn, { run: fakeRun({}, calls), stateDir: d, now: NOW });
     expect(out.text).toBe("About 42 g of protein (and ~650 kcal). Want me to log it?");
     expect(calls).toEqual([]);
-    writeFileSync(join(d, "food-pending.json"), row({ logged: { id: "FOOD-1" } }, "Logged ~650 kcal — bowl: 42P 70C 18F. Fix anything?"));
-    expect((await runFoodTurn(turn, { run: fakeRun({}), stateDir: d, now: NOW })).text).toBe("That photo is already in your log. Logged ~650 kcal — bowl: 42P 70C 18F. Fix anything?");
+    writeFileSync(join(d, "food-pending.json"), row({ logged: { id: "FOOD-1" } }, "Logged ~650 kcal — bowl: 42 g protein, 70 g carbs, 18 g fat. Fix anything?"));
+    expect((await runFoodTurn(turn, { run: fakeRun({}), stateDir: d, now: NOW })).text).toBe("That photo is already in your log. Logged ~650 kcal — bowl: 42 g protein, 70 g carbs, 18 g fat. Fix anything?");
   });
   it("a yes logs the offer and says how to undo it", async () => {
     const out = await runFoodTurn({ kind: "yes" }, { run: fakeRun({ "log-pending": LOGGED }), stateDir: dir(), now: NOW });
-    expect(out.text).toBe('Logged chicken burrito and coke as lunch: 667 kcal, 27P 99C 18F. 1450 kcal today. Say "undo" to take it off.');
+    expect(out.text).toBe('Logged chicken burrito and coke as lunch: 667 kcal, 27 g protein, 99 g carbs, 18 g fat. 1450 kcal today. Say "undo" to take it off.');
     expect(out.logged?.id).toBe(LOGGED.logged.id);
   });
   it("a no drops it; a correction re-estimates", async () => {
@@ -63,16 +63,16 @@ describe("runFoodTurn", () => {
   it("a no to 'Fix anything?' says it stays logged, and a correction reports the updated entry", async () => {
     const stays = await runFoodTurn({ kind: "no" }, { run: fakeRun({ discard: { ok: true, discarded: 1, kept: true, say: "Okay, it stays logged." } }), stateDir: dir(), now: NOW });
     expect(stays.text).toBe("Okay, it stays logged.");
-    const fixed = await runFoodTurn({ kind: "revise", correction: "it was 2 slices" }, { run: fakeRun({ "--revise": { ...ESTIMATE, offer: { id: "fp-3", text: "Updated ~800 kcal — pizza slice: 33P 99C 30F. Fix anything?" }, logged: { id: "FOOD-X" } } }), stateDir: dir(), now: NOW });
-    expect(fixed.text).toBe("Updated ~800 kcal — pizza slice: 33P 99C 30F. Fix anything?");
+    const fixed = await runFoodTurn({ kind: "revise", correction: "it was 2 slices" }, { run: fakeRun({ "--revise": { ...ESTIMATE, offer: { id: "fp-3", text: "Updated ~800 kcal — pizza slice: 33 g protein, 99 g carbs, 30 g fat. Fix anything?" }, logged: { id: "FOOD-X" } } }), stateDir: dir(), now: NOW });
+    expect(fixed.text).toBe("Updated ~800 kcal — pizza slice: 33 g protein, 99 g carbs, 30 g fat. Fix anything?");
     expect(fixed.logged?.id).toBe("FOOD-X");
   });
   it("readFoodPending carries the logged entry's id, and the memory treats 'Fix anything?' as the offer's own line", () => {
     const d = dir();
-    writeFileSync(join(d, "food-pending.json"), JSON.stringify({ offers: [{ id: "a", name: "pizza", at: NOW.toISOString(), expiresAt: new Date(NOW.getTime() + 60_000).toISOString(), via: "inbox", offerText: "Logged ~630 kcal — pizza: 1P 1C 1F. Fix anything?", logged: { id: "FOOD-9" }, estimate: {} }] }));
+    writeFileSync(join(d, "food-pending.json"), JSON.stringify({ offers: [{ id: "a", name: "pizza", at: NOW.toISOString(), expiresAt: new Date(NOW.getTime() + 60_000).toISOString(), via: "inbox", offerText: "Logged ~630 kcal — pizza: 1 g protein, 1 g carbs, 1 g fat. Fix anything?", logged: { id: "FOOD-9" }, estimate: {} }] }));
     const view = readFoodPending(d, NOW);
     expect(view?.loggedId).toBe("FOOD-9");
-    expect(new FoodMemory().bound("s", view!, "Logged ~630 kcal — pizza: 1P 1C 1F. Fix anything?")).toBe(true);
+    expect(new FoodMemory().bound("s", view!, "Logged ~630 kcal — pizza: 1 g protein, 1 g carbs, 1 g fat. Fix anything?")).toBe(true);
     expect(new FoodMemory().bound("s", view!, "Is this food? I couldn't tell. My guess: x. Log it?")).toBe(true);
   });
   it("readFoodPending counts only the open offers; the logged one is carried apart", () => {
@@ -112,7 +112,7 @@ describe("runFoodTurn", () => {
 
 describe("several offers and a filled meal (wave 14 review)", () => {
   const CHOOSE = { ok: true, choose: [{ id: "a", name: "cheeseburger and fries", kcal: 1138 }, { id: "b", name: "caesar salad", kcal: 318 }], say: 'You have 2 estimates waiting: the cheeseburger and fries (~1138 kcal) and the caesar salad (~318 kcal). Which should I log? Say "the cheeseburger", or "all of them".' };
-  const SAID = { ...LOGGED, say: "Logged the cheeseburger and fries, ~1138 kcal (lunch · 49P 117C 54F). 1450 kcal today." };
+  const SAID = { ...LOGGED, say: "Logged the cheeseburger and fries, ~1138 kcal (lunch · 49 g protein, 117 g carbs, 54 g fat). 1450 kcal today." };
   it("a yes with several waiting asks which, and logs nothing", async () => {
     const out = await runFoodTurn({ kind: "yes" }, { run: fakeRun({ "log-pending": CHOOSE }), stateDir: dir(), now: NOW });
     expect(out.text).toBe(CHOOSE.say);
@@ -122,7 +122,7 @@ describe("several offers and a filled meal (wave 14 review)", () => {
     const calls: string[][] = [];
     const out = await runFoodTurn({ kind: "pick", which: "the burger" }, { run: fakeRun({ "log-pending": SAID }, calls), stateDir: dir(), now: NOW });
     expect(calls[0]).toEqual(["log-pending", "--pick", "the burger", "--json"]);
-    expect(out.text).toBe('Logged the cheeseburger and fries, ~1138 kcal (lunch · 49P 117C 54F). 1450 kcal today. Say "undo" to take it off.');
+    expect(out.text).toBe('Logged the cheeseburger and fries, ~1138 kcal (lunch · 49 g protein, 117 g carbs, 54 g fat). 1450 kcal today. Say "undo" to take it off.');
     expect(out.logged?.id).toBe(LOGGED.logged.id);
   });
   it("undo of a filled meal says it was put back", async () => {

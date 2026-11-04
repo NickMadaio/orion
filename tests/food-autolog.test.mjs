@@ -61,7 +61,7 @@ test("an estimated photo is written to the health log at once, once, and Nick is
     const [entry] = rows(s.dir);
     assert.equal(rows(s.dir).length, 1);
     assert.match(entry.id, /^FOOD-/); assert.equal(entry.loggedAt, "2026-11-03T18:20:00Z"); assert.ok(entry.calories > 400);
-    assert.match(told(s)[0], /^Logged ~\d+ kcal — pizza slice, pineapple topping: \d+P \d+C \d+F\. Fix anything\?$/);
+    assert.match(told(s)[0], /^Logged ~\d+ kcal — pizza slice, pineapple topping: \d+ g protein, \d+ g carbs, \d+ g fat\. Fix anything\?$/);
     await run(["inbox", "--json"], env);   // a second tick must not log it again
     assert.equal(rows(s.dir).length, 1);
     const day = JSON.parse(readFileSync(join(s.dir, "health-log.json"), "utf8")).days["2026-11-03"];
@@ -77,7 +77,7 @@ test("a correction edits that same entry in place; a bare yes keeps it; undo the
     const first = rows(s.dir)[0];
     const fixed = JSON.parse((await run(["--revise", "nah that was 2 slices", "--json"], env)).stdout);
     assert.equal(fixed.ok, true);
-    assert.match(fixed.offer.text, /^Updated ~800 kcal — pizza slice: \d+P \d+C \d+F\. Fix anything\?$/);
+    assert.match(fixed.offer.text, /^Updated ~800 kcal — pizza slice: \d+ g protein, \d+ g carbs, \d+ g fat\. Fix anything\?$/);
     assert.equal(rows(s.dir).length, 1, "edited in place, not added");
     assert.equal(rows(s.dir)[0].id, first.id); assert.equal(rows(s.dir)[0].calories, 798);
     assert.match(o.bodies[1].messages[1].content, /nah that was 2 slices/);

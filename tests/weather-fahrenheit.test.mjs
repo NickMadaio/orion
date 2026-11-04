@@ -22,3 +22,9 @@ test("weather watches are Fahrenheit; an old Celsius watch is converted, not rer
   assert.equal(weatherHit(w, forecast), "It drops below 45 degrees Fahrenheit today around 4 PM.");
   assert.equal(weatherHit({ condition: "below", value: 13, day: "today" }, forecast), "It drops below 55 degrees Fahrenheit today around 4 PM.");
 });
+
+test("fahrenheitWords: a food macro triple is never a temperature (2026-11-04: '8F' became '8 degrees Fahrenheit')", () => {
+  for (const t of ["~190 kcal · 6P 23C 8F (nature valley protein bar). Log it?", "Logged ~570 kcal: 18P 69C 24F. Fix anything?", "Today is 8F"]) assert.equal(fahrenheitWords(t), t);
+  assert.equal(fahrenheitWords("6P 23C 8F, and it is 55°F"), "6P 23C 8F, and it is 55 degrees Fahrenheit");
+  assert.equal(fahrenheitWords("feels like 50 F, high 55F"), "feels like 50 degrees Fahrenheit, high of 55 degrees Fahrenheit");
+});

@@ -1,6 +1,7 @@
 // Text and/or photos in, a checked estimate out (orion-food-estimate). The model names and sizes the food; the
 // schema clamps and macro-checks it; the table supplies per-gram numbers wherever an item matches a known food.
 import { askModel } from "./ollama.mjs";
+import { macroWords } from "./macros.mjs";
 import { extractJson, totalsOf, validateEstimate, overallConfidence } from "./schema.mjs";
 import { fromTable, loadTable, matchFood } from "./table.mjs";
 
@@ -35,7 +36,7 @@ export function summaryLine(estimate) {
   const what = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3} more` : listed(names);
   const grams = t.grams >= 50 ? `, ~${Math.round(t.grams / 10) * 10} g` : "";
   const note = estimate.assumptions[0] ? `; ${short(estimate.assumptions[0])}` : "";
-  return `~${kcal} kcal · ${Math.round(t.p)}P ${Math.round(t.c)}C ${Math.round(t.f)}F (${what}${grams}${note})`;
+  return `~${kcal} kcal · ${macroWords(t)} (${what}${grams}${note})`;
 }
 
 /**

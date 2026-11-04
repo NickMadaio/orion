@@ -93,7 +93,7 @@ test("with one offer waiting, a bare yes logs it and names it", async () => {
     const env = { ORION_OLLAMA_URL: o.url, ORION_CONTROLLED_DIR: dir, ORION_NOW: NOW };
     await run(["--text", "burger", "--offer"], env);
     const yes = JSON.parse((await run(["log-pending", "--json"], env)).stdout);
-    assert.match(yes.say, /^Logged the cheeseburger and fries, ~1138 kcal \(lunch · 49P 117C 54F\)\. 1138 kcal today\.$/);
+    assert.match(yes.say, /^Logged the cheeseburger and fries, ~1138 kcal \(lunch · 49 g protein, 117 g carbs, 54 g fat\)\. 1138 kcal today\.$/);
     assert.equal(yes.logged.id, healthLog(dir).nutritionLog["2026-11-02"][0].id);
   } finally { await o.close(); }
 });

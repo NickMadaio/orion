@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readFoodTurn } from "./food-read.js";
 const NOW = new Date(2026, 10, 2, 13, 0);
 const read = (m, o = {}) => readFoodTurn(m, { now: NOW, mealsOn: true, ...o });
-const offered = { pending: { at: NOW.getTime() - 60_000, via: "chat", offerText: "~670 kcal · 27P 99C 18F (chicken burrito and coke). Log it?" }, bound: true };
+const offered = { pending: { at: NOW.getTime() - 60_000, via: "chat", offerText: "~670 kcal · 27 g protein, 99 g carbs, 18 g fat (chicken burrito and coke). Log it?" }, bound: true };
 describe("asking for an estimate", () => {
     it.each([
         ["how many calories in a chicken burrito", "chicken burrito"],
@@ -104,7 +104,7 @@ describe("no and corrections that name one of several offers (wave 14 review)", 
 });
 describe("a reply to a photo that was already logged", () => {
     const ID = "FOOD-0E0C7C2A-6B8B-4E0B-9C1A-3F7E3C0D8A11";
-    const logged = { pending: { at: NOW.getTime() - 120_000, via: "inbox", offerText: "Logged ~630 kcal — pizza slice, pineapple topping: 36P 64C 25F. Fix anything?", loggedId: ID }, bound: true };
+    const logged = { pending: { at: NOW.getTime() - 120_000, via: "inbox", offerText: "Logged ~630 kcal — pizza slice, pineapple topping: 36 g protein, 64 g carbs, 25 g fat. Fix anything?", loggedId: ID }, bound: true };
     it.each(["ya thats fine", "yep", "ok"])("%s is yes: it stays logged", (m) => expect(read(m, logged)).toEqual({ kind: "yes" }));
     it.each(["nah thats right", "no"])("%s is no: nothing to fix, it stays", (m) => expect(read(m, logged)).toEqual({ kind: "no" }));
     it.each(["undo", "nvm delete that", "remove it pls", "scratch that", "take it off"])("%s takes the entry off", (m) => expect(read(m, logged)).toEqual({ kind: "undo", id: ID }));

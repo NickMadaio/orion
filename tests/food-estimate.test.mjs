@@ -89,7 +89,7 @@ test("grounding replaces the model's per-gram numbers where an item matches, and
 
 test("the summary line reads like the brief's example", () => {
   const e = ground(validateEstimate(BOWL).estimate);
-  assert.equal(summaryLine(e), "~600 kcal · 52P 56C 16F (white rice, grilled chicken breast and olive oil, ~360 g; guessed the oil)");
+  assert.equal(summaryLine(e), "~600 kcal · 52 g protein, 56 g carbs, 16 g fat (white rice, grilled chicken breast and olive oil, ~360 g; guessed the oil)");
 });
 
 test("askModel sends the photos as base64 to /api/chat on the resident 9b with a JSON schema", async () => {
@@ -120,7 +120,7 @@ test("estimateMeal: nothing to estimate, a non-JSON answer and a good answer", a
   assert.match(prose.error, /wasn't JSON/);
   const good = await estimateMeal({ text: "chicken rice bowl", imagePaths: ["/x/p.jpg"] }, { fetchImpl: fakeFetch(BOWL), url: "http://fake" });
   assert.equal(good.ok, true);
-  assert.match(good.summary, /^~600 kcal · 52P 56C 16F/);
+  assert.match(good.summary, /^~600 kcal · 52 g protein, 56 g carbs, 16 g fat/);
   assert.deepEqual(good.estimate.input.photos, ["/x/p.jpg"]);
 });
 
@@ -153,7 +153,7 @@ test("CLI: --text prints the one-line summary; --json carries the estimate", asy
     const env = { ORION_OLLAMA_URL: o.url, ORION_CONTROLLED_DIR: dir, ORION_NOW: "2026-11-02T13:00:00Z" };
     const plain = await run(["--text", "chicken rice bowl"], env);
     assert.equal(plain.code, 0);
-    assert.match(plain.stdout, /^~600 kcal · 52P 56C 16F \(.*guessed the oil\)$/);
+    assert.match(plain.stdout, /^~600 kcal · 52 g protein, 56 g carbs, 16 g fat \(.*guessed the oil\)$/);
     const j = JSON.parse((await run(["--text", "chicken rice bowl", "--json"], env)).stdout);
     assert.equal(j.estimate.items.length, 3);
     assert.equal(healthLog(dir).nutritionLog["2026-11-02"], undefined, "no --log, nothing written");
@@ -277,7 +277,7 @@ test("CLI: inbox estimates the fixture item once, writes its result, offers it i
     assert.equal(first.items.length, 1);
     assert.equal(first.items[0].notified, true);
     const args = JSON.parse(readFileSync(sent, "utf8").trim());
-    assert.match(args[0], /^Logged ~600 kcal — white rice, grilled chicken breast, olive oil: 52P 56C 16F\. Fix anything\?$/);
+    assert.match(args[0], /^Logged ~600 kcal — white rice, grilled chicken breast, olive oil: 52 g protein, 56 g carbs, 16 g fat\. Fix anything\?$/);
     assert.deepEqual(args.slice(1), ["--kind", "question", "--why", "food: meal-001"]);
     assert.match(o.bodies[0].messages[1].content, /chicken rice bowl from the canteen/);
     assert.equal(o.bodies[0].messages[1].images.length, 1);
@@ -316,7 +316,7 @@ test("the summary counts repeated items and keeps the assumption short", () => {
     { name: "Pepperoni pizza slice", grams: 105, kcal: 313, p: 13, c: 33, f: 14, confidence: "high" },
     { name: "pepperoni pizza slice", grams: 105, kcal: 313, p: 13, c: 33, f: 14, confidence: "high" },
   ], assumptions: ["Assumed standard restaurant slice size (~105g)."] }).estimate;
-  assert.equal(summaryLine(e), "~630 kcal · 26P 66C 28F (2× pepperoni pizza slice, ~210 g; assumed standard restaurant slice size)");
+  assert.equal(summaryLine(e), "~630 kcal · 26 g protein, 66 g carbs, 28 g fat (2× pepperoni pizza slice, ~210 g; assumed standard restaurant slice size)");
 });
 
 test("a long assumption is cut at its first clause, never mid-word", () => {

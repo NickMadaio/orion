@@ -446,9 +446,14 @@ final class SessionTabModel: ObservableObject {
         perform(action)
     }
 
+    /// Told when the Finish early button ended a session (task name), so ORION can ask once: break now, or the next task.
+    var onFinishedEarly: ((String?) -> Void)?
+
     func finishEarly() {
         guard let action = availableActions.first(where: { $0.kind == .finish }) else { return }
+        let task = self.task
         perform(action)
+        onFinishedEarly?(task)
     }
 
     /// The unconditional escape, one click away.

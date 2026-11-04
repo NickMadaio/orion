@@ -53,6 +53,8 @@ export declare function currentWorkBlock(day: Day | undefined, now: Date): {
     title: string;
     end: string;
 } | undefined;
+/** The nearest deadline or dated to-do from today on. */
+export declare function topDeadline(due: DeadlineRead | null | undefined, now: Date): string | undefined;
 /** Carries the move out and says only what the session or the scheduler shows. */
 export declare function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOutcome>;
 export {};

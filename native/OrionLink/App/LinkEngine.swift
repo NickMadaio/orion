@@ -513,14 +513,19 @@ final class LinkEngine: ObservableObject {
         guard case .focus(let action, _, let session)? = try? LinkLog.decode(text) else { return .init(ok: false, reply: "Not a focus report.") }
         let recorded = Self.logTracking(text, at: sentAt, id: id)
         guard let op = FocusSessionReader.wireOp(action: action, session: session, current: lastFocus?.sessionId, age: Date().timeIntervalSince(sentAt)) else {
-            return ["finish", "pause", "resume"].contains(action)
+            return ["finish", "pause", "resume", "break"].contains(action)
                 ? .init(ok: false, reply: "That focus session is no longer running.") : recorded
         }
-        let reply = await Task.detached(priority: .userInitiated) { FocusSessionReader.send(FocusSessionReader.request(op: op, id: id)) }.value
-        guard let reply, (try? JSONSerialization.jsonObject(with: reply) as? [String: Any])?["ok"] as? Bool == true else {
-            return .init(ok: false, reply: "ORION on the Mac did not take that.")
+        func ask(_ op: String, _ id: String) async -> Bool {
+            let reply = await Task.detached(priority: .userInitiated) { FocusSessionReader.send(FocusSessionReader.request(op: op, id: id)) }.value
+            return reply.flatMap { (try? JSONSerialization.jsonObject(with: $0) as? [String: Any])?["ok"] as? Bool } == true
         }
-        return .init(ok: true, reply: action == "finish" ? "Session finished." : action == "pause" ? "Paused." : "Back to it.")
+        if await ask(op, id) {
+            return .init(ok: true, reply: action == "finish" ? "Session finished." : action == "pause" ? "Paused." : action == "break" ? "Break started." : "Back to it.")
+        }
+        // No break planned after this block: pausing still frees the phone's apps, and says so.
+        if action == "break", await ask("pause", "\(id)-pause") { return .init(ok: true, reply: "No break was planned, so I paused it.") }
+        return .init(ok: false, reply: "ORION on the Mac did not take that.")
     }
 
     /// A "Log food" photo from the phone (2026-11-02): into the food inbox the

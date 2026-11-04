@@ -1093,6 +1093,11 @@ final class AppState: ObservableObject {
         musicControl.onLog = { OrionLog.write($0) }
         focusShield.onLog = { OrionLog.write($0) }
         focusShield.onReleaseGuard = { [weak self] in self?.sessionTabModel.release() }
+        // The Finish early button ends the block, then asks once what is next (focus-ready.ts answers it in chat).
+        sessionTabModel.onFinishedEarly = { [weak self] task in
+            FocusEarlyPrompt.write(task: task, to: FocusEarlyPrompt.defaultURL)
+            self?.append(.system, FocusEarlyPrompt.line(task: task))
+        }
 
         switch clipLibrary.ensureBuiltInFocusTrack() {
         case .success(let clip):

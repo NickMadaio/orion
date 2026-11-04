@@ -65,10 +65,10 @@ public enum FocusSessionReader {
     ]
 
     /// The engine command a phone action means, or nil when it must not run: a report (pickup, need-app), another
-    /// session's tap, no session at all, or a tap that arrived late. "Break now" is a pause: the engine has no
-    /// break-from-focus command, and a paused session lifts the phone's shield.
+    /// session's tap, no session at all, or a tap that arrived late. "break" is the engine's break-now (the block ends, its break starts, the next block
+    /// follows); it is refused when no break is planned, and Link then pauses instead.
     public static func wireOp(action: String, session: String?, current: String?, age: TimeInterval) -> String? {
-        guard ["finish", "pause", "resume"].contains(action), let current, age <= actionFreshness, age > -60 else { return nil }
+        guard ["finish", "pause", "resume", "break"].contains(action), let current, age <= actionFreshness, age > -60 else { return nil }
         if let session, session != current { return nil }
         return action
     }

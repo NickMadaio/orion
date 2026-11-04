@@ -432,11 +432,11 @@ public enum LinkLog: Codable, Equatable, Sendable {
     /// when it is true. `fires` are ISO-8601 instants, earliest first; empty means none are set. `state` is the phone's own words.
     case alarms(at: String, fires: [String], state: String)
     /// W19: what Nick does during a focus session. "pickup" (he used a phone app) and "need-app" are reports for ORION to
-    /// nudge on; "finish" (Done early), "pause" (Break now) and "resume" are run on the Mac's session. `session` is its id.
+    /// nudge on; "finish" (Done early), "break" (Break now: the break starts, the next focus block follows), "pause" and "resume" are run on the Mac's session. `session` is its id.
     case focus(action: String, at: String, session: String?)
 
     public static let meals = ["Breakfast", "Lunch", "Dinner", "Snack", "Other"]
-    public static let focusActions = ["pickup", "need-app", "finish", "pause", "resume"]
+    public static let focusActions = ["pickup", "need-app", "finish", "pause", "resume", "break"]
     public static let audioRoutes = ["bluetooth", "wired", "speaker", "unknown"]
 
     /// About 100 m, and only sane coordinates.

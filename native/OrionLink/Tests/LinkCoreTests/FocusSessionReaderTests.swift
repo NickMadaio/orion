@@ -70,6 +70,8 @@ final class FocusSessionReaderTests: XCTestCase {
         XCTAssertEqual(FocusSessionReader.wireOp(action: "finish", session: "s-abc", current: "s-abc", age: 5), "finish")
         XCTAssertEqual(FocusSessionReader.wireOp(action: "pause", session: nil, current: "s-abc", age: 5), "pause")
         XCTAssertEqual(FocusSessionReader.wireOp(action: "resume", session: "s-abc", current: "s-abc", age: 5), "resume")
+        XCTAssertEqual(FocusSessionReader.wireOp(action: "break", session: "s-abc", current: "s-abc", age: 5), "break", "Break now is the engine's break, not a pause")
+        XCTAssertNil(FocusSessionReader.wireOp(action: "break", session: "s-old", current: "s-abc", age: 5))
         XCTAssertNil(FocusSessionReader.wireOp(action: "finish", session: "s-old", current: "s-abc", age: 5))
         XCTAssertNil(FocusSessionReader.wireOp(action: "finish", session: "s-abc", current: nil, age: 5))
         XCTAssertNil(FocusSessionReader.wireOp(action: "finish", session: "s-abc", current: "s-abc", age: 600), "a late tap never ends a later session")

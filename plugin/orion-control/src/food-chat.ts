@@ -96,7 +96,8 @@ export async function runFoodTurn(turn: FoodTurn, deps: FoodDeps): Promise<FoodO
     return { text: reply(r.j), calls: [r.call], outputs: [r.out], ...(row?.id ? { logged: { id: row.id, ...(ids.length > 1 ? { ids } : {}) } } : {}) };
   };
   switch (turn.kind) {
-    case "ask": return one(["--text", turn.text, "--offer", "--json"], offerOf);
+    // A question is answered first ("About 42 g of protein (and ~650 kcal). Want me to log it?"); nothing is logged until a yes.
+    case "ask": return one(["--text", turn.text, ...(turn.question ? ["--ask", turn.question] : []), "--offer", "--json"], offerOf);
     case "log": return one(["--text", turn.text, "--log", "--json"], (j) => {
       const l = (j.logged ?? {}) as { error?: string; dayCalories?: number };
       return l.error ? `${String(j.summary)}. ${l.error}` : `${String(j.summary)}. Logged (${l.dayCalories} kcal today). Say "undo" to take it off.`;
@@ -113,7 +114,7 @@ export async function runFoodTurn(turn: FoodTurn, deps: FoodDeps): Promise<FoodO
     }
     case "photo": {
       const pending = readFoodPending(deps.stateDir, deps.now);
-      if (pending?.via === "inbox" && deps.now.getTime() - pending.at <= PHOTO_REUSE_MS) return { text: pending.offerText, calls: ["read food-pending.json"], outputs: [pending.offerText] };
+      if (pending?.via === "inbox" && deps.now.getTime() - pending.at <= PHOTO_REUSE_MS) return { text: turn.question && pending.loggedId ? `That photo is already in your log. ${pending.offerText}` : pending.offerText, calls: ["read food-pending.json"], outputs: [pending.offerText] };
       return { text: PHOTO_LINE, calls: [], outputs: [] };
     }
     case "meal": return mealThenEstimate(turn.read, deps);

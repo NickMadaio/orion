@@ -425,6 +425,13 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 
 ## Traps that have already bitten, do not reintroduce
 
+- **The deployed OrionMacBridge release binary predates dim, quit_app and lock_screen.** On 2026-11-03 the 23:08 dim and 23:53 lockdown
+  all failed with "Unknown native action" while the lockdown message said "locked the Mac"; and Nick's "Fine. Yes." at 22:09 reached the
+  local model, which said "shutting down your apps" with no tool call. Fixed in code: yes routes to `orion-bedtime-shutdown run`, the lock
+  falls back to Ctrl+Cmd+Q then `pmset displaysleepnow`, and a failed lock is never claimed. Rebuild the bridge (`swift build -c release`
+  in native/OrionMacBridge) for dim and quit-app. The light reader (`orion-light`) found the M5 Pro's ambient light service
+  (AppleSPUHIDDevice usage page 0xff00 usage 4) and read lux 0 with the lid closed; its thresholds are unchecked against a lit room.
+
 - **"connected (no DDI)" on the iPhone means it's locked, not that the cable or build is bad.** devicectl install fails
   with CoreDeviceError 12040 ("developer disk image could not be mounted"); the real cause is nested underneath as 10003
   "device is still locked". Retrying while the phone stays locked never succeeds (25 tries on 2026-11-02). Have Nick

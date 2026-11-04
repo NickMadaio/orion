@@ -17,6 +17,7 @@ import { type KnowledgeRun } from "./knowledge-run.js";
 import { type QuestionsRun } from "./questions-flow.js";
 import { type FoodRun } from "./food-chat.js";
 import { type AppsRun } from "./apps-chat.js";
+import { type ShutdownRun } from "./bedtime-shutdown-chat.js";
 import { type WorkoutRun } from "./workout-chat.js";
 import { type MouseRun } from "./mouse-chat.js";
 import { type MailPrefsRun } from "./mail-flow.js";
@@ -163,6 +164,8 @@ export type LocalRoutingOptions = {
     workoutRun?: WorkoutRun;
     /** w18 apps: orion-apps (apps-chat.ts). Without it no turn is an apps turn. */
     appsRun?: AppsRun;
+    /** w18 bedtime: orion-bedtime-shutdown (bedtime-shutdown-chat.ts). Without it no turn is a shutdown turn. */
+    shutdownRun?: ShutdownRun;
     /** w18 mousechat: orion-mouse (mouse-chat.ts). Without it no turn is a mouse-button request. */
     mouseRun?: MouseRun;
     /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */

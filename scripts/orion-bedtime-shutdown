@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+/*
+ orion-bedtime-shutdown: "yes, shut it all down" really shuts the Mac down, and keeps it shut (2026-11-04).
+   orion-bedtime-shutdown run [--dry-run]    quit every app that is not protected (orion-apps quit-unused --all: its own quit, then SIGTERM, then
+                                             SIGKILL, a save prompt left alone and named), then lock the Mac, then arm the guard if this is the window
+   orion-bedtime-shutdown guard [--dry-run]  one tick (orion-sleep-nudge calls it): Mac woke and in use inside the window -> one quiet nudge,
+                                             then a lock 2 minutes later
+   orion-bedtime-shutdown pass <minutes>     "i need 20 more minutes": holds the guard off (capped at 60)
+   orion-bedtime-shutdown override on|off    "leave my computer alone tonight" / back on; ends with the window
+   orion-bedtime-shutdown status
+ All take --json, --now <iso>. State: bedtime-shutdown.json in the controlled dir. Never touches the phone.
+ Seams (stand-in executables): ORION_APPS_BIN, ORION_LOCK_BIN, ORION_REACH_BIN. In an isolated state dir a real quit or lock is skipped unless
+ its seam is set. ORION_SHUTDOWN_NO_FOLLOW=1: no detached follow-up check after a nudge (tests).
+*/
+import { spawn, spawnSync } from "node:child_process";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { clockNow, controlledDir, isolated } from "./lib/clock.mjs";
+import { inWindow, tonightWindow } from "./lib/life/bedtime-window.mjs";
+import { armNight, emptyState, grantPass, guardStep, NUDGE_LEAD_MIN, setOverride } from "./lib/life/bedtime-shutdown.mjs";
+import { lockMac } from "./lib/life/lock-mac.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const args = process.argv.slice(2);
+const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const json = args.includes("--json");
+const dry = args.includes("--dry-run");
+const now = flag("--now") ? new Date(flag("--now")) : clockNow();
+const DIR = controlledDir();
+const FILE = join(DIR, "bedtime-shutdown.json");
+const LOG = join(DIR, "bedtime-shutdown-log.jsonl");
+const positional = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--now");
+const [command, arg] = positional;
+
+const out = (o) => { console.log(json ? JSON.stringify(o) : o.say); process.exit(o.ok === false ? 1 : 0); };
+const read = () => { try { return { ...emptyState(), ...JSON.parse(readFileSync(FILE, "utf8")) }; } catch { return emptyState(); } };
+const save = (state) => { mkdirSync(DIR, { recursive: true }); writeFileSync(`${FILE}.tmp`, JSON.stringify(state, null, 2)); renameSync(`${FILE}.tmp`, FILE); };
+const log = (row) => { try { appendFileSync(LOG, `${JSON.stringify({ at: now.toISOString(), ...row })}\n`); } catch { /* the log is a courtesy */ } };
+const hhmm = (iso) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+const list = (xs) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
+
+const realAllowed = (seam) => !isolated() || !!process.env[seam];
+function runSeam(seam, file, argv) {
+  if (!realAllowed(seam)) return { ok: false, skipped: true, stdout: "" };
+  const r = spawnSync(process.execPath, [process.env[seam] || join(here, file), ...argv], { encoding: "utf8", timeout: 90_000, env: process.env });
+  return { ok: r.status === 0, stdout: String(r.stdout ?? ""), status: r.status };
+}
+
+async function lock() {
+  if (process.env.ORION_LOCK_BIN) {
+    const r = spawnSync(process.env.ORION_LOCK_BIN, [], { encoding: "utf8", timeout: 20_000 });
+    return { ok: r.status === 0, method: "stub" };
+  }
+  if (isolated()) return { ok: false, method: null, skipped: true };
+  return lockMac();
+}
+
+async function run() {
+  const apps = runSeam("ORION_APPS_BIN", "orion-apps", ["quit-unused", "--all", ...(dry ? ["--dry-run"] : []), "--json"]);
+  let parsed = null;
+  try { parsed = JSON.parse(apps.stdout.trim().split("\n").at(-1)); } catch { /* no answer */ }
+  const closed = parsed?.ok ? (parsed.closed ?? []) : [];
+  const waitingToSave = (parsed?.results ?? []).filter((r) => r.state === "asking_to_save").map((r) => r.name);
+  const stillOpen = (parsed?.results ?? []).filter((r) => r.state === "still_open").map((r) => r.name);
+  const appsSay = !parsed?.ok ? "I couldn't close your apps just now, so they're still open."
+    : dry ? parsed.say
+    : closed.length ? `Closed ${closed.length > 4 ? `${list(closed.slice(0, 3))} and ${closed.length - 3} more` : list(closed)}.` : "There was nothing left to close.";
+  const saveSay = waitingToSave.length ? ` ${list(waitingToSave)} ${waitingToSave.length > 1 ? "are" : "is"} waiting on a save, so ${waitingToSave.length > 1 ? "they're" : "it's"} still open.` : "";
+  const stuckSay = stillOpen.length ? ` ${list(stillOpen)} wouldn't close even when forced.` : "";
+  if (dry) return out({ ok: true, dryRun: true, would: parsed?.would ?? [], waitingToSave, say: `${appsSay}${saveSay} I would then lock the Mac.` });
+  const locked = await lock();
+  const window = tonightWindow(DIR, now);
+  const armed = inWindow(window, now) && locked.ok;
+  if (armed) save(armNight(read(), window, now));
+  log({ event: "run", closed, waitingToSave, locked: locked.ok, method: locked.method ?? null, armed });
+  const lockSay = locked.ok ? " The Mac is locked." : " I couldn't lock the Mac, so it's still open.";
+  const tail = armed ? ` I'll keep it shut tonight. Say "I need 20 more minutes" if you need it.` : "";
+  return out({ ok: locked.ok && !!parsed?.ok, closed, waitingToSave, stillOpen, locked: locked.ok, lockMethod: locked.method ?? null, armed, say: `${appsSay}${saveSay}${stuckSay}${lockSay}${tail}` });
+}
+
+function macSignal() {
+  try {
+    const a = JSON.parse(readFileSync(join(DIR, "focus-activity.json"), "utf8"));
+    if (now - Date.parse(a.at) > 3 * 60_000) return {};
+    return { idleSeconds: a.idleSeconds, locked: a.locked, displayAsleep: a.displayAsleep };
+  } catch { return {}; }
+}
+
+async function guard() {
+  const state = read();
+  const r = guardStep({ now, window: tonightWindow(DIR, now), state, mac: macSignal() });
+  if (dry) return out({ ok: true, dryRun: true, action: r.action, why: r.why, say: `guard: ${r.action} (${r.why})` });
+  if (r.action === "nudge") {
+    const text = `It's past your bedtime — I'll lock it again in ${NUDGE_LEAD_MIN} minutes. Say "I need 20 more minutes" if you need them.`;
+    runSeam("ORION_REACH_BIN", "orion-reach", [text, "--kind", "reminder", "--why", "sleep-nudge: mac-guard", "--awake", "--silent", "--no-queue"]);
+    if (process.env.ORION_SHUTDOWN_NO_FOLLOW !== "1" && !isolated()) {
+      spawn("/bin/sh", ["-c", `sleep ${NUDGE_LEAD_MIN * 60 + 5}; exec "${process.execPath}" "${join(here, "orion-bedtime-shutdown")}" guard`], { detached: true, stdio: "ignore" }).unref();
+    }
+  }
+  let locked = null;
+  if (r.action === "lock") { locked = await lock(); log({ event: "relock", locked: locked.ok, method: locked.method ?? null }); }
+  if (JSON.stringify(r.state) !== JSON.stringify(state)) save(r.state);
+  return out({ ok: true, action: r.action, why: r.why, ...(locked ? { locked: locked.ok } : {}), say: `guard: ${r.action} (${r.why})` });
+}
+
+function pass() {
+  const m = Number(arg);
+  if (!Number.isFinite(m) || m <= 0) return out({ ok: false, say: "How many minutes?" });
+  const g = grantPass(read(), m, now);
+  if (!dry) save(g.state);
+  const lead = g.capped ? `I can give you an hour at most, so ${g.minutes} minutes.` : `Okay, ${g.minutes} minutes.`;
+  return out({ ok: true, minutes: g.minutes, capped: g.capped, until: g.until, say: `${lead} I'll leave the Mac alone until ${hhmm(g.until)}, then I'll lock it again.` });
+}
+
+function override() {
+  if (arg !== "on" && arg !== "off") return out({ ok: false, say: "Override on or off?" });
+  const window = tonightWindow(DIR, now);
+  const base = read();
+  const next = setOverride(base.night === window.start?.toISOString() ? base : { ...armNight(emptyState(), window.start ? window : { start: now }, now), armed: base.armed }, arg === "on");
+  if (!dry) save(next);
+  return out({ ok: true, override: arg === "on", say: arg === "on" ? "Okay, I won't lock your Mac again tonight. That ends when your window does." : "Okay, I'll keep the Mac shut down again tonight." });
+}
+
+function status() {
+  const s = read();
+  return out({ ok: true, ...s, say: s.armed ? `Guard armed${s.override ? ", override on" : ""}${s.passUntil ? `, pass until ${hhmm(s.passUntil)}` : ""}.` : "Guard not armed." });
+}
+
+const commands = { run, guard, pass, override, status };
+if (!commands[command]) { console.error("usage: orion-bedtime-shutdown run|guard|pass <min>|override on|off|status [--dry-run] [--json]"); process.exit(2); }
+await commands[command]();

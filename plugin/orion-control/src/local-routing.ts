@@ -103,6 +103,9 @@ import { FoodMemory, readFoodPending, runFoodTurn, type FoodRun } from "./food-c
 import { readWorkoutTurn } from "./workout-read.js";   // w17 g-workout
 import { readAppsTurn } from "./apps-read.js";   // w18 apps
 import { runAppsTurn, type AppsRun } from "./apps-chat.js";   // w18 apps
+import { isShutdownOffer, readShutdownTurn } from "./bedtime-shutdown-read.js";   // w18 bedtime
+import { runShutdownTurn, type ShutdownRun } from "./bedtime-shutdown-chat.js";
+import { readLastOutreach as lastPush } from "./state-card.js";
 import { WorkoutMemory, readWorkoutPending, runWorkoutTurn, type WorkoutRun } from "./workout-chat.js";   // w17 g-workout
 import { readMouseTurn } from "./mouse-read.js";   // w18 mousechat
 import { MouseMemory, runMouseTurn, type MouseRun } from "./mouse-chat.js";   // w18 mousechat
@@ -205,6 +208,8 @@ export type LocalRoutingOptions = {
   workoutRun?: WorkoutRun;
   /** w18 apps: orion-apps (apps-chat.ts). Without it no turn is an apps turn. */
   appsRun?: AppsRun;
+  /** w18 bedtime: orion-bedtime-shutdown (bedtime-shutdown-chat.ts). Without it no turn is a shutdown turn. */
+  shutdownRun?: ShutdownRun;
   /** w18 mousechat: orion-mouse (mouse-chat.ts). Without it no turn is a mouse-button request. */
   mouseRun?: MouseRun;
   /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
@@ -796,6 +801,16 @@ export function startWrite<R>(run: { abort?: AbortController; writeStarted?: boo
   return start();
 }
 
+/** What a shutdown turn is read against: was the offer just made, is it night, did a shutdown arm the guard tonight. */
+function shutdownContext(stateDir: string, now: Date, label: string | undefined): { offered: boolean; night: boolean; armed: boolean } {
+  const push = lastPush(stateDir, now);
+  const recent = push && now.getTime() - Date.parse(push.at) <= 30 * 60_000 ? push.text : undefined;
+  const night = pastNudgeTime(stateDir, now);
+  let armed = false;
+  try { armed = night && (JSON.parse(readFileSync(join(stateDir, "bedtime-shutdown.json"), "utf8")) as { armed?: boolean }).armed === true; } catch { /* not armed */ }
+  return { offered: isShutdownOffer(label ?? "") || isShutdownOffer(recent ?? ""), night, armed };
+}
+
 export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions): void {
   if (options.mode === "off") return;
   // Which run a flow belongs to, so a flow that is running when the prompt hook gives up can be stopped and its writes known (review, 2026-10-20).
@@ -1235,7 +1250,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       ...(workoutMemory.lastLogged(sessionKey) ? { lastLogged: workoutMemory.lastLogged(sessionKey)! } : {}) }) ?? undefined : undefined;
     if (!workout && !quietTurn) workoutMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
     // w18 apps (apps-read.ts): "close the apps im not using", "quit spotify and discord", "what apps do i have open": orion-apps does it and says what it did.
-    const appsTurn = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
+    // w18 bedtime (bedtime-shutdown-read.ts): a yes to "want me to shut things down?", "put my computer to bed", "i need 20 more minutes": code runs it.
+    const shutdownAt = (options.now ?? pluginNow)();
+    const shutdownTurn = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !isCrisis(message) && options.shutdownRun && options.stateDir
+      ? readShutdownTurn(message, shutdownContext(options.stateDir, shutdownAt, parseOutreach(raw)?.text)) ?? undefined : undefined;
+    const appsTurn = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
     // w18 mousechat (mouse-read.ts): "make my side button do stage manager", "dont do anything in minecraft", "what are my mouse buttons set to", or a yes to a new-mouse outreach.
     const mouseAt = (options.now ?? pluginNow)();
     const mouseWaiting = on && options.mouseRun ? mouseMemory.get(sessionKey, mouseAt.getTime()) : undefined;
@@ -1243,11 +1262,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 15 minutes and nothing else was said in this chat since.
     const push = options.stateDir ? readLastOutreach(options.stateDir, mouseAt) : null;
     const mouseOutreach = parseOutreach(raw)?.text ?? (push && mouseAt.getTime() - Date.parse(push.at) <= 15 * 60_000 && Date.parse(push.at) > mouseMemory.lastOther(sessionKey) ? push.text : undefined);
-    const mouse = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !isCrisis(message) && options.mouseRun
+    const mouse = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
       ? readMouseTurn(message, { ...(mouseWaiting ?? {}), outreachAbout: !!mouseOutreach && /\bmouse\b/i.test(mouseOutreach) }) ?? undefined : undefined;
     if (!mouse && !quietTurn) { mouseMemory.clear(sessionKey); mouseMemory.otherTurn(sessionKey, mouseAt.getTime()); }
-    const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-    const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout || !!appsTurn || !!mouse;
+    const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+    const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
     const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
     const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1273,7 +1292,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
     const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
-    const knowledge = on && !quietTurn && !kmove && !food && !workout && !appsTurn && !mouse && isKnowledgeAsk(message);
+    const knowledge = on && !quietTurn && !kmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && isKnowledgeAsk(message);
     const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
     const pendingAt = (options.now ?? pluginNow)();
     const prior = sessionKey ? pendingMemory.beginTurn(sessionKey, pendingAt.getTime(), { crisis: isCrisis(message), replied: !hushed }, options.stateDir) : undefined;
@@ -1310,7 +1329,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
     // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
     // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-    const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+    const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
       ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
         ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
         chatSurface: CHAT_SURFACE.test(sessionKey) })
@@ -1360,7 +1379,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (out?.logged) { workoutMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime()); foodMemory.forgetLog(sessionKey); }
       if (workout.kind === "undo") workoutMemory.forgetLog(sessionKey);
     }
-    if (appsTurn && options.appsRun) {   // w18 apps: the reply is orion-apps' own sentence
+    if (shutdownTurn && options.shutdownRun) {   // w18 bedtime: the reply is orion-bedtime-shutdown's own sentence
+      const out = await withTimeout(runShutdownTurn(shutdownTurn, { run: options.shutdownRun }).catch(() => undefined), 100000);
+      run.ownText = out?.text ?? "I couldn't shut the Mac down just now, so nothing was closed or locked. Tell me again in a bit.";
+      out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+    } else if (appsTurn && options.appsRun) {   // w18 apps: the reply is orion-apps' own sentence
       const out = await withTimeout(runAppsTurn(appsTurn, { run: options.appsRun }).catch(() => undefined), 70000);
       run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Try again in a bit.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));

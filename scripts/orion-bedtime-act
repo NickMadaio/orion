@@ -10,9 +10,11 @@
  (tests).
 */
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { lockMac } from "./lib/life/lock-mac.mjs";
+import { tonightWindow as windowFor } from "./lib/life/bedtime-window.mjs";
 
 const BRIDGE = process.env.ORION_MAC_BRIDGE
   || join(homedir(), "Desktop/ORION/native/OrionMacBridge/.build/release/orion-mac-bridge");
@@ -44,18 +46,7 @@ function keptOpen(bundleId) {
     || names.some((n) => { const k = String(n).toLowerCase().replace(/[^a-z0-9]/g, ""); return k.length >= 4 && flat.includes(k); });
 }
 
-/** { start, end } of tonight's window from the plan, or { reason } when there is none. */
-function tonightWindow() {
-  let plan;
-  try { plan = JSON.parse(readFileSync(join(CONTROLLED, "wake-plan.json"), "utf8")); } catch { return { reason: "There is no sleep plan to go by." }; }
-  if (plan?.source !== "nick") return { reason: "There is no sleep plan of his to go by." };
-  const nudges = (plan.bedtimes ?? []).map((b) => new Date(b?.nudgeAtIso)).filter((d) => !Number.isNaN(d.getTime()) && d <= now);
-  if (!nudges.length) return { reason: "It is not bedtime yet." };
-  const start = new Date(Math.max(...nudges.map((d) => d.getTime())));
-  const alarm = (plan.alarms ?? []).filter((a) => a?.byNick === true).map((a) => new Date(a.iso)).filter((d) => d > start).sort((a, b) => a - b)[0];
-  const nine = new Date(start); nine.setHours(9, 0, 0, 0); if (nine <= start) nine.setDate(nine.getDate() + 1);
-  return { start, end: alarm ?? nine };
-}
+const tonightWindow = () => windowFor(CONTROLLED, now);
 function requireWindow(what) {
   const w = tonightWindow();
   if (w.reason) fail(`${what} only runs in tonight's bedtime window. ${w.reason}`, 1);
@@ -83,6 +74,13 @@ const plans = {
 if (!plans[command]) fail(USAGE);
 const [action, payload] = plans[command]();
 
+// lock-screen does not need the bridge build to be current: lockMac tries the bridge, then Ctrl+Cmd+Q, then display sleep.
+if (command === "lock-screen" && !process.env.ORION_MAC_BRIDGE) {
+  const locked = await lockMac({ bridge: BRIDGE });
+  if (!locked.ok) fail("the Mac would not lock (bridge, keystroke and display sleep all failed)", 1);
+  console.log(JSON.stringify({ action: "lock-screen", status: "locked", method: locked.method }));
+  process.exit(0);
+}
 if (!existsSync(BRIDGE)) fail("the OrionMacBridge release binary is missing -- build it with `swift build -c release` in native/OrionMacBridge", 1);
 
 const stdout = await new Promise((resolve, reject) => {

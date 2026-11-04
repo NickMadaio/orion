@@ -64,6 +64,42 @@ final class LinkSnapshotTests: XCTestCase {
         XCTAssertThrowsError(try LinkLog.decode("{\"approve\":{}}"), "only the four entry kinds decode")
     }
 
+    func testWaterGoalCommandRoundTripsAndStaysInRange() throws {
+        XCTAssertEqual(try LinkLog.decode(try LinkLog.waterGoal(bottles: 12).encoded()), .waterGoal(bottles: 12))
+        XCTAssertEqual(try LinkLog.decode("{\"waterGoal\":{\"bottles\":6}}"), .waterGoal(bottles: 6))
+        XCTAssertThrowsError(try LinkLog.waterGoal(bottles: 0).validated())
+        XCTAssertThrowsError(try LinkLog.waterGoal(bottles: 31).validated())
+        XCTAssertNoThrow(try LinkLog.waterGoal(bottles: 1).validated())
+        XCTAssertNoThrow(try LinkLog.waterGoal(bottles: 30).validated())
+    }
+
+    func testWaterGoalClampsAndDefaults() {
+        XCTAssertEqual(WaterGoal.default, 9)
+        XCTAssertEqual(WaterGoal.clamped(0), 1)
+        XCTAssertEqual(WaterGoal.clamped(-5), 1)
+        XCTAssertEqual(WaterGoal.clamped(99), 30)
+        XCTAssertEqual(WaterGoal.clamped(10), 10)
+        XCTAssertEqual(WaterGoal.value(from: ["water": 12]), 12)
+        XCTAssertEqual(WaterGoal.value(from: ["water": 400]), 30)
+        XCTAssertEqual(WaterGoal.value(from: ["water": "lots"]), 9)
+        XCTAssertEqual(WaterGoal.value(from: nil), 9)
+        XCTAssertEqual(WaterGoal.value(from: ["calories": 2200]), 9)
+    }
+
+    func testWaterGoalStepsAndParsesWhatHeTyped() {
+        XCTAssertEqual(WaterGoal.stepped(9, by: 1), 10)
+        XCTAssertEqual(WaterGoal.stepped(1, by: -1), 1)
+        XCTAssertEqual(WaterGoal.stepped(30, by: 1), 30)
+        XCTAssertEqual(WaterGoal.parse(" 11 "), 11)
+        XCTAssertEqual(WaterGoal.parse("45"), 30)
+        XCTAssertEqual(WaterGoal.parse("0"), 1)
+        XCTAssertNil(WaterGoal.parse(""))
+        XCTAssertNil(WaterGoal.parse("nine"))
+        XCTAssertNil(WaterGoal.parse("-3"))
+        XCTAssertNil(WaterGoal.parse("9.5"))
+        XCTAssertEqual(WaterGoal.picks, [6, 8, 9, 10, 12])
+    }
+
     func testASnapshotWithoutTheNewFieldsStillDecodes() throws {
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: try encoder.encode(sample())) as? [String: Any])

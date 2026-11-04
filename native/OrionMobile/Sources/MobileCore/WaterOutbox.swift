@@ -101,6 +101,17 @@ public enum WaterTap {
         return Today(water: tracking.water, goal: tracking.waterGoal)
     }
 
+    /// Show a goal change on the widgets at once; the Mac's next snapshot confirms it. Returns whether a glance was there to change.
+    @discardableResult
+    public static func setGoal(_ bottles: Int, in directory: URL) -> Bool {
+        let url = directory.appendingPathComponent(GlanceFile.fileName)
+        guard let glance = GlanceFile.read(url), var tracking = glance.tracking else { return false }
+        tracking.waterGoal = WaterGoal.clamped(bottles)
+        var updated = glance
+        updated.tracking = tracking
+        return (try? GlanceFile.write(updated, to: url)) != nil
+    }
+
     /// Show the tap at once; the next real glance from the Mac replaces it.
     private static func bumpGlance(in directory: URL, by delta: Int) {
         let url = directory.appendingPathComponent(GlanceFile.fileName)

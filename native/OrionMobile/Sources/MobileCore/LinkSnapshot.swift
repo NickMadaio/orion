@@ -402,6 +402,8 @@ public enum LinkPlanAction: String, Codable, Sendable, CaseIterable {
 /// One tracking entry from the phone. Encoded as JSON in the command's text.
 public enum LinkLog: Codable, Equatable, Sendable {
     case water(delta: Int)
+    /// The day's water goal in bottles (1...30), changed from the phone's water ring menu (2026-11-04).
+    case waterGoal(bottles: Int)
     case meal(title: String, meal: String, calories: Int, protein: Int, carbohydrates: Int, fat: Int)
     case removeMeal(id: String)
     case supplement(id: String, taken: Bool)
@@ -463,6 +465,9 @@ public enum LinkLog: Codable, Equatable, Sendable {
         switch self {
         case .water(let delta):
             guard (-3...3).contains(delta), delta != 0 else { throw LinkError.invalidCommand("water changes by 1 to 3 bottles") }
+            return self
+        case .waterGoal(let bottles):
+            guard WaterGoal.range.contains(bottles) else { throw LinkError.invalidCommand("the water goal is \(WaterGoal.range.lowerBound) to \(WaterGoal.range.upperBound) bottles") }
             return self
         case let .meal(title, meal, calories, protein, carbohydrates, fat):
             guard (0...5000).contains(calories), (0...500).contains(protein), (0...1000).contains(carbohydrates), (0...500).contains(fat)

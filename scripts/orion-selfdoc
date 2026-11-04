@@ -334,7 +334,7 @@ const WRAPPER_BLURB = {
   "orion-agenda": "read-only Apple Calendar/Reminders — `today`, `upcoming` (7 days), `deadlines` (next 90 days: quizzes, due dates, trips), `tasks`, `day <date|weekday>`; use typed catalog actions for changes",
   "orion-health": "Nick's sleep, recovery, HRV, strain (WHOOP), water, food and supplements today, plus the last 7 days — read-only; use it for ANY question about sleep or health",
   "orion-waiting": "approvals waiting for Nick — read-only; check it before saying nothing is waiting",
-  "orion-log": "log what Nick drank or ate — `orion-log water [1-3]`, `orion-log food \"<what>\" <kcal> [protein_g] [breakfast|lunch|dinner|snack]` (estimate if he didn't say; pass the meal he named); writes his real health log",
+  "orion-log": "log what Nick drank or ate — `orion-log water [1-3]`, `orion-log water-goal [1-30]` (set or read his daily water goal), `orion-log food \"<what>\" <kcal> [protein_g] [breakfast|lunch|dinner|snack]` (estimate if he didn't say; pass the meal he named); writes his real health log",
   "orion-now": "what Nick should do RIGHT NOW from his real calendar, phone activity and tonight's sleep plan — use it for \"what should I do\", \"what now\", and before nudging him",
   "orion-plan-study": "find real free time for study and book it — `orion-plan-study \"two one-hour sessions for macro this week\" --book` (drop --book to only look); one session a day where possible",
   "orion-patterns": "his real history: typical bedtime and wake, late-night phone use, 14-day WHOOP sleep and recovery — use it when planning or when he's short on sleep",

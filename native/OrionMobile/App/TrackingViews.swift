@@ -1,5 +1,6 @@
 import SwiftUI
 import MobileCore
+import OrionViews
 
 /*
  Tracking on the phone (2026-09-28): water, food and supplements.
@@ -41,6 +42,7 @@ struct TrackingSection: View {
             HStack(spacing: 20) {
                 PhoneGauge(label: "Bottles", figure: "\(tracking.waterBottles)", fraction: fraction(tracking.waterBottles, tracking.waterGoal),
                            unit: "of \(tracking.waterGoal)", tint: Phone.accent, size: 88)
+                    .waterGoalMenu(goal: tracking.waterGoal) { setGoal($0) }
                 Spacer(minLength: 0)
                 Button { remote.log(.water(delta: -1)) } label: { Image(systemName: "minus") }
                     .buttonStyle(RoundIconStyle()).disabled(tracking.waterBottles == 0).accessibilityLabel("Remove a bottle")
@@ -50,6 +52,12 @@ struct TrackingSection: View {
         }
         .animation(.spring(response: 0.3), value: tracking.waterBottles)
         .sensoryFeedback(.increase, trigger: tracking.waterBottles)
+    }
+
+    /// The Mac keeps the goal; this sends it, shows it here at once (RemoteStore.tracking) and on the widgets.
+    private func setGoal(_ bottles: Int) {
+        remote.log(.waterGoal(bottles: bottles))
+        if let directory = GlanceStore.directory, WaterTap.setGoal(bottles, in: directory) { WaterCourier.reloadSurfaces() }
     }
 
     private func fraction(_ value: Int, _ goal: Int) -> Double? { RingMath.fraction(Double(value), of: Double(goal)) }

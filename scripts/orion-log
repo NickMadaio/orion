@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // orion-log — log water or food into Nick's health log (2026-09-29).
 //   orion-log water [bottles]                  +1 by default, 1..3
+//   orion-log water-goal [bottles]             the daily goal (nutritionGoals.water, 1..30, default 9); no number reads it
 //   orion-log food "<what>" <kcal> [protein_g] [breakfast|lunch|dinner|snack]
 // "I just had a big bottle of water" got "you're at 1 of 9" and nothing was
 // logged: the brain had no way to write it. This writes the same file the app
@@ -14,7 +15,7 @@ import { randomUUID } from "node:crypto";
 // ORION_HEALTH_LOG redirects it for tests, exactly as the app allows.
 const FILE = process.env.ORION_HEALTH_LOG || join(homedir(), ".openclaw/orion-controlled/health-log.json");
 const [kind, ...rest] = process.argv.slice(2);
-const usage = () => { console.error('usage: orion-log water [1-3] | orion-log food "<what>" <kcal> [protein_g] [breakfast|lunch|dinner|snack]'); process.exit(2); };
+const usage = () => { console.error('usage: orion-log water [1-3] | orion-log water-goal [1-30] | orion-log food "<what>" <kcal> [protein_g] [breakfast|lunch|dinner|snack]'); process.exit(2); };
 const day = new Date(Date.now() - 4 * 3600_000).toLocaleDateString("en-CA");
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
@@ -32,11 +33,27 @@ function withLock(body) {
   try { return body(); } finally { try { unlinkSync(lock); } catch {} }
 }
 
+// The goal lives in nutritionGoals.water (default 9, clamped to 1..30), the same place the app, Link and the phone read it.
+const goalOf = (log) => { const w = log?.nutritionGoals?.water; return typeof w === "number" && Number.isFinite(w) ? Math.min(30, Math.max(1, Math.round(w))) : 9; };
+
 let reply;
-if (kind === "water") {
+if (kind === "water-goal") {
+  const bottle = (n) => `${n} bottle${n === 1 ? "" : "s"}`;
+  if (rest[0] === undefined) {
+    let log = {}; try { log = JSON.parse(readFileSync(FILE, "utf8")); } catch {}
+    reply = `Your water goal is ${bottle(goalOf(log))} a day.`;
+  } else {
+    const n = Number(rest[0]);
+    if (!/^\d+$/.test(rest[0]) || n < 1 || n > 30) usage();
+    withLock(() => update((log) => {
+      log.nutritionGoals = { calories: 2200, protein: 150, carbohydrates: 250, fat: 70, fiber: 30, ...(log.nutritionGoals ?? {}), water: n };
+      reply = `Water goal is now ${bottle(n)} a day.`;
+    }));
+  }
+} else if (kind === "water") {
   const n = rest[0] === undefined ? 1 : Number(rest[0]);
   if (!Number.isInteger(n) || n < 1 || n > 3) usage();
-  withLock(() => update((log, record) => { record.waterBottles = (record.waterBottles ?? 0) + n; reply = `Logged ${n} bottle${n > 1 ? "s" : ""}: ${record.waterBottles} of 9 today.`; }));
+  withLock(() => update((log, record) => { record.waterBottles = (record.waterBottles ?? 0) + n; reply = `Logged ${n} bottle${n > 1 ? "s" : ""}: ${record.waterBottles} of ${goalOf(log)} today.`; }));
 } else if (kind === "food") {
   const [title, kcal, protein, said] = rest;
   const calories = Number(kcal), grams = protein === undefined ? 0 : Number(protein);

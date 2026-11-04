@@ -22,6 +22,8 @@ public struct PhoneHomeActions {
     public var onDecide: (String, Bool) -> Void = { _, _ in }
     public var onDoneEarly: () -> Void = {}
     public var onAddWater: () -> Void = {}
+    /// Long-press on the water: the new daily goal in bottles.
+    public var onSetWaterGoal: (Int) -> Void = { _ in }
     public var onOpenGlance: (PhoneHome.GlanceItem.Kind) -> Void = { _ in }
     public var onOpenPlan: () -> Void = {}
     public init() {}
@@ -79,7 +81,7 @@ public struct PhoneHomeView: View {
         VStack(alignment: .leading, spacing: 22) {
             header(ink).softReveal(delay: 0.05)
             if !home.glance.isEmpty {
-                PhoneHomeGlanceRow(items: home.glance, onAddWater: actions.onAddWater, onOpen: actions.onOpenGlance)
+                PhoneHomeGlanceRow(items: home.glance, onAddWater: actions.onAddWater, onSetWaterGoal: actions.onSetWaterGoal, onOpen: actions.onOpenGlance)
                     .softReveal(delay: 0.15)
             }
             VStack(alignment: .leading, spacing: 8) {

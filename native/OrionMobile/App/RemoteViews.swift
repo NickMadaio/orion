@@ -163,6 +163,11 @@ final class RemoteStore: ObservableObject {
         }
     }
 
+    /// What the link says about its data right now, for the "last synced" line on Mac-backed screens.
+    var syncLine: LinkSyncStatus.Line { LinkSyncStatus.line(snapshotAt: snapshot?.generatedAt, problem: problem, now: now) }
+    /// The Retry button: set iCloud up again if needed and fetch now.
+    func retryLink() { Task { await link.retryNow() } }
+
     var presence: MacPresence { snapshot?.presence(at: now) ?? .unknown }
 
     /// A Control button: a command in orion-remote's grammar.

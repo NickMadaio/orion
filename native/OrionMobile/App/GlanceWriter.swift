@@ -58,6 +58,7 @@ enum GlanceWriter {
         if let url, (try? GlanceFile.write(glance, to: url)) == true {
             WidgetCenter.shared.reloadAllTimelines()
         }
+        LivePresence.shared.focus = (snapshot ?? SnapshotCache.load())?.focusSession
         LivePresence.shared.sync(glance, now: now)
         ScreenWatch.sync(glance, now: now)
     }

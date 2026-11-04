@@ -35,20 +35,32 @@ struct OrionLiveActivity: Widget {
                     CheckinButtons(state: state, tint: tint)
                 }
             } compactLeading: {
-                Image(systemName: state.mode == "checkin" ? "bell.badge.fill" : state.mode == "snoozed" ? "zzz" : "sparkle").foregroundStyle(tint)
+                Image(systemName: OrionLiveActivity.symbol(state)).foregroundStyle(tint)
             } compactTrailing: {
                 Timer(state: state).font(W.mono(12, .semibold)).foregroundStyle(tint).frame(maxWidth: 50)
             } minimal: {
-                Image(systemName: state.mode == "checkin" ? "bell.badge.fill" : state.mode == "snoozed" ? "zzz" : "sparkle").foregroundStyle(tint)
+                Image(systemName: OrionLiveActivity.symbol(state)).foregroundStyle(tint)
             }
             .keylineTint(tint)
             .widgetURL(W.link("home"))
         }
     }
 
+    static func symbol(_ state: OrionActivityAttributes.ContentState) -> String {
+        switch state.mode {
+        case "checkin": return "bell.badge.fill"
+        case "snoozed": return "zzz"
+        case "focus": return "scope"
+        case "break": return "cup.and.saucer.fill"
+        default: return "sparkle"
+        }
+    }
+
     static func tint(_ state: OrionActivityAttributes.ContentState) -> Color {
         if state.mode == "checkin" { return state.level >= 2 ? W.red : W.accent }
         if state.mode == "snoozed" { return W.highlight }
+        if state.mode == "focus" { return W.focusHue }
+        if state.mode == "break" { return W.breakHue }
         if state.mode == "active" { return W.violet }
         return W.tint(state.kind)
     }
@@ -106,7 +118,7 @@ struct LockScreenPresence: View {
                     Timer(state: state).font(W.mono(13, .bold)).foregroundStyle(tint)
                 }
                 Text(state.title).font(W.display(17, .bold)).foregroundStyle(W.text).lineLimit(1)
-                if state.mode == "now" {
+                if state.mode == "now" || state.mode == "focus" || state.mode == "break" {
                     ProgressView(timerInterval: state.start...state.end, countsDown: false) { EmptyView() } currentValueLabel: { EmptyView() }
                         .tint(tint)
                 } else {
@@ -122,6 +134,8 @@ struct LockScreenPresence: View {
         switch state.mode {
         case "checkin": return state.level >= 2 ? "ORION · still waiting" : "ORION · check-in"
         case "snoozed": return "ORION · snoozed"
+        case "focus": return "ORION · focus"
+        case "break": return "ORION · break"
         case "active": return "ORION · on it"
         case "next": return "ORION · up next"
         default: return "ORION · now"

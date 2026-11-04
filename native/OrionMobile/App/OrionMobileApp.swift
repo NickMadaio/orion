@@ -221,14 +221,29 @@ struct PhoneRootView: View {
 
     private var colorScheme: ColorScheme? { appearance == "light" ? .light : appearance == "system" ? nil : .dark }
 
+    /// The Mac's session while it is on a focus or break phase, else nil.
+    private var activeFocus: LinkSnapshot.FocusSession? {
+        guard let session = remote.snapshot?.focusSession, PhoneFocus.face(session, now: remote.now).mode != .idle else { return nil }
+        return session
+    }
+    /// Accent colours shift to the phase's hue for as long as the session runs.
+    private var focusHue: Color {
+        activeFocus.map { PhoneFocusHue.hue(PhoneFocus.face($0, now: remote.now).mode) } ?? Phone.accent
+    }
+
     private var showsTabBar: Bool { !(tab == .home && screen == "chat") }
 
     private var shell: some View {
         PhoneDrawerHost(open: $drawerOpen) {
             VStack(spacing: 0) {
+                // Every tab but Home wears a slim focus banner while a session runs; one tap goes back to Home.
+                if tab != .home, let session = activeFocus {
+                    PhoneFocusBanner(session: session) { tab = .home; show("home") }
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 tabContent
                 if showsTabBar {
-                    PhoneTabBar(selection: $tab, badges: [.more: remote.snapshot?.approvals.count ?? 0])
+                    PhoneTabBar(selection: $tab, badges: [.more: remote.snapshot?.approvals.count ?? 0], accent: focusHue)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -269,6 +284,8 @@ struct PhoneRootView: View {
 
     /// A legacy section name (a Home card, a link) lands on its tab.
     private func open(_ section: String) {
+        // "Pick your focus apps" lands on More › Focus lists.
+        if section == "focus" { tab = .more; morePath = [.focus]; drawerOpen = false; return }
         tab = PhoneTab.forSection(section)
         drawerOpen = false
     }
@@ -343,7 +360,8 @@ struct PhoneRootView: View {
 
     var body: some View {
         shell
-        .tint(Phone.accent)
+        .tint(focusHue)
+        .animation(.easeInOut(duration: 0.4), value: activeFocus?.phase)
         .preferredColorScheme(colorScheme)
         .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { _ in showChat(); drawerOpen = false }
         .onAppear { if ThreadTarget.pending != nil { tab = .home; screen = "chat" } }

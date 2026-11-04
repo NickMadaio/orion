@@ -67,6 +67,8 @@ enum BackgroundRefresh {
         // Up, by WHOOP or the phone's signals as the Mac reads them: the night lock
         // comes off even if he never opens ORION. A lock past its end comes off too.
         FocusLock.shared.releaseIfExpired(now: now)
+        // The Mac's focus session: shield on its focus phase, lift at its break or end.
+        FocusSessionShield.shared.sync(snapshot?.focusSession, now: now)
         let today: String = { let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f.string(from: now) }()
         if snapshot?.night?.first(where: { $0.date == today })?.woke == true { FocusLock.shared.releaseNightLock(awakeAt: now) }
         await PhoneNotificationMirror.sweepDelivered()

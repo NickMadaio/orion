@@ -79,7 +79,7 @@ public enum PhoneHomeBuilder {
                           format.shortName(next.title)]
             if let location = next.location?.trimmingCharacters(in: .whitespaces), !location.isEmpty { kicker.append(location) }
             let title = minutes < 1 ? "\(next.title) is starting now."
-                : minutes <= 90 ? "\(next.title) starts in \(minutes) minutes." : "\(next.title) is at \(format.time(next.start))."
+                : minutes <= 90 ? "\(next.title) starts in \(Plural.count(minutes, "minute"))." : "\(next.title) is at \(format.time(next.start))."
             let after = upcoming.dropFirst().first.map { "Then \($0.title) at \(format.time($0.start))." }
             return .init(kicker: kicker.map { $0.uppercased() }, title: title,
                          now: current.map { "Now: \($0.title), until \(format.time($0.end))." }, after: after)

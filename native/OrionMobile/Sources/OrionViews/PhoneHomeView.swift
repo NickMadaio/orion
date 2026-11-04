@@ -124,13 +124,20 @@ public struct PhoneHomeView: View {
                     .foregroundStyle(ink.dim)
             }
             Spacer(minLength: 0)
+            // A depth halo, as on the Mac: a soft pool of Blue Orion behind a dark disc, so the strands read as light on glass.
             ZStack {
-                Circle().strokeBorder(ink.text.opacity(0.14), lineWidth: 0.8).shadow(color: PhoneHomeHue.accent.opacity(0.35), radius: 8)
+                Circle().fill(RadialGradient(colors: [PhoneHomeHue.accent.opacity(ink.dark ? 0.34 : 0.2), PhoneHomeHue.accent.opacity(0.08), .clear],
+                                             center: .center, startRadius: 8, endRadius: 78))
+                    .frame(width: 156, height: 156)
+                Circle().fill(ink.ground.opacity(ink.dark ? 0.7 : 0.35)).frame(width: 98, height: 98)
+                Circle().strokeBorder(PhoneHomeHue.accent.opacity(0.5), lineWidth: 0.9)
+                    .shadow(color: PhoneHomeHue.accent.opacity(0.6), radius: 12)
+                    .frame(width: 108, height: 108)
                 OrionThinkingHologram(state: home.ask != nil || !home.approvals.isEmpty ? .listening : .breathing,
-                                      brightness: 1.5, frameTime: orbFrameTime, palette: .blue)
-                    .padding(8)
+                                      brightness: 2.6, frameTime: orbFrameTime, palette: .blue)
+                    .frame(width: 98, height: 98)
             }
-            .frame(width: 78, height: 78)
+            .frame(width: 108, height: 108)
             .accessibilityHidden(true)
         }
         .padding(.top, 6)

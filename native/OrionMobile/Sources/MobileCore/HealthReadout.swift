@@ -25,7 +25,7 @@ public enum HealthReadout {
     public static func lines(_ day: LinkSnapshot.HealthDay) -> [String] {
         var lines: [String] = []
         if let hours = day.sleepHours {
-            let slept = String(format: "You slept %.1f hours", hours)
+            let slept = String(format: "You slept %.1f hour", hours) + (hours == 1 ? "" : "s")
             lines.append(day.sleepPerformance.map { "\(slept), \($0)% of what you need." } ?? slept + ".")
         }
         let heart = [day.hrv.map { "Heart rate variability \($0) ms" }, day.restingHeartRate.map { "resting heart rate \($0) bpm" }].compactMap { $0 }

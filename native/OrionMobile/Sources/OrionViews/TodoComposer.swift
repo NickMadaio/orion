@@ -48,9 +48,12 @@ struct TodoComposer: View {
                     Button(action: submit) {
                         Image(systemName: "return")
                             .font(.system(size: density.pill, weight: .bold))
-                            .foregroundStyle(Color.black.opacity(0.8))
-                            .frame(width: density == .touch ? 28 : 22, height: density == .touch ? 28 : 22)
-                            .background(Circle().fill(ViewTokens.accent))
+                            .foregroundStyle(ViewTokens.text)
+                            .frame(width: density == .touch ? 30 : 22, height: density == .touch ? 30 : 22)
+                            .overlay(Circle().strokeBorder(ViewTokens.accent.opacity(0.8), lineWidth: 1))
+                            .shadow(color: ViewTokens.accent.opacity(0.35), radius: 6)
+                            .frame(width: density == .touch ? 44 : 22, height: density == .touch ? 44 : 22)
+                            .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Add to-do")
@@ -70,7 +73,7 @@ struct TodoComposer: View {
         .padding(.vertical, density == .touch ? 12 : 10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(focused ? 0.06 : 0.035))
+                .fill(Color.white.opacity(focused ? 0.03 : 0.012))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(focused ? ViewTokens.accent.opacity(0.45) : ViewTokens.hairline, lineWidth: 0.8))
         )

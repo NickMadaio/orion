@@ -74,7 +74,8 @@ struct DayScheduleView: View {
                             Text(item.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Phone.text)
                                 .padding(.horizontal, 10).padding(.vertical, 5)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(item.tint.opacity(0.22), in: RoundedRectangle(cornerRadius: 6))
+                                .background(item.tint.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(item.tint.opacity(0.5), lineWidth: 0.9))
                         }.buttonStyle(.plain)
                     }
                 }.padding(.leading, gutter)
@@ -142,9 +143,10 @@ struct DayScheduleView: View {
             // True size: a 20-pt floor drew a 15-minute break over the next block
             // (2026-10-01: "lunch goes into my break which goes into my lab").
             .frame(height: max(4, height - 2), alignment: .top)
-            // ORION's blocks are outlined; calendar events are filled, as a calendar app draws them.
-            .background(item.tint.opacity(item.isOrion ? 0.08 : 0.22))
-            .overlay(item.isOrion ? RoundedRectangle(cornerRadius: 5).stroke(item.tint.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4, 3])) : nil)
+            // Thin outlines, never heavy fills: ORION's blocks are dashed, calendar events solid.
+            .background(item.tint.opacity(item.isOrion ? 0.05 : 0.09))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(item.tint.opacity(item.isOrion ? 0.55 : 0.4),
+                                                              style: StrokeStyle(lineWidth: 0.9, dash: item.isOrion ? [4, 3] : [])))
             .clipShape(RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)

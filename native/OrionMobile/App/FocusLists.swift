@@ -105,18 +105,18 @@ struct FocusListsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                PhoneHeader(eyebrow: "Focus", title: "App lists")
+                PhoneHeader(eyebrow: "Focus", title: "App lists", tint: Phone.orange)
                 ForEach(AppList.allCases) { list in
                     Button { active = list; picking = true } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: list.symbol).foregroundStyle(Phone.accent).frame(width: 28)
+                            Image(systemName: list.symbol).font(.system(size: 18, weight: .light)).foregroundStyle(Phone.accent).frame(width: 28)
                             Text(list.title).foregroundStyle(Phone.text)
                             Spacer()
                             Text(lists.isEmpty(list) ? "Pick apps" : "\(lists.selection(for: list).applicationTokens.count) apps").foregroundStyle(Phone.dim)
                             if lists.blocked.contains(list) { Image(systemName: "lock.fill").foregroundStyle(Phone.orange).accessibilityLabel("Blocked") }
-                        }.padding(.vertical, 12).contentShape(Rectangle())
+                        }.padding(.vertical, 12).frame(minHeight: 56).contentShape(Rectangle())
                     }.buttonStyle(.plain)
-                    Rectangle().fill(Phone.hairline).frame(height: 1)
+                    Rectangle().fill(LinearGradient(colors: [Phone.hairline, .clear], startPoint: .leading, endPoint: .trailing)).frame(height: 1)
                 }
                 Text("ORION sees only these list names, never which apps you choose.").font(.system(size: 13)).foregroundStyle(Phone.dim)
             }.padding(22)

@@ -560,10 +560,14 @@ struct RoutineSettingsSheet: View {
     @ObservedObject var routine: NightRoutine
     @Environment(\.dismiss) private var dismiss
 
+    private func kicker(_ text: String) -> some View {
+        Text(text).textCase(.uppercase).font(Phone.mono(10)).tracking(2.2).foregroundStyle(Phone.sleep)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Sleep") {
+                Section {
                     Picker("Latest bedtime", selection: $routine.settings.bedtimeMinute) {
                         ForEach([1260, 1290, 1320, 1350, 1380, 1410, 0, 30, 60, 90, 120], id: \.self) {
                             Text(String(format: "%02d:%02d", $0 / 60, $0 % 60)).tag($0)
@@ -573,7 +577,8 @@ struct RoutineSettingsSheet: View {
                             value: $routine.settings.sleepMinutes, in: 360...600, step: 30)
                     Stepper("Wind down: \(routine.settings.windDownMinutes) min before", value: $routine.settings.windDownMinutes, in: 0...90, step: 15)
                     Toggle("Bedtime nudges", isOn: $routine.settings.nudges)
-                }
+                } header: { kicker("Sleep") }
+                .listRowBackground(Color.clear).listRowSeparatorTint(Phone.hairline)
                 Section {
                     Toggle("Wake-up alarm", isOn: $routine.settings.wakeAlarm)
                     Stepper("Get ready: \(routine.settings.readyMinutes) min before first event", value: $routine.settings.readyMinutes, in: 15...180, step: 15)
@@ -582,11 +587,14 @@ struct RoutineSettingsSheet: View {
                             Text(String(format: "%02d:%02d", $0 / 60, $0 % 60)).tag($0)
                         }
                     }
-                } header: { Text("Morning") } footer: {
+                } header: { kicker("Morning") } footer: {
                     Text("Bedtime is the earlier of your latest bedtime and your alarm minus your sleep need. Turn on Sleep Focus and the nudges stay quiet.")
+                        .font(.system(size: 12)).foregroundStyle(Phone.dim)
                 }
+                .listRowBackground(Color.clear).listRowSeparatorTint(Phone.hairline)
             }
-            .scrollContentBackground(.hidden).background(Phone.ink)
+            .scrollContentBackground(.hidden).background(PhoneBackdrop(tint: Phone.sleep))
+            .tint(Phone.sleep)
             .navigationTitle("Tonight").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }

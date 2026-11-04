@@ -544,7 +544,7 @@ struct RemoteSections: View {
                         Text(run.step.map { "\(task) — \($0)" } ?? task).font(.system(size: 14)).foregroundStyle(Phone.soft)
                     }
                     ProgressStrip(done: run.accepted, total: run.total)
-                    Text("\(run.accepted) of \(run.total) tasks accepted\(run.deferred > 0 ? " · \(run.deferred) deferred" : "")")
+                    Text("\(run.accepted) of \(Plural.count(run.total, "task")) accepted\(run.deferred > 0 ? " · \(run.deferred) deferred" : "")")
                         .font(Phone.mono(11, .medium)).foregroundStyle(Phone.dim)
                     HStack(spacing: 10) {
                         if run.live && run.status == .working {

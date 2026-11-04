@@ -251,8 +251,20 @@ final class LinkEngine: ObservableObject {
 
     // MARK: - State
 
+    private var lastFocus: LinkSnapshot.FocusSession?
+
+    /// The Mac's running focus session, read from the session engine's own socket (off the main actor: it can wait on a dead app).
+    private func focusSession() async -> LinkSnapshot.FocusSession? {
+        let previous = lastFocus
+        let activity = try? Data(contentsOf: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".openclaw/orion-controlled/activity.json"))
+        let session = await Task.detached(priority: .utility) { FocusSessionReader.current(previous: previous, activity: activity) }.value
+        lastFocus = session
+        return session
+    }
+
     private func publishState(force: Bool) async {
         let now = Date()
+        let focus = await focusSession()
         let approvals = reader.approvals(now: now)
         let calendar = reader.glanceCalendar(now: now)
         let snapshot = LinkSnapshot(generatedAt: now, mac: MacFacts.snapshotMac(locked: reader.locked()),
@@ -262,7 +274,7 @@ final class LinkEngine: ObservableObject {
                                     planRequest: reader.planRequest(now: now), wakeRequest: reader.wakeRequest(now: now),
                                     checkin: reader.checkin(now: now), deadlines: calendar?.deadlines,
                                     lastInputAt: MacFacts.lastInput(now: now).map { Self.minute($0) },
-                                    screenGrant: reader.screenGrant(now: now), night: reader.night(), earlyFinish: earlyFinishContext(), chatModels: chatModelChoices(), focusLists: focusDirective()?.names, focusPlan: focusDirective()?.plan,
+                                    screenGrant: reader.screenGrant(now: now), night: reader.night(), earlyFinish: earlyFinishContext(), chatModels: chatModelChoices(), focusLists: focusDirective()?.names, focusPlan: focusDirective()?.plan, focusSession: focus,
                                     knownPlaces: knownPlaces(), wakePlan: reader.wakePlan(),
                                     locationRequest: reader.locationRequest(now: now))
         publishGlance(snapshot, now: now)
@@ -453,6 +465,8 @@ final class LinkEngine: ObservableObject {
                 }
             case .log where (try? LinkLog.decode(text)).map({ if case .checkin = $0 { return true }; return false }) == true:
                 result = Self.answerCheckin(text)
+            case .log where (try? LinkLog.decode(text)).map({ if case .focus = $0 { return true }; return false }) == true:
+                result = await handleFocus(text, sentAt: sentAt, id: id)
             case .log:
                 // orion-remote's replay guard does not see these, so keep our own:
                 // a crash between writing and replying must not log the water twice.
@@ -491,6 +505,22 @@ final class LinkEngine: ObservableObject {
         }
         // The state probably changed (a pause, an approval): publish promptly.
         await publishState(force: true)
+    }
+
+    /// The phone's focus report (W19). Every one is kept as history for ORION's nudges; "finish", "pause" and "resume" also
+    /// go to the session engine, but only for the session the tap named and only while the tap is fresh.
+    private func handleFocus(_ text: String, sentAt: Date, id: String) async -> CommandRunner.Result {
+        guard case .focus(let action, _, let session)? = try? LinkLog.decode(text) else { return .init(ok: false, reply: "Not a focus report.") }
+        let recorded = Self.logTracking(text, at: sentAt, id: id)
+        guard let op = FocusSessionReader.wireOp(action: action, session: session, current: lastFocus?.sessionId, age: Date().timeIntervalSince(sentAt)) else {
+            return ["finish", "pause", "resume"].contains(action)
+                ? .init(ok: false, reply: "That focus session is no longer running.") : recorded
+        }
+        let reply = await Task.detached(priority: .userInitiated) { FocusSessionReader.send(FocusSessionReader.request(op: op, id: id)) }.value
+        guard let reply, (try? JSONSerialization.jsonObject(with: reply) as? [String: Any])?["ok"] as? Bool == true else {
+            return .init(ok: false, reply: "ORION on the Mac did not take that.")
+        }
+        return .init(ok: true, reply: action == "finish" ? "Session finished." : action == "pause" ? "Paused." : "Back to it.")
     }
 
     /// A "Log food" photo from the phone (2026-11-02): into the food inbox the

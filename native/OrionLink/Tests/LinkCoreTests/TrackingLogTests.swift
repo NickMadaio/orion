@@ -139,6 +139,23 @@ final class TrackingLogTests: XCTestCase {
         XCTAssertNil(try json()["nutritionLog"].flatMap { ($0 as? [String: Any])?["2026-11-02"] }, "an alarm receipt is not a meal day")
     }
 
+    /// W19: a phone pickup or "I need an app" during focus is history ORION nudges on, kept in order and capped, and is not a meal day.
+    func testFocusReportsFromThePhoneAreKeptInOrderAndCapped() throws {
+        let log = TrackingLog(file: file)
+        _ = try log.apply(.focus(action: "pickup", at: "2026-11-04T14:01:00Z", session: "s-abc"), now: now)
+        _ = try log.apply(.focus(action: "need-app", at: "2026-11-04T14:02:00Z", session: nil), now: now)
+        let events = try XCTUnwrap(try json()["phoneFocusEvents"] as? [[String: Any]])
+        XCTAssertEqual(events.map { $0["action"] as? String }, ["pickup", "need-app"])
+        XCTAssertEqual(events.first?["session"] as? String, "s-abc")
+        XCTAssertNil(events.last?["session"])
+        XCTAssertEqual((try json()["futureField"] as? [String: Any])?["kept"] as? Bool, true)
+        XCTAssertNil(try json()["nutritionLog"].flatMap { ($0 as? [String: Any])?["2026-11-02"] })
+        for minute in 0..<(TrackingLog.focusEventLimit + 5) {
+            _ = try log.apply(.focus(action: "pickup", at: "2026-11-04T15:\(String(format: "%02d", minute % 60)):00Z", session: nil), now: now)
+        }
+        XCTAssertEqual((try json()["phoneFocusEvents"] as? [[String: Any]])?.count, TrackingLog.focusEventLimit)
+    }
+
     /// 2026-10-01: ORION told Nick nothing was locked; it could not see the phone.
     func testTheScreenLockStateIsKeptWhereOrionReadsIt() throws {
         let log = TrackingLog(file: file)

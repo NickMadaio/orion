@@ -57,6 +57,7 @@ final class AppState: ObservableObject {
     /// Applies this requested visual lift once, rather than compounding it on
     /// every launch.
     private let scheduleFocusWatcher = ScheduleFocusWatcher()
+    private let activityWriter = ActivityWriter()   // w19: activity.json, what he is doing right now
     private lazy var wakeAlarm = MainActor.assumeIsolated { WakeAlarmController() }
     private static let hologramBrightnessBoostKey = "OrionHologramBrightnessBoost20260801"
 
@@ -751,6 +752,7 @@ final class AppState: ObservableObject {
         wireSession()
         refreshFocusConfiguration()
         scheduleFocusWatcher.start { [weak self] in self?.focusExtras.quitDistractions ?? false }
+        activityWriter.start()
         MainActor.assumeIsolated { wakeAlarm.start() }
     }
 

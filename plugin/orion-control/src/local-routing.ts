@@ -84,6 +84,7 @@ import { askKind, ownAnswer, readGraphFile, readHealthFile, type AskKind, type C
 import { declareOnly, readReality, runReality, undoReality, type RealityRead, type ScriptRun } from "./reality.js";
 import { pluginNow } from "./plugin-clock.js";
 import { asksTheTime, timeReply } from "./clock-answer.js";
+import { activityReply, asksActivity } from "./activity-read.js";
 import { LATE_TONE_LINE, pastNudgeTime, stripLateInstruction } from "./night-hush.js";
 import { PendingMemory, continuationOf, readPendingTurn, runPendingTurn, type PendingTurn } from "./pending-reply.js";
 import { learnPersonAfter } from "./person-learn.js";
@@ -1379,6 +1380,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!on) return undefined; // shadow: fire and forget
     // w16 (2026-11-02 23:56, clock-answer.ts): the time is the clock's, in four words; the worker parroted the room words back.
     if (!run.ownText && asksTheTime(message)) run.ownText = timeReply((options.now ?? pluginNow)());
+    // w19 (activity-read.ts): "what am i doing" is what his Mac reports, "what have i been doing today" is the history; never the model's guess.
+    const activityAsk = !run.ownText && options.stateDir ? asksActivity(message) : null;
+    if (activityAsk && options.stateDir) run.ownText = activityReply(activityAsk, options.stateDir, (options.now ?? pluginNow)());
     // 2026-10-31 (code-answers.ts): answered from data in under a second or two, no desk call and no model loop.
     if (run.own) {
       const at = (options.now ?? pluginNow)();

@@ -93,6 +93,19 @@ let package = Package(
         ),
         // The command palette's pure core (w18): fuzzy ranking, frecency, prefix modes, the calculator and the
         // keyboard-navigation state. Foundation only, so every rule is tested without AppKit.
+        // Activity (w19): what he is doing right now. Pure classification, the contract encoder and the write rules;
+        // the app-side writer (NSWorkspace, AppleScript, idle) lives in Sources/Orion/Activity.
+        .target(
+            name: "ActivityKit",
+            dependencies: ["MouseKit"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "ActivityKitTests",
+            dependencies: ["ActivityKit", "MouseKit"],
+            path: "Tests/ActivityKitTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .target(
             name: "PaletteKit",
             swiftSettings: [.swiftLanguageMode(.v5)]
@@ -119,6 +132,7 @@ let package = Package(
         .executableTarget(
             name: "Orion",
             dependencies: [
+                "ActivityKit",
                 "ComputerRelay",
                 "MouseKit",
                 "PaletteKit",

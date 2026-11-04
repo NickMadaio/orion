@@ -333,7 +333,7 @@ final class MouseController: ObservableObject {
         if let question = GameWords.gameOver(reopenApps) { onGameOver?(question) }
     }
 
-    private static func facts(for app: NSRunningApplication) -> GameClassifier.Facts {
+    static func facts(for app: NSRunningApplication) -> GameClassifier.Facts {
         var category: String?
         if let url = app.bundleURL, let info = Bundle(url: url)?.infoDictionary {
             category = info["LSApplicationCategoryType"] as? String
@@ -351,7 +351,7 @@ final class MouseController: ObservableObject {
         return all.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }
     }
 
-    private static func windowTitle(pid: pid_t) -> String? {
+    static func windowTitle(pid: pid_t) -> String? {
         windowInfo(pid: pid).compactMap { $0[kCGWindowName as String] as? String }.first { !$0.isEmpty }
     }
 

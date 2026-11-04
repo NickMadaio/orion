@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { bypassesQuiet } from "./quiet.mjs";
 import { readAwareness, refreshIfOld } from "../awareness/state.mjs";
 import { routineHold } from "../patterns/hooks.mjs";
+import { activityVerdict, recentNudges } from "./activity-gate.mjs";
+import { readActivity } from "../awareness/activity.mjs";
 
 /** Someone who paused is not focusing, but the first minutes of a pause still hold (Nick: 3 min). */
 export const PAUSE_GRACE_MS = 3 * 60_000;
@@ -17,10 +19,17 @@ const ms = (t) => (t instanceof Date ? t.getTime() : Number(t));
  * A break (`rest`), `waiting`, `none` and `unknown` deliver: a break is when held things come out.
  * @returns {{ action: "deliver"|"hold", reason: string, heldFor?: "quiet"|"focus"|"class" }}
  */
-export function gate(aw, { kind = null, urgentKind = null, now = Date.now(), why = null, tier = null } = {}) {
-  void kind;
+export function gate(aw, { kind = null, urgentKind = null, now = Date.now(), why = null, tier = null, text = "" } = {}) {
   const t = ms(now);
-  if (bypassesQuiet({ urgentKind })) return { action: "deliver", reason: "a reminder he set or a class he is about to miss always goes" };
+  // What he is doing (w19): a time-critical line goes but owns it ("I know you're in Minecraft, but..."); a soft nudge while he
+  // is gaming or watching is one gentle line, then silence; the same line twice in 30 min never goes. `text` is optional:
+  // without it the verdict can still hold, it just cannot rewrite.
+  const byActivity = (verdict) => {
+    if (verdict.action !== "deliver") return verdict;
+    const a = activityVerdict({ activity: aw?.activity ?? null, recent: aw?.activityRecent ?? [], msg: { urgentKind, tier, kind, why, text }, now: t });
+    return a.action === "hold" ? a : { ...verdict, ...(a.text && text && a.text !== text ? { text: a.text, activityNote: a.reason } : {}) };
+  };
+  if (bypassesQuiet({ urgentKind })) return byActivity({ action: "deliver", reason: "a reminder he set or a class he is about to miss always goes" });
   if (aw?.sleep?.state === "asleep") return { action: "hold", reason: "quiet hours - it waits until he is up", heldFor: "quiet" };
   const routine = routineHold(aw, { kind, why, tier });   // learned routine (lib/patterns): no bedtime nag on his usual night out
   if (routine) return { action: "hold", reason: routine, heldFor: "routine" };
@@ -32,7 +41,7 @@ export function gate(aw, { kind = null, urgentKind = null, now = Date.now(), why
   }
   const now_ = aw?.calendar?.state === "ok" ? aw.calendar.now : null;
   if (now_?.kind === "class" && now_.missed !== true) return { action: "hold", reason: "he is in class - batched until it ends", heldFor: "class" };
-  return { action: "deliver", reason: session?.state === "rest" ? "he is on a break" : "nothing is in the way" };
+  return byActivity({ action: "deliver", reason: session?.state === "rest" ? "he is on a break" : "nothing is in the way" });
 }
 
 const UNKNOWN = Object.freeze({ state: "unknown" });
@@ -76,7 +85,9 @@ export function resolveAwareness({ dir, now = Date.now(), env = process.env, leg
   const sleep = upNow ? { ...aw.sleep, state: "late-awake", source: "live" }
     : aw.sleep.state !== "unknown" || !legacy ? aw.sleep
     : { state: legacy.quiet ? "asleep" : legacy.lateAwake ? "late-awake" : "awake", source: "window" };
-  return { ...aw, session, sleep };
+  // What he is doing (activity.json, written by the Mac app) and the nudges already said about it. Fresh or absent: null.
+  const activity = readActivity(dir, at);
+  return { ...aw, session, sleep, activity, activityRecent: activity ? recentNudges(dir, at) : [] };
 }
 
 /** Where he is and what is in his ears, from awareness; null where unknown (null never allows speech on its own). */

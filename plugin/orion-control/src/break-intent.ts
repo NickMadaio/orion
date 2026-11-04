@@ -119,6 +119,15 @@ export async function runBreak(move: BreakMove, deps: { exec: SessionExec; now: 
     return { flow: say(`You're already on a break: ${minutesOf(status.remainingSeconds)} minutes left, and the session picks you back up by itself.`, ran) };
   }
   if (state === "running") {
+    // The engine's own break-now (orion-session break): the block ends, its break starts, the next block follows by itself.
+    // Refused when no break is planned after this block; only then does the old pause-plus-reminder apply.
+    const broke = await call(exec, ["break"], ran);
+    if (broke && String(broke.phase) === "rest") {
+      let rest = Number(broke.remainingSeconds ?? 0) / 60;
+      if (!move.assumed && move.minutes < rest && (await call(exec, ["shorten", String(move.minutes)], ran))) rest = move.minutes;
+      const len = rest > 0 ? ` ${Math.max(1, Math.round(rest))} minutes,` : "";
+      return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Break started:${len || ""} then your next focus block starts by itself.`.replace("started: then", "started, then") }, writes: 1 };
+    }
     const left = minutesOf(status.remainingSeconds);
     if (!(await call(exec, ["pause"], ran))) return { flow: say(`I couldn't pause ${task} just now, so it's still running (${left} minutes left) and I haven't set a return reminder.`, ran) };
     return nudge(move, now, task, `Paused ${task} with ${left} minutes left. `, `say resume and the ${task} block carries on`, ran);

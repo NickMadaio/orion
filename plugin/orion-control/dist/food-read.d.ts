@@ -2,6 +2,7 @@ import type { MealRead } from "./health-log.js";
 export type FoodTurn = {
     kind: "ask";
     text: string;
+    question?: string;
 } | {
     kind: "that";
 } | {
@@ -12,6 +13,7 @@ export type FoodTurn = {
     read: MealRead;
 } | {
     kind: "photo";
+    question?: string;
 } | {
     kind: "yes";
 } | {

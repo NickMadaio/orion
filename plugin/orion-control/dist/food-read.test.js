@@ -12,7 +12,7 @@ describe("asking for an estimate", () => {
         ["estimate the calories in my lunch: a big caesar salad and a coke", "big caesar salad and a coke"],
         ["how much protein is in greek yogurt with granola", "greek yogurt with granola"],
         ["i had a chicken burrito and a coke for lunch, how many calories is that", "i had a chicken burrito and a coke for lunch"],
-    ])("%s", (m, text) => expect(read(m)).toEqual({ kind: "ask", text }));
+    ])("%s", (m, text) => expect(read(m)).toEqual({ kind: "ask", text, question: m }));
     it("'how many calories was that' asks about the last meal", () => {
         expect(read("how many calories was that")).toEqual({ kind: "that" });
         expect(read("whats the macros on that?")).toEqual({ kind: "that" });
@@ -53,7 +53,7 @@ describe("a reply to the offer", () => {
 });
 describe("a photo attached in chat", () => {
     it("is a photo turn when the words are about it", () => {
-        for (const m of ["", "log this", "how many calories is this", "lunch"])
+        for (const m of ["", "log this", "lunch", "had this", "just had this lol", "ate this for dinner"])
             expect(read(m, { attachments: [{ kind: "image" }] })).toEqual({ kind: "photo" });
     });
     it("other attachments are not", () => expect(read("log this", { attachments: [{ kind: "document" }] })).toBeNull());
@@ -129,5 +129,40 @@ describe("a reply to a photo that was already logged", () => {
             const two = { ...logged, pending: { ...logged.pending, count: 2, names: ["burger", "salad"] } };
             expect(read("the burger", two)).toEqual({ kind: "pick", which: "the burger" });
         });
+    });
+});
+describe("a nutrition question answers only the question (2026-11-04: 'he just went to log it')", () => {
+    const img = [{ kind: "image" }];
+    it.each([
+        ["how many calories in a chipotle bowl", "chipotle bowl"],
+        ["how much protein is a nature valley protein salted caramel nut bar?", "nature valley protein salted caramel nut bar"],
+        ["hwo much protien is in a big mac", "big mac"],
+        ["how mch protein in a chicken wrap lol", "chicken wrap"],
+        ["whats the protein in greek yogurt", "greek yogurt"],
+        ["is a chipotle bowl high protein", "chipotle bowl"],
+        ["is a chipotle bowl high in protein?", "chipotle bowl"],
+        ["how many calaries in 2 slices of pizza", "2 slices of pizza"],
+    ])("%s is an ask, never a log", (m, text) => expect(read(m)).toEqual({ kind: "ask", text, question: m }));
+    it("'is this high protein' is about this (the last meal or the photo), not a food called this", () => {
+        expect(read("is this high protein")).toEqual({ kind: "that" });
+        expect(read("how much protien is in this?")).toEqual({ kind: "that" });
+    });
+    it("a photo that comes with a question is the question flow, with the question kept", () => {
+        for (const m of ["how much protein is in this", "how many calories is this", "hwo much protien is in this lol", "is this high protein", "how many cals in this?", "macros for this"])
+            expect(read(m, { attachments: img })).toEqual({ kind: "photo", question: m });
+    });
+    it("a photo alone, or with 'log this' or 'had this', is still the log-at-once photo turn", () => {
+        for (const m of ["", "log this", "had this", "i had this for lunch"])
+            expect(read(m, { attachments: img })).toEqual({ kind: "photo" });
+    });
+    it("a question never reads as a meal he ate", () => {
+        expect(read("how much protein is in the chicken i had for lunch")?.kind).toBe("ask");
+        expect(read("had a chipotle bowl, how much protein is that")?.kind).toBe("ask");
+    });
+    it("a yes after the answer logs it, and a correction then a yes still does", () => {
+        const answered = { pending: { at: NOW.getTime() - 30_000, via: "chat", offerText: "About 42 g of protein (and ~650 kcal). Want me to log it?" }, bound: true };
+        expect(read("yeah", answered)).toEqual({ kind: "yes" });
+        expect(read("yes actually, log three of them", answered)?.kind).toBe("revise");
+        expect(read("nah", answered)).toEqual({ kind: "no" });
     });
 });

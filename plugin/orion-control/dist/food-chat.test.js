@@ -22,9 +22,27 @@ const dir = () => mkdtempSync(join(tmpdir(), "food-chat-"));
 describe("runFoodTurn", () => {
     it("an ask runs an offered estimate and replies with the offer", async () => {
         const calls = [];
-        const out = await runFoodTurn({ kind: "ask", text: "chicken burrito and a coke" }, { run: fakeRun({ "--text": ESTIMATE }, calls), stateDir: dir(), now: NOW });
-        expect(calls[0]).toEqual(["--text", "chicken burrito and a coke", "--offer", "--json"]);
+        const out = await runFoodTurn({ kind: "ask", text: "chicken burrito and a coke", question: "how many calories in a chicken burrito and a coke" }, { run: fakeRun({ "--text": ESTIMATE }, calls), stateDir: dir(), now: NOW });
+        expect(calls[0]).toEqual(["--text", "chicken burrito and a coke", "--ask", "how many calories in a chicken burrito and a coke", "--offer", "--json"]);
         expect(out.text).toBe(OFFER);
+    });
+    it("an ask without the question text still runs (older callers)", async () => {
+        const calls = [];
+        await runFoodTurn({ kind: "ask", text: "chicken burrito" }, { run: fakeRun({ "--text": ESTIMATE }, calls), stateDir: dir(), now: NOW });
+        expect(calls[0]).toEqual(["--text", "chicken burrito", "--offer", "--json"]);
+    });
+    it("a photo with a question gets the inbox's answer, never a log; one already logged is said to be logged", async () => {
+        const d = dir();
+        const turn = { kind: "photo", question: "how much protein is in this" };
+        expect((await runFoodTurn(turn, { run: fakeRun({}), stateDir: d, now: NOW })).text).toBe(PHOTO_LINE);
+        const row = (extra, text) => JSON.stringify({ id: "fp-9", at: new Date(NOW.getTime() - 5 * 60_000).toISOString(), expiresAt: new Date(NOW.getTime() + 3600_000).toISOString(), via: "inbox", offerText: text, estimate: {}, ...extra });
+        writeFileSync(join(d, "food-pending.json"), row({}, "About 42 g of protein (and ~650 kcal). Want me to log it?"));
+        const calls = [];
+        const out = await runFoodTurn(turn, { run: fakeRun({}, calls), stateDir: d, now: NOW });
+        expect(out.text).toBe("About 42 g of protein (and ~650 kcal). Want me to log it?");
+        expect(calls).toEqual([]);
+        writeFileSync(join(d, "food-pending.json"), row({ logged: { id: "FOOD-1" } }, "Logged ~650 kcal — bowl: 42P 70C 18F. Fix anything?"));
+        expect((await runFoodTurn(turn, { run: fakeRun({}), stateDir: d, now: NOW })).text).toBe("That photo is already in your log. Logged ~650 kcal — bowl: 42P 70C 18F. Fix anything?");
     });
     it("a yes logs the offer and says how to undo it", async () => {
         const out = await runFoodTurn({ kind: "yes" }, { run: fakeRun({ "log-pending": LOGGED }), stateDir: dir(), now: NOW });
@@ -202,6 +220,22 @@ describe("food through the routing", () => {
         r = route(run);
         expect(await r.turn("how many calories in a chicken burrito and a coke")).toBe(OFFER);
         expect(await r.turn("yeah log it")).toMatch(/^Logged chicken burrito and coke as lunch: 667 kcal/);
+        expect(calls.map((c) => c[0])).toEqual(["--text", "log-pending"]);
+    });
+    it("his protein question is answered and offered, with nothing logged until the yes (2026-11-04)", async () => {
+        const calls = [];
+        let r;
+        const ANSWER = "About 6 g of protein (and ~190 kcal). Want me to log it?";
+        const run = async (args) => { calls.push(args); if (args[0] === "--text") {
+            r.offer(ANSWER);
+            return { stdout: JSON.stringify({ ...ESTIMATE, offer: { id: "fp-1", text: ANSWER } }), code: 0 };
+        } return { stdout: JSON.stringify(LOGGED), code: 0 }; };
+        r = route(run);
+        expect(await r.turn("how much protein is a Nature Valley protein salted caramel nut bar?")).toBe(ANSWER);
+        expect(calls.map((c) => c[0])).toEqual(["--text"]);
+        expect(calls[0]).toContain("--ask");
+        expect(calls.flat()).not.toContain("--log");
+        expect(await r.turn("yeah")).toMatch(/^Logged /);
         expect(calls.map((c) => c[0])).toEqual(["--text", "log-pending"]);
     });
     it("a yes after an unrelated turn is not the food's", async () => {

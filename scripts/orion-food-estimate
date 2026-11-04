@@ -30,12 +30,13 @@ import { readImages } from "./lib/food/ollama.mjs";
 import { latestUncounted, logEstimate, undoEntry, healthLogPath } from "./lib/food/log.mjs";
 import { claimPending, clearPending, livePending, loggedLine, loggedOffer, openOffers, restorePending, offerLine, pickOffers, readPending, writePending } from "./lib/food/pending.mjs";
 import { runInbox } from "./lib/food/inbox.mjs";
+import { answerLine, focusOf, isFoodQuestion } from "./lib/food/question.mjs";
 import { readFileSync } from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const json = argv.includes("--json");
-const USAGE = 'usage: orion-food-estimate --text "<meal>" [--image <path>]... [--meal lunch] [--log] [--offer] [--json] | --entry <id|latest> | --revise "<correction>" | log-pending | pending | discard | undo <FOOD-id> | inbox';
+const USAGE = 'usage: orion-food-estimate --text "<meal>" [--image <path>]... [--meal lunch] [--ask "<his question>"] [--log] [--offer] [--json] | --entry <id|latest> | --revise "<correction>" | log-pending | pending | discard | undo <FOOD-id> | inbox';
 const all = (name) => argv.flatMap((a, i) => (a === name && argv[i + 1] !== undefined ? [argv[i + 1]] : []));
 const one = (name) => all(name).at(-1);
 const now = clockNow();
@@ -69,7 +70,9 @@ async function estimateCommand() {
     return finish(result, logged.ok ? `${out.summary}. Logged (${logged.dayCalories} kcal today; undo: orion-food-estimate undo ${logged.entry.id}).` : `${out.summary}. ${logged.error}`);
   }
   if (argv.includes("--offer")) {
-    const offer = writePending({ via: "chat", offerText: offerLine(out.summary), summary: out.summary, estimate: out.estimate, ...(meal ? { meal } : {}), ...(text ? { text } : {}), ...(paths.length ? { photos: paths } : {}) }, { now });
+    const ask = one("--ask") ?? "";
+    const offerText = ask && isFoodQuestion(ask) ? answerLine(out.estimate, focusOf(ask), ask) : offerLine(out.summary);
+    const offer = writePending({ via: "chat", offerText, summary: out.summary, estimate: out.estimate, ...(meal ? { meal } : {}), ...(text ? { text } : {}), ...(paths.length ? { photos: paths } : {}) }, { now });
     result.offer = offerJson(offer);
   }
   return finish(result, out.summary);

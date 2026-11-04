@@ -8,7 +8,8 @@
  <id> is [A-Za-z0-9_-]{1,64}. The watcher writes back:
    food-inbox/<id>.estimate.json  { id, ok, summary?, estimate?, error?, at }   (the phone may show it)
    food-inbox/.state.json         { done: { <id>: { at, ok } } }               (each item is estimated once)
- and logs each estimate to the health log AT ONCE (Nick: "the AI logs it for me"), then sends one chat message per item:
+ and logs each estimate to the health log AT ONCE (Nick: "the AI logs it for me"; a note that is a QUESTION, "how much protein
+ is in this", is answered and offered instead, question.mjs), then sends one chat message per item:
  "Logged ~630 kcal — pizza slice, chicken: 36P 64C 25F. Fix anything?". The offer stays in food-pending.json for 30 minutes with
  `logged: { id }`, so a reply ("it was 2 slices", "undo") edits or removes that same entry (orion-food-estimate --revise / undo).
  Not logged, but asked: a photo with no food in it ("Is this food? I couldn't tell.") and a low-confidence guess (kept as an offer,
@@ -23,6 +24,7 @@ import { estimateMeal } from "./estimate.mjs";
 import { readImages } from "./ollama.mjs";
 import { logEstimate } from "./log.mjs";
 import { loggedLine, offerLine, writePending } from "./pending.mjs";
+import { answerLine, focusOf, isFoodQuestion } from "./question.mjs";
 
 export const INBOX_DIR = "food-inbox";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -110,6 +112,12 @@ async function processItem(item, { now, estimate, notify, env }) {
     ...(Number.isFinite(taken) ? { eatenAt: new Date(taken).toISOString() } : {}) };
   if (out.estimate.confidence === "low") {   // only guessing: ask, log nothing; a yes logs the guess
     const offerText = `Is this food? I couldn't tell. My guess: ${out.summary}. Log it?`;
+    writePending({ ...base, offerText }, { now, env });
+    const sent = notify ? notify(offerText, `food: ${item.id}`) : { ok: false };
+    return { record: { ok: true, logged: false, summary: out.summary, estimate: out.estimate }, report: { ok: true, logged: false, summary: out.summary, notified: !!sent?.ok } };
+  }
+  if (item.note && isFoodQuestion(item.note)) {   // a photo that came with a question: answer it, offer to log, log nothing
+    const offerText = answerLine(out.estimate, focusOf(item.note), item.note);
     writePending({ ...base, offerText }, { now, env });
     const sent = notify ? notify(offerText, `food: ${item.id}`) : { ok: false };
     return { record: { ok: true, logged: false, summary: out.summary, estimate: out.estimate }, report: { ok: true, logged: false, summary: out.summary, notified: !!sent?.ok } };

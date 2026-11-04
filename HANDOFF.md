@@ -80,6 +80,19 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-04 afternoon: wave 19 (Claude, orchestrator)
+
+- **Schedule:** todo-rank.mjs (priority + deadline + coursework; days overdue ignored) and day-breaks.mjs (meals, a 15-min break after 60 min, never more than 120 min unbroken). plan-reasons.json answers "why is X first". Root cause: `day --todos` never read priority.
+- **To-do order:** one TodoOrdering (Swift, MobileCore) and todo-order.mjs, used everywhere: overdue first, then high to none. Date-only dues were treated as midnight, which counted every to-do due today as overdue all day.
+- **Activity:** ActivityKit plus Sources/Orion/Activity write activity.json (domain only, no URL, titles only for games) and activity-history.jsonl (7 days). activity-gate.mjs: time-critical lines own the activity; soft nudges while gaming get one gentle line, then a 30-min back-off.
+- **Focus:** focus-ready.ts ("im ready to work"), profiles.mjs (learned only from focus-phase work/study), orion-focus-sites plus FocusWebGuard (exact host match, re-checks frontmost and status before a redirect), orion-session `break`, early-finish flow.
+- **Phone focus:** LinkSnapshot.focusSession, FocusSessionShield, focus Home, Live Activity modes (not rendered), LinkLog.focus events consumed on the Mac.
+- **Self-fix:** orion-selfcheck (read-only) and orion-selffix (offer, then now/later/no, with a lock). The fix offer binds to the last turn only. A nightly scan offers at most one fix a day. "why is X first" goes to plan-why, not selffix.
+- **Reminders:** orion-reminders (tick, snooze, done, list, today), one reminders.json with a lock. Missed reminders surface on wake, recurring ones are DST-safe, and focus holds non-important ones. Phone actions: Snooze and Done. Not solved: the phone can't fire a reminder while the Mac is asleep.
+- **Also:** an editable water goal (nutritionGoals.water); the mapper's Done no longer overwrites bindings; lost turns say so; spoken wake times now work.
+- **Tests:** plugin 5272/5272, root 2705/2707 (two timing flakes, both pass alone), Swift 789 (2 skipped, 0 failures).
+
+
 ### 2026-11-04 10:40 GMT: wave 18 relay summary (Claude, orchestrator)
 
 **Found state:** wave 17b had claimed the Health hover and the stray text were fixed. They weren't. Hover worked, but it showed provenance text, which read as stray text. ORION couldn't close apps: the model called the bedtime-only wrapper, and it was off the allowlist. He couldn't open Safari either, because /Applications/Safari.app is a cryptex symlink and resolveApplication skipped symlinks. Last night's bedtime "yes" ran nothing: the model claimed the shutdown with no tool call, and the bridge binary from 11-01 lacks dim/quit_app/lock_screen.

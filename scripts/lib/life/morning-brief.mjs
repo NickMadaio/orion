@@ -28,7 +28,10 @@ const unique = (list, keyOf) => { const seen = new Set(); return list.filter((x)
 export function topOfList({ candidates = [], history = [], now }) {
   const open = unique(candidates.filter((c) => c && c.title && !c.waiting), (c) => itemKey(c.title));
   const due = (c) => (c.due ? Math.round((toUTC(c.due) - toUTC(now.date)) / 86_400_000) : 999);
-  const ranked = open.map((c, i) => ({ c, i })).sort((a, b) => due(a.c) - due(b.c) || (RANK[a.c.rank] ?? 2) - (RANK[b.c.rank] ?? 2) || a.i - b.i).map((x) => x.c);
+  // A candidate that carries a `score` (lib/life/todo-rank.mjs: priority, deadline, coursework) is ordered by it; without one, due soonest
+  // then rank. Due soonest alone put an 11-day-stale medium "finish resume" first for days (2026-11-04).
+  const scored = open.some((c) => typeof c.score === "number");
+  const ranked = open.map((c, i) => ({ c, i })).sort((a, b) => (scored ? (b.c.score ?? -1) - (a.c.score ?? -1) : 0) || due(a.c) - due(b.c) || (RANK[a.c.rank] ?? 2) - (RANK[b.c.rank] ?? 2) || a.i - b.i).map((x) => x.c);
   if (!ranked.length) return { head: null, streak: 0, text: null };
   const head = ranked[0]; const key = itemKey(head.title);
   let streak = 0;

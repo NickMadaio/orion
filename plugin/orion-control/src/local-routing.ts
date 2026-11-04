@@ -63,6 +63,7 @@ import { parseMessagesRead, readNote, type MessagesRead, type ReadOutcome } from
 import { isBareTime, isReminderTurn, leaveAsReminder, planReminder, type StoredReminder } from "./reminder-flow.js";
 import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
 import { SPEAK_AS_I } from "./self-voice.js";
+import { readPlanReasons, whyFirstAnswer, whyFirstAsk } from "./plan-why.js";
 import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
@@ -1777,6 +1778,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // 2026-10-31 gate (hea-gym-streak-v): "have i been going to the gym" is answered from what was tracked (day-questions.ts), never a write.
       const habit = !run.flow && !run.cutOff && options.stateDir ? asksHabit(run.message) : null;
       if (habit) { run.provided = true; markRead(run, "history"); run.flow = { outcome: "say", kind: "plain", text: habitAnswer(habit, options.stateDir!, (options.now ?? pluginNow)()) }; }
+      // 2026-11-04: "why is X first" is answered from the reason the planner left with each to-do (plan-why.ts), never a guess; no reason on file: the turn goes on.
+      const whyAsked = !run.flow && !run.cutOff && options.stateDir ? whyFirstAsk(run.message) : null;
+      if (whyAsked !== null) {
+        const why = whyFirstAnswer(whyAsked, readPlanReasons(options.stateDir!, localDayKey((options.now ?? pluginNow)())));
+        if (why) { run.provided = true; markRead(run, "day"); run.flow = { outcome: "say", kind: "plain", text: why }; }
+      }
       // A fact to keep goes to his "Nick" note, a question about one searches first (live sweep 2026-10-15:
       // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
       // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).

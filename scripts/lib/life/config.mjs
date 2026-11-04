@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 
 import { sandbox } from "./bridge-path.mjs";
 import { controlledDir } from "../clock.mjs";
+import { BREAK_DEFAULTS } from "./day-breaks.mjs";
 // During a schedule evaluation, a copy: a rule said in a test must not change his real settings.
 export const CONFIG_FILE = process.env.ORION_LIFE_CONFIG
   || join(controlledDir(), `${sandbox() ? "eval-" : ""}life-config.json`);
@@ -51,6 +52,8 @@ export const DEFAULTS = Object.freeze({
   // firstClassLeadMin: up at least this long before the first class (null: the readyMinutes rule above). sleepHours: absent means
   // the top-level sleepHours. overrides: { "YYYY-MM-DD": "HH:MM" | "off" } one morning's alarm said by chat (wins over byDay and
   // the class lead; off = no alarm that morning). exceptions: [{ date, reason, until }] nights he talked ORION out of the lockdown (a legit reason only).
+  // Real breaks in the plan (2026-11-04, lib/life/day-breaks.mjs). Any field may be saved on its own; the rest keep these defaults.
+  planBreaks: BREAK_DEFAULTS,
   sleepPlan: Object.freeze({ byDay: Object.freeze({}), firstClassLeadMin: null, nudgeBeforeMin: 30, lockdownBelowHours: 6,
     legitReasons: Object.freeze(["friends", "party", "bar", "schoolwork"]), exceptions: Object.freeze([]) }),
 });
@@ -83,6 +86,18 @@ export function validSleepPlan(v) {
   const ovOk = typeof ov === "object" && !Array.isArray(ov) && Object.keys(ov).length <= 30
     && Object.entries(ov).every(([d, t]) => DATE.test(d) && (t === "off" || (typeof t === "string" && HHMM.test(t))));
   return ovOk && gymOk && daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
+}
+
+const HHMM_OK = (v) => typeof v === "string" && HHMM.test(v);
+const validMeal = (m) => m === undefined || (m && typeof m === "object" && Object.keys(m).every((k) => ["from", "to", "minutes"].includes(k))
+  && (m.from === undefined || HHMM_OK(m.from)) && (m.to === undefined || HHMM_OK(m.to)) && (m.minutes === undefined || (Number.isInteger(m.minutes) && m.minutes >= 0 && m.minutes <= 120)));
+/** The plan-breaks settings, as stored (every field optional; unknown fields refused). */
+export function validPlanBreaks(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const int = (k, lo, hi) => v[k] === undefined || (Number.isInteger(v[k]) && v[k] >= lo && v[k] <= hi);
+  return Object.keys(v).every((k) => ["enabled", "breakMinutes", "minBreakMinutes", "breakAfterMinutes", "maxWorkMinutes", "classBufferMinutes", "lunch", "dinner"].includes(k))
+    && (v.enabled === undefined || typeof v.enabled === "boolean") && int("breakMinutes", 5, 60) && int("minBreakMinutes", 5, 30) && int("breakAfterMinutes", 20, 180)
+    && int("maxWorkMinutes", 45, 240) && int("classBufferMinutes", 0, 45) && validMeal(v.lunch) && validMeal(v.dinner);
 }
 
 /** The plan with every default filled in (never mutates the stored object). */
@@ -155,6 +170,7 @@ const VALIDATORS = {
   freeMinutesKept: (v) => Number.isInteger(v) && v >= 0 && v <= 240,
   autoShrink: (v) => typeof v === "boolean",
   sleepPlan: validSleepPlan,
+  planBreaks: validPlanBreaks,
 };
 
 /** "Naps at least 75 minutes, always": orion-life min nap 75 (0 removes it). */
@@ -178,7 +194,7 @@ export function setConfig(key, raw, file = CONFIG_FILE) {
   let value = raw;
   if (typeof DEFAULTS[key] === "number") value = Number(raw);
   if (typeof DEFAULTS[key] === "boolean") value = raw === true || raw === "true";
-  if ((key === "anchors" || key === "sleepPlan") && typeof raw === "string") { try { value = JSON.parse(raw); } catch { value = null; } }
+  if ((key === "anchors" || key === "sleepPlan" || key === "planBreaks") && typeof raw === "string") { try { value = JSON.parse(raw); } catch { value = null; } }
   if (Array.isArray(DEFAULTS[key])) value = String(raw).split(",").map((x) => Number(x.trim()));
   if (!VALIDATORS[key](value)) throw new TypeError(`${key} cannot be ${raw}`);
   const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();

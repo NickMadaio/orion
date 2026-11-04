@@ -55,7 +55,8 @@ export function withWake(plan, days, wake, { only = false } = {}) {
 }
 
 /** The 7 coming mornings and the night before each, from `now`. */
-export function weekPlan({ now, config, blocksOf, wakeRequest = null }) {
+/** `napMinutesOf(date)`: minutes he napped on that date (WHOOP), crediting that evening's night. */
+export function weekPlan({ now, config, blocksOf, wakeRequest = null, napMinutesOf = () => 0 }) {
   const plan = sleepPlanOf(config);
   const today = now.toLocaleDateString("en-CA");
   const mornings = [];
@@ -66,7 +67,7 @@ export function weekPlan({ now, config, blocksOf, wakeRequest = null }) {
   }
   return mornings.map(({ date, minute, reason }) => {
     const evening = addDays(date, -1);
-    const bed = bedOn(evening, { blocksOf, config, wakeRequest });
+    const bed = bedOn(evening, { blocksOf, config, wakeRequest, napMinutes: napMinutesOf(evening) });
     const nudge = bed - plan.nudgeBeforeMin;
     const lock = 1440 + minute - Math.round(plan.lockdownBelowHours * 60);
     const cls = firstClassOn(date, blocksOf);

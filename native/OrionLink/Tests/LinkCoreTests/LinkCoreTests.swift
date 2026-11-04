@@ -96,6 +96,16 @@ final class SnapshotReaderTests: XCTestCase {
         XCTAssertNil(days.first?.sleepPerformance)
     }
 
+    func testHealthCarriesTheNapAndALoneNapDayIsKept() throws {
+        try write(".openclaw/orion-controlled/health-log.json", ["days": [
+            "2026-11-03": ["sleepHours": 6.6, "napMinutes": 70, "naps": [["start": "2026-11-03T15:00:00Z", "end": "2026-11-03T16:10:00Z", "minutes": 70]]],
+            "2026-11-04": ["napMinutes": 30, "naps": [["start": "2026-11-04T13:00:00Z", "minutes": 30]]]]])
+        let days = SnapshotReader(home: home).health()
+        XCTAssertEqual(days.first?.napMinutes, 70)
+        XCTAssertEqual(days.first?.napStart, "2026-11-03T15:00:00Z")
+        XCTAssertEqual(days.last?.napMinutes, 30, "a day with only a nap still has sleep to show")
+    }
+
     func testMissingFilesMeanEmptyNotInvented() {
         let reader = SnapshotReader(home: home)
         XCTAssertEqual(reader.runs(now: now), [])

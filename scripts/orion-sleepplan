@@ -30,6 +30,9 @@ import { controlledDir, isolated } from "./lib/clock.mjs";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { napMinutesOf } from "./lib/life/naps.mjs";
+// Naps WHOOP saw (health-log days[date].napMinutes) credit that evening's bedtime (W20).
+const napToday = (date) => { try { return napMinutesOf(JSON.parse(readFileSync(join(controlledDir(), "health-log.json"), "utf8")).days?.[date]); } catch { return 0; } };
 import { addDays, eveningOf, hhmm, instant, parseDays, pruneOverrides, wakeDate, weekPlan, wakePlanDoc, withException, withOverride, withWake, writeWakePlan } from "./lib/life/sleep-plan.mjs";
 
 const args = process.argv.slice(2);
@@ -93,7 +96,7 @@ const sleepOf = (raw) => { const n = Number(raw); if (!(n >= 5 && n <= 11)) thro
 
 /** The morning of the next alarm he has (plan or class), counting overrides; a RangeError when none is ahead. */
 function nextAlarmDate(plan, blocksOf, config) {
-  const ahead = weekPlan({ now, config: { ...config, sleepPlan: storable(plan, config.sleepPlan) }, blocksOf, wakeRequest: null }).find((d) => ["plan", "class"].includes(d.reason));
+  const ahead = weekPlan({ now, config: { ...config, sleepPlan: storable(plan, config.sleepPlan) }, blocksOf, wakeRequest: null, napMinutesOf: napToday }).find((d) => ["plan", "class"].includes(d.reason));
   if (!ahead) throw new RangeError("no alarm is set, so there is nothing to turn off");
   return ahead.date;
 }
@@ -146,7 +149,7 @@ function nextPlan(plan, blocksOf, config) {
   if (command === "shift") {
     const minutes = Number(flag("--minutes"));
     if (!Number.isInteger(minutes) || minutes === 0 || Math.abs(minutes) > 360) throw new TypeError("--minutes must be a whole number of minutes, 1 to 360, minus for earlier");
-    const next = weekPlan({ now, config: { ...config, sleepPlan: storable(plan, config.sleepPlan) }, blocksOf, wakeRequest: null })[0];
+    const next = weekPlan({ now, config: { ...config, sleepPlan: storable(plan, config.sleepPlan) }, blocksOf, wakeRequest: null, napMinutesOf: napToday })[0];
     if (!next || !["plan", "class"].includes(next.reason)) throw new RangeError(`no alarm is set for ${next?.date ?? "the next morning"}, so there is nothing to move`);
     const minute = toMinute(next.wake) + minutes;
     if (minute < 0 || minute >= 1440) throw new RangeError("that would move the alarm out of its day");
@@ -245,7 +248,7 @@ async function main() {
   try { plan = nextPlan(sleepPlanOf(config), blocksOf, config); bedtime = nextBedtime(config); }
   catch (error) { fail(error instanceof RangeError ? 3 : 2, error.message); }
   const nextConfig = { ...config, sleepPlan: storable(plan, saved), ...(bedtime ? { bedtime } : {}) };
-  const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: null });
+  const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: null, napMinutesOf: napToday });
   let file = null;
   if (WRITES.has(command) || REFRESH) {
     try {

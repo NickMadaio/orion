@@ -58,6 +58,7 @@ import { readDeclaredFacts } from "./lib/awareness/declared-facts.mjs";
 import { audienceOf } from "./lib/reach/gate.mjs";
 import { speakOnMac } from "./lib/reach/route.mjs";
 import { summarize } from "./lib/life/history.mjs";
+import { whoopWorkoutsOf } from "./lib/life/naps.mjs";
 import { checkinStore } from "./lib/reach/checkin-store.mjs";
 import { logCheckinAlerts } from "./lib/reach/log-outreach.mjs";
 const evaluating = evalMode();
@@ -146,7 +147,7 @@ function planContext(aw) {
   const record = readNowRecord(CONTROLLED);
   const heard = audienceOf(aw);
   return { nowMs: NOW_MS, record, declared: readDeclaredFacts(CONTROLLED, { date: new Date(NOW_MS).toLocaleDateString("en-CA") }),
-    patterns: loadPatterns(), slipsToday: record?.slipsToday ?? [], workouts: read("health-log.json")?.workouts ?? [],
+    patterns: loadPatterns(), slipsToday: record?.slipsToday ?? [], workouts: (() => { const l = read("health-log.json"); return [...(l?.workouts ?? []), ...whoopWorkoutsOf(l)]; })(),
     placeId: aw.location?.placeId ?? null, grant: loadConfig().escalation?.restrict === true, activity: read("focus-activity.json"),
     speak: aw.sleep?.state !== "asleep" && speakOnMac({ atHome: heard.atHome, headphones: heard.macHeadphones }) };
 }

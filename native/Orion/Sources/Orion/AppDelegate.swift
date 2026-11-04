@@ -257,9 +257,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    kind: entry.kind, deliveredToPhone: entry.channel == "phone")
                 continue
             }
-            // orion://type — the typed summon, as the keyboard shortcut opens it.
+            // orion://type: the typed summon. It toggles like the keyboard shortcut, so pressing the mouse button or
+            // menu item again closes it (Nick, 11-04).
             if url.scheme == "orion", url.host == "type" {
-                typedSummon.show()
+                typedSummon.toggle()
                 continue
             }
             // orion://mouse-setup: the new-mouse setup popup (scripts/orion-mouse setup).

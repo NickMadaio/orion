@@ -61,15 +61,16 @@ test("a check-in about GOING to a real class is still the calendar's business", 
 
 test("orion-checkin tick: the macro check-in is kept and alerts; the class one is cancelled", () => {
   const home = mkdtempSync(join(tmpdir(), "orion-ci-"));
-  const d = new Date(); const later = d.getHours() < 12 ? [20, 21] : [6, 7];
+  const d = new Date(); d.setHours(12, 0, 0, 0);   // pinned to noon: quiet hours held the tick at 01:33 (2026-11-04)
+  const later = d.getHours() < 12 ? [20, 21] : [6, 7];
   const iso = (h) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, 0).toISOString();
   writeFileSync(join(home, "cal.json"), JSON.stringify([{ identifier: "e", title: "ECON1115 Macroeconomics", start: iso(later[0]), end: iso(later[1]) }]));
-  const nowMin = Math.floor(Date.now() / 60000);
+  const nowMin = Math.floor(d.getTime() / 60000);
   const mk = (id, what) => ({ id, what, dueAt: nowMin - 5, createdAt: d.toISOString(), alerts: 0, returning: null, loop: { blockId: id, phase: "waiting", level: 0, nextCheckAt: nowMin - 5, deferrals: 0, history: [] } });
   const file = join(home, "checkins.json");
   writeFileSync(file, JSON.stringify({ checkins: [mk("ci-1", "start studying for macro"), mk("ci-2", "go to ECON1115")] }));
   const r = spawnSync(process.execPath, [join(import.meta.dirname, "../scripts/orion-checkin"), "tick", "--json"], { encoding: "utf8", env: {
-    PATH: process.env.PATH, HOME: home, ORION_CHECKIN_FILE: file, ORION_BRIDGE_BIN: join(import.meta.dirname, "fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"),
+    ORION_NOW: d.toISOString(), PATH: process.env.PATH, HOME: home, ORION_CHECKIN_FILE: file, ORION_BRIDGE_BIN: join(import.meta.dirname, "fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"),
     ORION_SESSION_SOCKET: join(home, "none") } });
   const alerts = JSON.parse(r.stdout);
   assert.deepEqual(alerts.map((a) => a.id), ["ci-1"]);

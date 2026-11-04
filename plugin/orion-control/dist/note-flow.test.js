@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countSentences, parseNote, runNote } from "./note-flow.js";
+import { countSentences, isBareNoteRequest, isOtherCommand, parseNote, runNote } from "./note-flow.js";
 // w18 note: "make a note of something long" kept only the first sentence. The model was told to save "the fact, short,
 // in the third person" and orion-brain cut it at 400 characters. Code now keeps his whole text, minus the command words.
 const LONG_VOICE = "ok make a note so for the marketing group project we need to meet on thursday and priya is doing the slides but she hasnt started and i said id do the survey thing and also i need to email prof jones about the extension because the deadline moved and i forgot";
@@ -94,5 +94,83 @@ describe("routing: the whole note is saved by code, not summarised by the worker
         const [built] = (await fire("before_prompt_build", { prompt: DR, messages: [] }, ctx));
         expect(calls).toEqual([["learn", "Nick", "note", "call dr. smith about the lab report. he said hed be in till 5 p.m. on friday, so go before then"]]);
         expect(built?.systemPrompt).toContain("Saved the note (2 sentences)");
+    });
+});
+const VOICE_NOTE = "so the thing is the econ tutor said the midterm covers chapters three to six and not seven and i should do the practice set from the website and also ask priya for her notes from the lecture i missed on tuesday because i was at the doctor and dr. patel said to rest for a few days";
+describe("a bare note request waits for the note", () => {
+    it.each([
+        "make a note", "can you write something down", "take a note real quick", "Can you make a note for me really quickly?",
+        "orion jot something down please", "hey can you take a quick note", "write this down",
+    ])("bare: %s", (m) => expect(isBareNoteRequest(m)).toBe(true));
+    it.each([
+        "make a note that the lab moved to friday", "note: call dr. smith", "remember that mum lands at 6", "what notes do i have",
+        "make a note of the thing priya said", "write something down about the lab",
+    ])("not bare: %s", (m) => expect(isBareNoteRequest(m)).toBe(false));
+    it("another clear command is not the note, a long ramble that starts like one is", () => {
+        for (const m of ["add buy milk to my to-do", "push gym to 8", "what time is my next class", "remind me to call mum at 5", "move my 3pm to 4", "never mind"])
+            expect(isOtherCommand(m)).toBe(true);
+        expect(isOtherCommand(VOICE_NOTE)).toBe(false);
+        expect(isOtherCommand("add to that the fact that the library closes early on fridays and the printer is broken again so print at the union and tell priya the same thing please")).toBe(false);
+    });
+    it("runNote with bound saves his whole message as the note", async () => {
+        const calls = [];
+        const r = await runNote({ message: VOICE_NOTE, bound: true, exec: async (a) => { calls.push(a); return { stdout: 'Added to "Nick": x', code: 0 }; } });
+        expect(calls).toEqual([["learn", "Nick", "note", VOICE_NOTE]]);
+        expect(r.outcome === "done" && r.reply).toMatch(/^Saved the note \((?:2 sentences|\d+ words)\)/);
+    });
+});
+describe("routing: the note after 'make a note for me really quickly?'", () => {
+    const setup = async (nowRef) => {
+        const { mkdtempSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const { registerLocalRouting } = await import("./local-routing.js");
+        const handlers = new Map();
+        const api = { on: (n, fn) => handlers.set(n, [...(handlers.get(n) ?? []), fn]) };
+        const fire = async (n, e, c) => { const out = []; for (const fn of handlers.get(n) ?? [])
+            out.push(await fn(e, c)); return out; };
+        const calls = [];
+        registerLocalRouting(api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "nb-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Fri 10:00",
+            now: () => new Date(nowRef.t),
+            decideImpl: async () => ({ move: "answer", answer: "Got it." }), scheduleFlow: async () => ({ outcome: "fallback", reason: "t" }),
+            noteFlow: (message, bound) => runNote({ message, ...(bound ? { bound } : {}), exec: async (a) => { calls.push(a); return { stdout: 'Added to "Nick": x', code: 0 }; } }) });
+        let n = 0;
+        const say = async (text, key = "agent:main:nb") => {
+            const ctx = { runId: `nb${n++}`, sessionKey: key };
+            await fire("before_model_resolve", { prompt: text }, ctx);
+            const [built] = (await fire("before_prompt_build", { prompt: text, messages: [] }, ctx));
+            return built?.systemPrompt ?? "";
+        };
+        return { say, calls };
+    };
+    it("asks, then saves the long voice follow-up whole", async () => {
+        const t = { t: Date.UTC(2026, 10, 4, 12, 0) };
+        const { say, calls } = await setup(t);
+        expect(await say("Can you make a note for me really quickly?")).toContain("Go ahead — what's the note?");
+        t.t += 60_000;
+        expect(await say(VOICE_NOTE)).toContain("Saved the note");
+        expect(calls).toEqual([["learn", "Nick", "note", VOICE_NOTE]]);
+        t.t += 1000;
+        await say("ok thanks");
+        expect(calls).toHaveLength(1);
+    });
+    it("another command in between unbinds it", async () => {
+        const t = { t: Date.UTC(2026, 10, 4, 12, 0) };
+        const { say, calls } = await setup(t);
+        await say("make a note");
+        await say("what time is my next class");
+        await say(VOICE_NOTE);
+        expect(calls).toEqual([]);
+    });
+    it("expires after ten minutes and is per chat", async () => {
+        const t = { t: Date.UTC(2026, 10, 4, 12, 0) };
+        const { say, calls } = await setup(t);
+        await say("take a note real quick");
+        t.t += 11 * 60_000;
+        await say(VOICE_NOTE);
+        expect(calls).toEqual([]);
+        await say("write something down");
+        await say(VOICE_NOTE, "agent:main:other");
+        expect(calls).toEqual([]);
     });
 });

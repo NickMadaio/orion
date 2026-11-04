@@ -124,7 +124,7 @@ export type LocalRoutingOptions = {
     /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
     todoDoneFlow?: (message: string) => Promise<FlowResult>;
     /** w18 note: saves a note's whole text (note-flow.ts); tests pass a stub, never his real vault. */
-    noteFlow?: (message: string) => Promise<FlowResult>;
+    noteFlow?: (message: string, bound?: boolean) => Promise<FlowResult>;
     /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
     sessionExec?: SessionExec;
     /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */

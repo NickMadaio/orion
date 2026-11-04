@@ -54,7 +54,7 @@ import { detectComputerIntent } from "./computer-intent.js";
 import { stepsAsToolResults } from "./computer-evidence.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
-import { parseNote } from "./note-flow.js";
+import { NOTE_ASK, NOTE_WINDOW_MS, isBareNoteRequest, isOtherCommand, parseNote } from "./note-flow.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply, type LateExec } from "./late-flow.js";
@@ -170,7 +170,7 @@ export type LocalRoutingOptions = {
   /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
   todoDoneFlow?: (message: string) => Promise<FlowResult>;
   /** w18 note: saves a note's whole text (note-flow.ts); tests pass a stub, never his real vault. */
-  noteFlow?: (message: string) => Promise<FlowResult>;
+  noteFlow?: (message: string, bound?: boolean) => Promise<FlowResult>;
   /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
   sessionExec?: SessionExec;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
@@ -890,6 +890,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   };
   /** Per session: the reminder just set (for "no wait make it 5:30") and an unanswered "what/when?" about one. */
   const lastReminder = new Map<string, { label: string; at: string; set: number }>();
+  /** w18 note: sessions waiting for the note after a bare "make a note" (when it was asked); the next message in that chat is the note. */
+  const noteAwait = new Map<string, number>();
+  const saveNote = async (run: Run, bound: boolean): Promise<void> => {
+    const saved = await options.noteFlow!(run.message, bound).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+    if (saved.outcome === "fallback") return;
+    run.flow = saved;
+    const calls = saved.outcome === "done" ? saved.calls : saved.calls ?? [];
+    const outputs = saved.outcome === "done" ? saved.outputs : saved.outputs ?? [];
+    calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
+  };
   const reminderAsk = new Map<string, { text: string; at: number; label?: boolean }>();
   /** Per session: an unanswered "how late?" (q029), and the last late move code ran (so "yeah push everything after it" does not move it twice). */
   const lateAsk = new Map<string, number>();
@@ -1446,6 +1456,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // 2026-10-30 (chatter.ts): his quiet request gets a short ack; a spoken turn inside the window gets nothing. Safety (above) still wins.
       if (!run.flow && run.quietStart !== undefined) { quiet.start(nowMs(), run.quietStart, run.message); run.flow = { outcome: "say", kind: "plain", text: quietAck(run.quietStart) }; }
       if (!run.flow && run.hushed) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
+      // w18 note: a bare "make a note" is asked once by code, and his next message (10 minutes, this chat) is the whole note; a clear command unbinds it.
+      if (!run.flow && !run.cutOff && options.noteFlow && run.sessionKey) {
+        const asked = noteAwait.get(run.sessionKey); noteAwait.delete(run.sessionKey);
+        if (isBareNoteRequest(run.message)) { noteAwait.set(run.sessionKey, nowMs()); run.flow = { outcome: "say", kind: "ask", text: NOTE_ASK }; }
+        else if (asked !== undefined && nowMs() - asked < NOTE_WINDOW_MS && !isOtherCommand(run.message)) await saveNote(run, true);
+      }
       // 2026-10-31 (pending-reply.ts): his short reply to ORION's own nudge does what the nudge offered, before any template or chatter guard.
       if (!run.flow && !run.cutOff && run.pending && (run.addAnswer || run.late) && run.sessionKey) pendingMemory.setMemo(run.sessionKey, null);   // REV4: ORION's own question here comes first
       // W5: "gonna eat first" read against the block that just started steps aside for a focus or health phrase code already has.
@@ -1724,15 +1740,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
       // 2026-10-30: out loud, only "remember …" / "orion note that …" is a fact to save ("Saved: Frozen." came from room speech).
       // w18 note: "make a note ..." / "remember that ..." keeps his whole text, saved by code (note-flow.ts), never summarised by the worker.
-      if (!run.flow && !run.cutOff && options.noteFlow && parseNote(run.message)) {
-        const saved = await options.noteFlow(run.message).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
-        if (saved.outcome !== "fallback") {
-          run.flow = saved;
-          const calls = saved.outcome === "done" ? saved.calls : saved.calls ?? [];
-          const outputs = saved.outcome === "done" ? saved.outputs : saved.outputs ?? [];
-          calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
-        }
-      }
+      if (!run.flow && !run.cutOff && options.noteFlow && parseNote(run.message)) await saveNote(run, false);
       const factTurn = run.spoken ? tellsFactAloud(run.message) : keepsFact(run.message);
       if (!run.flow && !run.cutOff && (factTurn || asksRecall(run.message))) {
         const fact = factTurn;

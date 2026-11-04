@@ -13,7 +13,7 @@ import { execFile } from "node:child_process";
 export const ORION_BRAIN = "/Users/nickmadaio/Desktop/ORION/scripts/orion-brain";
 const LEAD = String.raw `(?:(?:hey|ok(?:ay)?|so|also|and|btw|orion|please|pls|can you|could you|would you|will you|can u)[,\s]+)*`;
 // "make a note", "take a quick note for me", "jot down a note", "add a note to self": the noun form.
-const NOUN = String.raw `(?:make|take|add|create|jot(?:\s+down)?|write(?:\s+down)?|put|save|keep|drop)\s+(?:me\s+)?(?:an?\s+|another\s+|this\s+)?(?:(?:quick|little|new|short|long)\s+)?note(?:\s+for\s+me)?(?:\s+to\s+self)?(?:\s+down)?(?:\s+(?:really\s+|just\s+)?quick(?:ly)?)?`;
+const NOUN = String.raw `(?:make|take|add|create|jot(?:\s+down)?|write(?:\s+down)?|put|save|keep|drop)\s+(?:me\s+)?(?:an?\s+|another\s+|this\s+)?(?:(?:quick|little|new|short|long)\s+)?note(?:\s+for\s+me)?(?:\s+to\s+self)?(?:\s+down)?(?:\s+(?:really\s+|real\s+|just\s+)?quick(?:ly)?)?`;
 // "note that", "remember that", "write this down", "keep in mind": the verb form. "remember to" is a reminder.
 const VERB = String.raw `(?:remember(?!\s+to\b)|note(?:\s+to\s+self)?|jot\s+down|write\s+(?:this\s+|that\s+|it\s+)?down|keep\s+in\s+mind|save\s+(?:that|this))`;
 const COMMAND = new RegExp(String.raw `^${LEAD}(?:${NOUN}|${VERB})(?![\w'-])`, "i");
@@ -30,6 +30,22 @@ export function parseNote(message) {
         .trim();
     return /[a-z0-9]{2}/i.test(text) ? { text } : null;
 }
+// "make a note", "can you write something down", "take a note real quick": the request with nothing to write yet.
+const SOMETHING = String.raw `(?:write|jot|put)\s+(?:something|this|that|it|a\s+thing)\s+down`;
+const BARE_HEAD = new RegExp(String.raw `^${LEAD}(?:${NOUN}|${SOMETHING})(?![\w'-])`, "i");
+const FILLER_TAIL = /^(?:[\s?!.,]|for me|please|pls|thanks?|thank you|(?:really\s+|real\s+)?quick(?:ly)?|now|for a (?:sec|second|minute))*$/i;
+export const NOTE_ASK = "Go ahead — what's the note?";
+/** How long the next message is read as the note after a bare request. */
+export const NOTE_WINDOW_MS = 10 * 60_000;
+export function isBareNoteRequest(message) {
+    const m = message.trim();
+    const head = BARE_HEAD.exec(m);
+    return !!head && FILLER_TAIL.test(m.slice(head[0].length));
+}
+// A short, clear command (a to-do, a schedule change, a question) is not the note he was about to dictate. A long message that
+// merely starts with such a word is a ramble, and stays the note.
+const OTHER = new RegExp(String.raw `^${LEAD}(?:(?:add|put|move|push|cancel|remind|schedule|set|open|play|pause|turn|text|email|send|mark|tick|delete|remove|undo|book|block|skip|what|whats|what's|when|where|who|how|why)\b|(?:is|are|can|could|should|does|did)\b[^]*\?\s*$|(?:never\s?mind|nvm|cancel|forget it|scratch that)\b)`, "i");
+export const isOtherCommand = (message) => message.trim().split(/\s+/).length <= 16 && OTHER.test(message.trim());
 // Periods that do not end a sentence: titles, "p.m.", "e.g.". A decimal ("3.30") has no space after, so it never splits.
 const ABBREVIATION = /\b(?:dr|mr|mrs|ms|prof|st|vs|no|approx)\.|\b(?:[ap]\.m|e\.g|i\.e)\./gi;
 /** Sentences in his text: ". ! ?" runs and line breaks end one; a run-on with no punctuation is one. */
@@ -49,8 +65,11 @@ const preview = (text) => {
     return flat.length > 60 ? `${flat.slice(0, 60).trimEnd()}…` : flat;
 };
 /** One note, end to end; the reply is built only from orion-brain's output. */
-export async function runNote({ message, exec }) {
-    const note = parseNote(message);
+export async function runNote({ message, exec, bound }) {
+    // bound: he was asked "what's the note?", so this whole message is the note (command words, if he repeated them, still stripped).
+    const note = bound ? { text: parseNote(message)?.text ?? message.trim() } : parseNote(message);
+    if (bound && !/[a-z0-9]/i.test(note?.text ?? ""))
+        return { outcome: "fallback", reason: "empty note" };
     if (!note)
         return { outcome: "fallback", reason: "not a note with content" };
     const args = ["learn", "Nick", "note", note.text];
@@ -70,4 +89,4 @@ const runFile = (file, args, timeout) => new Promise((resolve) => execFile(file,
     code: error ? (typeof error.code === "number" ? error.code : 1) : 0,
 })));
 /** The real flow: scripts/orion-brain learn. Wired in by index.ts only. */
-export const liveNoteFlow = (message) => runNote({ message, exec: (args) => runFile(ORION_BRAIN, args, 30000) });
+export const liveNoteFlow = (message, bound) => runNote({ message, ...(bound ? { bound } : {}), exec: (args) => runFile(ORION_BRAIN, args, 30000) });

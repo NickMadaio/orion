@@ -16,6 +16,8 @@ import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { ORION_WAKE } from "./wake-flow.js";
 import { pluginNow } from "./plugin-clock.js";
+import { cap, clock, meridiem } from "./sleep-fmt.js";
+import { runAlarmTurn } from "./alarm-flow.js";
 /** One interview per chat, for a few minutes; taken (and so cleared) by the next turn whatever it is. */
 export class SleepPlanPending {
     static TTL_MS = 15 * 60_000;
@@ -25,6 +27,11 @@ export class SleepPlanPending {
         this.held.delete(key);
         return h && nowMs - h.at < SleepPlanPending.TTL_MS ? h.pending : undefined;
     }
+    /** W18: an alarm was just talked about, so his next bare "push it back 20 min" is about it. */
+    static ALARM_TTL_MS = 30 * 60_000;
+    alarmAt = new Map();
+    noteAlarm(key, nowMs) { this.alarmAt.set(key, nowMs); }
+    recentAlarm(key, nowMs) { const at = this.alarmAt.get(key); return at !== undefined && nowMs - at < SleepPlanPending.ALARM_TTL_MS; }
     set(key, pending, nowMs) {
         if (pending)
             this.held.set(key, { pending, at: nowMs });
@@ -43,16 +50,6 @@ const REASKS = {
     days: "Which days, like weekdays or mon wed thu?",
     lead: "How long before class, like 2 or 3 hours? Or say no rule.",
 };
-/** "06:00" → "6:00"; "13:30" → "1:30". */
-const clock = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return `${(h % 12) || 12}:${String(m).padStart(2, "0")}`; };
-/** "22:00" → "10pm"; "00:00" → "midnight"; "01:00" → "1am". */
-const meridiem = (hhmm) => {
-    const [h, m] = hhmm.split(":").map(Number);
-    if (h === 0 && m === 0)
-        return "midnight";
-    return `${(h % 12) || 12}${m ? `:${String(m).padStart(2, "0")}` : ""}${h < 12 ? "am" : "pm"}`;
-};
-const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const toMin = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
 const weekdayOf = (date) => ORDER[(new Date(`${date}T12:00:00`).getDay() + 6) % 7];
 /** ["mon", "wed", "thu"] → "Mon, Wed and Thu". */
@@ -213,6 +210,8 @@ export async function runSleepTurn(turn, { run, now = pluginNow(), checkin }) {
         return except(turn.reason, turn.until, run);
     if (turn.kind === "bedtime")
         return bedtime(turn.time, run);
+    if (turn.kind === "alarm")
+        return runAlarmTurn(turn.req, { run, now });
     return noExcept(turn, run, now, checkin);
 }
 /** The real script (no shell, fixed arguments), beside orion-wake (ORION_SCRIPTS_DIR for a replay). Wired in by index.ts only. */

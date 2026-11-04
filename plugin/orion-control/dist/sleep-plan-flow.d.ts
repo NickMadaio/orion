@@ -39,6 +39,11 @@ export declare class SleepPlanPending {
     static readonly TTL_MS: number;
     private readonly held;
     take(key: string, nowMs: number): SleepPending | undefined;
+    /** W18: an alarm was just talked about, so his next bare "push it back 20 min" is about it. */
+    static readonly ALARM_TTL_MS: number;
+    private readonly alarmAt;
+    noteAlarm(key: string, nowMs: number): void;
+    recentAlarm(key: string, nowMs: number): boolean;
     set(key: string, pending: SleepPending | undefined, nowMs: number): void;
 }
 /** orion-sleepplan arguments for a draft. An alarm asked for outright keeps his other days (no --only); the interview replaces them. */

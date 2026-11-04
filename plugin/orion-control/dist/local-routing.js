@@ -1225,7 +1225,8 @@ export function registerLocalRouting(api, options) {
         const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
         const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
         const sheld = sessionKey ? sleepPending.take(sessionKey, Date.now()) : undefined; // W10-B: before preference-remember can keep it as a "preference"
-        const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message)) ? readSleepTurn(message, { held: sheld, now: (options.now ?? pluginNow)() }) : undefined;
+        const alarmCtx = { now: (options.now ?? pluginNow)(), ...(sessionKey && sleepPending.recentAlarm(sessionKey, Date.now()) ? { recentAlarm: true } : {}) }; // W18 (alarm-read.ts)
+        const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message, alarmCtx)) ? readSleepTurn(message, { held: sheld, ...alarmCtx }) : undefined;
         const preference = !sleepTurn && !phoneBlock && free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
         // Wave 12 (correction-learn.ts): a correction meant to last becomes a standing rule in USER.md (never in an evaluation); the turn goes on as usual.
         // Fixer: what ORION just proposed (its label, last push, held offer or memo), so "no dont move my study block" stays one-off.
@@ -1498,6 +1499,8 @@ export function registerLocalRouting(api, options) {
                 run.tools.push(...out.tools);
                 if (run.sessionKey)
                     sleepPending.set(run.sessionKey, out.pending, Date.now());
+                if (run.sessionKey && run.sleepTurn.kind === "alarm")
+                    sleepPending.noteAlarm(run.sessionKey, Date.now());
             }
             if (!run.flow && !run.cutOff && run.phoneBlock && options.phoneTimeRun) { // W10-G (phone-block-flow.ts)
                 const out = await runPhoneBlock(run.phoneBlock, { run: options.phoneTimeRun, now: (options.now ?? pluginNow)(), ...(options.stateDir ? { stateDir: options.stateDir } : {}) });

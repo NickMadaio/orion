@@ -291,7 +291,7 @@ struct PhoneRootView: View {
     private var moreScreen: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
-                PhoneHeader(eyebrow: "Your Mac, from anywhere", title: "More")
+                PhoneHeader(eyebrow: "Settings and tools", title: "More")
                 VStack(spacing: 0) {
                     moreRow("Focus lists", "App lists that ORION can block", symbol: "lock.shield", route: .focus)
                     moreRow("Night routine", "Bedtime, alarm and wind down", symbol: "moon.stars", route: .night)

@@ -14,6 +14,7 @@ import { type ScriptRun } from "./reality.js";
 import { type PhoneTimeRun } from "./phone-block-flow.js";
 import { type SleepRun } from "./sleep-plan-flow.js";
 import { type KnowledgeRun } from "./knowledge-run.js";
+import { type SelffixRun } from "./selffix-flow.js";
 import { type QuestionsRun } from "./questions-flow.js";
 import { type FoodRun } from "./food-chat.js";
 import { type AppsRun } from "./apps-chat.js";
@@ -156,6 +157,8 @@ export type LocalRoutingOptions = {
     brainSearch?: (query: string) => Promise<string>;
     /** Wave 6 (knowledge-run.ts): orion-brain forget/links/profile and orion-trash. Unset, those moves are not taken. */
     knowledgeRun?: KnowledgeRun;
+    /** w19 selffix (selffix-flow.ts): orion-selfcheck and orion-selffix; unset, the real scripts with stateDir. */
+    selffixRun?: SelffixRun;
     /** Wave 12 L1 (questions-flow.ts): orion-questions; unset, the real script with stateDir. */
     questionsRun?: QuestionsRun;
     /** Wave 14 (mail-flow.ts): orion-mail-prefs; unset, the real script with stateDir. */

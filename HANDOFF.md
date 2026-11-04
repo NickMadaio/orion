@@ -88,6 +88,13 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 - **Phone widgets:** blue hologram stills and palette, Home-style widgets, and a food photo pill on the phone Home.
 - **Projects:** the model picker sizes itself to the longest name.
 - Allowlisted orion-apps and orion-mouse.
+- **Night 11-03→04:**
+  - **Notes:** keep the full text; `orion-brain learn` takes up to 4000 characters. A bare "make a note" binds the next message. Secrets are refused.
+  - **Wake and alarms:** set by chat (orion-sleepplan wake-on/shift/alarms, plus alarm-read/flow.ts). The phone acknowledges through LinkLog.alarms, which needs the Link and phone rebuilt.
+  - **Bedtime:** orion-bedtime-shutdown (quit-unused, then a lock verified via ioreg, then a guard). The offer is one-shot, the window is capped at one night, and passes are limited to 90 minutes a night. orion-light reads the ambient light sensor (AppleSPUHIDDevice 0xff00/4); a closed lid counts as unknown.
+  - **Apps:** keep-at-all-times list (game-prep.json always/alwaysIds); orion-apps music.
+  - **Mouse:** "summon" opens the typed bar.
+  - **Flaky and environmental:** ClipTests (audio) fail with the lid closed.
 - **⌥Tab palette:** PaletteKit (fuzzy, frecency, prefix modes, calc) plus Palette/* views. Inline ask via submitTyped; close-unused shows a plan first. **Mouse gate:** MouseGate is off while a game is frontmost, and ⌃⌥M flips the same gate. Flaky wall-clock tests in the 211 suite: VoiceFluid and AppWedgeFollowUp.
 - **Mouse toggle:** ⌃⌥M flips bindings.enabled (quiet bubble). The game session is restored on launch, and java Minecraft is found by executable path with a libproc scan every 3 s. Root cause of "front button works in Minecraft": the session was never reloaded after the relaunch, and java had no window title without Screen Recording.
 - **Scroll:** the mouse wheel is reversed in the event tap (discrete events only), so the trackpad stays natural. Setting `reverseWheel` defaults to always.

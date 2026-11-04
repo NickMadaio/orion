@@ -26,6 +26,16 @@ public enum TodoPriority: Int, CaseIterable, Sendable, Identifiable {
         }
     }
 
+    /// The glance's 1 high, 2 medium, 3 low, 0 none.
+    public init(glanceRank rank: Int) {
+        switch rank {
+        case 1: self = .high
+        case 2: self = .medium
+        case 3: self = .low
+        default: self = .none
+        }
+    }
+
     public var eventKit: Int {
         switch self { case .none: 0; case .low: 9; case .medium: 5; case .high: 1 }
     }
@@ -51,7 +61,7 @@ public struct TodoItem: Identifiable, Equatable, Sendable {
 
     public var parsed: TaskNotes { TaskNotes.parse(notes) }
     public var tags: [String] { parsed.tags }
-    public var orderKey: TodoOrdering.Key { TodoOrdering.Key(done: done, priority: priority, due: due, title: title, id: id) }
+    public var orderKey: TodoOrdering.Key { TodoOrdering.Key(done: done, priority: priority, due: due, title: title, id: id, order: parsed.order) }
 }
 
 /// What a quick-add line asks for.
@@ -117,12 +127,15 @@ public enum TodoBoard {
         TaskNotes.cleanTags(open(items, now: now).flatMap(\.tags))
     }
 
+    /// One group per tag, the groups themselves ranked: a group sits where its best to-do sits in the
+    /// open list, so a tag holding a high item is above one holding only low ones ("No tag" included).
     public static func byTag(_ items: [TodoItem], now: Date = Date()) -> [TodoGroup] {
         let openItems = open(items, now: now)
         var groups = allTags(items, now: now).map { tag in TodoGroup(title: tag, items: openItems.filter { $0.tags.contains(tag) }, tag: tag) }
         let untagged = openItems.filter { $0.tags.isEmpty }
         if !untagged.isEmpty { groups.append(TodoGroup(title: "No tag", items: untagged, tag: nil)) }
-        return groups
+        let position = Dictionary(uniqueKeysWithValues: openItems.enumerated().map { ($1.id, $0) })
+        return groups.sorted { (position[$0.items.first?.id ?? ""] ?? .max) < (position[$1.items.first?.id ?? ""] ?? .max) }
     }
 
     /// Overdue, today, tomorrow, the rest of this week by day, next week, later, no date.

@@ -47,6 +47,7 @@ import { DEADLINE_TITLE } from "./lib/life/live-day.mjs";
 import { ignoredEvent, loadConfig } from "./lib/life/config.mjs";   // events he never goes to ("(optional)" workshops)
 
 import { sandbox, bridgeRequest, clockNow } from "./lib/life/bridge-path.mjs";
+import { orderTodos, isOverdue } from "./lib/life/todo-order.mjs";
 const run = promisify(execFile);
 
 const BRIDGE = join(
@@ -320,9 +321,11 @@ switch (command) {
     const lists = [...new Set(tasks.map((task) => task.list || todoList))];
     for (const list of lists) {
       console.log(`${list}${!all ? " (his to-do list)" : list === todoList ? " (his to-do list)" : ""}:`);
-      for (const task of tasks.filter((t) => (t.list || todoList) === list)) {
-        const due = task.due ? ` (due ${new Date(task.due).toLocaleDateString("en-US")})` : "";
-        console.log(`  ${task.title}${due}`);
+      // One order everywhere (lib/life/todo-order.mjs): overdue, high to none, earliest due.
+      const at = clockNow();
+      for (const task of orderTodos(tasks.filter((t) => (t.list || todoList) === list), at)) {
+        const due = task.due ? ` (${isOverdue(task, at) ? "OVERDUE, " : ""}due ${new Date(task.due).toLocaleDateString("en-US")})` : "";
+        console.log(`  ${task.title}${due}${task.priority ? ` · ${task.priority}` : ""}`);
       }
     }
     break;

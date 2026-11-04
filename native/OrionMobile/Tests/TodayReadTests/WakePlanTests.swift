@@ -73,4 +73,47 @@ final class WakePlanTests: XCTestCase {
         XCTAssertEqual(late.nudgeAt, at(2026, 11, 4, 0, 0))
         XCTAssertNil(plan().bedtime(nightOf: "2026-11-09", calendar: cal))
     }
+
+    // W18 wake: the phone tells the Mac which alarms it really holds, so ORION says "set on your phone" only when it is true.
+    func testAReceiptCarriesTheHeldAlarmsInOrderAndRoundTripsThroughTheLinkLog() throws {
+        let later = at(2026, 11, 4, 7, 0), first = at(2026, 11, 3, 6, 45)
+        let entry = AlarmReceipt.entry(fires: [later, first], state: "Set for 6:45 AM (+1 more)", at: now)
+        guard case let .alarms(at, fires, state) = entry else { return XCTFail("not an alarms entry") }
+        XCTAssertEqual(at, ISO8601DateFormatter().string(from: now))
+        XCTAssertEqual(fires.count, 2)
+        XCTAssertEqual(WakePlan.parseISO(fires[0]), first, "earliest first")
+        XCTAssertEqual(WakePlan.parseISO(fires[1]), later)
+        XCTAssertEqual(state, "Set for 6:45 AM (+1 more)")
+        let text = try entry.validated().encoded()
+        XCTAssertEqual(try LinkLog.decode(text), entry)
+    }
+
+    func testAnEmptyReceiptIsValidBecauseNoAlarmsIsAnAnswer() throws {
+        let entry = AlarmReceipt.entry(fires: [], state: "Not set", at: now)
+        XCTAssertEqual(try LinkLog.decode(entry.encoded()), entry)
+    }
+
+    func testAReceiptIsRefusedWhenItIsNotTimesOrIsTooBig() {
+        XCTAssertThrowsError(try LinkLog.alarms(at: "soon", fires: [], state: "x").validated())
+        XCTAssertThrowsError(try LinkLog.alarms(at: ISO8601DateFormatter().string(from: now), fires: ["tomorrow"], state: "x").validated())
+        let many = (0..<25).map { _ in "2026-11-03T06:45:00Z" }
+        XCTAssertThrowsError(try LinkLog.alarms(at: ISO8601DateFormatter().string(from: now), fires: many, state: "x").validated())
+        XCTAssertThrowsError(try LinkLog.alarms(at: ISO8601DateFormatter().string(from: now), fires: [], state: String(repeating: "x", count: 200)).validated())
+    }
+
+    func testTheSignatureOnlyChangesWhenTheHeldTimesDo() {
+        let a = at(2026, 11, 3, 6, 45), b = at(2026, 11, 4, 7, 0)
+        XCTAssertEqual(AlarmReceipt.signature([a, b]), AlarmReceipt.signature([b, a]), "order does not matter")
+        XCTAssertEqual(AlarmReceipt.signature([a]), AlarmReceipt.signature([a.addingTimeInterval(0.4)]), "sub-second noise does not resend")
+        XCTAssertNotEqual(AlarmReceipt.signature([a]), AlarmReceipt.signature([a.addingTimeInterval(1200)]), "20 minutes later is a new receipt")
+        XCTAssertNotEqual(AlarmReceipt.signature([a]), AlarmReceipt.signature([]))
+    }
+
+    func testAMovedAlarmReplacesTheOldOneInWhatTheReceiptWouldSay() {
+        let monday = WakePlan(source: "nick", alarms: [.init(date: "2026-11-03", at: "07:05", iso: "2026-11-03T12:05:00.000Z", reason: "plan", byNick: true)])
+        let held = AlarmPlanner.wanted(tonight: nil, wakeRequest: nil, plan: monday, now: now, calendar: cal).map(\.fireAt)
+        XCTAssertEqual(held.count, 1)
+        XCTAssertEqual(held[0].timeIntervalSince1970, WakePlan.parseISO("2026-11-03T12:05:00.000Z")!.timeIntervalSince1970)
+        XCTAssertNotEqual(AlarmReceipt.signature(held), AlarmReceipt.signature([at(2026, 11, 3, 6, 45)]))
+    }
 }

@@ -12,6 +12,10 @@
 //   orion-sleepplan clear-except [--date tonight|YYYY-MM-DD]       take it back (no --date: every exception)
 //   orion-sleepplan bedtime HH:MM|earlier [--json]                his bedtime (asleep-by cap); earlier = 30 min earlier, not before 22:00
 //   orion-sleepplan refresh [--json]                               rewrite wake-plan.json from the stored plan + calendar (the nudge tick does this daily)
+//   orion-sleepplan wake-on --date tomorrow|today|next|sat|YYYY-MM-DD --time HH:MM|off [--json]
+//                                                                 ONE morning's alarm (beats the per-day plan and the class lead); off = none that morning
+//   orion-sleepplan shift --minutes 20|-15 [--json]               the next alarm later (+) or earlier (-); refuses when none is ahead
+//   orion-sleepplan alarms [--json]                               the alarms ahead, and whether the phone's receipt matches them
 //   orion-sleepplan plan --json [--days … --wake … --only --rest …] [--lead N|off]   the coming week as data; the flags preview a change
 //                                                                 without saving it
 // Days: mon..sun, "weekdays", "weekends", "all", "gym" (the days his plan ties to the gym — set with --gym on set — else the
@@ -22,9 +26,11 @@
 // that does not lift the lockdown), nothing saved.
 import { CONFIG_FILE, loadConfig, setConfig, setSleepPlan, sleepPlanOf, toMinute, WEEKDAYS } from "./lib/life/config.mjs";
 import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
-import { controlledDir } from "./lib/clock.mjs";
-import { readFileSync } from "node:fs";
-import { addDays, eveningOf, parseDays, weekPlan, wakePlanDoc, withException, withWake, writeWakePlan } from "./lib/life/sleep-plan.mjs";
+import { controlledDir, isolated } from "./lib/clock.mjs";
+import { readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { addDays, eveningOf, hhmm, instant, parseDays, pruneOverrides, wakeDate, weekPlan, wakePlanDoc, withException, withOverride, withWake, writeWakePlan } from "./lib/life/sleep-plan.mjs";
 
 const args = process.argv.slice(2);
 const [command = "show"] = args;
@@ -85,8 +91,17 @@ const daysOf = (raw, blocksOf, plan) => {
 };
 const sleepOf = (raw) => { const n = Number(raw); if (!(n >= 5 && n <= 11)) throw new TypeError("--sleep must be 5..11 hours"); return n; };
 
+/** The morning of the next alarm he has (plan or class), counting overrides; a RangeError when none is ahead. */
+function nextAlarmDate(plan, blocksOf, config) {
+  const ahead = weekPlan({ now, config: { ...config, sleepPlan: storable(plan, config.sleepPlan) }, blocksOf, wakeRequest: null }).find((d) => ["plan", "class"].includes(d.reason));
+  if (!ahead) throw new RangeError("no alarm is set, so there is nothing to turn off");
+  return ahead.date;
+}
+
+let changed = null;   // { date, time, from? } of a wake-on / shift, for the answer
+
 /** The plan this command would leave, from the stored one. Throws TypeError on bad arguments, RangeError on a refusal. */
-function nextPlan(plan, blocksOf) {
+function nextPlan(plan, blocksOf, config) {
   if (command === "set" || command === "plan") {
     let next = plan;
     const named = [];
@@ -120,6 +135,24 @@ function nextPlan(plan, blocksOf) {
     const days = daysOf(flag("--days"), blocksOf, plan);
     return { ...plan, byDay: Object.fromEntries(Object.entries(plan.byDay).filter(([d]) => !days.includes(d))) };
   }
+  if (command === "wake-on") {
+    const time = flag("--time") === "off" ? "off" : normTime(flag("--time"));
+    if (!time) throw new TypeError("--time must be HH:MM or off");
+    const date = flag("--date") === "next" ? nextAlarmDate(plan, blocksOf, config) : wakeDate(flag("--date"), now, time === "off" ? null : toMinute(time));
+    if (!date) throw new TypeError("--date must be today, tomorrow, a weekday or YYYY-MM-DD");
+    changed = { date, time };
+    return withOverride(plan, date, time);
+  }
+  if (command === "shift") {
+    const minutes = Number(flag("--minutes"));
+    if (!Number.isInteger(minutes) || minutes === 0 || Math.abs(minutes) > 360) throw new TypeError("--minutes must be a whole number of minutes, 1 to 360, minus for earlier");
+    const next = weekPlan({ now, config: { ...config, sleepPlan: storable(plan, config.sleepPlan) }, blocksOf, wakeRequest: null })[0];
+    if (!next || !["plan", "class"].includes(next.reason)) throw new RangeError(`no alarm is set for ${next?.date ?? "the next morning"}, so there is nothing to move`);
+    const minute = toMinute(next.wake) + minutes;
+    if (minute < 0 || minute >= 1440) throw new RangeError("that would move the alarm out of its day");
+    changed = { date: next.date, time: hhmm(minute), from: next.wake };
+    return withOverride(plan, next.date, hhmm(minute));
+  }
   if (command === "lead") return { ...plan, firstClassLeadMin: leadOf(args[1]) };
   if (command === "except") {
     const date = dateArg(flag("--date"));
@@ -142,7 +175,8 @@ function nextPlan(plan, blocksOf) {
 
 /** What is stored, without the defaults filled in (so a later default change still applies). */
 function storable(plan, saved) {
-  const out = { byDay: plan.byDay, firstClassLeadMin: plan.firstClassLeadMin, nudgeBeforeMin: plan.nudgeBeforeMin,
+  const kept = Object.keys(pruneOverrides(plan, eveningOf(now)).overrides);
+  const out = { byDay: plan.byDay, ...(kept.length ? { overrides: pruneOverrides(plan, eveningOf(now)).overrides } : {}), firstClassLeadMin: plan.firstClassLeadMin, nudgeBeforeMin: plan.nudgeBeforeMin,
     lockdownBelowHours: plan.lockdownBelowHours, legitReasons: plan.legitReasons, exceptions: plan.exceptions,
     ...(Array.isArray(plan.gymDays) && plan.gymDays.length ? { gymDays: plan.gymDays } : {}) };
   const sleepHours = flag("--sleep") !== undefined ? plan.sleepHours : saved?.sleepHours;
@@ -167,15 +201,48 @@ function nextBedtime(config) {
   return t;
 }
 
+/** An older one-off request (orion-wake) for the same morning is removed: the plan holds that alarm now. Other mornings' requests stay. */
+function dropRequestFor(date) {
+  const file = join(controlledDir(), "wake-request.json");
+  try { if (new Date(JSON.parse(readFileSync(file, "utf8")).at).toLocaleDateString("en-CA") === date) rmSync(file, { force: true }); } catch { /* none */ }
+}
+
+/** Whether the Mac's phone link wrote its status in the last 2 minutes (as scripts/orion-wake judges it). */
+function linkFresh() {
+  try {
+    const at = Date.parse(JSON.parse(readFileSync(join(homedir(), "Library/Application Support/ORION Link/status.json"), "utf8")).writtenAt);
+    return Number.isFinite(at) && Date.now() - at < 120_000;
+  } catch { return false; }
+}
+
+/** The phone's last receipt (health-log.json phoneAlarms, written by the Mac link when the phone schedules): confirmed only when it holds exactly these alarms. */
+function phoneReceipt(fires) {
+  let got = null;
+  try { got = JSON.parse(readFileSync(join(controlledDir(), "health-log.json"), "utf8")).phoneAlarms ?? null; } catch { /* no receipt */ }
+  if (!got || !Array.isArray(got.fires)) return { state: "unknown", at: null };
+  // Same set within 30 s each way (the phone's own tolerance when it matches alarms it already holds).
+  const held = got.fires.map((f) => Date.parse(f));
+  const near = (a, b) => Math.abs(a - b) < 30_000;
+  const same = fires.length === held.length && fires.every((f) => held.some((h) => near(h, Date.parse(f)))) && held.every((h) => fires.some((f) => near(h, Date.parse(f))));
+  return { state: same ? "confirmed" : "pending", at: got.at ?? null, holds: got.state ?? null };
+}
+
+function alarmsAnswer(days, config) {
+  const alarms = wakePlanDoc({ now, days, config }).alarms;
+  const brief = days.map((d) => ({ date: d.date, weekday: d.weekday, wake: d.wake, reason: d.reason, evening: d.evening, sleepBy: d.sleepBy }));
+  return { ok: true, now: now.toISOString(), alarms, days: brief, phone: phoneReceipt(alarms.map((a) => a.iso)), link: { fresh: linkFresh() },
+    next: days[0] ? { date: days[0].date, wake: days[0].wake, asked: alarms.some((a) => a.date === days[0].date), sleepBy: days[0].sleepBy, evening: days[0].evening } : null };
+}
+
 async function main() {
-  const WRITES = new Set(["set", "unset", "lead", "except", "clear-except", "bedtime"]);
+  const WRITES = new Set(["set", "unset", "lead", "except", "clear-except", "bedtime", "wake-on", "shift"]);
   const REFRESH = command === "refresh";   // rewrite wake-plan.json from the stored plan and the calendar; the stored plan is untouched
-  if (!WRITES.has(command) && !REFRESH && !["show", "plan"].includes(command)) fail(2, `unknown command ${command}. Commands: show, set, unset, lead, except, clear-except, plan, refresh`);
+  if (!WRITES.has(command) && !REFRESH && !["show", "plan", "alarms"].includes(command)) fail(2, `unknown command ${command}. Commands: show, set, unset, lead, except, clear-except, wake-on, shift, alarms, plan, refresh`);
   const config = loadConfig();
   const saved = config.sleepPlan;
   const { calendar, blocksOf } = await blocksSource();
   let plan; let bedtime;
-  try { plan = nextPlan(sleepPlanOf(config), blocksOf); bedtime = nextBedtime(config); }
+  try { plan = nextPlan(sleepPlanOf(config), blocksOf, config); bedtime = nextBedtime(config); }
   catch (error) { fail(error instanceof RangeError ? 3 : 2, error.message); }
   const nextConfig = { ...config, sleepPlan: storable(plan, saved), ...(bedtime ? { bedtime } : {}) };
   const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: null });
@@ -186,10 +253,13 @@ async function main() {
       else if (!REFRESH) setSleepPlan(storable(plan, saved), CONFIG_FILE);
     } catch (error) { fail(2, error.message); }
     file = writeWakePlan(controlledDir(), wakePlanName, wakePlanDoc({ now, days, config: nextConfig }));
+    // The plan now holds that morning's alarm; an older one-off request would win over it on the phone.
+    if (changed && (!sandbox() || isolated())) dropRequestFor(changed.date);
   }
+  if (command === "alarms") { console.log(JSON.stringify(alarmsAnswer(days, nextConfig), null, 2)); return; }
   const plain = sleepPlanOf(nextConfig);
   if (json || command === "plan") {
-    console.log(JSON.stringify({ ok: true, saved: WRITES.has(command), preview: command === "plan", calendar, now: now.toISOString(), plan: plain, bedtime: nextConfig.bedtime, ...(bedtime ? { was: config.bedtime } : {}), days, ...(file ? { wakePlan: wakePlanName } : {}) }, null, 2));
+    console.log(JSON.stringify({ ok: true, saved: WRITES.has(command), preview: command === "plan", calendar, now: now.toISOString(), plan: plain, bedtime: nextConfig.bedtime, ...(bedtime ? { was: config.bedtime } : {}), days, ...(file ? { wakePlan: wakePlanName } : {}), ...(changed ? { changed, ...(changed.time === "off" ? { dateOff: changed.date } : {}) } : {}) }, null, 2));
     return;
   }
   const head = WRITES.has(command) ? "Saved. " : "";

@@ -131,6 +131,10 @@ public struct TrackingLog {
                 reply = "\(known["name"] as? String ?? "Supplement") \(taken ? "taken" : "unticked")."
             case .checkin, .note:
                 throw LinkError.invalidCommand("handled elsewhere")
+            case let .alarms(at, fires, state):
+                // W18: the latest receipt (what `orion-sleepplan alarms` compares against the plan); no history.
+                log["phoneAlarms"] = ["at": at, "fires": fires, "state": state] as [String: Any]
+                reply = "Noted."
             case let .signal(at, motion, charging, latitude, longitude, audio):
                 var signals = log["phoneSignals"] as? [[String: Any]] ?? []
                 var sample: [String: Any] = ["at": at, "motion": motion, "charging": charging]
@@ -168,7 +172,7 @@ public struct TrackingLog {
                 log["sleepLog"] = Array(sleepLog.suffix(400))
                 reply = event == "bed" ? "Logged: going to bed." : "Logged: up."
             }
-            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .place = entry {} else if case .screen = entry {} else {
+            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .place = entry {} else if case .screen = entry {} else if case .alarms = entry {} else {
                 nutrition[day] = meals
                 log["nutritionLog"] = nutrition
                 record["calories"] = meals.reduce(0) { $0 + (Self.int($1["calories"]) ?? 0) }

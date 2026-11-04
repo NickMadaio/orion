@@ -16,6 +16,7 @@
 */
 import { isNo, isYes } from "./schedule-pending.js";
 import { saysYes } from "./day-lighten.js";
+import { readAlarm } from "./alarm-read.js";
 import { AMOUNT, clean, LEAD, leadMinutes, slotsOf, wakeTime } from "./sleep-plan-slots.js";
 export { slotsOf } from "./sleep-plan-slots.js";
 const pad = (n) => String(n).padStart(2, "0");
@@ -57,7 +58,8 @@ export function readHabit(message) {
     // "wake me at 6 every weekday", "from now on up at 6 mon wed thu": a standing wake time (the one-off alarm cannot repeat).
     // Named outright as an alarm with its days, and nothing else to settle, it is saved without the interview.
     if (STANDING_ALARM.test(m) && slots.wake && (slots.days || HABIT.test(m)) && !oneOff) {
-        return OUTRIGHT.test(m) && slots.days && !slots.rest && !slots.also && slots.lead === undefined ? { ...slots, direct: true } : slots;
+        // W18: a time and its days (and nothing else to settle) is saved at once, said as an alarm or as "i want to start waking up at 7 on weekdays".
+        return slots.days && !slots.rest && !slots.also && slots.lead === undefined && (OUTRIGHT.test(m) || !slots.forGym) ? { ...slots, direct: true } : slots;
     }
     return undefined;
 }
@@ -89,7 +91,8 @@ export function readBedShift(message) {
     return { time: `${pad(hour)}:${pad(min)}` };
 }
 /** Whether the sleep plan owns this statement before the health reader can (a wake statement, or a sleep-only bedtime shift). */
-export const ownsSleepStatement = (message) => !!readHabit(message) || !!readBedShift(message);
+export const ownsSleepStatement = (message, ctx = {}) => !!readHabit(message) || !!readBedShift(message) || !!readAlarm(message, alarmCtx(ctx));
+const alarmCtx = ({ now, recentAlarm }) => ({ ...(now ? { hour: now.getHours() } : {}), ...(recentAlarm ? { recentAlarm } : {}) });
 // ── exceptions by talk ─────────────────────────────────────────────────────────────────────────────────────────────────
 const PARTY = /\b(?:party|partying|pregame|pregaming|club|clubbing|rave|frat|function)\b/;
 const BAR = /\b(?:bar|bars|pub|pubs|drinks|drinking|bar crawl|pub crawl)\b/;
@@ -199,13 +202,16 @@ export function readAnswer(message, held) {
     return SHORT(m) && !held.reasked && !REQUEST.test(m) ? { kind: "interview", draft: held.draft, reask: held.step } : undefined;
 }
 /** This turn's part in the sleep plan, or undefined. A held interview reads the answer first; a new statement starts over. */
-export function readSleepTurn(message, { held, now }) {
+export function readSleepTurn(message, { held, now, recentAlarm }) {
     const fresh = readHabit(message);
     if (fresh)
         return { kind: "interview", draft: held && held.step !== "confirm" ? merge(held.draft, fresh) : fresh };
     const bed = readBedShift(message);
     if (bed)
         return { kind: "bedtime", ...bed };
+    const alarm = readAlarm(message, alarmCtx({ now, ...(recentAlarm ? { recentAlarm } : {}) }));
+    if (alarm)
+        return { kind: "alarm", req: alarm };
     const except = readPlea(message, now) ?? readException(message, now);
     if (except)
         return except.kind === "noexcept" && except.grace && held?.step === "grace" ? { ...except, again: true } : except;

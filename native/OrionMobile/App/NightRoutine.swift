@@ -409,8 +409,8 @@ final class NightRoutine: ObservableObject {
             if abs(at.timeIntervalSince(plan.wake)) < 30 { UserDefaults.standard.set(alarm.id.uuidString, forKey: Self.alarmKey) }
         }
         for alarm in existing where !keptIDs.contains(alarm.id) { try? manager.cancel(id: alarm.id) }
-        guard settings.wakeAlarm else { UserDefaults.standard.removeObject(forKey: Self.alarmKey); alarmState = "Off"; return }
-        guard !wanted.isEmpty else { UserDefaults.standard.removeObject(forKey: Self.alarmKey); alarmState = "Not set"; return }
+        guard settings.wakeAlarm else { UserDefaults.standard.removeObject(forKey: Self.alarmKey); alarmState = "Off"; reportAlarms([], state: "Off"); return }
+        guard !wanted.isEmpty else { UserDefaults.standard.removeObject(forKey: Self.alarmKey); alarmState = "Not set"; reportAlarms([], state: "Not set"); return }
         do {
             if !unmatched.isEmpty, manager.authorizationState == .notDetermined { _ = try await manager.requestAuthorization() }
             if !unmatched.isEmpty, manager.authorizationState != .authorized { alarmState = "Allow Alarms for ORION in Settings"; return }
@@ -420,6 +420,7 @@ final class NightRoutine: ObservableObject {
             }
             let first = wanted.first(where: { abs($0.fireAt.timeIntervalSince(plan.wake)) < 30 }) ?? wanted[0]
             alarmState = "Set for \(NightPlan.clock(first.fireAt))" + (wanted.count > 1 ? " (+\(wanted.count - 1) more)" : "")
+            reportAlarms(wanted.map(\.fireAt), state: alarmState)   // W18: the Mac says "set on your phone" only after this
             // Kept for the morning card: he was asleep when this happened.
             if let shifted = plan.shifted {
                 UserDefaults.standard.set(shifted, forKey: Self.shiftKey)
@@ -428,6 +429,17 @@ final class NightRoutine: ObservableObject {
         } catch {
             alarmState = "Could not set the alarm"
         }
+    }
+
+    private static let receiptKey = "orion.routine.alarmReceipt"
+
+    /// W18: tell the Mac which alarms this phone really holds, once per change. Only called after AlarmKit accepted them (or there are
+    /// none to hold), never when scheduling failed, so a receipt is always true.
+    private func reportAlarms(_ fires: [Date], state: String) {
+        let signature = AlarmReceipt.signature(fires)
+        guard UserDefaults.standard.string(forKey: Self.receiptKey) != signature else { return }
+        UserDefaults.standard.set(signature, forKey: Self.receiptKey)
+        record(AlarmReceipt.entry(fires: fires, state: state, at: Date()))
     }
 
     @available(iOS 26.0, *)

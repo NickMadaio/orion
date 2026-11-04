@@ -301,7 +301,7 @@ final class RemoteStore: ObservableObject {
                 }
             case let .supplement(id, taken):
                 if let index = value.supplements.firstIndex(where: { $0.id == id }) { value.supplements[index].taken = taken }
-            case .sleep, .signal, .place, .screen, .checkin, .note:
+            case .sleep, .signal, .place, .screen, .checkin, .note, .alarms:
                 break
             }
         }

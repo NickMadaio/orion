@@ -84,7 +84,8 @@ const ASKED_REASONS = new Set(["plan", "class"]);
 /** The wake-plan.json document (shape in the header). */
 export function wakePlanDoc({ now, days, config }) {
   const plan = sleepPlanOf(config);
-  const byNick = Object.keys(plan.byDay).length > 0 || Number.isInteger(plan.firstClassLeadMin);
+  const byNick = Object.keys(plan.byDay).length > 0 || Number.isInteger(plan.firstClassLeadMin)
+    || Object.values(plan.overrides ?? {}).some((t) => t !== "off");
   return {
     source: byNick ? "nick" : "default",
     generatedAt: now.toISOString(),
@@ -113,3 +114,24 @@ export function withException(plan, exception, now) {
 }
 
 export const minuteOf = toMinute;
+
+/** A new plan with one morning's alarm set to `time` (HH:MM) or "off". Pure. */
+export const withOverride = (plan, date, time) => ({ ...plan, overrides: { ...(plan.overrides ?? {}), [date]: time } });
+
+/** Overrides for mornings already behind `today` are gone. Pure. */
+export const pruneOverrides = (plan, today) => ({ ...plan, overrides: Object.fromEntries(Object.entries(plan.overrides ?? {}).filter(([d]) => d >= today)) });
+
+/** The date a day word names, counting from `now`: today, tomorrow, a weekday (the next one whose alarm is still ahead), or YYYY-MM-DD. */
+export function wakeDate(raw, now, minute = null) {
+  const today = now.toLocaleDateString("en-CA");
+  const w = String(raw ?? "").toLowerCase().trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(w)) return w;
+  if (w === "today") return today;
+  if (w === "tomorrow" || w === "tmrw") return addDays(today, 1);
+  if (!WEEKDAYS.includes(w.slice(0, 3)) || w.length < 3) return null;
+  for (let i = 0; i <= 7; i += 1) {
+    const date = addDays(today, i);
+    if (weekdayOf(date) === w.slice(0, 3) && (i > 0 || minute === null || instant(date, minute) > now)) return date;
+  }
+  return null;
+}

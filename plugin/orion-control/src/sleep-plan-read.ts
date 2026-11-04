@@ -16,6 +16,7 @@
 */
 import { isNo, isYes } from "./schedule-pending.js";
 import { saysYes } from "./day-lighten.js";
+import { readAlarm, type AlarmReq } from "./alarm-read.js";
 import { AMOUNT, clean, LEAD, leadMinutes, slotsOf, wakeTime, type Draft } from "./sleep-plan-slots.js";
 
 export type { Draft, DayWake } from "./sleep-plan-slots.js";
@@ -30,7 +31,9 @@ export type SleepTurn =
   | { kind: "except"; reason: LegitReason; until?: string }
   | { kind: "noexcept"; activity: string; grace?: boolean; again?: boolean }
   /** "i wanna sleep earlier this week": sleep only, nothing about waking. A new bedtime, said and saved in one reply. */
-  | { kind: "bedtime"; time?: string };
+  | { kind: "bedtime"; time?: string }
+  /** W18: one morning's alarm said outright: set, off, moved, or read (alarm-read.ts, alarm-flow.ts). */
+  | { kind: "alarm"; req: AlarmReq };
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 const LEAD_ANSWER = new RegExp(String.raw`^(?:(?:like|about|around|at ?least|maybe|prob(?:ably)?|i'?d say|say|um+|uh+|hmm+|ok(?:ay)?|yeah|yea|ya|~)[,\s]+)*${AMOUNT}(?:\b|$)`);
@@ -70,7 +73,8 @@ export function readHabit(message: string): Draft | undefined {
   // "wake me at 6 every weekday", "from now on up at 6 mon wed thu": a standing wake time (the one-off alarm cannot repeat).
   // Named outright as an alarm with its days, and nothing else to settle, it is saved without the interview.
   if (STANDING_ALARM.test(m) && slots.wake && (slots.days || HABIT.test(m)) && !oneOff) {
-    return OUTRIGHT.test(m) && slots.days && !slots.rest && !slots.also && slots.lead === undefined ? { ...slots, direct: true } : slots;
+    // W18: a time and its days (and nothing else to settle) is saved at once, said as an alarm or as "i want to start waking up at 7 on weekdays".
+    return slots.days && !slots.rest && !slots.also && slots.lead === undefined && (OUTRIGHT.test(m) || !slots.forGym) ? { ...slots, direct: true } : slots;
   }
   return undefined;
 }
@@ -99,7 +103,9 @@ export function readBedShift(message: string): { time?: string } | undefined {
 }
 
 /** Whether the sleep plan owns this statement before the health reader can (a wake statement, or a sleep-only bedtime shift). */
-export const ownsSleepStatement = (message: string): boolean => !!readHabit(message) || !!readBedShift(message);
+export const ownsSleepStatement = (message: string, ctx: { now?: Date; recentAlarm?: boolean } = {}): boolean =>
+  !!readHabit(message) || !!readBedShift(message) || !!readAlarm(message, alarmCtx(ctx));
+const alarmCtx = ({ now, recentAlarm }: { now?: Date; recentAlarm?: boolean }) => ({ ...(now ? { hour: now.getHours() } : {}), ...(recentAlarm ? { recentAlarm } : {}) });
 
 // ── exceptions by talk ─────────────────────────────────────────────────────────────────────────────────────────────────
 const PARTY = /\b(?:party|partying|pregame|pregaming|club|clubbing|rave|frat|function)\b/;
@@ -198,11 +204,13 @@ export function readAnswer(message: string, held: SleepPending): SleepTurn | und
 }
 
 /** This turn's part in the sleep plan, or undefined. A held interview reads the answer first; a new statement starts over. */
-export function readSleepTurn(message: string, { held, now }: { held?: SleepPending | undefined; now: Date }): SleepTurn | undefined {
+export function readSleepTurn(message: string, { held, now, recentAlarm }: { held?: SleepPending | undefined; now: Date; recentAlarm?: boolean }): SleepTurn | undefined {
   const fresh = readHabit(message);
   if (fresh) return { kind: "interview", draft: held && held.step !== "confirm" ? merge(held.draft, fresh) : fresh };
   const bed = readBedShift(message);
   if (bed) return { kind: "bedtime", ...bed };
+  const alarm = readAlarm(message, alarmCtx({ now, ...(recentAlarm ? { recentAlarm } : {}) }));
+  if (alarm) return { kind: "alarm", req: alarm };
   const except = readPlea(message, now) ?? readException(message, now);
   if (except) return except.kind === "noexcept" && except.grace && held?.step === "grace" ? { ...except, again: true } : except;
   return held && held.step !== "grace" ? readAnswer(message, held) : undefined;

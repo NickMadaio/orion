@@ -49,7 +49,8 @@ export const DEFAULTS = Object.freeze({
   // His sleep plan (W10-B, 2026-11-02: "im going to start waking up earlier and going to bed earlier"). scripts/orion-sleepplan
   // writes it; night.mjs reads it. byDay: { mon: { wake: "06:00" }, ... } (a day not listed uses the class rule, then usualWake).
   // firstClassLeadMin: up at least this long before the first class (null: the readyMinutes rule above). sleepHours: absent means
-  // the top-level sleepHours. exceptions: [{ date, reason, until }] nights he talked ORION out of the lockdown (a legit reason only).
+  // the top-level sleepHours. overrides: { "YYYY-MM-DD": "HH:MM" | "off" } one morning's alarm said by chat (wins over byDay and
+  // the class lead; off = no alarm that morning). exceptions: [{ date, reason, until }] nights he talked ORION out of the lockdown (a legit reason only).
   sleepPlan: Object.freeze({ byDay: Object.freeze({}), firstClassLeadMin: null, nudgeBeforeMin: 30, lockdownBelowHours: 6,
     legitReasons: Object.freeze(["friends", "party", "bar", "schoolwork"]), exceptions: Object.freeze([]) }),
 });
@@ -61,7 +62,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** A whole sleepPlan, as stored (every field optional; unknown fields refused). */
 export function validSleepPlan(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions", "gymDays"];
+  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions", "gymDays", "overrides"];
   if (Object.keys(v).some((k) => !known.includes(k))) return false;
   const byDay = v.byDay ?? {};
   if (typeof byDay !== "object" || Array.isArray(byDay)) return false;
@@ -78,14 +79,17 @@ export function validSleepPlan(v) {
   const exOk = Array.isArray(ex) && ex.length <= 30 && ex.every((e) => e && DATE.test(e.date) && typeof e.reason === "string" && e.reason.length <= 30
     && (e.until === null || e.until === undefined || HHMM.test(e.until)));
   const gymOk = v.gymDays === undefined || (Array.isArray(v.gymDays) && v.gymDays.every((d) => WEEKDAYS.includes(d)));
-  return gymOk && daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
+  const ov = v.overrides ?? {};
+  const ovOk = typeof ov === "object" && !Array.isArray(ov) && Object.keys(ov).length <= 30
+    && Object.entries(ov).every(([d, t]) => DATE.test(d) && (t === "off" || (typeof t === "string" && HHMM.test(t))));
+  return ovOk && gymOk && daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
 }
 
 /** The plan with every default filled in (never mutates the stored object). */
 export function sleepPlanOf(config) {
   const saved = config?.sleepPlan && typeof config.sleepPlan === "object" ? config.sleepPlan : {};
   return { ...DEFAULTS.sleepPlan, ...saved, byDay: { ...(saved.byDay ?? {}) }, legitReasons: [...(saved.legitReasons ?? DEFAULTS.sleepPlan.legitReasons)],
-    exceptions: [...(saved.exceptions ?? [])], sleepHours: saved.sleepHours ?? config?.sleepHours ?? 8 };
+    exceptions: [...(saved.exceptions ?? [])], overrides: { ...(saved.overrides ?? {}) }, sleepHours: saved.sleepHours ?? config?.sleepHours ?? 8 };
 }
 
 /** Replaces the stored sleepPlan after validating it whole. */

@@ -31,9 +31,12 @@ export function wakeWhy(date, { blocksOf, config, wakeRequest = null }) {
   // drew the wake line at 3:30 PM (2026-09-30); the phone already ignored it.
   if (wakeRequest && wakeRequest.date === date && wakeRequest.minute < 12 * 60) return { minute: wakeRequest.minute, reason: "asked" };
   const plan = sleepPlanOf(config);
-  const planned = plan.byDay[weekdayOf(date)]?.wake;
+  // One morning said outright ("wake me at 6:45 tomorrow") is honoured exactly; "off" is no alarm that morning.
+  const override = plan.overrides?.[date];
+  if (override && override !== "off") return { minute: toMinute(override), reason: "plan" };
+  const planned = override === "off" ? undefined : plan.byDay[weekdayOf(date)]?.wake;
   let best = planned ? { minute: toMinute(planned), reason: "plan" } : { minute: toMinute(config.usualWake), reason: "usual" };
-  const lead = Number.isInteger(plan.firstClassLeadMin) ? plan.firstClassLeadMin : null;
+  const lead = Number.isInteger(plan.firstClassLeadMin) && override !== "off" ? plan.firstClassLeadMin : null;
   const cls = lead !== null ? firstClassOn(date, blocksOf) : undefined;
   if (cls && cls.start - lead < best.minute) best = { minute: cls.start - lead, reason: "class" };
   const first = real(blocksOf(date))[0];

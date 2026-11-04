@@ -16,3 +16,24 @@ describe("a failed turn owns the failure once", () => {
     expect(out).toMatch(/Try the Safari app instead\.$/);
   });
 });
+
+describe("failure wording fits the action (11-03 13:58, 11-04 09:33, 11:20, 11:32)", () => {
+  const quit = [{ canonical: "app_quit", stdout: "Application not running", exit: 1 }];
+  it("a failed open is not a lookup", () => {
+    const out = finalizeReply("I could not do that.", failedOpen, { hostTools: 1 });
+    expect(out).not.toMatch(/lookup/i);
+    expect(out).toMatch(/nothing opened/i);
+    expect(acknowledgesFailure(out)).toBe(true);
+  });
+  it("a failed quit is not a lookup either", () => {
+    const out = finalizeReply("I could not do that.", quit, { hostTools: 1 });
+    expect(out).not.toMatch(/lookup/i);
+    expect(acknowledgesFailure(out)).toBe(true);
+  });
+  it("the app search path list is never shown to him (11-04 11:34, 'why')", () => {
+    const leaked = 'I could not do that. Application "amazon ik" was not found in /Applications, /Applications/Utilities, /System/Applications, /System/Applications/Utilities, /System/Library/CoreServices, /System/Library/CoreServices/Applications, /Users/nickmadaio/Applications.';
+    const out = finalizeReply(leaked, [], {});
+    expect(out).not.toMatch(/\/Applications|\/System|\/Users/);
+    expect(out).toMatch(/amazon ik/);
+  });
+});

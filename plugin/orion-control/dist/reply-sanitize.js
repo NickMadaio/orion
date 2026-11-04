@@ -86,6 +86,8 @@ function dropLeaks(line, strict = false) {
     }
     return kept.join(" ").trim();
 }
+/** "was not found in /Applications, /Applications/Utilities, …": the app lookup's search path list, never prose (11-04 11:34). */
+const APP_PATH_LIST = /\bwas not found in (?:\/[^\s,]+(?:,\s*)?)+\.?/gi;
 const tidy = (line) => line.replace(/[ \t]{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
 /** The reply with raw CLI/tool spans removed (known failures become one short line). Returns the input when it is clean. */
 export function sanitizeReply(reply, ctx = {}) {
@@ -94,7 +96,7 @@ export function sanitizeReply(reply, ctx = {}) {
     let execCut = changed;
     const out = [];
     for (const raw of stripped.split("\n")) {
-        let line = raw.replace(BANNER, (label) => { changed = true; return `${label.charAt(0)}${label.slice(1).toLowerCase()}`; })
+        let line = raw.replace(APP_PATH_LIST, () => { changed = true; return "wasn't found on your Mac."; }).replace(BANNER, (label) => { changed = true; return `${label.charAt(0)}${label.slice(1).toLowerCase()}`; })
             .replace(/^(\W*Not done:\s*)Nothing was booked:\s*/i, "$1");
         const oauth = line.search(RAW_OAUTH);
         const shape = line.search(RAW_SHAPE);

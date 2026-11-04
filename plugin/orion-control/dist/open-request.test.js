@@ -77,3 +77,16 @@ describe("openRequest: a bare site name is a site, not an app (live 2026-11-04 1
         expect(openRequest("open safari")).toEqual({ kind: "app", name: "safari" });
     });
 });
+describe("openRequest: his real 11-04 phrasings, run-ons and typos", () => {
+    it.each([
+        ["open amazon uk for me", "https://www.amazon.co.uk", undefined],
+        ["open amazon uk", "https://www.amazon.co.uk", undefined],
+        ["open amazon uk on safari", "https://www.amazon.co.uk", "Safari"],
+        ["open amazon ik", "https://www.amazon.co.uk", undefined],
+        ["amazon is a website, i asked you to open it. open amazon UK on my browser please", "https://www.amazon.co.uk", undefined],
+        ["open the UK amazon in safari", "https://www.amazon.co.uk", "Safari"],
+    ])("%s", (said, url, browser) => {
+        const got = openRequest(said);
+        expect(got).toEqual(browser ? { kind: "url", url, browser } : { kind: "url", url });
+    });
+});

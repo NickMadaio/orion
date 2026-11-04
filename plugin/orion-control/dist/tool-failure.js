@@ -38,7 +38,14 @@ export function failureReason(stdout) {
 export function acknowledgement(failed, changeRequest, withReason = true) {
     const wrote = changeRequest || failed.some((t) => WRITE_CANONICAL.test(t.canonical.replace(/^exec\s+(?:\S*\/)?orion-[a-z-]+/i, "")));
     const reason = withReason ? failed.map((t) => failureReason(t.stdout)).find(Boolean) ?? "" : "";
-    if (!wrote)
+    if (!wrote) {
+        // Said for what was asked: an open or a quit is not a lookup (11-04 11:20 "I couldn't run that lookup just now" over a failed open).
+        const names = failed.map((t) => t.canonical).join(" ");
+        if (/\b(?:app_open|browser_open_url|folder_open)\b/.test(names))
+            return "I couldn't run that — nothing opened.";
+        if (/\bapp_quit\b/.test(names))
+            return "I couldn't run that — nothing was closed.";
         return "I couldn't run that lookup just now.";
+    }
     return reason ? `I couldn't make that change — ${/^I\b/.test(reason) ? reason : reason.charAt(0).toLowerCase() + reason.slice(1)}.` : "I couldn't make that change, so nothing was changed.";
 }

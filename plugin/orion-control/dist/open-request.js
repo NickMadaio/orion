@@ -17,7 +17,7 @@ const BROWSERS = { safari: "Safari", chrome: "Google Chrome", "google chrome": "
 const DOMAIN = /^(?:https?:\/\/)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/[\x21-\x7e]*)?$/i;
 const SITE_WORD = /^(?:the |my )?([a-z0-9 ]+?)\s+(?:website|web ?site|site|web ?page)$/i;
 const SITES = {
-    amazon: "www.amazon.com", "amazon uk": "www.amazon.co.uk", "amazon co uk": "www.amazon.co.uk", "amazon.co.uk": "www.amazon.co.uk", youtube: "www.youtube.com", google: "www.google.com", gmail: "mail.google.com", reddit: "www.reddit.com",
+    amazon: "www.amazon.com", "amazon uk": "www.amazon.co.uk", "amazon co uk": "www.amazon.co.uk", "amazon ik": "www.amazon.co.uk", "uk amazon": "www.amazon.co.uk", "the uk amazon": "www.amazon.co.uk", "amazon.co.uk": "www.amazon.co.uk", youtube: "www.youtube.com", google: "www.google.com", gmail: "mail.google.com", reddit: "www.reddit.com",
     github: "github.com", netflix: "www.netflix.com", facebook: "www.facebook.com", instagram: "www.instagram.com", twitter: "twitter.com",
     linkedin: "www.linkedin.com", wikipedia: "www.wikipedia.org", nytimes: "www.nytimes.com", "new york times": "www.nytimes.com", bbc: "www.bbc.com",
     ebay: "www.ebay.com", twitch: "www.twitch.tv", tiktok: "www.tiktok.com", maps: "maps.google.com", "google maps": "maps.google.com",
@@ -45,7 +45,10 @@ export function openRequest(message) {
     const said = message.trim().replace(/\s+/g, " ");
     if (!said || said.length > 120)
         return null;
-    const rest = OPEN_RE.exec(said)?.[1]?.replace(FILLER, "").trim().replace(/[.!?]+$/, "");
+    // A correction before the ask ("amazon is a website, i asked you to open it. open amazon UK on my browser"): the last sentence is the request.
+    const sentences = said.split(/(?<=[.!?])\s+/);
+    const ask = OPEN_RE.test(said) || sentences.length < 2 ? said : sentences[sentences.length - 1];
+    const rest = OPEN_RE.exec(ask)?.[1]?.replace(FILLER, "").trim().replace(/[.!?]+$/, "");
     if (!rest)
         return null;
     const inBrowser = BROWSER_IN.exec(rest);

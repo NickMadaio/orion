@@ -6,11 +6,15 @@
 // A legit exception (one he told ORION, a calendar night out, schoolwork running now) means no lockdown and at most one
 // gentle message. Gaming never voids what he told ORION, but it voids a guessed reason. Never acts on a plan that is not
 // Nick's own, or on a sleeping Nick. One rung per tick, so the escalation is slow.
+import { readiness } from "./readiness.mjs";
 const MIN = 60_000;
 export const ACTIVE_MINUTES = 10;
 export const DIM_BELOW_HOURS = 7;
 export const WARN_GAP_MIN = 15;
 export const FIRM_AFTER_MIN = 15;
+/** Lights on and still on the Mac (readiness.mjs): not winding down, so the firm offer comes this soon after bedtime instead. */
+export const FIRM_AFTER_NOT_WINDING_MIN = 5;
+export const SHUTDOWN_OFFER = "Want me to shut things down so you actually go to bed?";
 export const LOCK_GROUPS = ["social", "video", "games", "browsers"];
 export const DIM_GROUPS = ["games", "video"];
 /** Known game launchers and games. Never an app that can hold unsaved documents: quit-app refuses those too. */
@@ -81,7 +85,9 @@ function pickNight(now, plan) {
 const say = {
   nudge: (c) => `It's ${hhmm12(c.now)}. Bedtime is ${hhmm12(c.sleepBy)} and you're up at ${hhmm12(c.wake)}${c.tail}. Start winding down when you hit a stopping point.`,
   bedtime: (c) => `It's bedtime (${hhmm12(c.sleepBy)}). Alarm is ${hhmm12(c.wake)}${c.tail}. Phone down and head to bed now and you still get ${hours1(c.hours)}h.`,
-  firm: (c) => `It's ${hhmm12(c.now)} and you're still up, ${hours1(c.hours)}h of sleep left before ${hhmm12(c.wake)}. Want me to shut things down so you actually go to bed?`,
+  firm: (c) => c.room
+    ? `It's ${hhmm12(c.now)} and ${c.room}, so you're not winding down, with ${hours1(c.hours)}h of sleep left before ${hhmm12(c.wake)}. ${SHUTDOWN_OFFER}`
+    : `It's ${hhmm12(c.now)} and you're still up, ${hours1(c.hours)}h of sleep left before ${hhmm12(c.wake)}. ${SHUTDOWN_OFFER}`,
   warn: (c) => `Down to ${hours1(c.hours)}h of sleep. In ${WARN_GAP_MIN} minutes I'm dimming the Mac, closing games and blocking games and video on your phone. Tell me if you need it left alone.`,
   lockdown: (c) => `You're at ${hours1(c.hours)}h of sleep before ${hhmm12(c.wake)}, so I've shut off social, video, games and browsers on your phone until morning and locked the Mac. If it's schoolwork or you're out, tell me and I'll undo it.`,
   gentle: (c) => `Heads up, it's ${hhmm12(c.now)} and you're down to ${hours1(c.hours)}h before ${hhmm12(c.wake)}${c.why ? ` (leaving you alone since it's ${c.why})` : ""}. Get to bed when you can.`,
@@ -119,7 +125,10 @@ export function decide(now, plan, signals = {}, state = null) {
     return { actions: undoActions(st), state: { ...st, held: clear, done: [...st.done, "lifted"] }, why: "legit exception: lifted" };
   }
   if (!isActive(signals)) return idle("not active: never nudge a sleeping Nick", st);
-  const ctx = { now, sleepBy: new Date(bed.sleepByIso), wake: new Date(alarm.iso), hours, why: ex.reason,
+  // A display-brightness proxy never counts, and neither does anything while ORION itself holds the dim (its own dimming reads as a dark room).
+  const light = signals.light?.source === "als" ? signals.light : undefined;
+  const ready = readiness({ mac: signals.mac, phone: signals.phone, light });
+  const ctx = { room: ready.notWinding ? ready.say : "", now, sleepBy: new Date(bed.sleepByIso), wake: new Date(alarm.iso), hours, why: ex.reason,
     tail: alarm.reason === "class" ? " for class" : alarm.reason === "commitment" ? " for your first commitment" : "" };
   const done = (step) => st.done.includes(step);
   const mark = (steps, extra = {}) => ({ ...st, ...extra, done: [...new Set([...st.done, ...steps])] });
@@ -134,7 +143,7 @@ export function decide(now, plan, signals = {}, state = null) {
   const sleepByT = at(bed.sleepByIso);
   const due = ["nudge"];
   if (t >= sleepByT) due.push("bedtime");
-  if (t >= sleepByT + FIRM_AFTER_MIN * MIN) due.push("firm");
+  if (t >= sleepByT + (ready.notWinding ? FIRM_AFTER_NOT_WINDING_MIN : FIRM_AFTER_MIN) * MIN) due.push("firm");
   const warnedLongEnough = done("warn") && t >= at(st.warnAt) + WARN_GAP_MIN * MIN;
   const wantDim = hours < DIM_BELOW_HOURS;
 

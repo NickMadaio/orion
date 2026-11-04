@@ -1,0 +1,42 @@
+#!/usr/bin/env node
+/*
+ orion-light: how bright is the room (2026-11-04). The Mac's own ambient light sensor, else the display's brightness. Never the camera.
+   orion-light read [--json]    { state: bright|dim|dark|unknown, source: als|display|null, lux?, note }
+ The helper is lib/light/als.swift, compiled once into <controlled dir>/bin/orion-als (cached by source hash; needs swiftc, i.e. Xcode's tools).
+ ORION_LIGHT_BIN names a stand-in helper (tests). Without swiftc, or when the helper fails, the answer is "unknown" and says why: no value is
+ ever made up. Exit 0 always.
+*/
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { controlledDir } from "./lib/clock.mjs";
+import { classifyLight } from "./lib/light/classify.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const json = process.argv.includes("--json");
+if (process.argv[2] !== "read") { console.error("usage: orion-light read [--json]"); process.exit(2); }
+
+function helper() {
+  if (process.env.ORION_LIGHT_BIN) return { bin: process.env.ORION_LIGHT_BIN };
+  const src = join(here, "lib/light/als.swift");
+  const hash = createHash("sha256").update(readFileSync(src)).digest("hex").slice(0, 12);
+  const dir = join(controlledDir(), "bin");
+  const bin = join(dir, `orion-als-${hash}`);
+  if (existsSync(bin)) return { bin };
+  mkdirSync(dir, { recursive: true });
+  const built = spawnSync("swiftc", ["-O", src, "-o", bin], { encoding: "utf8", timeout: 120_000 });
+  return built.status === 0 ? { bin } : { error: `the light helper would not compile (${String(built.stderr || built.error || "").trim().slice(0, 120)})` };
+}
+
+let result;
+const h = helper();
+if (h.error) result = { state: "unknown", source: null, note: `No light sensor reading: ${h.error}.` };
+else {
+  const r = spawnSync(h.bin, [], { encoding: "utf8", timeout: 15_000 });
+  let read = null;
+  try { read = JSON.parse(String(r.stdout).trim().split("\n").at(-1)); } catch { /* no reading */ }
+  result = read ? classifyLight(read) : { state: "unknown", source: null, note: "No light sensor reading: the light helper gave no answer." };
+}
+console.log(json ? JSON.stringify(result) : `${result.state}: ${result.note}`);

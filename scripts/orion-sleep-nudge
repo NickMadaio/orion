@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import { controlledDir, clockNow, isolated } from "./lib/clock.mjs";
 import { evalMode } from "./lib/eval-mode.mjs";
 import { decide } from "./lib/life/sleep-nudge.mjs";
+import { tonightWindow } from "./lib/life/bedtime-window.mjs";
+import { armNight, emptyState } from "./lib/life/bedtime-shutdown.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -43,6 +45,18 @@ if (stale && !dry && (!isolated() || process.env.ORION_SLEEPPLAN_BIN)) {
 const STATE = join(DIR, "sleep-nudge-state.json");
 const LOG = join(DIR, "sleep-nudge-log.jsonl");
 
+/** Arm orion-bedtime-shutdown's guard for tonight's window (state file only; the guard itself runs from this same tick). */
+function armGuard() {
+  try {
+    const w = tonightWindow(DIR, now);
+    if (w.reason) return;
+    const file = join(DIR, "bedtime-shutdown.json");
+    const state = armNight(read(file, emptyState()), w, now);
+    writeFileSync(`${file}.tmp`, JSON.stringify(state, null, 2));
+    renameSync(`${file}.tmp`, file);
+  } catch { /* the lockdown still happened */ }
+}
+
 async function gather() {
   const given = flag("--signals");
   if (given) return { ...read(given, {}), drivenByTest: true };
@@ -60,7 +74,16 @@ async function gather() {
       calendar = (await calendarEvents()).filter((e) => e.allDay !== "true").map((e) => ({ title: e.title ?? "", kind: e.orion ?? null, start: e.start, end: e.end }));
     } catch { /* calendar unreadable: no guessed exception, the stored ones still count */ }
   }
-  return { mac, phone, calendar };
+  return { mac, phone, calendar, light: readLight() };
+}
+
+/** The room's light (orion-light), read only while he is at the Mac. In an isolated state dir only a stand-in (ORION_LIGHT_BIN) runs. */
+function readLight() {
+  if (isolated() && !process.env.ORION_LIGHT_BIN) return undefined;
+  try {
+    const r = spawnSync(process.execPath, [bin("ORION_LIGHT_TOOL", "orion-light"), "read", "--json"], { encoding: "utf8", timeout: 130_000, env: process.env });
+    return JSON.parse(String(r.stdout).trim().split("\n").at(-1));
+  } catch { return undefined; }
 }
 
 function runAct(action) {
@@ -82,15 +105,29 @@ function runAct(action) {
   }
 }
 
+/** The Mac guard's tick (orion-bedtime-shutdown): nudge once and re-lock a Mac that woke and is in use during the window. Never throws. */
+function runGuard() {
+  try {
+    const r = spawnSync(process.execPath, [bin("ORION_SHUTDOWN_BIN", "orion-bedtime-shutdown"), "guard", "--json", "--now", now.toISOString(), ...(dry ? ["--dry-run"] : [])],
+      { encoding: "utf8", timeout: 60_000, env: process.env });
+    return JSON.parse(String(r.stdout).trim().split("\n").at(-1));
+  } catch { return null; }
+}
+
 try {
   const state = read(STATE, null);
   const signals = { ...(await gather()), sandbox: sandboxed };
   const decision = decide(now, plan, signals, state);
   const results = [];
   if (!dry) {
+    let lockFailed = false;
     for (const action of decision.actions) {
-      const r = runAct(action);
-      results.push({ action, ...r });
+      // The lock is the Mac shut down: arm the guard that keeps it shut, and never let the message claim a lock that failed (2026-11-03 23:53).
+      const live = action.type === "message" && lockFailed
+        ? { ...action, text: action.text.replace(/ and locked the Mac\./, ", but the Mac wouldn't lock.") } : action;
+      const r = runAct(live);
+      results.push({ action: live, ...r });
+      if (action.type === "lock-screen") { lockFailed = !r.ok && !r.skipped; armGuard(); }
     }
     const failedMessage = results.find((r) => r.action.type === "message" && !r.ok && !r.skipped);
     // A rung whose message could not be sent stays due: keep the old state so the next tick retries it.
@@ -103,7 +140,8 @@ try {
       appendFileSync(LOG, `${JSON.stringify({ at: now.toISOString(), why: decision.why, results })}\n`);
     }
   }
-  out({ ok: true, why: decision.why, dryRun: dry, actions: decision.actions, results });
+  const guardRun = runGuard();
+  out({ ok: true, why: decision.why, dryRun: dry, actions: decision.actions, results, ...(guardRun ? { guard: guardRun } : {}) });
 } catch (error) {
   out({ ok: false, why: "error", error: String(error?.message ?? error).slice(0, 200), actions: [], results: [], note: "sleep nudge failed" });
   process.exit(dry ? 1 : 0);

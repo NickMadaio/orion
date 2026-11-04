@@ -54,6 +54,7 @@ import { detectComputerIntent } from "./computer-intent.js";
 import { stepsAsToolResults } from "./computer-evidence.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
+import { parseNote } from "./note-flow.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply, type LateExec } from "./late-flow.js";
@@ -168,6 +169,8 @@ export type LocalRoutingOptions = {
   phoneTimeRun?: PhoneTimeRun;
   /** Ticks a to-do off (scripts/orion-tasks done) for "mark the oats one done" (tests pass a stub; wired from index.ts). */
   todoDoneFlow?: (message: string) => Promise<FlowResult>;
+  /** w18 note: saves a note's whole text (note-flow.ts); tests pass a stub, never his real vault. */
+  noteFlow?: (message: string) => Promise<FlowResult>;
   /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
   sessionExec?: SessionExec;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
@@ -443,7 +446,7 @@ export function isCalendarTurn(message: string, settled: Decision, askOpen = fal
   return true;
 }
 // A fact he tells ORION, including a habit ("i take creatine every morning at 8"): saved, never drafted (2026-10-15).
-const keepsFact = (message: string) => tellsFact(message) || (HABIT.test(message) && !CHANGE_REQUEST.test(message) && !/\?\s*$/.test(message.trim()));
+const keepsFact = (message: string) => tellsFact(message) || parseNote(message) !== null || (HABIT.test(message) && !CHANGE_REQUEST.test(message) && !/\?\s*$/.test(message.trim()));
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
 
 /** The front desk's session start, task and length (sweep 2026-10-15, q051: it read "focus mode on for an
@@ -826,7 +829,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(made?.kind === "block" ? { lastTarget: { title: made.title, ...(made.start ? { start: made.start } : {}), dateArgs: made.dateArgs } } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; progress.stage(r.sessionKey, "changing-calendar"); } } : {}) });
     } } : {}),
     ...(options.lateFlow ? { lateFlow: marked(options.lateFlow)! } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow)! } : {}),
-    ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow)! } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow)! } : {}) };
+    ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow)! } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow)! } : {}), ...(options.noteFlow ? { noteFlow: marked(options.noteFlow)! } : {}) };
   const on = options.mode === "on";
   // 2026-10-16, Nick: "i dont want to EVER have to use the cloud model unless necessary". "on" no longer needs
   // an acceptance pass or a 48 h testing window: both assumed the cloud model was a safe fallback, and with
@@ -1720,6 +1723,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
       // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
       // 2026-10-30: out loud, only "remember …" / "orion note that …" is a fact to save ("Saved: Frozen." came from room speech).
+      // w18 note: "make a note ..." / "remember that ..." keeps his whole text, saved by code (note-flow.ts), never summarised by the worker.
+      if (!run.flow && !run.cutOff && options.noteFlow && parseNote(run.message)) {
+        const saved = await options.noteFlow(run.message).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+        if (saved.outcome !== "fallback") {
+          run.flow = saved;
+          const calls = saved.outcome === "done" ? saved.calls : saved.calls ?? [];
+          const outputs = saved.outcome === "done" ? saved.outputs : saved.outputs ?? [];
+          calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
+        }
+      }
       const factTurn = run.spoken ? tellsFactAloud(run.message) : keepsFact(run.message);
       if (!run.flow && !run.cutOff && (factTurn || asksRecall(run.message))) {
         const fact = factTurn;

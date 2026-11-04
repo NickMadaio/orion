@@ -1,0 +1,99 @@
+import { describe, expect, it } from "vitest";
+import { countSentences, parseNote, runNote } from "./note-flow.js";
+
+// w18 note: "make a note of something long" kept only the first sentence. The model was told to save "the fact, short,
+// in the third person" and orion-brain cut it at 400 characters. Code now keeps his whole text, minus the command words.
+const LONG_VOICE = "ok make a note so for the marketing group project we need to meet on thursday and priya is doing the slides but she hasnt started and i said id do the survey thing and also i need to email prof jones about the extension because the deadline moved and i forgot";
+const MULTI = "note that the dentist moved my appointment. also the gym card runs out in december!! need to renew it before then. dont forget mum's birthday";
+const DR = "note: call dr. smith about the lab report. he said hed be in till 5 p.m. on friday, so go before then";
+
+describe("parseNote", () => {
+  it("keeps every word of a voice transcript with no punctuation", () => {
+    expect(parseNote(LONG_VOICE)?.text).toBe(LONG_VOICE.replace(/^ok make a note /, ""));
+  });
+  it("strips only the command words", () => {
+    expect(parseNote(MULTI)?.text).toBe("the dentist moved my appointment. also the gym card runs out in december!! need to renew it before then. dont forget mum's birthday");
+  });
+  it("does not stop at an early period (dr.)", () => {
+    expect(parseNote(DR)?.text).toBe("call dr. smith about the lab report. he said hed be in till 5 p.m. on friday, so go before then");
+  });
+  it.each([
+    ["can you make a note that i owe jake 20 quid for the pizza. and also the ticket thing", "i owe jake 20 quid for the pizza. and also the ticket thing"],
+    ["orion write this down: the wifi in the library is called study-5g, password on the board. dont tell anyone lol", "the wifi in the library is called study-5g, password on the board. dont tell anyone lol"],
+    ["remember that the econ tutorial is moving to room 4. also bring the calculator", "the econ tutorial is moving to room 4. also bring the calculator"],
+    ["jot down a note about the thing priya said. she wants to swap labs. i said maybe", "about the thing priya said. she wants to swap labs. i said maybe"],
+    ["pls take a quick note: buy oat milk, eggs, the good bread. and tell mum i landed", "buy oat milk, eggs, the good bread. and tell mum i landed"],
+  ])("%s", (message, text) => expect(parseNote(message)?.text).toBe(text));
+  it("keeps line breaks", () => {
+    expect(parseNote("make a note:\nbuy eggs\nemail jones.\nring dentist")?.text).toBe("buy eggs\nemail jones.\nring dentist");
+  });
+  it.each([
+    "can you make a note for me really quickly?", "make a note", "note", "remember to call mum at 5", "what notes do i have",
+    "open the notes app", "did you make a note of that?", "i noted that already", "my wifi password is on the sticky note",
+  ])("is not a note with content: %s", (message) => expect(parseNote(message)).toBeNull());
+});
+
+describe("countSentences", () => {
+  it("does not split on abbreviations or times", () => {
+    expect(countSentences(DR)).toBe(2);
+    expect(countSentences("meet at 3.30 with mr. jones and prof. lee e.g. about the quiz")).toBe(1);
+  });
+  it("counts runs of punctuation once and an unpunctuated run-on as one", () => {
+    expect(countSentences("the dentist moved my appointment. also the gym card runs out!! need to renew it. dont forget mum's birthday")).toBe(4);
+    expect(countSentences(LONG_VOICE)).toBe(1);
+  });
+});
+
+describe("runNote", () => {
+  const stub = (stdout = 'Added to "Nick": - [note] x (2026-11-04)', code = 0) => {
+    const calls: string[][] = [];
+    return { calls, exec: async (args: string[]) => { calls.push(args); return { stdout, code }; } };
+  };
+  it("saves the full text in one call and confirms with a preview and the length", async () => {
+    const s = stub();
+    const r = await runNote({ message: MULTI, exec: s.exec });
+    expect(s.calls).toHaveLength(1);
+    expect(s.calls[0]).toEqual(["learn", "Nick", "note", parseNote(MULTI)!.text]);
+    expect(r.outcome).toBe("done");
+    if (r.outcome !== "done") return;
+    expect(r.reply).toMatch(/^Saved the note \(4 sentences\)/);
+    expect(r.reply).toContain("the dentist moved my appointment");
+    expect((r.reply ?? "").length).toBeLessThan(160);
+  });
+  it("gives the length in words for a one-sentence run-on", async () => {
+    const r = await runNote({ message: LONG_VOICE, exec: stub().exec });
+    if (r.outcome !== "done") throw new Error("not done");
+    expect(r.reply).toMatch(/^Saved the note \(\d+ words\)/);
+  });
+  it("says nothing was saved when the script fails", async () => {
+    const r = await runNote({ message: DR, exec: stub("boom", 1).exec });
+    expect(r.outcome).toBe("say");
+    if (r.outcome === "say") expect(r.text).toMatch(/nothing was saved/i);
+  });
+  it("falls back when there is no note content", async () => {
+    const s = stub();
+    expect((await runNote({ message: "make a note", exec: s.exec })).outcome).toBe("fallback");
+    expect(s.calls).toHaveLength(0);
+  });
+});
+
+describe("routing: the whole note is saved by code, not summarised by the worker", () => {
+  it("runs orion-brain learn with every sentence and replies from its output", async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { registerLocalRouting } = await import("./local-routing.js");
+    const handlers = new Map<string, Array<(e: Record<string, unknown>, c: Record<string, unknown>) => unknown>>();
+    const api = { on: (n: string, fn: (e: Record<string, unknown>, c: Record<string, unknown>) => unknown) => handlers.set(n, [...(handlers.get(n) ?? []), fn]) };
+    const fire = async (n: string, e: Record<string, unknown>, c: Record<string, unknown>) => { const out = []; for (const fn of handlers.get(n) ?? []) out.push(await fn(e, c)); return out; };
+    const calls: string[][] = [];
+    registerLocalRouting(api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "nf-")), "r.jsonl"), brainSearch: async () => "", clock: () => "Fri 10:00",
+      decideImpl: async () => ({ move: "answer", answer: "Noted!" }) as never, scheduleFlow: async () => ({ outcome: "fallback", reason: "t" }),
+      noteFlow: (message) => runNote({ message, exec: async (args) => { calls.push(args); return { stdout: 'Added to "Nick": - [note] x', code: 0 }; } }) });
+    const ctx = { runId: "nf1", sessionKey: "agent:main:x" };
+    await fire("before_model_resolve", { prompt: DR }, ctx);
+    const [built] = (await fire("before_prompt_build", { prompt: DR, messages: [] }, ctx)) as Array<{ systemPrompt: string }>;
+    expect(calls).toEqual([["learn", "Nick", "note", "call dr. smith about the lab report. he said hed be in till 5 p.m. on friday, so go before then"]]);
+    expect(built?.systemPrompt).toContain("Saved the note (2 sentences)");
+  });
+});

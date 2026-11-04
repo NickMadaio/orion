@@ -23,6 +23,7 @@ import { readReminders, remindersPath } from "./ambient.js";
 import { liveSessionExec, liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { liveWakeFlow } from "./wake-flow.js";
 import { liveTodoDoneFlow } from "./todo-done-flow.js";
+import { liveNoteFlow } from "./note-flow.js";
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import {
@@ -1749,6 +1750,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       lateFlow: (minutes) => liveLateFlow(minutes, () => undoJournalTop()),
       messagesRead: liveMessagesRead,
       todoDoneFlow: liveTodoDoneFlow,
+      noteFlow: liveNoteFlow,
       checkinRun: liveCheckinRun,
       realityRun: liveRealityRun,
       // 2026-10-31: the screen loop (computer-loop.ts) on the same two tiers the catalog gates; one bridge factory, relay first.

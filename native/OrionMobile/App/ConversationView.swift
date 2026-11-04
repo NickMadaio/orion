@@ -21,7 +21,6 @@ struct ConversationView: View {
     @Binding var conversationID: String?
     let onMenu: () -> Void
     /// Opens "Log food" (the composer's camera button).
-    var onLogFood: () -> Void = {}
     /// Back to the Home screen.
     var onHome: (() -> Void)? = nil
     @StateObject private var voice = PhoneVoice()
@@ -68,7 +67,7 @@ struct ConversationView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ChatComposer(draft: $draft, voice: voice, typing: $typing, replyingTo: tappedAsk, sendCount: sendCount,
-                         onClearReply: { tappedAsk = nil }, onSend: send, onTalk: talk, onAttach: onLogFood)
+                         onClearReply: { tappedAsk = nil }, onSend: send, onTalk: talk)
         }
         .background(Phone.ink.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)

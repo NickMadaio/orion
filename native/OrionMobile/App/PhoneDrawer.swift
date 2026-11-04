@@ -20,18 +20,15 @@ struct ChatSummary: Identifiable, Equatable {
     }
 }
 
-/// The side drawer: new chat, the sections that used to be tabs, and past chats.
+/// The side drawer, opened from the chat: new chat and past chats. Every section is a bottom tab now.
 /// Flat on the backdrop; rows are text with an icon, separated by space.
 struct PhoneDrawer: View {
     let chats: [ChatSummary]
     let currentChat: String?
-    let waitingApprovals: Int
     let online: Bool
     @Binding var appearance: String
     let onNewChat: () -> Void
     let onOpenChat: (String?) -> Void
-    let onOpenSection: (String) -> Void
-    var onLogFood: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -43,10 +40,8 @@ struct PhoneDrawer: View {
             .padding(.top, 14).padding(.bottom, 22)
 
             row("square.and.pencil", "New chat", id: "drawerNewChat", action: onNewChat)
-            sectionRows.padding(.top, 14)
-
             Text("Chats").font(.system(size: 12, weight: .medium)).foregroundStyle(Phone.dim)
-                .padding(.top, 26).padding(.bottom, 6)
+                .padding(.top, 22).padding(.bottom, 6)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     chatRow("All history", selected: currentChat == nil) { onOpenChat(nil) }
@@ -60,17 +55,6 @@ struct PhoneDrawer: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Phone.ink.ignoresSafeArea())
         .overlay(alignment: .trailing) { Rectangle().fill(Phone.hairline).frame(width: 1).ignoresSafeArea() }
-    }
-
-    private var sectionRows: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            row("house", "Home", id: "drawerHome") { onOpenSection("home") }
-            row("sun.max", "Today", id: "drawerToday") { onOpenSection("today") }
-            row("calendar", "Plan", id: "drawerPlan") { onOpenSection("plan") }
-            row("heart", "Health & tracking", id: "drawerHealth") { onOpenSection("health") }
-            row("camera", "Log food", id: "drawerLogFood", action: onLogFood)
-            row("slider.horizontal.3", "Focus, Mac & settings", id: "drawerControl", badge: waitingApprovals) { onOpenSection("control") }
-        }
     }
 
     private var footer: some View {

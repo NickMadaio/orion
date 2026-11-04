@@ -179,8 +179,10 @@ struct PhoneHomeGlanceRow: View {
     }
 }
 
-/// The "Food photo" entry point: a camera pill in the glance row's language, opening the food capture sheet.
-struct PhoneHomeFoodPill: View {
+/// The Done early pill, in the glance row's language: a quiet outline pill that asks first (the caller confirms).
+struct PhoneHomeDoneEarlyPill: View {
+    var working = false
+    let hint: String
     let action: () -> Void
     @Environment(\.colorScheme) private var scheme
 
@@ -188,18 +190,20 @@ struct PhoneHomeFoodPill: View {
         let ink = PhoneHomeInk(scheme)
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: "camera").font(.system(size: 13, weight: .regular))
-                Text("FOOD PHOTO").font(.system(size: 9.5, weight: .semibold, design: .monospaced)).tracking(2.2)
+                if working { ProgressView().controlSize(.small).tint(PhoneHomeHue.done) }
+                else { Image(systemName: DoneEarly.symbol).font(.system(size: 13, weight: .regular)) }
+                Text(DoneEarly.label.uppercased()).font(.system(size: 9.5, weight: .semibold, design: .monospaced)).tracking(2.2)
             }
             .foregroundStyle(ink.text.opacity(0.85))
-            .padding(.horizontal, 14).frame(height: 34)
-            .overlay(Capsule().strokeBorder(PhoneHomeHue.accent.opacity(0.65), lineWidth: 1))
-            .shadow(color: PhoneHomeHue.accent.opacity(0.28), radius: 6)
+            .padding(.horizontal, 14).frame(height: 44)
+            .overlay(Capsule().strokeBorder(PhoneHomeHue.done.opacity(0.7), lineWidth: 1))
+            .shadow(color: PhoneHomeHue.done.opacity(0.28), radius: 6)
             .contentShape(Capsule())
         }
         .buttonStyle(HomePressStyle())
-        .accessibilityLabel("Food photo")
-        .accessibilityHint("Take or choose a photo of a meal and send it to ORION")
-        .accessibilityIdentifier("homeFoodPhoto")
+        .disabled(working)
+        .accessibilityLabel(DoneEarly.label)
+        .accessibilityHint(hint)
+        .accessibilityIdentifier("homeDoneEarly")
     }
 }

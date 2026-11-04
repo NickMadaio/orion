@@ -52,7 +52,7 @@ struct TrackingSection: View {
         .sensoryFeedback(.increase, trigger: tracking.waterBottles)
     }
 
-    private func fraction(_ value: Int, _ goal: Int) -> Double? { goal > 0 ? min(1, Double(value) / Double(goal)) : nil }
+    private func fraction(_ value: Int, _ goal: Int) -> Double? { RingMath.fraction(Double(value), of: Double(goal)) }
 
     private func food(_ tracking: LinkSnapshot.Tracking) -> some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -124,11 +124,10 @@ struct TrackingSection: View {
 
 // MARK: - Today's compact strip
 
-/// Water and food at a glance, with the two taps people actually make.
+/// Water at a glance and one tap. Food is logged only from the Health tab's Log food button.
 struct TodayTracking: View {
     @ObservedObject var remote: RemoteStore
     var openHealth: () -> Void
-    @State private var loggingFood = false
 
     var body: some View {
         if let tracking = remote.tracking {
@@ -139,15 +138,10 @@ struct TodayTracking: View {
                         remote.log(.water(delta: 1))
                     }
                     .accessibilityLabel("Add a bottle of water, \(tracking.waterBottles) so far")
-                    tile(symbol: "camera", tint: Phone.orange, value: tracking.calories.formatted(), label: "of \(tracking.calorieGoal.formatted())") {
-                        loggingFood = true
-                    }
-                    .accessibilityLabel("Log food, \(tracking.calories) calories so far")
                 }
                 Button(action: openHealth) { Label("Health and supplements", systemImage: "arrow.right") }
                     .buttonStyle(PhoneButtonStyle())
             }
-            .foodLogging(trigger: $loggingFood, remote: remote, conversationID: nil)
         }
     }
 

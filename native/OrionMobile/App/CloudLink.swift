@@ -58,6 +58,7 @@ final class CloudLink: ObservableObject {
     private var subscribed = false
     private var lastSubscribeAttempt = Date.distantPast
     private var fetching = false
+    private var decodeProblem: String?
 
     func start() {
         guard loop == nil else { return }
@@ -65,8 +66,10 @@ final class CloudLink: ObservableObject {
             Task { @MainActor in await self?.refresh() }
         }
         loop = Task { [weak self] in
-            await self?.prepare()
             while !Task.isCancelled {
+                // A failed first setup (no signal at launch, an iCloud hiccup) used to leave the link dead until relaunch:
+                // keep trying until the zone is ready, then fetch.
+                if self?.iCloudReady == false { await self?.prepare() }
                 await self?.refresh()
                 try? await Task.sleep(for: .seconds(4))
             }
@@ -162,7 +165,7 @@ final class CloudLink: ObservableObject {
             }
             changeToken = token
             publishMessages()
-            problem = nil
+            problem = decodeProblem
         } catch let error as CKError where error.code == .changeTokenExpired {
             changeToken = nil
             byID = [:]
@@ -179,8 +182,16 @@ final class CloudLink: ObservableObject {
     private func absorb(_ record: CKRecord) {
         switch record.recordType {
         case LinkSchema.stateType:
-            if let json = record[LinkSchema.stateJSON] as? String, let decoded = try? LinkSnapshot.decode(Data(json.utf8)) {
-                snapshot = decoded
+            guard let json = record[LinkSchema.stateJSON] as? String else { break }
+            let decoded: LinkSnapshot
+            do { decoded = try LinkSnapshot.decode(Data(json.utf8)) } catch {
+                // Never silent: an unreadable snapshot looks exactly like a Mac that is offline.
+                decodeProblem = "The Mac's state could not be read (\(error)). Update ORION on both devices."
+                break
+            }
+            decodeProblem = nil
+            snapshot = decoded
+            do {
                 PlaceMonitor.shared.update(places: decoded.knownPlaces)   // his confirmed places, for the geofences
                 // The Mac is alive: it sends bedtime messages with context (2026-10-07).
                 if Date().timeIntervalSince(decoded.generatedAt) < NightRoutine.macFreshSeconds {

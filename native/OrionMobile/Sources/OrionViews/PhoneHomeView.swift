@@ -12,7 +12,6 @@ import ThinkingOrbsKit
 */
 
 public struct PhoneHomeActions {
-    public var onMenu: () -> Void = {}
     public var onOpenChat: () -> Void = {}
     /// Opens the chat with this ask bound as the reply target.
     public var onReply: (String) -> Void = { _ in }
@@ -25,8 +24,6 @@ public struct PhoneHomeActions {
     public var onAddWater: () -> Void = {}
     public var onOpenGlance: (PhoneHome.GlanceItem.Kind) -> Void = { _ in }
     public var onOpenPlan: () -> Void = {}
-    /// Opens the food photo capture sheet.
-    public var onLogFood: () -> Void = {}
     public init() {}
 }
 
@@ -85,7 +82,13 @@ public struct PhoneHomeView: View {
                 PhoneHomeGlanceRow(items: home.glance, onAddWater: actions.onAddWater, onOpen: actions.onOpenGlance)
                     .softReveal(delay: 0.15)
             }
-            PhoneHomeFoodPill(action: actions.onLogFood).softReveal(delay: 0.2)
+            VStack(alignment: .leading, spacing: 8) {
+                PhoneHomeDoneEarlyPill(working: status.earlyWorking, hint: home.doneEarly.hint) { confirmingEarly = true }
+                if let line = status.earlyFeedback ?? home.doneEarly.nextLine {
+                    Text(line).font(.system(size: 12.5)).foregroundStyle(ink.dim).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .softReveal(delay: 0.2)
             cards.padding(.top, 6)
         }
         .padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 28)
@@ -95,7 +98,7 @@ public struct PhoneHomeView: View {
 
     private func topBar(_ ink: PhoneHomeInk) -> some View {
         HStack {
-            barButton("line.3.horizontal", label: "Menu", id: "openDrawer", ink: ink, action: actions.onMenu)
+            Color.clear.frame(width: 44, height: 44)
             Spacer()
             HStack(spacing: 6) {
                 Circle().fill(status.online ? PhoneHomeHue.done : ink.dim).frame(width: 5, height: 5)
@@ -157,13 +160,12 @@ public struct PhoneHomeView: View {
         }
     }
 
-    private enum Card: Hashable { case next, empty, ask, approval(String), early }
+    private enum Card: Hashable { case next, empty, ask, approval(String) }
 
     private var cardOrder: [Card] {
         var cards: [Card] = [home.next == nil ? .empty : .next]
         if let ask = home.ask, !status.answered.contains(ask.id) { cards.append(.ask) }
         cards += home.approvals.map { .approval($0.id) }
-        cards.append(.early)
         return cards
     }
 
@@ -179,7 +181,6 @@ public struct PhoneHomeView: View {
                           tilt: tilt) { EmptyView() }
         case .ask: askCard(tilt: tilt)
         case .approval(let id): if let approval = home.approvals.first(where: { $0.id == id }) { approvalCard(approval, tilt: tilt) }
-        case .early: earlyCard(tilt: tilt)
         }
     }
 
@@ -229,17 +230,6 @@ public struct PhoneHomeView: View {
                         .accessibilityIdentifier("homeDeny")
                 }
             }
-        }
-    }
-
-    private func earlyCard(tilt: Double) -> some View {
-        PhoneHomeCard(hue: PhoneHomeHue.done, kicker: home.doneEarly.kicker, title: home.doneEarly.title,
-                      lines: [home.doneEarly.nextLine, status.earlyFeedback].compactMap { $0 }, tilt: tilt) {
-            PhoneHomePill(title: DoneEarly.label, hue: PhoneHomeHue.done, symbol: DoneEarly.symbol, working: status.earlyWorking,
-                          large: true) { confirmingEarly = true }
-                .disabled(status.earlyWorking)
-                .accessibilityHint(home.doneEarly.hint)
-                .accessibilityIdentifier("homeDoneEarly")
         }
     }
 

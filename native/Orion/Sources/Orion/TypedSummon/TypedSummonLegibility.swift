@@ -35,8 +35,8 @@ struct TypedSummonTheme: Equatable {
 enum TypedSummonLegibility {
     static let aa = 4.5
     /// The faintest wash that is always there, so a lucky backdrop never leaves the text bare.
-    static let baseScrim = 0.84
-    static let maxScrim = 0.92
+    static let baseScrim = 0.93
+    static let maxScrim = 0.97
     static let darkInkLuminance = luminance(red: 0.05, green: 0.06, blue: 0.09)
     static let lightInkLuminance = luminance(red: 0.97, green: 0.98, blue: 1)
     /// Scrim tones, as luminance.
@@ -92,7 +92,7 @@ enum TypedSummonLegibility {
         while scrim < maxScrim, contrast(ink, covered(luminance, by: tone, opacity: scrim)) < aa + 0.1 { scrim += 0.01 }
         let result = contrast(ink, covered(luminance, by: tone, opacity: scrim))
         return TypedSummonTheme(darkInk: dark, textScrim: scrim, textContrast: result, hologramRim: light && dark,
-                                hologramHalo: dark ? min(0.88, 0.45 + luminance * 0.45) : 0,
+                                hologramHalo: dark ? 0.85 : 0,
                                 composerFill: dark ? 0.88 : 0.62, composerOutline: dark ? 0.6 : 0, solid: false)
     }
 

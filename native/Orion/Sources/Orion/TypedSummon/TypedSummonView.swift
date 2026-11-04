@@ -97,43 +97,46 @@ struct TypedSummonView: View {
         }
     }
 
-    /// A soft dark depth behind the hologram on light desktops; a solid disc under Reduce Transparency; nothing when dark.
+    /// A deep-navy lens the hologram sits in on light desktops, with a faint blue glow outside it; a solid disc under
+    /// Reduce Transparency; nothing when the desktop is dark.
     @ViewBuilder
     private func hologramScrim(_ frame: CGRect) -> some View {
-        let reach = frame.width * 0.72
-        let deep = Color(red: 0.02, green: 0.03, blue: 0.09)
+        let reach = frame.width * 0.65   // 1.3x the hologram radius
+        let navy = Color(red: 0.043, green: 0.078, blue: 0.149)   // #0B1426
         if theme.solid, theme.hologramHalo > 0 {
-            Circle().fill(OrionTheme.ink.opacity(0.94)).frame(width: frame.width * 0.9, height: frame.width * 0.9)
+            Circle().fill(navy).frame(width: frame.width * 0.95, height: frame.width * 0.95)
                 .position(x: frame.midX, y: frame.midY).allowsHitTesting(false)
         } else if theme.hologramHalo > 0 {
-            Circle()
-                .fill(RadialGradient(stops: [.init(color: deep.opacity(theme.hologramHalo), location: 0),
-                                             .init(color: deep.opacity(theme.hologramHalo * 0.92), location: 0.45),
-                                             .init(color: deep.opacity(theme.hologramHalo * 0.4), location: 0.75),
-                                             .init(color: .clear, location: 1)],
-                                     center: .center, startRadius: 0, endRadius: reach))
-                .frame(width: reach * 2, height: reach * 2)
-                .position(x: frame.midX, y: frame.midY).allowsHitTesting(false)
+            ZStack {
+                Circle()
+                    .fill(RadialGradient(colors: [Color(red: 0.25, green: 0.5, blue: 1).opacity(0.22), .clear],
+                                         center: .center, startRadius: reach * 0.7, endRadius: reach * 1.25))
+                    .frame(width: reach * 2.5, height: reach * 2.5)
+                Circle()
+                    .fill(RadialGradient(stops: [.init(color: navy.opacity(theme.hologramHalo), location: 0),
+                                                 .init(color: navy.opacity(theme.hologramHalo), location: 0.55),
+                                                 .init(color: navy.opacity(theme.hologramHalo * 0.45), location: 0.8),
+                                                 .init(color: navy.opacity(0), location: 1)],
+                                         center: .center, startRadius: 0, endRadius: reach))
+                    .frame(width: reach * 2, height: reach * 2)
+            }
+            .position(x: frame.midX, y: frame.midY).allowsHitTesting(false)
         }
     }
 
-    /// A feathered wash behind the answer, never a box: an ellipse that fades to nothing. Solid under Reduce Transparency.
+    /// A plate over the answer's bounding box with a feathered ~24pt edge: a soft glow, not a box. It is dense enough
+    /// that whatever is behind the words is calmed. Solid under Reduce Transparency.
     @ViewBuilder
     private func answerScrim(_ frame: CGRect) -> some View {
-        let wide = frame.width + 170, tall = frame.height + 130
         if theme.solid {
             RoundedRectangle(cornerRadius: 16, style: .continuous).fill(scrimTone)
                 .frame(width: frame.width + 36, height: frame.height + 28)
                 .position(x: frame.midX, y: frame.midY).allowsHitTesting(false)
         } else {
-            Circle()
-                .fill(RadialGradient(stops: [.init(color: scrimTone.opacity(theme.textScrim), location: 0),
-                                             .init(color: scrimTone.opacity(theme.textScrim * 0.95), location: 0.6),
-                                             .init(color: scrimTone.opacity(theme.textScrim * 0.4), location: 0.82),
-                                             .init(color: .clear, location: 1)],
-                                     center: .center, startRadius: 0, endRadius: wide / 2))
-                .frame(width: wide, height: wide)
-                .scaleEffect(x: 1, y: tall / wide)
+            // Inflated by the feather so the blur's half-opacity edge sits 24pt outside the text.
+            RoundedRectangle(cornerRadius: 26, style: .continuous).fill(scrimTone.opacity(theme.textScrim))
+                .frame(width: frame.width + 48, height: frame.height + 48)
+                .blur(radius: 14)
                 .position(x: frame.midX, y: frame.midY).allowsHitTesting(false)
         }
     }

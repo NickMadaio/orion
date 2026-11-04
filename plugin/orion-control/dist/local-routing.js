@@ -53,6 +53,7 @@ import { detectComputerIntent } from "./computer-intent.js";
 import { stepsAsToolResults } from "./computer-evidence.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
+import { NOTE_ASK, NOTE_WINDOW_MS, isBareNoteRequest, isOtherCommand, parseNote } from "./note-flow.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply } from "./late-flow.js";
@@ -235,7 +236,7 @@ export function isCalendarTurn(message, settled, askOpen = false) {
     return true;
 }
 // A fact he tells ORION, including a habit ("i take creatine every morning at 8"): saved, never drafted (2026-10-15).
-const keepsFact = (message) => tellsFact(message) || (HABIT.test(message) && !CHANGE_REQUEST.test(message) && !/\?\s*$/.test(message.trim()));
+const keepsFact = (message) => tellsFact(message) || parseNote(message) !== null || (HABIT.test(message) && !CHANGE_REQUEST.test(message) && !/\?\s*$/.test(message.trim()));
 const BRAIN = /\b(remember|note|notes|brain|wrote|write down|repair (queue|list)|bug|save (that|this|it))\b/i;
 /** The front desk's session start, task and length (sweep 2026-10-15, q051: it read "focus mode on for an
  *  hour, leetcode" right — session start, task leetcode — and the calendar flow booked "focus mode"). */
@@ -677,7 +678,7 @@ export function registerLocalRouting(api, options) {
                 return schedule(m, c, { ...o, ...(context ? { replanContext: context } : {}), ...(made?.kind === "block" ? { lastTarget: { title: made.title, ...(made.start ? { start: made.start } : {}), dateArgs: made.dateArgs } } : {}), ...(r?.abort ? { signal: r.abort.signal, onWriteStart: () => { r.writeStarted = true; progress.stage(r.sessionKey, "changing-calendar"); } } : {}) });
             } } : {}),
         ...(options.lateFlow ? { lateFlow: marked(options.lateFlow) } : {}), ...(options.sessionFlow ? { sessionFlow: marked(options.sessionFlow) } : {}),
-        ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow) } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow) } : {}) };
+        ...(options.wakeFlow ? { wakeFlow: marked(options.wakeFlow) } : {}), ...(options.todoDoneFlow ? { todoDoneFlow: marked(options.todoDoneFlow) } : {}), ...(options.noteFlow ? { noteFlow: marked(options.noteFlow) } : {}) };
     const on = options.mode === "on";
     // 2026-10-16, Nick: "i dont want to EVER have to use the cloud model unless necessary". "on" no longer needs
     // an acceptance pass or a 48 h testing window: both assumed the cloud model was a safe fallback, and with
@@ -748,6 +749,17 @@ export function registerLocalRouting(api, options) {
     };
     /** Per session: the reminder just set (for "no wait make it 5:30") and an unanswered "what/when?" about one. */
     const lastReminder = new Map();
+    /** w18 note: sessions waiting for the note after a bare "make a note" (when it was asked); the next message in that chat is the note. */
+    const noteAwait = new Map();
+    const saveNote = async (run, bound) => {
+        const saved = await options.noteFlow(run.message, bound).catch((e) => ({ outcome: "fallback", reason: String(e) }));
+        if (saved.outcome === "fallback")
+            return;
+        run.flow = saved;
+        const calls = saved.outcome === "done" ? saved.calls : saved.calls ?? [];
+        const outputs = saved.outcome === "done" ? saved.outputs : saved.outputs ?? [];
+        calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: outputs[i] ?? "", exit: null }));
+    };
     const reminderAsk = new Map();
     /** Per session: an unanswered "how late?" (q029), and the last late move code ran (so "yeah push everything after it" does not move it twice). */
     const lateAsk = new Map();
@@ -1488,6 +1500,17 @@ export function registerLocalRouting(api, options) {
             }
             if (!run.flow && run.hushed)
                 run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
+            // w18 note: a bare "make a note" is asked once by code, and his next message (10 minutes, this chat) is the whole note; a clear command unbinds it.
+            if (!run.flow && !run.cutOff && options.noteFlow && run.sessionKey) {
+                const asked = noteAwait.get(run.sessionKey);
+                noteAwait.delete(run.sessionKey);
+                if (isBareNoteRequest(run.message)) {
+                    noteAwait.set(run.sessionKey, nowMs());
+                    run.flow = { outcome: "say", kind: "ask", text: NOTE_ASK };
+                }
+                else if (asked !== undefined && nowMs() - asked < NOTE_WINDOW_MS && !isOtherCommand(run.message))
+                    await saveNote(run, true);
+            }
             // 2026-10-31 (pending-reply.ts): his short reply to ORION's own nudge does what the nudge offered, before any template or chatter guard.
             if (!run.flow && !run.cutOff && run.pending && (run.addAnswer || run.late) && run.sessionKey)
                 pendingMemory.setMemo(run.sessionKey, null); // REV4: ORION's own question here comes first
@@ -1859,6 +1882,9 @@ export function registerLocalRouting(api, options) {
             // drafts said "I've noted that" and saved nothing, the allergy became an alarm, the creatine habit a
             // calendar block, the insurance date went to the repair queue, and "whats my allergy" got an offer to look).
             // 2026-10-30: out loud, only "remember …" / "orion note that …" is a fact to save ("Saved: Frozen." came from room speech).
+            // w18 note: "make a note ..." / "remember that ..." keeps his whole text, saved by code (note-flow.ts), never summarised by the worker.
+            if (!run.flow && !run.cutOff && options.noteFlow && parseNote(run.message))
+                await saveNote(run, false);
             const factTurn = run.spoken ? tellsFactAloud(run.message) : keepsFact(run.message);
             if (!run.flow && !run.cutOff && (factTurn || asksRecall(run.message))) {
                 const fact = factTurn;

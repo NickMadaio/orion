@@ -212,6 +212,9 @@ test("M5: but if he missed the first class, the second class's ladder still fire
   assert.ok(out.some((o) => o.urgent), JSON.stringify(out));
 });
 
+// Pinned to today 12:00 local: these ticks read the wall clock, and quiet hours held every check-in when the suite ran at 01:33 (2026-11-04).
+const NOON = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d; })();
+const NOON_ENV = { ORION_NOW: NOON.toISOString() };
 // ---- M6 -------------------------------------------------------------------------------------
 test("M6: a check-in he set fires during a focus session, at any level", async () => {
   const home = mkdtempSync(join(tmpdir(), "orion-m6-"));
@@ -220,10 +223,10 @@ test("M6: a check-in he set fires during a focus session, at any level", async (
   try {
     await new Promise((res) => srv.stdout.once("data", res));
     writeFileSync(join(home, "cal.json"), "[]");
-    const nowMin = Math.floor(Date.now() / 60000);
+    const nowMin = Math.floor(NOON.getTime() / 60000);
     const file = join(home, "checkins.json");
-    writeFileSync(file, JSON.stringify({ checkins: [{ id: "ci-1", what: "start the DS lab write-up", dueAt: nowMin - 5, createdAt: new Date().toISOString(), alerts: 0, returning: null, loop: { blockId: "ci-1", phase: "waiting", level: 0, nextCheckAt: nowMin - 5, deferrals: 0, history: [] } }] }));
-    const tick = () => JSON.parse(spawnSync(process.execPath, [join(W, "scripts/orion-checkin"), "tick", "--json"], { encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, ORION_CHECKIN_FILE: file,
+    writeFileSync(file, JSON.stringify({ checkins: [{ id: "ci-1", what: "start the DS lab write-up", dueAt: nowMin - 5, createdAt: NOON.toISOString(), alerts: 0, returning: null, loop: { blockId: "ci-1", phase: "waiting", level: 0, nextCheckAt: nowMin - 5, deferrals: 0, history: [] } }] }));
+    const tick = () => JSON.parse(spawnSync(process.execPath, [join(W, "scripts/orion-checkin"), "tick", "--json"], { encoding: "utf8", env: { ...NOON_ENV, PATH: process.env.PATH, HOME: home, ORION_CHECKIN_FILE: file,
       ORION_BRIDGE_BIN: join(W, "tests/fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"), ORION_SESSION_SOCKET: sock } }).stdout);
     assert.equal(tick().length, 1, "the first reminder he asked for goes through");
     const saved = JSON.parse(readFileSync(file, "utf8")); saved.checkins[0].loop.nextCheckAt = nowMin - 1; writeFileSync(file, JSON.stringify(saved));
@@ -327,11 +330,11 @@ test("check-ins: one ORION generated (--by orion) waits for the session; one he 
   try {
     await new Promise((res) => srv.stdout.once("data", res));
     writeFileSync(join(home, "cal.json"), "[]");
-    const nowMin = Math.floor(Date.now() / 60000);
-    const mk = (id, by) => ({ id, what: `start ${id}`, by, dueAt: nowMin - 5, createdAt: new Date().toISOString(), alerts: 0, returning: null, loop: { blockId: id, phase: "waiting", level: 0, nextCheckAt: nowMin - 5, deferrals: 0, history: [] } });
+    const nowMin = Math.floor(NOON.getTime() / 60000);
+    const mk = (id, by) => ({ id, what: `start ${id}`, by, dueAt: nowMin - 5, createdAt: NOON.toISOString(), alerts: 0, returning: null, loop: { blockId: id, phase: "waiting", level: 0, nextCheckAt: nowMin - 5, deferrals: 0, history: [] } });
     const file = join(home, "checkins.json");
     writeFileSync(file, JSON.stringify({ checkins: [mk("ci-mine", "nick"), mk("ci-orion", "orion")] }));
-    const out = JSON.parse(spawnSync(process.execPath, [join(W, "scripts/orion-checkin"), "tick", "--json"], { encoding: "utf8", env: { PATH: process.env.PATH, HOME: home, ORION_CHECKIN_FILE: file,
+    const out = JSON.parse(spawnSync(process.execPath, [join(W, "scripts/orion-checkin"), "tick", "--json"], { encoding: "utf8", env: { ...NOON_ENV, PATH: process.env.PATH, HOME: home, ORION_CHECKIN_FILE: file,
       ORION_BRIDGE_BIN: join(W, "tests/fixtures/fake-bridge.mjs"), FAKE_CALENDAR: join(home, "cal.json"), ORION_SESSION_SOCKET: sock } }).stdout);
     assert.deepEqual(out.map((a) => a.id), ["ci-mine"]);
   } finally { srv.kill(); }

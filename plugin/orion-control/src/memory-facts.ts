@@ -54,7 +54,7 @@ export function asksRecall(message: string): boolean {
 }
 
 export const FACT_NOTE = [
-  "Nick is telling you a fact to remember. Save it now with ONE exec call: /Users/nickmadaio/Desktop/ORION/scripts/orion-brain learn \"Nick\" \"fact\" \"<the fact, short, in the third person>\".",
+  "Nick is telling you a fact to remember. Save it now with ONE exec call: /Users/nickmadaio/Desktop/ORION/scripts/orion-brain learn \"Nick\" \"fact\" \"<the fact>\". Keep ALL of what he said: every sentence and detail, in his words. Never shorten, summarise or keep only the first sentence; only a one-clause fact may be tidied into the third person.",
   "Example — Nick: my lab partner for ds lab is priya → exec orion-brain learn \"Nick\" \"fact\" \"DS lab partner is Priya\" → \"Added to \\\"Nick\\\": …\" → ORION: Saved: your DS lab partner is Priya.",
   "Save the fact itself, never a calendar block, alarm or to-do. The ORION repair queue is only for problems with ORION itself, never for his facts.",
   "Say it is saved only if the learn result shows it was added.",

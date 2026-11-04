@@ -98,11 +98,12 @@ test("orion-notify flush: held in focus, released once on a break", () => {
 
 test("orion-watch: alerts wait in the held queue during focus (heldFor focus), a class reminder does not", () => {
   const h = harness();
-  const d = new Date(); const t = (hh, mm) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm).toISOString();
+  const d = new Date(); d.setHours(12, 0, 0, 0);   // pinned to noon: the held-queue gate read the real 01:33 (2026-11-04)
+  const t = (hh, mm) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm).toISOString();
   writeFileSync(join(h.home, "cal.json"), JSON.stringify([{ identifier: "cs", title: "CS1800 Discrete Structures — Lecture", start: t(9, 0), end: t(10, 30) }]));
   writeFileSync(join(h.home, "watch.json"), "{}");
-  state(h, "focus");
-  const env = { HOME: h.home, ORION_WATCH_FILE: join(h.home, "watch.json"), ORION_HEALTH_LOG: join(h.dir, "health-log.json") };
+  h.setAwareness({ session: { state: "focus", at: d.toISOString() }, sleep: { state: "awake", at: d.toISOString() } }, d);
+  const env = { ORION_NOW: d.toISOString(), HOME: h.home, ORION_WATCH_FILE: join(h.home, "watch.json"), ORION_HEALTH_LOG: join(h.dir, "health-log.json") };
   const r = h.run("orion-watch", ["tick", "--at", "08:52"], env);
   assert.equal(r.status, 0, r.stderr);
   const sent = h.read("alerts-outbox.jsonl").map((a) => a.id);

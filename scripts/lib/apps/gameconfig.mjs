@@ -1,11 +1,13 @@
 // The files game mode lives in, under ~/.openclaw/orion-controlled (tests pass a temp dir):
-//   game-prep.json     { version, autoPrep, keep: [app names] }: written here and by the Mac app's setting; reading never creates it
+//   game-prep.json     { version, autoPrep, keep: [app names], always: [names he added], alwaysIds: [bundle ids] }: written here and by the Mac app's setting;
+//                      reading never creates it. keep is the game list (defaults included); always is only what he added, and is also spared by quit-unused and bedtime.
 //   game-session.json  { version, active, game, pids, startedAt, endedAt, prep: {...} }: the Mac app writes the session part, orion-apps the prep part.
 //                      Each writer re-reads before it writes (tmp + rename), so neither drops the other's keys.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { norm } from "./policy.mjs";
+import { resolveAppName, sameUpToTypo } from "./resolve.mjs";
 
 export const DEFAULT_KEEP = ["Discord", "Spotify", "Music", "Zoom", "FaceTime", "Microsoft Teams", "Skype", "Mumble", "TeamSpeak"];
 
@@ -19,35 +21,62 @@ function writeJson(dir, name, value) {
   renameSync(tmp, join(dir, name));
 }
 
+const strings = (x) => (Array.isArray(x) ? x.filter((k) => typeof k === "string" && k.trim()) : []);
 export function loadConfig(dir) {
   const j = readJson(join(dir, "game-prep.json")) ?? {};
-  const keep = Array.isArray(j.keep) ? j.keep.filter((k) => typeof k === "string" && k.trim()) : DEFAULT_KEEP;
-  return { version: 1, autoPrep: j.autoPrep !== false, keep };
+  const keep = Array.isArray(j.keep) ? strings(j.keep) : DEFAULT_KEEP;
+  return { version: 1, autoPrep: j.autoPrep !== false, keep, always: strings(j.always), alwaysIds: strings(j.alwaysIds) };
 }
-const saveConfig = (dir, c) => writeJson(dir, "game-prep.json", { version: 1, autoPrep: c.autoPrep, keep: c.keep });
+const saveConfig = (dir, c) => writeJson(dir, "game-prep.json", { version: 1, autoPrep: c.autoPrep, keep: c.keep, always: c.always ?? [], alwaysIds: c.alwaysIds ?? [] });
+
+/** What is spared everywhere (quit-unused, bedtime), not only when he games: the apps he asked to keep open, by name and bundle id. */
+export function alwaysKept(dir) { const { always, alwaysIds } = loadConfig(dir); return { names: always, ids: alwaysIds }; }
 
 const list = (xs) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
 const title = (s) => s.trim().replace(/\s+/g, " ");
+const has = (xs, name) => xs.some((x) => norm(x) === norm(name) || sameUpToTypo(x, name));
 
-export function addKeep(dir, names) {
-  const c = loadConfig(dir);
-  const have = new Set(c.keep.map(norm));
-  const added = [];
-  for (const n of names.map(title).filter(Boolean)) if (!have.has(norm(n))) { have.add(norm(n)); added.push(n); }
-  const shown = names.map(title).filter(Boolean);
-  if (added.length) saveConfig(dir, { ...c, keep: [...c.keep, ...added] });
-  return { ok: true, changed: added.length > 0, keep: [...c.keep, ...added],
-    say: added.length ? `Got it, I won't close ${list(added)} when you game.` : `${list(shown)} ${shown.length > 1 ? "are" : "is"} already on the list I leave alone when you game.` };
+/** A typed name becomes the real app's name when one is installed or running ("vorsaint" -> Vorssaint); otherwise it stays as he typed it. */
+function resolved(names, candidates, bundleIdOf) {
+  return names.map(title).filter(Boolean).map((typed) => {
+    const hit = resolveAppName(typed, candidates);
+    return { name: hit?.name ?? typed, bundleId: hit?.bundleId || (hit?.path && bundleIdOf ? bundleIdOf(hit.path) : "") };
+  });
 }
 
-export function removeKeep(dir, names) {
+export function addKeep(dir, names, { candidates = [], bundleIdOf } = {}) {
   const c = loadConfig(dir);
-  const drop = names.map((n) => norm(n)).filter(Boolean);
-  const gone = c.keep.filter((k) => drop.includes(norm(k)));
-  const keep = c.keep.filter((k) => !gone.includes(k));
-  if (gone.length) saveConfig(dir, { ...c, keep });
-  return { ok: true, changed: gone.length > 0, keep,
-    say: gone.length ? `Okay, ${list(gone)} can close when you game.` : `${list(names.map(title))} wasn't on the keep list.` };
+  const picks = resolved(names, candidates, bundleIdOf);
+  const shown = [...new Set(picks.map((p) => p.name))];
+  const fresh = picks.filter((p, i) => picks.findIndex((q) => norm(q.name) === norm(p.name)) === i);
+  const addedAlways = fresh.filter((p) => !has(c.always, p.name));
+  const addedKeep = fresh.filter((p) => !has(c.keep, p.name));
+  const ids = [...c.alwaysIds, ...addedAlways.map((p) => p.bundleId).filter((id) => id && !c.alwaysIds.includes(id))];
+  const keep = [...c.keep, ...addedKeep.map((p) => p.name)], always = [...c.always, ...addedAlways.map((p) => p.name)];
+  if (addedAlways.length || addedKeep.length) saveConfig(dir, { ...c, keep, always, alwaysIds: ids });
+  return { ok: true, changed: addedAlways.length > 0 || addedKeep.length > 0, keep, always,
+    say: addedAlways.length ? `I'll always leave ${list(addedAlways.map((p) => p.name))} open.` : `${list(shown)} ${shown.length > 1 ? "are" : "is"} already on the list I always leave open.` };
+}
+
+export function removeKeep(dir, names, { candidates = [], bundleIdOf } = {}) {
+  const c = loadConfig(dir);
+  const picks = resolved(names, candidates, bundleIdOf);
+  const drops = (k) => picks.some((p) => norm(p.name) === norm(k) || sameUpToTypo(p.name, k));
+  const gone = [...new Set([...c.keep, ...c.always].filter(drops))];
+  const keep = c.keep.filter((k) => !drops(k)), always = c.always.filter((k) => !drops(k));
+  const goneIds = picks.map((p) => p.bundleId).filter(Boolean);
+  const alwaysIds = c.alwaysIds.filter((id) => !goneIds.includes(id));
+  if (gone.length) saveConfig(dir, { ...c, keep, always, alwaysIds });
+  return { ok: true, changed: gone.length > 0, keep, always,
+    say: gone.length ? `Okay, ${list(gone)} can close again.` : `${list(picks.map((p) => p.name))} wasn't on the keep list.` };
+}
+
+/** The reply to "what do you always keep open": his own list first, then the apps game mode leaves alone by default. */
+export function keepListSay(config) {
+  const game = config.keep.filter((k) => !has(config.always, k));
+  const mine = config.always.length ? `I always leave ${list(config.always)} open.` : "You haven't asked me to always keep anything open, so nothing is on the always list.";
+  const defaults = game.length ? ` When you game I also leave ${list(game)} alone.` : "";
+  return `${mine}${defaults}`;
 }
 
 export function setAutoPrep(dir, on) {

@@ -9,10 +9,14 @@
    except   "close everything except chrome", "quit all apps but spotify and discord"
    quit     "quit spotify and discord", "close epic games", "kill teamviewer"
    hide     "hide chrome"
+   keep     "keep vorsaint at all times", "never close vorssaint", "stop keeping X", "what do you always keep open" (gameKeep / keepList)
+   music    "play my music", "pause", "skip", "play lofi on spotify" (music-read.ts)
 
  Not about apps: "quit smoking", "close the door", "close this tab", "close it" (nothing to name), a question about how to close something.
  An unclear which-apps request is the sensible quit-unused, never a question: these actions are pre-approved and harmless.
 */
+import { readMusicTurn, type MusicTurn } from "./music-read.js";
+
 export type AppsTurn =
   | { kind: "list" }
   | { kind: "unused"; also: string[] }
@@ -22,6 +26,8 @@ export type AppsTurn =
   | { kind: "gameMode"; on: boolean }
   | { kind: "gameReady"; game?: string }
   | { kind: "gameKeep"; op: "add" | "remove"; names: string[] }
+  | { kind: "keepList" }
+  | MusicTurn
   | { kind: "gameLast" };
 
 const flat = (s: string) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
@@ -114,11 +120,57 @@ function readGameTurn(m: string): AppsTurn | null {
   return null;
 }
 
+// Keep open at all times (w18 keep): "keep vorsaint at all times", "never close vorssaint", "always leave spotify open", "vorssaint stays open",
+// "stop keeping X", "what do you always keep open". Carried out by `orion-apps game-prep keep add|remove|list`, which resolves a misspelling to the real app.
+const LEAD = String.raw`(?:(?:can you|can u|could you|pls|please|hey|ok|okay|orion|yo|just|also|and|so|now)[,\s]+)*`;
+const QUALIFIER = /\s+(?:open|running|on|alive|at all times|all the time|always|ever|forever|at any time|anytime|no matter what|pls|please|rn|for me|anymore|any more)$/;
+const NOT_KEEP_NAME = /\b(?:store|shop|bar|restaurant|place|gym|library|office|cafe|mouth|track|streak|posted|going|alone|early|late|up|me|myself|tabs?|fridge|score|count|pace|distance)\b|^(?:on|my|us|too|yet|again|ever|today|tonight|early|late)\b/;
+const keepNames = (body: string): string[] => {
+  let b = body.trim();
+  for (let i = 0; i < 4 && QUALIFIER.test(b); i++) b = b.replace(QUALIFIER, "").trim();
+  return splitNames(b.replace(/\bor\b/g, "and")).filter((n) => appish(n) && !NOT_KEEP_NAME.test(n));
+};
+const KEEP_ASK = [
+  /\b(?:what|which)\s+(?:apps?\s+|programs?\s+|things\s+)?(?:do|did|will)\s+(?:you|u|ya)\s+(?:always\s+|never\s+)?(?:keep|leave)\s+(?:\w+\s+)?(?:open|running|alone)\b/,
+  /\b(?:what|which)\s+(?:apps?\s+|programs?\s+)?(?:do|did|will)\s+(?:you|u|ya)\s+never\s+(?:close|quit|kill)\b/,
+  /\b(?:what|whats|what's|which)\b.*\bkeep list\b/, /\b(?:show|list|tell)\s+(?:me\s+)?(?:my\s+|the\s+)?keep list\b/,
+];
+const KEEP_ADD_ALWAYS = [
+  new RegExp(String.raw`^${LEAD}(?:always\s+)?(?:keep|leave)\s+(.+)$`),
+  new RegExp(String.raw`^${LEAD}(?:never|dont|don't|do not|no need to|stop)\s+(?:ever\s+)?(?:close|closing|quit|quitting|kill|killing|shut(?:ting)?\s*down)\s+(.+)$`),
+  /^(.+?)\s+(?:should\s+|needs to\s+|must\s+|has to\s+)?(?:always\s+)?stays?\s+(?:open|running|on|alive)(?:\s+(?:always|all the time|at all times|pls|please))?$/,
+];
+const KEEP_QUALIFIED = /\b(?:at all times|all the time|always|forever|no matter what|anytime|at any time|open|running|alive|ever)\b/;
+const KEEP_REMOVE_ALWAYS = [
+  new RegExp(String.raw`^${LEAD}(?:stop|quit)\s+keeping\s+(.+)$`),
+  new RegExp(String.raw`^${LEAD}(?:you\s+)?(?:dont|don't|do not|no longer)\s+(?:need to\s+|have to\s+)?(?:always\s+)?keep\s+(.+)$`),
+];
+
+function readKeepTurn(m: string): AppsTurn | null {
+  if (KEEP_ASK.some((re) => re.test(m))) return { kind: "keepList" };
+  if (ASK.test(m) || /\b(?:and|then|but)\s+(?:close|quit|kill|shut)\b/.test(m)) return null;   // "keep safari open and close the rest" is an except turn
+  for (const re of KEEP_REMOVE_ALWAYS) {
+    const names = keepNames(re.exec(m)?.[1] ?? "");
+    if (names.length) return { kind: "gameKeep", op: "remove", names };
+  }
+  for (const re of KEEP_ADD_ALWAYS) {
+    const body = re.exec(m)?.[1];
+    if (body === undefined || (re === KEEP_ADD_ALWAYS[0] && !KEEP_QUALIFIED.test(m))) continue;
+    const names = keepNames(body);
+    if (names.length) return { kind: "gameKeep", op: "add", names };
+  }
+  return null;
+}
+
 export function readAppsTurn(message: string): AppsTurn | null {
   const m = flat(message).replace(/[.!]+$/, "");
   if (!m || m.length > 220) return null;
   const game = readGameTurn(m);
   if (game) return game;
+  const keep = readKeepTurn(m);
+  if (keep) return keep;
+  const music = readMusicTurn(m);   // w18 music
+  if (music) return music;
   const asks = ASK.test(m);
   if (LIST.some((re) => re.test(m)) && !/\b(?:close|quit|kill)\b/.test(m)) return { kind: "list" };
   if (asks) return null;

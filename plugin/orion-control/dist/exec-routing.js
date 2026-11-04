@@ -102,7 +102,7 @@ export function routeForDoomedExec(command) {
     if (base === "orion-bedtime-act" && /\bquit-app\b/.test(trimmed)) {
         return {
             reason: "`orion-bedtime-act quit-app` is only for the bedtime nudge. To see or close apps, use the full path to " +
-                "`/Users/nickmadaio/Desktop/ORION/scripts/orion-apps`: `list`, `quit <app...>`, `quit-unused [--keep a,b]`, `hide <app>`, `game-prep [keep add|remove <app>]`. " +
+                "`/Users/nickmadaio/Desktop/ORION/scripts/orion-apps`: `list`, `quit <app...>`, `quit-unused [--keep a,b]`, `hide <app>`, `game-prep [keep add|remove|list <app>]` (keep = also spared by quit-unused and bedtime), `music play|pause|skip|previous [--player spotify|music] [query]`. " +
                 "It closes them until they are really gone, and you do not need to ask first.",
         };
     }

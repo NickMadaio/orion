@@ -29,6 +29,8 @@ export function argsFor(turn) {
         case "gameReady": return [["game-prep", "--now", ...(turn.game ? ["--game", turn.game] : []), "--json"]];
         case "gameMode": return turn.on ? [["game-prep", "auto", "on", "--json"], ["game-prep", "--now", "--json"]] : [["game-prep", "auto", "off", "--json"]];
         case "gameKeep": return [["game-prep", "keep", turn.op, ...turn.names, "--json"]];
+        case "music": return [["music", turn.action, ...(turn.player ? ["--player", turn.player] : []), ...(turn.query ? [turn.query] : []), "--json"]];
+        case "keepList": return [["game-prep", "keep", "list", "--json"]];
         case "gameLast": return [["game-prep", "last", "--json"]];
         case "unused": return [...(turn.also.length ? [["quit", ...turn.also, "--json"]] : []), ["quit-unused", "--json"]];
     }

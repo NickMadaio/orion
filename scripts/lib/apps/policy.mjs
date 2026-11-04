@@ -1,3 +1,4 @@
+import { sameUpToTypo } from "./resolve.mjs";   // resolve.mjs imports norm back from here; both only use the other inside functions
 // What orion-apps will and will not close, and how a spoken name finds an app. Pure: no process, no disk.
 // An app is { name, bundleId, pid, path, kind: "regular"|"accessory", frontmost, windows, onscreen, rank, audible, document }.
 //   kind accessory = a menu-bar or background app (Epic Games Launcher, Spotify's helper, TeamViewer's agent): no Dock icon.
@@ -35,7 +36,7 @@ export const isBackgroundAgent = (app, keep = []) => app.kind === "accessory" &&
 export function keptReason(app, { keep = [], all = false, game = false } = {}) {
   if (test(NEVER, app)) return "ORION, the Finder or the model server, never closed";
   const names = [norm(app.name), norm(app.bundleId)];
-  if (keep.some((k) => norm(k) && names.some((n) => n === norm(k) || (norm(k).length >= 4 && n.includes(norm(k)))))) return "on your keep list";
+  if (keep.some((k) => norm(k) && names.some((n) => n === norm(k) || (norm(k).length >= 4 && n.includes(norm(k)))) || sameUpToTypo(k, app.name))) return "on your keep list";
   if (app.frontmost) return "you're in it right now";
   if (test(TERMINAL_IDE, app)) return "a terminal or editor that may have work running";
   if (test(IN_USE, app)) return "it may be mid-call or recording";

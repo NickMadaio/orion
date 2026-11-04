@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var preferencesController: PreferencesWindowController!
     private let pushToTalk = PushToTalkMonitor()
     private var notchPill: NotchPillController!
+    private var reopenPolicy = ReopenPolicy()
+    private var dockWhenInputArrives = false
     /// The orb is open because a wake word or push-to-talk brought it, not because he asked for it from the menu bar.
     /// Only that kind of panel goes away when he clicks elsewhere.
     private var panelOpenedByVoice = false
@@ -58,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.textWindowController.toggle()
         }
         menuBarController.onOpenMouseSetup = { [weak self] in self?.openMouseSetup() }
+        menuBarController.onTypeToOrion = { [weak self] in self?.toggleTypedSummon() }
         menuBarController.install()
 
         // The iPhone link helper embedded in this bundle (PhoneLink.swift).
@@ -100,6 +103,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refreshEscapeWatch()
         }
 
+        state.onUserInputAppended = { [weak self] in
+            guard let self, self.dockWhenInputArrives else { return }
+            self.dockWhenInputArrives = false
+            guard self.state.phase == .thinking, !self.panelController.isVisible, !self.notchPill.isShowing else { return }
+            OrionLog.write("[voice-turn] words arrived after the click-away — docking to the notch pill")
+            self.notchPill.requestDismiss()
+        }
         state.onWantsPanel = { [weak self] in
             guard let self else { return }
             // When the full dashboard is already visible, its central hologram
@@ -191,8 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "talk": self.state.beginListening()
             case "dashboard": self.textWindowController.show()
             // Nick, 11-04: "summon orion" from the mouse is the text bar at the bottom of the screen. The corner bubble
-            // is only for when ORION speaks first. The typed overlay lives behind orion://type.
-            case "type", "summon": NSWorkspace.shared.open(MouseSetupEntry.typeURL)
+            // is only for when ORION speaks first. Toggled directly: opening orion://type is an activation of this app,
+            // which raised the whole dashboard on 11-04 ("it pulls up the entire ORION app").
+            case "type", "summon": self.toggleTypedSummon()
             default: self.state.onWantsSummon?()
             }
         }
@@ -275,7 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // orion://type: the typed summon. It toggles like the keyboard shortcut, so pressing the mouse button or
             // menu item again closes it (Nick, 11-04).
             if url.scheme == "orion", url.host == "type" {
-                typedSummon.toggle()
+                toggleTypedSummon()
                 continue
             }
             // orion://mouse-setup: the new-mouse setup popup (scripts/orion-mouse setup).
@@ -326,6 +337,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // The typed overlay (or a URL that just opened it) activates this app; that is not "open the dashboard".
+        guard reopenPolicy.showsDashboard(now: Date(), typedSummonVisible: typedSummon.isVisible) else {
+            OrionLog.write("[reopen] ignored — the typed overlay is open or was just summoned")
+            return true
+        }
         textWindowController.show()
         return true
     }
@@ -373,7 +389,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleClickAway() {
         guard panelController.isVisible, panelOpenedByVoice, !notchPill.isShowing else { return }
         // Mid-sentence, reading a proactive bubble, or typing a reply: a click elsewhere is not "I'm done".
-        guard state.phase != .listening, state.bubble == nil, state.composer.isEmpty else { return }
+        guard state.phase != .listening, state.bubble == nil, state.composer.isEmpty else {
+            OrionLog.write("[click-away] ignored — phase=\(state.phase) bubble=\(state.bubble != nil) composerEmpty=\(state.composer.isEmpty)")
+            return
+        }
+        OrionLog.write("[click-away] panel closing — phase=\(state.phase) hasInput=\(state.turnHasUserInput)")
+        // Released with nothing transcribed yet: the words arrive after this click. Dock then, instead of losing the turn.
+        dockWhenInputArrives = state.phase == .thinking && !state.turnHasUserInput
         notchPill.requestDismiss()
     }
 
@@ -393,6 +415,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         typedSummonKey.onFire = { [weak self] in self?.typedSummon.toggle() }
         typedSummonKey.onLog = { OrionLog.write($0) }
         typedSummonKey.register(HotKeyCombination(keyCode: UInt32(kVK_Space), modifiers: UInt32(controlKey | optionKey)))
+    }
+
+    /// The one way to open or close the typed overlay from the mouse, the menu bar and orion://type.
+    private func toggleTypedSummon() {
+        reopenPolicy.noteTypedSummon(now: Date())
+        typedSummon.toggle()
     }
 
     private func handleEscape() {

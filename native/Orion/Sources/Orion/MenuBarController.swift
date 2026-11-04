@@ -38,6 +38,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     var onCheckForUpdates: (() -> Void)?
     /// Opens the mouse setup popup (same path as orion://mouse-setup). Set by AppDelegate.
     var onOpenMouseSetup: (() -> Void)?
+    var onTypeToOrion: (() -> Void)?
 
     init(state: AppState,
          onTogglePanel: @escaping () -> Void,
@@ -230,7 +231,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openTypeToOrion() {
-        NSWorkspace.shared.open(MouseSetupEntry.typeURL)
+        onTypeToOrion?()
     }
 
     @objc private func openMouseSetup() {

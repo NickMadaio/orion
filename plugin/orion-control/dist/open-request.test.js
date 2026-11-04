@@ -56,3 +56,24 @@ describe("the directive", () => {
         expect(t.note + t.fail).not.toMatch(/ORION (can|will)/);
     });
 });
+describe("openRequest: a bare site name is a site, not an app (live 2026-11-04 11:20)", () => {
+    it("amazon uk opens the UK store in the default browser, never app_open", () => {
+        expect(openRequest("open amazon uk for me")).toEqual({ kind: "url", url: "https://www.amazon.co.uk" });
+        expect(openRequest("opne amazon co uk pls")).toEqual({ kind: "url", url: "https://www.amazon.co.uk" });
+    });
+    it("a bare well-known site opens its site", () => {
+        expect(openRequest("open amazon")).toEqual({ kind: "url", url: "https://www.amazon.com" });
+        expect(openRequest("can you pull up youtube real quick")).toEqual({ kind: "url", url: "https://www.youtube.com" });
+        expect(openRequest("launch reddit")).toEqual({ kind: "url", url: "https://www.reddit.com" });
+    });
+    it("my browser means the default browser", () => {
+        expect(openRequest("open amazon on my browser")).toEqual({ kind: "url", url: "https://www.amazon.com" });
+        expect(openRequest("can u open amazon uk in my browser")).toEqual({ kind: "url", url: "https://www.amazon.co.uk" });
+        expect(openRequest("pull up youtube in the browser")).toEqual({ kind: "url", url: "https://www.youtube.com" });
+    });
+    it("apps that share a word with a site stay apps", () => {
+        expect(openRequest("open maps")).toEqual({ kind: "app", name: "maps" });
+        expect(openRequest("open the amazon music app")).toEqual({ kind: "app", name: "amazon music" });
+        expect(openRequest("open safari")).toEqual({ kind: "app", name: "safari" });
+    });
+});

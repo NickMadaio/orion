@@ -576,6 +576,8 @@ final class AppState: ObservableObject {
     /// He is at the Mac: pop the hologram with the message; aloud when he is at
     /// home or has headphones in (volume brought to a sensible level first).
     /// Set by the app delegate: the dashboard window is on screen.
+    /// What he said has just been added to the turn (the final transcript, after a release that had nothing yet).
+    var onUserInputAppended: (() -> Void)?
     var dashboardVisible: (() -> Bool)?
 
     /// Set by a reach that asked for an answer (the morning briefing): when the
@@ -1789,7 +1791,7 @@ final class AppState: ObservableObject {
         // crashing the installed app.
         assert(Thread.isMainThread, "AppState.append called off the main thread")
         turns.append(Turn(role: role, text: text))
-        if role == .you { turnHasUserInput = true }
+        if role == .you { turnHasUserInput = true; onUserInputAppended?() }
         if role == .you { saveChat(.user, text: text) }
         if turns.count > 60 {
             turns.removeFirst(turns.count - 60)
@@ -1807,7 +1809,10 @@ final class AppState: ObservableObject {
     func beginListening(handsFree wantsHandsFree: Bool = false,
                         followUp: Bool = false,
                         opening explicitOpening: VoiceTurnOpening? = nil) {
-        guard !summonMicMuted else { return }
+        guard !summonMicMuted else {
+            OrionLog.write("[press] ignored — the mic is muted from the summon composer")
+            return
+        }
         // No permission guard here on purpose: without Accessibility the global
         // monitor never fires at all, so reaching this point means the press did
         // arrive. The missing-permission case is surfaced in the panel banner.
@@ -2031,6 +2036,7 @@ final class AppState: ObservableObject {
             return
         }
         guard !text.isEmpty else {
+            OrionLog.write("[voice-turn] final transcript empty — \(preservedTranscript.isEmpty ? "nothing heard, back to idle" : "sending the preserved fragment")")
             if preservedTranscript.isEmpty {
                 setPhase(.idle)
                 statusLine = "Nothing heard"
@@ -2261,6 +2267,8 @@ final class AppState: ObservableObject {
         statusLine = "Thinking…"
         setPhase(.thinking)
         turnHasUserInput = heardSomething
+        OrionLog.write("[voice-turn] released — captured \(heard.trimmingCharacters(in: .whitespacesAndNewlines).count) chars so far, "
+            + (heardSomething ? "waiting on the final transcript" : "nothing yet; the final transcript decides"))
         speechInput.stop()
     }
 
@@ -2399,6 +2407,7 @@ final class AppState: ObservableObject {
         repeatFollowUpGrace = nil
         let origin: ReplyOrigin = typed ? .typed : .voice
         activeReplyOrigin = origin
+        OrionLog.write("[turn] sent \(text.count) chars (\(typed ? "typed" : "voice"), opening \(turnOpening))")
         // "Continue" / "keep going" / "what were you saying" resumes an
         // interrupted or paused reply instead of asking the gateway a new
         // question. Checked here so every entry point — hands-free, a typed
@@ -2722,6 +2731,8 @@ final class AppState: ObservableObject {
         // resurrect a stale answer once a new one has actually arrived.
         interruptedReplyText = nil
         chatThinking = reply.thinking
+        OrionLog.write("[turn] reply landed — \(reply.text.count) chars, origin \(origin), "
+            + "surface: \(dashboardVisible?() == true ? "overlay/dashboard" : "panel/pill/bubble")")
         saveChat(.orion, text: reply.text, thinking: reply.thinking)
         append(.orion, reply.text)
         bubbleAnswerLanded(reply.text)

@@ -16,12 +16,14 @@ const LEAD = String.raw`(?:(?:wait|yo|hey|ok|okay|so|and|can you|could you|can u
 const OPEN_RE = new RegExp(String.raw`^${LEAD}${OPEN_VERB}\s+(.+)$`, "i");
 const FILLER = /(?:\s+(?:again|please|pls|plz|for me|real quick|quick|rn|now|back up|back))+[\s.!?]*$/i;
 const BROWSER_IN = /^(.+?)\s+(?:in|on|with|using|via|through)\s+(safari|chrome|google chrome|opera air|opera)$/i;
+// "in my browser", "on the browser": the default browser, no name (11-04: "open amazon on my browser").
+const DEFAULT_BROWSER_IN = /^(.+?)\s+(?:in|on|with|using|via|through)\s+(?:my |the |my default |the default )?(?:web )?browser$/i;
 const BROWSER_TO = /^(safari|chrome|google chrome|opera air|opera)\s+(?:and go to|and open|to|at)\s+(.+)$/i;
 const BROWSERS: Readonly<Record<string, string>> = { safari: "Safari", chrome: "Google Chrome", "google chrome": "Google Chrome", opera: "Opera", "opera air": "Opera Air" };
 const DOMAIN = /^(?:https?:\/\/)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:\/[\x21-\x7e]*)?$/i;
 const SITE_WORD = /^(?:the |my )?([a-z0-9 ]+?)\s+(?:website|web ?site|site|web ?page)$/i;
 const SITES: Readonly<Record<string, string>> = {
-  amazon: "www.amazon.com", youtube: "www.youtube.com", google: "www.google.com", gmail: "mail.google.com", reddit: "www.reddit.com",
+  amazon: "www.amazon.com", "amazon uk": "www.amazon.co.uk", "amazon co uk": "www.amazon.co.uk", "amazon.co.uk": "www.amazon.co.uk", youtube: "www.youtube.com", google: "www.google.com", gmail: "mail.google.com", reddit: "www.reddit.com",
   github: "github.com", netflix: "www.netflix.com", facebook: "www.facebook.com", instagram: "www.instagram.com", twitter: "twitter.com",
   linkedin: "www.linkedin.com", wikipedia: "www.wikipedia.org", nytimes: "www.nytimes.com", "new york times": "www.nytimes.com", bbc: "www.bbc.com",
   ebay: "www.ebay.com", twitch: "www.twitch.tv", tiktok: "www.tiktok.com", maps: "maps.google.com", "google maps": "maps.google.com",
@@ -29,6 +31,9 @@ const SITES: Readonly<Record<string, string>> = {
 };
 // Not an app, so not app_open: the same exclusions yesterday's app route used (his tabs, the day, the mouse popup, a door, a gerund).
 const NOT_AN_APP = /\b(?:tasks?|plans?|schedule|calendar|agenda|day|week|home|health|finances?|projects?|settings|door|tabs?|window|it|that|this|them|something|file|folder|mouse|button|buttons|mapper|setup|focus|session|timer|workout|reminders?|notes? on|what|why|how|when|where|new|a|an|the|my|into|to|of|in|on|for|source|link|url|page|site|email|mail|messages?|texts?|list|stuff|everything|anything|tomorrow|today|tonight|him|her|me|you|us)\b|\.[a-z]{2,}$|^https?:|^[a-z]+ing\b/i;
+
+// Site names that are first an app on a Mac: "open maps" is Apple Maps.
+const APP_FIRST: ReadonlySet<string> = new Set(["maps", "drive"]);
 
 const tidy = (s: string): string => s.trim().replace(/^(?:the |my )/i, "").trim();
 
@@ -54,6 +59,11 @@ export function openRequest(message: string): OpenRequest | null {
     const url = siteUrl(inBrowser[1]!);
     return url ? { kind: "url", url, browser: BROWSERS[inBrowser[2]!.toLowerCase()]! } : null;
   }
+  const inDefault = DEFAULT_BROWSER_IN.exec(rest);
+  if (inDefault) {
+    const url = siteUrl(inDefault[1]!);
+    return url ? { kind: "url", url } : null;
+  }
   const toSite = BROWSER_TO.exec(rest);
   if (toSite) {
     const url = siteUrl(toSite[2]!);
@@ -64,6 +74,10 @@ export function openRequest(message: string): OpenRequest | null {
   if (DOMAIN.test(rest)) return { kind: "url", url: /^https?:/i.test(rest) ? rest : `https://${rest}` };
   const siteName = SITE_WORD.exec(rest)?.[1]?.trim().toLowerCase();
   if (siteName) return SITES[siteName] ? { kind: "url", url: `https://${SITES[siteName]}` } : null;
+
+  // A bare well-known site ("amazon uk") is a site: the app route said "amazon uk was not found" (11-04 11:20). "maps" is an app.
+  const bare = tidy(rest).toLowerCase();
+  if (SITES[bare] && !APP_FIRST.has(bare)) return { kind: "url", url: `https://${SITES[bare]}` };
 
   const name = tidy(rest).replace(/\s+app$/i, "");
   if (!name || name.split(" ").length > 3 || NOT_AN_APP.test(name) || !/^[A-Za-z0-9][A-Za-z0-9 .&'+_-]*$/.test(name)) return null;

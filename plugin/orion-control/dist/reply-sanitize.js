@@ -207,6 +207,7 @@ function restatesMoveWithoutWrite(reply, tools, askedChange) {
         return false;
     return !calendarWrote(tools, subjectWords(claim));
 }
+const BARE_INABILITY = /^\W*(?:sorry,?\s+)?I\s+(?:could not|couldn't|can't|cannot|was unable to|wasn't able to)\s+(?:do|run|finish|complete|manage)\s+(?:that|it|this)\W*$/i;
 /*
  The last line of defence (gate run-1031202318 cluster 4). Raw tool text is cut (sanitizeReply, strict on a turn with a failed tool);
  when a tool the host ran failed, the reply must own it in words the host accepts as an acknowledgement, which also stops the host
@@ -234,5 +235,8 @@ function finalizeCore(reply, tools, ctx) {
     // Something else did change: the acknowledgement must not say nothing did.
     if (wroteSomething(tools))
         return `${clean} ${ONE_PART_FAILED} I couldn't run one of those changes.`;
+    // What is left of the worker's reply is only a bare "I could not do that.": saying it after the acknowledgement said it twice (11-04 11:21).
+    if (BARE_INABILITY.test(clean))
+        return acknowledgement(failed, changeRequest);
     return `${acknowledgement(failed, changeRequest, false)} ${clean}`;
 }

@@ -170,3 +170,49 @@ describe("session start vs reminders (review, 2026-10-16)", () => {
     expect(isSessionStart("start a focus session")).toBe(true);
   });
 });
+
+// w19: "start a focus session on X" gets the task's profile and the site allow-list too; what he names ("allow only ...") stays authoritative.
+describe("session flow — the task's profile and sites", () => {
+  const PROFILE = { ok: true, apps: [{ name: "Pages", bundleId: "com.apple.iWork.Pages" }, { name: "Safari", bundleId: "com.apple.Safari" }], domains: ["docs.google.com", "chat.openai.com"] };
+  const tools = () => {
+    const profile: string[][] = [], sites: string[][] = [];
+    return { profile, sites,
+      profileRun: async (a: string[]) => { profile.push(a); return { stdout: JSON.stringify(a[0] === "pick" ? PROFILE : { ok: true }), code: 0 }; },
+      sitesRun: async (a: string[]) => { sites.push(a); return { stdout: JSON.stringify({ ok: true }), code: 0 }; } };
+  };
+
+  it("no apps named: the task's profile is allowed, its sites are set, and the reply says so", async () => {
+    const s = fakeSession(), t = tools();
+    const flow = await runSessionFlow({ message: "start a focus session on my resume", exec: s.exec, resolveApp, profile: t.profileRun, sites: t.sitesRun });
+    expect(t.profile[0]).toEqual(["pick", "my resume", "--json"]);
+    expect(s.calls.at(-1)).toEqual(["arm", "--level", "gentle", "--allow", "com.apple.iWork.Pages,com.apple.Safari", "--json"]);
+    expect(t.sites[0]).toEqual(["set", "--task", "my resume", "--apps", "com.apple.iWork.Pages,com.apple.Safari", "--names", "Pages,Safari", "--domains", "docs.google.com,chat.openai.com"]);
+    if (flow.outcome !== "done") throw new Error("expected done");
+    expect(flow.reply).toMatch(/Pages and Safari are allowed/);
+  });
+
+  it("'allow only' is authoritative for apps: the profile's apps are not added; the sites are still set; the apps are remembered for the task", async () => {
+    const s = fakeSession(), t = tools();
+    const flow = await runSessionFlow({ message: "start a focus session, allow only Safari and ChatGPT", exec: s.exec, resolveApp, profile: t.profileRun, sites: t.sitesRun });
+    expect(s.calls.at(-1)).toEqual(["arm", "--level", "gentle", "--allow", "com.apple.Safari,com.openai.codex", "--json"]);
+    expect(t.sites[0]).toContain("--apps");
+    expect(t.sites[0]![t.sites[0]!.indexOf("--apps") + 1]).toBe("com.apple.Safari,com.openai.codex");
+    expect(t.profile.some((a) => a[0] === "remember")).toBe(true);
+    if (flow.outcome !== "done") throw new Error("expected done");
+    expect(flow.reply).toMatch(/Safari and ChatGPT are allowed/);
+    expect(flow.reply).not.toMatch(/Only/);
+  });
+
+  it("without the tools (an old caller) nothing changes", async () => {
+    const s = fakeSession();
+    await runSessionFlow({ message: "start a focus session on my resume", exec: s.exec, resolveApp });
+    expect(s.calls.map((c) => c[0])).toEqual(["status", "start"]);
+  });
+
+  it("a session that was already running is never given a profile", async () => {
+    const s = fakeSession({ status: RUNNING }), t = tools();
+    await runSessionFlow({ message: "start a focus session on my resume", exec: s.exec, resolveApp, profile: t.profileRun, sites: t.sitesRun });
+    expect(t.profile).toEqual([]);
+    expect(t.sites).toEqual([]);
+  });
+});

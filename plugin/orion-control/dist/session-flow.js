@@ -19,7 +19,8 @@ import { execFile } from "node:child_process";
 import { isEdit } from "./edit-followup.js";
 import { parseSessionJson } from "./session-json.js";
 import { casualStartTask, workStartTask } from "./work-start.js";
-export const ORION_SESSION = "/Users/nickmadaio/Desktop/ORION/scripts/orion-session";
+const SCRIPTS = "/Users/nickmadaio/Desktop/ORION/scripts";
+export const ORION_SESSION = `${SCRIPTS}/orion-session`;
 const DEFAULT_TASK = "Focus";
 const RUNNING_STATES = new Set(["running", "paused", "waiting-for-return"]);
 const ARMED_LEVELS = new Set(["gentle", "guided", "firm", "shield"]);
@@ -93,7 +94,7 @@ export function readApps(message) {
     const clause = /\b(?:use|allow|allowed|need|keep|with)\s+(.*)$/is.exec(message)?.[1] ?? "";
     const names = clause
         .split(/[.,;!?]|\band\b|\bplus\b|\balso\b|\bor\b/i)
-        .map((part) => part.trim().replace(/^(the|my)\s+/i, ""))
+        .map((part) => part.trim().replace(/^only\s+/i, "").replace(/^(the|my)\s+/i, ""))
         .filter((part) => /^[a-z][\w.+-]*(\s[a-z][\w.+-]*)?$/i.test(part))
         .filter((part) => !part.split(/\s/).some((word) => NOT_AN_APP.test(word)))
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1));
@@ -125,7 +126,7 @@ async function allowApps(apps, exec, resolveApp) {
     const missing = resolved.filter((r) => !r.id).map((r) => r.name);
     const missingLine = missing.length ? ` I couldn't find ${listed(missing)}.` : "";
     if (found.length === 0)
-        return { call: null, output: "", line: missingLine.trim() };
+        return { call: null, output: "", line: missingLine.trim(), ids: [], names: [], armed: false };
     const args = ["arm", "--level", "gentle", "--allow", found.map((r) => r.id).join(","), "--json"];
     const result = await exec(args);
     const ok = result.code === 0 && parse(result.stdout)?.ok !== false;
@@ -133,12 +134,46 @@ async function allowApps(apps, exec, resolveApp) {
     const line = ok
         ? `${listed(names)} ${names.length > 1 ? "are" : "is"} allowed.${missingLine}`
         : `I couldn't set the allowed apps: ${reason(result.stdout)}.${missingLine}`;
-    return { call: args, output: result.stdout, line };
+    return { call: args, output: result.stdout, line, ids: found.map((r) => r.id), names, armed: ok };
+}
+/** The task's profile and the site guard for a session just started (focus-ready.ts, orion-focus-profile, orion-focus-sites).
+ *  Apps he named stay authoritative: the profile only adds apps when he named none. Sites always come from the profile. */
+async function applyProfile(task, named, d) {
+    const calls = [], outputs = [];
+    const pick = parse((await d.profile(["pick", task, "--json"]).catch(() => ({ stdout: "", code: 1 }))).stdout);
+    const raw = (Array.isArray(pick?.apps) ? pick.apps : []);
+    const domains = Array.isArray(pick?.domains) ? pick.domains : [];
+    let ids = named?.ids ?? [], names = named?.names ?? [], armed = !!named?.armed, line = "";
+    if (!named) {
+        const resolved = await Promise.all(raw.map(async (a) => ({ name: a.name, id: a.bundleId ?? (await d.resolveApp(a.name).catch(() => null)) })));
+        const ok = resolved.filter((r) => !!r.id);
+        if (ok.length) {
+            const args = ["arm", "--level", "gentle", "--allow", ok.map((r) => r.id).join(","), "--json"];
+            const out = await d.exec(args);
+            calls.push(`exec orion-session ${args.join(" ")}`);
+            outputs.push(out.stdout);
+            armed = out.code === 0 && parse(out.stdout)?.ok !== false;
+            if (armed) {
+                ids = ok.map((r) => r.id);
+                names = ok.map((r) => r.name);
+                line = `${listed(names)} ${names.length > 1 ? "are" : "is"} allowed.`;
+            }
+        }
+    }
+    if (armed) {
+        const args = ["set", "--task", task, "--apps", ids.join(","), "--names", names.join(","), "--domains", domains.join(",")];
+        const out = await d.sites(args).catch(() => ({ stdout: "", code: 1 }));
+        calls.push(`exec orion-focus-sites ${args.join(" ")}`);
+        outputs.push(out.stdout);
+        if (named)
+            await d.profile(["remember", task, "--apps", ids.join(",")]).catch(() => undefined);
+    }
+    return { calls, outputs, line };
 }
 const STRICT = /\b(?:strict|firm|hard mode|no excuses|lock me down|block (?:everything|distractions))\b/i;
 export const STRICT_LINE = "Firm app blocking can't be switched on from chat, so it's the timer only; I'm not blocking anything.";
 /** One start request, end to end. Returns a FlowResult whose reply is built only from script output. */
-export async function runSessionFlow({ message, hint, exec, resolveApp }) {
+export async function runSessionFlow({ message, hint, exec, resolveApp, profile, sites }) {
     const request = parseSessionRequest(message, hint);
     if (!request)
         return { outcome: "fallback", reason: "not a session start" };
@@ -171,12 +206,18 @@ export async function runSessionFlow({ message, hint, exec, resolveApp }) {
         calls.push(apps.call);
         outputs.push(apps.output);
     }
+    // A session this turn started gets its task's profile and sites; one already running keeps what it has.
+    const profiled = !running && profile && sites
+        ? await applyProfile(request.task, apps ? { ids: apps.ids, names: apps.names, armed: apps.armed } : null, { exec, resolveApp, profile, sites })
+        : null;
+    if (profiled)
+        outputs.push(...profiled.outputs);
     return {
         outcome: "done",
-        calls: calls.map((args) => `exec orion-session ${args.join(" ")}`),
+        calls: [...calls.map((args) => `exec orion-session ${args.join(" ")}`), ...(profiled?.calls ?? [])],
         outputs,
         // foc-doomscroll-c: "be strict" is answered honestly: enforcement needs his app choice in Orion, so chat starts the timer only.
-        reply: [opening, apps?.line, STRICT.test(message) && !apps?.call ? STRICT_LINE : ""].filter(Boolean).join(" "),
+        reply: [opening, apps?.line, profiled?.line, STRICT.test(message) && !apps?.call && !profiled?.line ? STRICT_LINE : ""].filter(Boolean).join(" "),
     };
 }
 /** "how much focus time is left", read by code (sweep 2026-10-15, q049/q053: the worker called nothing
@@ -215,6 +256,7 @@ export const liveResolveApp = async (name) => {
 /** orion-session with fixed arguments (no shell), for the focus moves (focus-moves.ts). Wired in by index.ts only. */
 export const liveSessionExec = (args) => runFile(ORION_SESSION, args, 15000);
 /** The real flow: Orion.app's session socket through orion-session. Wired in by index.ts only. */
-export const liveSessionFlow = (message, hint) => runSessionFlow({ message, ...(hint ? { hint } : {}), exec: (args) => runFile(ORION_SESSION, args, 15000), resolveApp: liveResolveApp });
+export const liveSessionFlow = (message, hint) => runSessionFlow({ message, ...(hint ? { hint } : {}), exec: (args) => runFile(ORION_SESSION, args, 15000), resolveApp: liveResolveApp,
+    profile: (args) => runFile(process.execPath, [`${SCRIPTS}/orion-focus-profile`, ...args], 15000), sites: (args) => runFile(process.execPath, [`${SCRIPTS}/orion-focus-sites`, ...args], 15000) });
 /** The real status read (orion-session status --json). Wired in by index.ts only. */
 export const liveSessionStatus = () => runSessionStatus({ exec: (args) => runFile(ORION_SESSION, args, 15000) });

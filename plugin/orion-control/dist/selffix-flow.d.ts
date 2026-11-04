@@ -21,16 +21,20 @@ export type SelffixMove = {
     kind: "start";
     id: string;
 };
+/** `offered`: the reply ends in "now or later?", so his next bare answer is about this offer. */
 export type SelffixOut = {
     text: string;
     calls: string[];
     outputs: string[];
+    offered?: boolean;
 };
+/** `bound`: the offer (or the reminder to start it) was ORION's last message in this chat, so a bare answer is about it. Set by the caller. */
 export type SelffixCtx = {
     stateDir: string;
     now: Date;
     outreach?: boolean;
     items?: FixItem[];
+    bound?: boolean;
 };
 export declare const asksWhy: (message: string) => boolean;
 /** The time a "later" answer names ("tomorrow at 9", "tonight at 8"): an ISO instant, or undefined to take the default evening slot. */

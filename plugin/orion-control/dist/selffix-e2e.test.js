@@ -56,6 +56,15 @@ describe("why did you do that, then now / later / no", () => {
         expect(w.projectCalls()).toEqual([]);
         expect(await w.reply("that was wrong")).toMatch(/already have a fix project for this \(waiting for your answer\)/);
     });
+    it("an unrelated turn clears the offer: a later bare yes or no does nothing to it", async () => {
+        const w = world();
+        await w.reply("why did you do that");
+        expect(await w.reply("ok set a 25 min timer")).toBeUndefined();
+        expect(await w.reply("yes")).toBeUndefined();
+        expect(await w.reply("no")).toBeUndefined();
+        expect(w.projectCalls()).toEqual([]);
+        expect(JSON.parse(readFileSync(join(w.dir, "selffix.json"), "utf8")).items[0].status).toBe("offered");
+    });
     it("later: parks the project, schedules the reminder, does not start it", async () => {
         const w = world();
         await w.reply("why'd u do that");

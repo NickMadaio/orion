@@ -10,6 +10,9 @@ const SECRETS = [
   /\b(?:api[_-]?key|token|secret|password|passwd|authorization)\s*[:=]\s*\S+/gi,
   /\b[A-Fa-f0-9]{32,}\b/g,
   /\b[A-Za-z0-9+_-]{40,}={0,2}/g,
+  // said aloud, no colon or equals: "my password is hunter2", "pin was 4821", "the code is 884213" (err toward redacting)
+  /\b(?:password|passcode|passwd|pwd|pin|cvv|cvc|otp|ssn|secret|my code|the code|login code|security code|verification code)\s+(?:is|was|are|=)\s+\S+/gi,
+  /\b\d(?:[ -]?\d){12,18}\b/g,
 ];
 
 /** A copy of a value with every string in it redacted (keys and structure stay, so it can still be read as JSON). */
@@ -23,7 +26,7 @@ export function redactDeep(value, max = 160) {
 /** Text with anything secret-shaped removed, collapsed to one line and cut to `max` characters. */
 export function redact(value, max = 240) {
   let text = typeof value === "string" ? value : JSON.stringify(value ?? "");
-  for (const pattern of SECRETS) text = text.replace(pattern, (m) => (/^bearer/i.test(m) ? "Bearer [redacted]" : /[:=]/.test(m) ? `${m.split(/[:=]/)[0]}=[redacted]` : "[redacted]"));
+  for (const pattern of SECRETS) text = text.replace(pattern, (m) => (/^bearer/i.test(m) ? "Bearer [redacted]" : /[:=]/.test(m) ? `${m.split(/[:=]/)[0]}=[redacted]` : /\s(?:is|was|are)\s/i.test(m) ? `${m.split(/\s+(?:is|was|are)\s/i)[0]} [redacted]` : "[redacted]"));
   text = text.replace(/\s+/g, " ").trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }

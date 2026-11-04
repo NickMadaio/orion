@@ -27,7 +27,7 @@ import { findNoteFile, learnIntoNote, learnedLine } from "./lib/brain/questions-
 import { buildTurns, loadSources } from "./lib/selfcheck/turns.mjs";
 import { findFailures } from "./lib/selfcheck/diagnose.mjs";
 import { buildFixPlan } from "./lib/selfcheck/fixplan.mjs";
-import { addReminder, blockingItem, dropReminder, newId, nextEvening, readState, withItem, writeState } from "./lib/selfcheck/store.mjs";
+import { acquireLock, addReminder, blockingItem, dropReminder, newId, nextEvening, readState, withItem, writeState } from "./lib/selfcheck/store.mjs";
 
 const argv = process.argv.slice(2);
 const VALUE_FLAGS = ["--at", "--day"];
@@ -50,9 +50,9 @@ const projectsBin = () => {
 };
 const projects = (args) => spawnSync(process.execPath, [projectsBin(), ...args], { encoding: "utf8", timeout: 120_000, env: process.env });
 
-/** Writes the plan and briefs, registers the project, returns its id. Registered once: a second call reuses the recorded id. */
-function ensureProject(item) {
-  if (item.projectId) return item.projectId;
+/** Writes the plan and briefs, registers the project, and SAVES its id before anything else can fail. A retry (or a second yes) reuses the recorded id. */
+function ensureProject(state, item) {
+  if (item.projectId) return { state, item, projectId: item.projectId };
   const built = buildFixPlan(item.diagnosis, { id: item.id.slice(3) });
   const root = join(dir, "selffix", item.id);
   mkdirSync(join(root, "plan.briefs"), { recursive: true });
@@ -63,7 +63,11 @@ function ensureProject(item) {
   let id = null;
   try { id = JSON.parse(r.stdout).id; } catch { /* not JSON */ }
   if (r.status !== 0 || !id) fail(3, `the project could not be created: ${(r.stderr || r.stdout || "unknown error").trim().slice(0, 200)}`);
-  return id;
+  const next = { ...item, projectId: id };
+  const saved = withItem(state, next);
+  save(saved);
+  if (process.env.ORION_SELFFIX_CRASH_AFTER_ADD) process.exit(9);   // test seam: die between add and launch
+  return { state: saved, item: next, projectId: id };
 }
 
 function park(state, item, projectId, { at, reason }) {
@@ -106,6 +110,11 @@ function keepLine(vault, day, line) {
   try { return learnIntoNote(vault, "ORION", line) ? "vault" : "no"; } catch { return "no"; }
 }
 
+const MUTATING = ["propose", "accept", "start", "decline"];
+const release = MUTATING.includes(command) ? acquireLock(dir) : undefined;
+if (MUTATING.includes(command) && !release) fail(3, "another fix action is in progress; try again in a moment");
+if (release) process.on("exit", release);
+
 if (command === "propose") {
   if (!argv.includes("--stdin")) fail(2, "usage: orion-selffix propose --stdin");
   let d;
@@ -123,12 +132,12 @@ if (command === "propose") {
   const reparking = item.status === "parked" && argv.includes("--later");   // "later" again to the reminder: the same project, a new time
   if (!reparking && !["offered", "candidate"].includes(item.status)) fail(3, `${item.id} is ${item.status}, not waiting for an answer`);
   if (reparking) dropReminder(dir, item.reminderId);
-  const projectId = ensureProject(item);
-  if (argv.includes("--now")) launch(state, item, projectId);
+  const made = ensureProject(state, item);
+  if (argv.includes("--now")) launch(made.state, made.item, made.projectId);
   else if (argv.includes("--later")) {
     const at = flag("--at") ? new Date(flag("--at")) : undefined;
     if (at && (Number.isNaN(at.getTime()) || at.getTime() <= now.getTime())) fail(2, "--at must be a future ISO time");
-    park(state, item, projectId, { at });
+    park(made.state, made.item, made.projectId, { at });
   } else fail(2, "accept needs --now or --later");
 } else if (command === "start") {
   const state = readState(dir);

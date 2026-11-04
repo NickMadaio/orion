@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+/*
+ orion-focus-sites: websites during a focus session (2026-11-04). Orion.app runs `tick` every few seconds while a session is on.
+
+   orion-focus-sites set --task T --apps id,id --names Safari,Pages --domains a.com,b.com [--json]   a session began: what is allowed
+   orion-focus-sites add-apps --apps id --names Name [--json]                                          more apps for this session
+   orion-focus-sites allow <site> [--json]                                                              one-time override ("i need youtube for this")
+   orion-focus-sites show [--json] | clear [--json]
+   orion-focus-sites tick [--dry-run] [--json]    read activity.json; on a blocked site: nudge once, redirect the tab after ~20 s
+ --dry-run (or ORION_FOCUS_SITES_DRY=1) nudges and redirects nothing. Automation denied -> nudge only. Nothing closes tabs; a tab
+ on a blocked site is sent to a calm "back to <task>" page.
+*/
+import { execFile } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { controlledDir } from "./lib/clock.mjs";
+import { backPageHtml, cleared, newWeb, readWeb, redirectScript, runTick, webFile, withApps, withOverride, writeWeb } from "./lib/focus/guard.mjs";
+import { resolveSiteName } from "./lib/focus/sites.mjs";
+import { learnFromHistory, loadProfiles, profilesFile, readHistoryRows, rememberApps, saveProfiles } from "./lib/focus/profiles.mjs";
+import { pathToFileURL } from "node:url";
+
+const argv = process.argv.slice(2);
+const json = argv.includes("--json");
+const dry = argv.includes("--dry-run") || process.env.ORION_FOCUS_SITES_DRY === "1";
+const args = argv.filter((a) => a !== "--json" && a !== "--dry-run");
+const [command, positional] = args;
+const flag = (n) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : undefined; };
+const list = (v) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+const dir = controlledDir();
+const file = webFile(dir);
+const out = (value, say) => { console.log(json ? JSON.stringify(value) : say); };
+const inactive = { version: 1, active: false };
+
+const run = (bin, a, timeout = 8000) => new Promise((resolve) => execFile(bin, a, { timeout, maxBuffer: 1 << 20 }, (e, stdout, stderr) => resolve({ code: e ? (typeof e.code === "number" ? e.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) })));
+const sessionBin = process.env.ORION_SESSION_BIN || join(import.meta.dirname, "orion-session");
+const status = async () => { const r = await run(process.execPath, [sessionBin, "status", "--json"], 6000); try { return r.code === 0 ? JSON.parse(r.stdout) : null; } catch { return null; } };
+
+const live = {
+  notify: async (line) => { if (!dry) await run("/usr/bin/osascript", ["-e", `display notification ${JSON.stringify(line)} with title "ORION"`]); },
+  redirect: async ({ bundleId, domain, task }) => {
+    if (dry) return "dry";
+    mkdirSync(dir, { recursive: true });
+    const page = join(dir, "focus-back.html");
+    writeFileSync(page, backPageHtml(task));
+    const script = redirectScript(bundleId, domain, pathToFileURL(page).href);
+    if (!script) return "failed";
+    const r = await run("/usr/bin/osascript", ["-e", script.source]);
+    if (r.code !== 0) return /-1743|not authori[sz]ed/i.test(r.stderr) ? "denied" : "failed";
+    return r.stdout.trim() === "moved" ? "ok" : "gone";
+  },
+  learn: async (task, from, to) => {
+    const learned = learnFromHistory(readHistoryRows(join(dir, "activity-history.jsonl")), { from, to });
+    if (learned.apps.length || learned.domains.length) saveProfiles(profilesFile(dir), rememberApps(loadProfiles(profilesFile(dir)), task, learned.apps, learned.domains));
+  },
+};
+
+const usage = () => { console.error("usage: orion-focus-sites set|add-apps|allow|show|clear|tick [--json]"); process.exit(2); };
+
+if (command === "set") {
+  const task = flag("task");
+  if (!task) usage();
+  writeWeb(file, newWeb({ task, apps: list(flag("apps")), names: list(flag("names")), domains: list(flag("domains")), startedAt: new Date().toISOString() }));
+  out(readWeb(file), `Guarding sites for ${task}.`);
+} else if (command === "add-apps") {
+  const web = readWeb(file);
+  if (!web?.active) { out({ ok: false, error: "no session" }, "No focus session to add apps to."); process.exit(1); }
+  const ids = list(flag("apps")), names = list(flag("names"));
+  writeWeb(file, withApps(web, ids.map((bundleId, i) => ({ bundleId, name: names[i] ?? bundleId }))));
+  out({ ok: true, ...readWeb(file) }, "Added.");
+} else if (command === "allow") {
+  const domain = resolveSiteName(positional);
+  const web = readWeb(file);
+  if (!domain) { out({ ok: false, error: "which site?" }, "Which site?"); process.exit(1); }
+  if (!web?.active) { out({ ok: false, domain, error: "no session" }, "No focus session, so nothing to allow."); process.exit(1); }
+  writeWeb(file, withOverride(web, domain));
+  out({ ok: true, domain }, `${domain} is allowed for this session.`);
+} else if (command === "show") {
+  out(readWeb(file) ?? inactive, JSON.stringify(readWeb(file) ?? inactive));
+} else if (command === "clear") {
+  const web = readWeb(file);
+  if (web) writeWeb(file, cleared(web));
+  out({ ok: true }, "Cleared.");
+} else if (command === "tick") {
+  out(await runTick({ dir, nowMs: Date.now(), status, ...live }), "tick");
+} else usage();

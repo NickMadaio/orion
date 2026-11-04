@@ -1,0 +1,44 @@
+#!/usr/bin/env node
+/*
+ orion-focus-profile: which apps and websites a task needs during a focus session (2026-11-04).
+
+   orion-focus-profile pick "<task>" [--json]                          the apps (name + bundle id) and sites for this task
+   orion-focus-profile remember "<task>" --apps "Canva,Preview" [--domains a.com,b.com] [--json]
+   orion-focus-profile learn "<task>" --from ISO --to ISO [--json]     read activity-history.jsonl: apps and sites that stayed
+                                                                       frontmost for more than 2 minutes (not distractions) are kept
+ Profiles live in <controlled>/focus-profiles.json (see lib/focus/profiles.mjs). Exit 0 ok, 2 usage.
+*/
+import { controlledDir } from "./lib/clock.mjs";
+import { join } from "node:path";
+import { bundleIdOf, learnFromHistory, loadProfiles, nameOf, profileFor, profilesFile, readHistoryRows, rememberApps, saveProfiles, taskKey } from "./lib/focus/profiles.mjs";
+
+const argv = process.argv.slice(2);
+const json = argv.includes("--json");
+const args = argv.filter((a) => a !== "--json");
+const [command, task] = args;
+const flag = (name) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
+const list = (v) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+const dir = controlledDir();
+const file = profilesFile(dir);
+const out = (value, say) => console.log(json ? JSON.stringify(value) : say);
+const usage = () => { console.error('usage: orion-focus-profile pick|remember|learn "<task>" [--apps a,b] [--domains x,y] [--from ISO --to ISO] [--json]'); process.exit(2); };
+
+if (!command || !task || task.startsWith("--")) usage();
+const store = loadProfiles(file);
+
+if (command === "pick") {
+  const p = profileFor(store, task);
+  const apps = p.apps.map((app) => ({ name: nameOf(app), bundleId: bundleIdOf(app) }));
+  out({ ok: true, task, key: taskKey(task), kind: p.kind, source: p.source, apps, domains: p.domains }, `${task}: ${apps.map((a) => a.name).join(", ")}`);
+} else if (command === "remember") {
+  const apps = list(flag("apps")), domains = list(flag("domains"));
+  if (!apps.length && !domains.length) usage();
+  saveProfiles(file, rememberApps(store, task, apps, domains));
+  out({ ok: true, task, apps: apps.map(nameOf), domains }, `Remembered for ${task}: ${[...apps.map(nameOf), ...domains].join(", ")}`);
+} else if (command === "learn") {
+  const from = Date.parse(flag("from") ?? ""), to = Date.parse(flag("to") ?? "");
+  if (!Number.isFinite(from) || !Number.isFinite(to)) usage();
+  const learned = learnFromHistory(readHistoryRows(join(dir, "activity-history.jsonl")), { from, to });
+  if (learned.apps.length || learned.domains.length) saveProfiles(file, rememberApps(store, task, learned.apps, learned.domains));
+  out({ ok: true, task, ...learned }, learned.apps.length ? `Learned for ${task}: ${learned.apps.map(nameOf).join(", ")}` : `Nothing new learned for ${task}.`);
+} else usage();

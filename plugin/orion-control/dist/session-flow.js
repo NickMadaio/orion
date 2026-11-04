@@ -89,7 +89,7 @@ function readTask(message) {
 }
 // Words that can follow "use/need/with" without naming an app.
 const NOT_AN_APP = /^(to|a|an|some|more|it|this|that|those|these|them|me|my|i|you|time|work|focus|session|break|hours?|minutes?|mins?|help|everything|nothing|anything)$/i;
-function readApps(message) {
+export function readApps(message) {
     const clause = /\b(?:use|allow|allowed|need|keep|with)\s+(.*)$/is.exec(message)?.[1] ?? "";
     const names = clause
         .split(/[.,;!?]|\band\b|\bplus\b|\balso\b|\bor\b/i)
@@ -207,7 +207,7 @@ const runFile = (file, args, timeout) => new Promise((resolve) => execFile(file,
     code: error ? (typeof error.code === "number" ? error.code : 1) : 0,
 })));
 // The name is one or two plain words (readApps), so it cannot close the AppleScript string.
-const liveResolveApp = async (name) => {
+export const liveResolveApp = async (name) => {
     const result = await runFile("/usr/bin/osascript", ["-e", `id of application "${name}"`], 4000);
     const id = result.stdout.trim();
     return result.code === 0 && /^[\w.-]+$/.test(id) ? id : null;

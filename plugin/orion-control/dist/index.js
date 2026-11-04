@@ -21,7 +21,8 @@ import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
 import { liveConnectorStatus } from "./code-answers.js";
 import { readReminders, remindersPath } from "./ambient.js";
-import { liveSessionExec, liveSessionFlow, liveSessionStatus } from "./session-flow.js";
+import { liveResolveApp, liveSessionExec, liveSessionFlow, liveSessionStatus } from "./session-flow.js";
+import { liveFocusProfile, liveFocusSites, livePending, liveTasksRun } from "./focus-ready.js";
 import { liveWakeFlow } from "./wake-flow.js";
 import { liveTodoDoneFlow } from "./todo-done-flow.js";
 import { liveNoteFlow } from "./note-flow.js";
@@ -1410,6 +1411,7 @@ export function installProvenanceHooks(api) {
             sessionFlow: liveSessionFlow,
             sessionStatus: liveSessionStatus,
             sessionExec: liveSessionExec,
+            focusReady: { exec: liveSessionExec, profile: liveFocusProfile, sites: liveFocusSites, tasks: liveTasksRun, resolveApp: liveResolveApp, pending: livePending }, // w19: ready to work, early finish, site override
             wakeFlow: liveWakeFlow,
             wakeExec: liveWakeExec,
             rememberRun: liveRememberRun,

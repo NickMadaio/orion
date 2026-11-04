@@ -65,6 +65,7 @@ import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
 import { SPEAK_AS_I } from "./self-voice.js";
 import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
+import { runFocusReady, type ReadyDeps } from "./focus-ready.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes, type PendingAdd, type PendingAnswer, type PendingRun } from "./schedule-pending.js";
 import { whyAnswer } from "./why-answer.js";
@@ -177,6 +178,8 @@ export type LocalRoutingOptions = {
   noteFlow?: (message: string, bound?: boolean) => Promise<FlowResult>;
   /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
   sessionExec?: SessionExec;
+  /** "im ready to work", finishing a session early, one-time site allow (focus-ready.ts). Tests pass stubs; wired from index.ts. */
+  focusReady?: Pick<ReadyDeps, "exec" | "profile" | "sites" | "tasks" | "resolveApp" | "pending">;
   /** Reads the focus session's state for a status question (tests pass a stub; wired from index.ts). */
   sessionStatus?: () => Promise<FlowResult>;
   /** The focus history rows, for "how long have i been focusing today" (tests pass a stub; default reads the real file, read-only). */
@@ -1685,6 +1688,20 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const answersOutreach = !!run.outreach || (recentPush(run.card) && run.message.trim().split(/\s+/).length <= 6);
       if (!run.flow && run.settled.move === "ignore" && run.spoken && !addressed(run.message) && !answersOutreach && !run.stitched) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
       if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken) && !answersOutreach && !run.stitched) run.flow = { outcome: "say", kind: "plain", text: NOT_CAUGHT };
+      // "im ready to work" / "done" / "i need youtube for this" (focus-ready.ts): code starts the session from the plan with the task's
+      // apps, ends it early with one break-or-next question, or allows one site. Typed or addressed to ORION only starts anything.
+      if (!run.flow && !run.cutOff && options.focusReady) {
+        const at = (options.now ?? pluginNow)();
+        const readied = await runFocusReady(run.message, { ...options.focusReady, now: at, mayStart: !run.spoken || addressed(run.message),
+          ...(options.readDayJson ? { readDay: () => withTimeout(options.readDayJson!([]).catch(() => undefined), options.dayReadMs ?? DAY_READ_MS) } : {}),
+          ...(options.readDeadlines ? { readDeadlines: () => withTimeout(options.readDeadlines!().catch(() => null), options.dayReadMs ?? DAY_READ_MS) } : {}) })
+          .catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
+        if (readied.outcome !== "fallback") {
+          run.flow = readied;
+          if ("calls" in readied && readied.calls) readied.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: readied.outputs?.[i] ?? "", exit: null }));
+          if (readied.outcome === "done" && /orion-session start/.test(readied.calls.join(" "))) recordOther(run.sessionKey, "focus");
+        }
+      }
       // A focus session is one fixed command: code runs orion-session and the reply is built from
       // its output. Left to the worker, it said "I've started a focus session" three times and
       // called nothing (2026-10-15). Before the scheduler, which "focus block" would also match.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countSentences, isBareNoteRequest, isOtherCommand, parseNote, runNote } from "./note-flow.js";
+import { countSentences, isBareNoteRequest, isOtherCommand, looksSecret, parseNote, runNote } from "./note-flow.js";
 // w18 note: "make a note of something long" kept only the first sentence. The model was told to save "the fact, short,
 // in the third person" and orion-brain cut it at 400 characters. Code now keeps his whole text, minus the command words.
 const LONG_VOICE = "ok make a note so for the marketing group project we need to meet on thursday and priya is doing the slides but she hasnt started and i said id do the survey thing and also i need to email prof jones about the extension because the deadline moved and i forgot";
@@ -171,6 +171,34 @@ describe("routing: the note after 'make a note for me really quickly?'", () => {
         expect(calls).toEqual([]);
         await say("write something down");
         await say(VOICE_NOTE, "agent:main:other");
+        expect(calls).toEqual([]);
+    });
+});
+describe("review: a bound note yields to anything that is not a note", () => {
+    it.each([
+        "actually class moved to 3pm, can you shift my study block?", "no never mind", "no", "nvm", "never mind", "cancel", "thanks", "yes", "yeah", "ok thanks",
+        "the lab is tomorrow right?", "please move gym to 6 because the lab ran over and i have not eaten and the tutor wants to see me after class today",
+        "could you remind me about the econ quiz when i get home, it is on thursday and i keep forgetting it",
+        "i need to reschedule my dentist thing and also push the gym back to the evening because mum is visiting this weekend and we are going out",
+        "add milk to my to-do list and also eggs and the good bread from the bakery on the corner before it shuts at five",
+    ])("unbinds: %s", (m) => expect(isOtherCommand(m)).toBe(true));
+    it.each([
+        "i'm so tired", VOICE_NOTE, MULTI, DR, LONG_VOICE, "the wifi in the library is called study-5g, password on the board",
+        "tell priya the lab moved to friday and that i will bring the laptop", "ideas for the marketing project: tiktok campaign, student discount, a pop-up stall",
+    ])("stays a note: %s", (m) => expect(isOtherCommand(m)).toBe(false));
+});
+describe("review: a note that looks like a secret is not saved", () => {
+    it.each([
+        "my wifi password is Hunter2025!", "the pin is 4821 for the locker", "api key: sk-abcdef1234567890abcdef12", "card number 4242 4242 4242 4242 exp 11/28",
+        "token ghp_abcdefghijklmnopqrstuvwx1234", "my bank password: Tr0ub4dor&3",
+    ])("secret: %s", (m) => expect(looksSecret(m)).toBe(true));
+    it.each(["i'm so tired", "the password is on the sticky note", VOICE_NOTE, "call 07700 900123 about the lab", "book ref 1234 5678 is for the library"])("fine: %s", (m) => expect(looksSecret(m)).toBe(false));
+    it("runNote refuses, saves nothing, and says why", async () => {
+        const calls = [];
+        const exec = async (a) => { calls.push(a); return { stdout: "Added", code: 0 }; };
+        for (const r of [await runNote({ message: "make a note my wifi password is Hunter2025!", exec }), await runNote({ message: "Hunter2025! is my password: Hunter2025!", exec, bound: true })]) {
+            expect(r.outcome === "say" && r.text).toBe("That looks like a password — I didn't save it.");
+        }
         expect(calls).toEqual([]);
     });
 });

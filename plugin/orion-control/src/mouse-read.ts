@@ -46,7 +46,7 @@ const flat = (s: string) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/
 const BTN = String.raw`(?:front|back|forward|rear)`;
 const MOUSE = /\bmouse\b|\bbasilisk\b|\brazer\b/i;
 const BUTTON_PHRASE = new RegExp(
-  String.raw`\b(?:(?:mouse )?button\s*#?\d{1,2}|${BTN} side(?: button)?|side ${BTN}(?: button)?|${BTN}(?: thumb)? button|(?:side|thumb) button)\b`, "i");
+  String.raw`\b(?:(?:mouse )?button\s*#?\d{1,2}|${BTN} side(?: button)?|side ${BTN}(?: button)?|${BTN}(?: thumb)? button|(?:side|thumb) button|(?:top|sensitivity|dpi) button|f(?:1[3-9]|20)(?: key)? button)\b`, "i");
 const MOUSEISH = new RegExp(`${MOUSE.source}|${BUTTON_PHRASE.source}|\\bthumb\\b`, "i");
 const KEYWORD = String.raw`(?:cmd|command|ctrl|control|opt|option|alt|shift)`;
 const ACTION_PHRASE = new RegExp([

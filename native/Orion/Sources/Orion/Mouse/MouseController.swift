@@ -64,6 +64,7 @@ final class MouseController: ObservableObject {
 
     func start() {
         devices = store.loadDevices()
+        pushKeyButtons()
         outreachOffset = (try? Data(contentsOf: outreachURL))?.count ?? 0   // old lines are history
         refreshNaturalScrolling()
         loadBindingsFromDisk()
@@ -199,6 +200,13 @@ final class MouseController: ObservableObject {
 
     private func update(devices edit: (DevicesFile) -> DevicesFile) {
         do { devices = try store.updateDevices(edit) } catch { OrionLog.write("[mouse] could not save devices: \(error.localizedDescription)") }
+        pushKeyButtons()
+    }
+
+    /// Which F keys a connected mouse sends; the tap leaves every other key alone.
+    private func pushKeyButtons() {
+        let keys = DeviceRegistry.activeKeyButtons(in: devices)
+        remapper.update { var s = $0; s.keyButtons = keys; return s }
     }
 
     private func markConfigured() {
@@ -239,7 +247,7 @@ final class MouseController: ObservableObject {
         checkGameAlive()
         let new = prepConfig.autoPrep(); if new != autoPrep { autoPrep = new }
         let disk = store.loadDevices()
-        if disk != devices { devices = disk }
+        if disk != devices { devices = disk; pushKeyButtons() }
     }
 
     /// The system's natural-scrolling switch, read from the global default (never written) every ~15 s, not per event.
@@ -372,6 +380,7 @@ final class MouseController: ObservableObject {
     }
 
     private func attached(_ mouse: AttachedMouse) {
+        OrionLog.write("[mouse] attached \(mouse.name) \(mouse.id): \(mouse.buttonCount) buttons\(mouse.keyboardInterface ? ", sends keys (top button = F13)" : "")")
         let now = ISO8601DateFormatter().string(from: Date())
         update(devices: { DeviceRegistry.attached(mouse, into: $0, now: now) })
         guard let device = devices.devices.first(where: { $0.id == mouse.id }), device.setupState == .new else { return }

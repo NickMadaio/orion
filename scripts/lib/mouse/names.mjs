@@ -6,11 +6,15 @@
 //   "front", "forward", "side front", "front side", "thumb front"            -> 4   (the front side button, the box's "button 5")
 //   "button N", "btn N", "mouse button N"  (N counts from 1, as the box does) -> N-1   (button 4 = 3, button 5 = 4, button 6 = 5 ...)
 //   a bare integer ("3")                                                     -> that CGEvent number
+//   "top", "top button", "sensitivity", "dpi", "f13".."f20", or 113..120 -> 113..120 (a button whose onboard memory sends the key F13..F20;
+//                                                                     the Mac app calls it the "top button": id = 100 + the F number)
 //   "side button" alone is ambiguous: the caller asks "the front or the back one?". Left, right and the wheel click (0-2) are refused.
 import { execFileSync } from "node:child_process";
 
 export const FIRST_EXTRA = 3;
 export const LAST_EXTRA = 31;
+export const FIRST_KEY_BUTTON = 113;   // F13
+export const LAST_KEY_BUTTON = 120;    // F20
 
 const flat = (s) => String(s ?? "").toLowerCase().replace(/[’]/g, "'").replace(/[^a-z0-9+' .\-]/g, " ").replace(/\s+/g, " ").trim();
 const FIXED = "the left, right and wheel buttons stay as they are; I can only remap the extra buttons";
@@ -21,16 +25,24 @@ function fromIndex(n) {
   return { n };
 }
 
+function fromKey(n) {
+  return n >= FIRST_KEY_BUTTON && n <= LAST_KEY_BUTTON ? { n } : { error: `there is no mouse button ${n}; a button that sends a key can be F13 to F20` };
+}
+
 /** { n } for a button, { ask: "button" } when it cannot be told, { error } when it is not remappable. */
 export function parseButton(input) {
   const raw = String(input ?? "").trim();
   if (!raw) return { ask: "button" };
   if (/^\d{1,2}$/.test(raw)) return fromIndex(Number(raw));
+  if (/^\d{3}$/.test(raw)) return fromKey(Number(raw));
   const text = flat(raw);
+  const fkey = /^(?:(?:the|my|key|button|mouse)\s+)*f(\d{1,2})(?:\s+(?:key|button))?$/.exec(text);
+  if (fkey) return fromKey(100 + Number(fkey[1]));
+  if (/^(?:(?:the|my|mouse|one|please)\s+)*(?:top|sensitivity|dpi)(?:\s+(?:side\s+)?(?:button|one))?$/.test(text)) return { n: FIRST_KEY_BUTTON };
   const numbered = /\b(?:button|btn)\s*#?(\d{1,2})\b/.exec(text) ?? /^#(\d{1,2})$/.exec(text);
   if (numbered) return fromIndex(Number(numbered[1]) - 1);
   const s = text.replace(/\b(?:the|my|mouse|thumb|button|one|side|please)\b/g, " ").replace(/\s+/g, " ").trim();
-  const back = /\b(?:back|rear|behind|bottom)\b/.test(s), front = /\b(?:front|forward|fwd|top)\b/.test(s);
+  const back = /\b(?:back|rear|behind|bottom)\b/.test(s), front = /\b(?:front|forward|fwd)\b/.test(s);
   if (back && front) return { ask: "button" };
   if (back) return { n: 3 };
   if (front) return { n: 4 };
@@ -38,7 +50,8 @@ export function parseButton(input) {
   return { ask: "button" };
 }
 
-export const buttonLabel = (n) => (n === 3 ? "back side button" : n === 4 ? "front side button" : `button ${n + 1}`);
+export const buttonLabel = (n) => (n === 3 ? "back side button" : n === 4 ? "front side button" : n === FIRST_KEY_BUTTON ? "top button"
+  : n > LAST_EXTRA ? `F${n - 100} key button` : `button ${n + 1}`);
 
 const SYSTEM = {
   missionControl: ["Mission Control", /\bmission ?control\b|\bexpose all\b|\ball (?:my )?windows\b/],

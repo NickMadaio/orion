@@ -3,7 +3,7 @@ import IOKit.hid
 import MouseKit
 
 /*
- Watches for mice attaching and detaching (IOHIDManager, GenericDesktop/Mouse). For each device it reads vendor,
+ Watches for mice (and the keyboard half of a mouse) attaching and detaching (IOHIDManager, GenericDesktop/Mouse). For each device it reads vendor,
  product, name, transport and the number of buttons from the HID descriptor's Button-page elements.
  Pure decisions (ignore the trackpad, "new" state, extra-button numbers) live in MouseKit's DeviceRegistry.
  Opened non-exclusively: it only listens for matching, never seizes input.
@@ -13,12 +13,17 @@ final class MouseDeviceWatcher {
     var onDetach: ((String) -> Void)?
 
     private var manager: IOHIDManager?
+    /// Keyboard interfaces seen, and mice seen, by "vendor:product". Attach order between the two is not guaranteed.
+    private var keyboardIds = Set<String>()
+    private var mice: [String: AttachedMouse] = [:]
 
     func start() {
         guard manager == nil else { return }
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        let match: [String: Int] = [kIOHIDDeviceUsagePageKey: Int(kHIDPage_GenericDesktop), kIOHIDDeviceUsageKey: Int(kHIDUsage_GD_Mouse)]
-        IOHIDManagerSetDeviceMatching(manager, match as CFDictionary)
+        // Mice, and keyboards: a mouse whose onboard memory sends a key (F13) also shows up as a keyboard with the same vendor and product.
+        let mouse: [String: Int] = [kIOHIDDeviceUsagePageKey: Int(kHIDPage_GenericDesktop), kIOHIDDeviceUsageKey: Int(kHIDUsage_GD_Mouse)]
+        let keyboard: [String: Int] = [kIOHIDDeviceUsagePageKey: Int(kHIDPage_GenericDesktop), kIOHIDDeviceUsageKey: Int(kHIDUsage_GD_Keyboard)]
+        IOHIDManagerSetDeviceMatchingMultiple(manager, [mouse, keyboard] as CFArray)
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
             guard let context else { return }
@@ -43,12 +48,27 @@ final class MouseDeviceWatcher {
 
     private func attached(_ device: IOHIDDevice) {
         guard let mouse = Self.describe(device) else { return }
-        onAttach?(mouse)
+        if Self.isKeyboard(device) {
+            keyboardIds.insert(mouse.id)
+            // The mouse attached first: say so again, now with its keyboard half.
+            if var known = mice[mouse.id], !known.keyboardInterface { known.keyboardInterface = true; mice[mouse.id] = known; onAttach?(known) }
+            return
+        }
+        var withKeys = mouse
+        withKeys.keyboardInterface = keyboardIds.contains(mouse.id)
+        mice[mouse.id] = withKeys
+        onAttach?(withKeys)
     }
 
     private func detached(_ device: IOHIDDevice) {
         guard let mouse = Self.describe(device) else { return }
+        if Self.isKeyboard(device) { keyboardIds.remove(mouse.id); mice[mouse.id]?.keyboardInterface = false; return }
+        mice[mouse.id] = nil
         onDetach?(mouse.id)
+    }
+
+    private static func isKeyboard(_ device: IOHIDDevice) -> Bool {
+        intProperty(device, kIOHIDPrimaryUsagePageKey) == Int(kHIDPage_GenericDesktop) && intProperty(device, kIOHIDPrimaryUsageKey) == Int(kHIDUsage_GD_Keyboard)
     }
 
     private static func intProperty(_ device: IOHIDDevice, _ key: String) -> Int? {

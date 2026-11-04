@@ -28,18 +28,22 @@ enum Phone {
     static let hairline = wash(0.09)
 
     // One accent: ORION's cyan, a touch calmer. The rest only mark status.
-    static let accent = adaptive(dark: UIColor(red: 0.33, green: 0.80, blue: 0.96, alpha: 1),
+    // The same hues as Home's cards (PhoneHomeHue), so every screen reads as one app.
+    static let accent = adaptive(dark: UIColor(red: 79 / 255, green: 184 / 255, blue: 1, alpha: 1),
                                  light: UIColor(red: 0.04, green: 0.50, blue: 0.70, alpha: 1))
-    static let green = Color(red: 0.30, green: 0.80, blue: 0.52)
-    static let orange = Color(red: 0.96, green: 0.56, blue: 0.20)
+    static let green = Color(red: 0.36, green: 0.92, blue: 0.60)
+    static let orange = Color(red: 1.00, green: 0.58, blue: 0.20)
     static let violet = accent
+    static let purple = Color(red: 0.70, green: 0.52, blue: 1.00)
     static let red = Color(red: 0.95, green: 0.36, blue: 0.36)
+    static let sleep = Color(red: 0.58, green: 0.62, blue: 1.00)
+    static let yellow = Color(red: 1.00, green: 0.84, blue: 0.30)
 
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
         .system(size: size, weight: weight, design: .monospaced)
     }
     static func display(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        .system(size: size, weight: weight, design: .serif)
     }
 
     static func greeting(at date: Date = Date()) -> String {
@@ -52,10 +56,21 @@ enum Phone {
     }
 }
 
-/// The screen behind everything: flat, calm ink. No glow, no gradient.
+/// The screen behind everything: Home's near-black ink with one faint pool of light. Static.
 struct PhoneBackdrop: View {
     var tint: Color = Phone.accent
-    var body: some View { Phone.ink.ignoresSafeArea() }
+    @Environment(\.colorScheme) private var scheme
+    var body: some View {
+        let dark = scheme == .dark
+        ZStack {
+            Phone.ink
+            RadialGradient(colors: [tint.opacity(dark ? 0.07 : 0.04), .clear], center: UnitPoint(x: 0.3, y: 0.2),
+                           startRadius: 10, endRadius: 360)
+            RadialGradient(colors: [Phone.purple.opacity(dark ? 0.05 : 0.03), .clear], center: UnitPoint(x: 0.85, y: 0.7),
+                           startRadius: 10, endRadius: 280)
+        }
+        .ignoresSafeArea()
+    }
 }
 
 /// A screen's own header: a mono date line and one large title. The navigation
@@ -63,13 +78,17 @@ struct PhoneBackdrop: View {
 struct PhoneHeader: View {
     let eyebrow: String
     let title: String
+    var tint: Color = Phone.dim
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             // Displayed in caps; read (and matched by UI tests) as written.
-            Text(eyebrow).textCase(.uppercase).font(Phone.mono(11)).tracking(1.6).foregroundStyle(Phone.dim)
-            Text(title).font(Phone.display(34, .bold)).foregroundStyle(Phone.text).accessibilityAddTraits(.isHeader)
+            Text(eyebrow).textCase(.uppercase).font(Phone.mono(10.5)).tracking(2.2).foregroundStyle(tint)
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Text(title).font(.system(size: 34, weight: .regular, design: .serif)).foregroundStyle(Phone.text)
+                .lineLimit(2).minimumScaleFactor(0.8).accessibilityAddTraits(.isHeader)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .softReveal(true, rise: 10)
     }
 }
 
@@ -80,7 +99,7 @@ struct SectionLabel: View {
     init(_ text: String, tint: Color = Phone.dim) { self.text = text; self.tint = tint }
     var body: some View {
         HStack(spacing: 10) {
-            Text(text).textCase(.uppercase).font(Phone.mono(10)).tracking(1.6).foregroundStyle(tint)
+            Text(text).textCase(.uppercase).font(Phone.mono(10)).tracking(2.2).foregroundStyle(tint).lineLimit(1)
             LinearGradient(colors: [Phone.hairline, .clear], startPoint: .leading, endPoint: .trailing).frame(height: 1)
         }
         .accessibilityAddTraits(.isHeader)
@@ -109,7 +128,7 @@ struct PhoneRing: View {
     }
 }
 
-/// Outline capsule; the prominent one glows. Sinks when pressed.
+/// Glow-rim outline capsule (Home's pill); the prominent one glows more. Sinks when pressed, 44pt tall at least.
 struct PhoneButtonStyle: ButtonStyle {
     var tint: Color = Phone.accent
     var prominent = false
@@ -117,18 +136,66 @@ struct PhoneButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 15, weight: .semibold, design: .rounded))
-            .padding(.horizontal, 20).padding(.vertical, 12)
-            .foregroundStyle(enabled ? (prominent ? Color.white : tint) : Phone.dim)
-            .background {
-                Capsule().fill(LinearGradient(colors: [tint.opacity(prominent ? 0.32 : 0.05), tint.opacity(prominent ? 0.10 : 0)],
-                                              startPoint: .topLeading, endPoint: .bottomTrailing))
-            }
-            .overlay { Capsule().stroke(tint.opacity(enabled ? 0.6 : 0.15), lineWidth: 1.1) }
-            .shadow(color: tint.opacity(enabled && prominent ? 0.35 : 0), radius: 12)
+            .font(.system(size: 15, weight: .semibold))
+            .padding(.horizontal, 20).frame(minHeight: 44)
+            .foregroundStyle(enabled ? Phone.text : Phone.dim)
+            .background(Capsule().fill(tint.opacity(enabled ? (prominent ? 0.14 : 0.07) : 0)))
+            .overlay { Capsule().strokeBorder(tint.opacity(enabled ? 0.75 : 0.18), lineWidth: 1) }
+            .shadow(color: tint.opacity(enabled ? (prominent ? 0.4 : 0.22) : 0), radius: prominent ? 12 : 7)
+            .contentShape(Capsule())
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
             .opacity(configuration.isPressed ? 0.8 : 1)
             .animation(PhoneMotion.press, value: configuration.isPressed)
+    }
+}
+
+/// A thin tinted outline card, like Home's, with an optional small tilt. Use only where Home would.
+struct PhoneCard<Content: View>: View {
+    var tint: Color = Phone.accent
+    var tilt: Double = 0
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        content()
+            .padding(.horizontal, 18).padding(.vertical, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(shape.fill(LinearGradient(colors: [Phone.wash(0.045), Phone.wash(0.01)], startPoint: .top, endPoint: .bottom)))
+            .overlay(shape.strokeBorder(LinearGradient(colors: [tint.opacity(0.45), Phone.wash(0.09), tint.opacity(0.18)],
+                                                       startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.9))
+            .rotationEffect(.degrees(tilt))
+    }
+}
+
+/// A ring with one figure inside and a mono caps label under it: the phone's stand-in for a progress bar.
+struct PhoneGauge: View {
+    let label: String
+    let figure: String
+    let fraction: Double?
+    var unit: String? = nil
+    var tint: Color = Phone.accent
+    var size: CGFloat = 92
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle().stroke(Phone.wash(0.08), lineWidth: 5)
+                Circle().trim(from: 0, to: CGFloat(min(1, max(0, fraction ?? 0))))
+                    .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90)).shadow(color: tint.opacity(0.4), radius: 5)
+                VStack(spacing: 0) {
+                    Text(figure).font(.system(size: size * 0.30, weight: .regular, design: .serif)).foregroundStyle(Phone.text)
+                        .minimumScaleFactor(0.6).lineLimit(1)
+                    if let unit { Text(unit).font(Phone.mono(9, .medium)).tracking(1).foregroundStyle(Phone.dim) }
+                }
+                .padding(.horizontal, 8)
+            }
+            .frame(width: size, height: size)
+            Text(label).textCase(.uppercase).font(Phone.mono(9.5)).tracking(2).foregroundStyle(tint).lineLimit(1)
+        }
+        .animation(PhoneMotion.spring(PhoneMotion.enter, reduce: reduceMotion), value: fraction)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label), \(figure)\(unit.map { " " + $0 } ?? "")")
     }
 }
 
@@ -155,8 +222,8 @@ struct PhoneStat: View {
     var tint: Color = Phone.text
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(label).textCase(.uppercase).font(Phone.mono(10)).tracking(1.4).foregroundStyle(Phone.dim)
-            Text(value).font(Phone.display(26)).foregroundStyle(tint).fixedSize(horizontal: false, vertical: true)
+            Text(label).textCase(.uppercase).font(Phone.mono(10)).tracking(2).foregroundStyle(Phone.dim)
+            Text(value).font(Phone.display(26, .regular)).foregroundStyle(tint).fixedSize(horizontal: false, vertical: true)
             if let detail { Text(detail).font(.system(size: 13)).foregroundStyle(Phone.soft) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -173,7 +240,7 @@ struct PhoneEmptyState: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             PhoneRing(symbol: symbol, tint: tint, size: 72, live: false)
-            Text(title).font(Phone.display(22)).foregroundStyle(Phone.text)
+            Text(title).font(Phone.display(22, .regular)).foregroundStyle(Phone.text)
             Text(detail).font(.system(size: 15)).foregroundStyle(Phone.soft).lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
         }

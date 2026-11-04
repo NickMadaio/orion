@@ -71,7 +71,7 @@ struct ProjectLine: View {
         switch status {
         case "working": return W.green
         case "needsYou": return W.orange
-        case "paused": return W.gold
+        case "paused": return W.highlight
         case "complete": return W.accent
         default: return W.dim
         }
@@ -192,7 +192,7 @@ struct CheckinView: View {
 
     var body: some View {
         let checkin = entry.glance?.checkin
-        let tint = checkin.map { $0.level >= 2 ? W.red : $0.phase == "active" ? W.violet : W.accent } ?? W.gold
+        let tint = checkin.map { $0.level >= 2 ? W.red : $0.phase == "active" ? W.violet : W.accent } ?? W.highlight
         Group {
             switch family {
             #if os(iOS)
@@ -240,7 +240,7 @@ struct CheckinView: View {
 
     private var idle: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Eyebrow("Check-in", tint: W.gold)
+            Eyebrow("Check-in", tint: W.highlight)
             Spacer(minLength: 0)
             Text("Nothing to chase.").font(W.display(15, .bold)).foregroundStyle(W.text)
             Text(entry.line).font(.system(size: 11)).foregroundStyle(W.soft).lineLimit(3)

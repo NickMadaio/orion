@@ -19,7 +19,7 @@ struct TrackingSection: View {
 
     var body: some View {
         if let tracking = remote.tracking {
-            VStack(alignment: .leading, spacing: 30) {
+            VStack(alignment: .leading, spacing: 34) {
                 if let problem = remote.trackingProblem {
                     Label(problem, systemImage: "exclamationmark.triangle").font(.system(size: 13)).foregroundStyle(Phone.orange)
                 }
@@ -27,7 +27,7 @@ struct TrackingSection: View {
                 food(tracking)
                 if !tracking.supplements.isEmpty { supplements(tracking) }
             }
-            .sheet(isPresented: $loggingFood) { FoodSheet(remote: remote, recents: tracking.recentFoods) }
+            .foodLogging(trigger: $loggingFood, remote: remote, conversationID: nil)
         } else {
             PhoneEmptyState(symbol: "drop", title: remote.snapshot == nil ? "Waiting for your Mac" : "Tracking isn't set up on your Mac",
                             detail: "Water, food and supplements are kept in ORION on your Mac. They appear here once it reports in.",
@@ -36,41 +36,36 @@ struct TrackingSection: View {
     }
 
     private func water(_ tracking: LinkSnapshot.Tracking) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             SectionLabel("Water", tint: Phone.accent)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("\(tracking.waterBottles)").font(.system(size: 40, weight: .light, design: .rounded)).foregroundStyle(Phone.text)
-                    .contentTransition(.numericText())
-                Text("of \(tracking.waterGoal) bottles").font(.system(size: 14)).foregroundStyle(Phone.soft)
-                Spacer()
+            HStack(spacing: 20) {
+                PhoneGauge(label: "Bottles", figure: "\(tracking.waterBottles)", fraction: fraction(tracking.waterBottles, tracking.waterGoal),
+                           unit: "of \(tracking.waterGoal)", tint: Phone.accent, size: 88)
+                Spacer(minLength: 0)
                 Button { remote.log(.water(delta: -1)) } label: { Image(systemName: "minus") }
                     .buttonStyle(RoundIconStyle()).disabled(tracking.waterBottles == 0).accessibilityLabel("Remove a bottle")
                 Button { remote.log(.water(delta: 1)) } label: { Image(systemName: "plus") }
                     .buttonStyle(RoundIconStyle(prominent: true)).accessibilityLabel("Add a bottle")
             }
-            BottleRow(count: tracking.waterBottles, goal: tracking.waterGoal)
         }
         .animation(.spring(response: 0.3), value: tracking.waterBottles)
         .sensoryFeedback(.increase, trigger: tracking.waterBottles)
     }
 
+    private func fraction(_ value: Int, _ goal: Int) -> Double? { goal > 0 ? min(1, Double(value) / Double(goal)) : nil }
+
     private func food(_ tracking: LinkSnapshot.Tracking) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             SectionLabel("Food", tint: Phone.orange)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(tracking.calories.formatted()).font(.system(size: 40, weight: .light, design: .rounded)).foregroundStyle(Phone.text)
-                    .contentTransition(.numericText())
-                Text("of \(tracking.calorieGoal.formatted()) kcal").font(.system(size: 14)).foregroundStyle(Phone.soft)
-                Spacer()
-                Button { loggingFood = true } label: { Label("Log", systemImage: "plus").fixedSize() }
+            HStack(spacing: 20) {
+                PhoneGauge(label: "Calories", figure: tracking.calories.formatted(), fraction: fraction(tracking.calories, tracking.calorieGoal),
+                           unit: "of \(tracking.calorieGoal.formatted())", tint: tracking.calories > tracking.calorieGoal && tracking.calorieGoal > 0 ? Phone.red : Phone.orange, size: 88)
+                PhoneGauge(label: "Protein", figure: "\(tracking.protein)", fraction: fraction(tracking.protein, tracking.proteinGoal),
+                           unit: "of \(tracking.proteinGoal) g", tint: Phone.purple, size: 88)
+                Spacer(minLength: 0)
+                Button { loggingFood = true } label: { Label("Log food", systemImage: "camera").fixedSize() }
                     .buttonStyle(PhoneButtonStyle(tint: Phone.orange, prominent: true))
                     .accessibilityIdentifier("logFood")
-            }
-            Meter(value: tracking.calories, goal: tracking.calorieGoal, tint: Phone.orange)
-            HStack(spacing: 8) {
-                Text("Protein").font(.system(size: 13)).foregroundStyle(Phone.soft)
-                Meter(value: tracking.protein, goal: tracking.proteinGoal, tint: Phone.violet, height: 4)
-                Text("\(tracking.protein) / \(tracking.proteinGoal) g").font(Phone.mono(11, .medium)).foregroundStyle(Phone.soft)
             }
             if tracking.meals.isEmpty {
                 Text("Nothing logged yet today.").font(.system(size: 14)).foregroundStyle(Phone.dim)
@@ -78,15 +73,15 @@ struct TrackingSection: View {
                 VStack(spacing: 0) {
                     ForEach(tracking.meals) { meal in
                         HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(meal.title).font(.system(size: 15, weight: .medium)).foregroundStyle(Phone.text)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(meal.title).font(.system(size: 15, weight: .medium)).foregroundStyle(Phone.text).lineLimit(2)
                                 Text(meal.protein > 0 ? "\(meal.meal) · \(meal.protein) g protein" : meal.meal)
                                     .font(.system(size: 12)).foregroundStyle(Phone.dim)
                             }
-                            Spacer()
-                            Text("\(meal.calories) kcal").font(Phone.mono(12, .medium)).foregroundStyle(Phone.soft)
+                            Spacer(minLength: 8)
+                            Text("\(meal.calories) kcal").font(Phone.mono(12, .medium)).foregroundStyle(Phone.soft).fixedSize()
                         }
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 12)
                         .opacity(meal.id.hasPrefix("pending-") ? 0.55 : 1)
                         .overlay(alignment: .bottom) { Rectangle().fill(Phone.hairline).frame(height: 1) }
                         .contextMenu {
@@ -96,7 +91,7 @@ struct TrackingSection: View {
                         }
                     }
                 }
-                Text("Touch and hold a meal to remove it.").font(.footnote).foregroundStyle(Phone.dim)
+                Text("Touch and hold a meal to remove it.").font(.system(size: 12)).foregroundStyle(Phone.dim)
             }
         }
     }
@@ -117,7 +112,7 @@ struct TrackingSection: View {
                         }
                         Spacer()
                     }
-                    .padding(.vertical, 6).contentShape(Rectangle())
+                    .padding(.vertical, 8).frame(minHeight: 44).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .sensoryFeedback(.success, trigger: item.taken)
@@ -144,7 +139,7 @@ struct TodayTracking: View {
                         remote.log(.water(delta: 1))
                     }
                     .accessibilityLabel("Add a bottle of water, \(tracking.waterBottles) so far")
-                    tile(symbol: "fork.knife", tint: Phone.orange, value: tracking.calories.formatted(), label: "of \(tracking.calorieGoal.formatted()) kcal") {
+                    tile(symbol: "camera", tint: Phone.orange, value: tracking.calories.formatted(), label: "of \(tracking.calorieGoal.formatted())") {
                         loggingFood = true
                     }
                     .accessibilityLabel("Log food, \(tracking.calories) calories so far")
@@ -152,7 +147,7 @@ struct TodayTracking: View {
                 Button(action: openHealth) { Label("Health and supplements", systemImage: "arrow.right") }
                     .buttonStyle(PhoneButtonStyle())
             }
-            .sheet(isPresented: $loggingFood) { FoodSheet(remote: remote, recents: tracking.recentFoods) }
+            .foodLogging(trigger: $loggingFood, remote: remote, conversationID: nil)
         }
     }
 
@@ -160,21 +155,21 @@ struct TodayTracking: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 ZStack {
-                    Circle().fill(tint.opacity(0.14))
-                    Image(systemName: symbol).font(.system(size: 16, weight: .semibold)).foregroundStyle(tint)
+                    Circle().strokeBorder(tint.opacity(0.5), lineWidth: 1)
+                    Image(systemName: symbol).font(.system(size: 15, weight: .light)).foregroundStyle(tint)
                 }
                 .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(value).font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(Phone.text)
-                        .contentTransition(.numericText())
-                    Text(label).font(.system(size: 11)).foregroundStyle(Phone.dim)
+                    Text(value).font(.system(size: 20, weight: .regular, design: .serif)).foregroundStyle(Phone.text)
+                        .contentTransition(.numericText()).minimumScaleFactor(0.8).lineLimit(1)
+                    Text(label).font(.system(size: 11)).foregroundStyle(Phone.dim).lineLimit(1).minimumScaleFactor(0.8)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "plus").font(.system(size: 12, weight: .bold)).foregroundStyle(tint)
             }
-            .padding(12)
-            .background(Phone.wash(0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(tint.opacity(0.25), lineWidth: 1))
+            .padding(.horizontal, 14).padding(.vertical, 12).frame(minHeight: 64)
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(tint.opacity(0.4), lineWidth: 0.9))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -275,50 +270,17 @@ struct FoodSheet: View {
 
 // MARK: - Pieces
 
-struct BottleRow: View {
-    let count: Int
-    let goal: Int
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<max(goal, count), id: \.self) { index in
-                Image(systemName: index < count ? "drop.fill" : "drop")
-                    .font(.system(size: 18))
-                    .foregroundStyle(index < count ? Phone.accent : Phone.dim.opacity(0.6))
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .accessibilityElement().accessibilityLabel("\(count) of \(goal) bottles")
-    }
-}
-
-struct Meter: View {
-    let value: Int
-    let goal: Int
-    let tint: Color
-    var height: CGFloat = 8
-    var body: some View {
-        GeometryReader { geometry in
-            let fraction = goal > 0 ? min(1, CGFloat(value) / CGFloat(goal)) : 0
-            ZStack(alignment: .leading) {
-                Capsule().fill(Phone.wash(0.08))
-                Capsule().fill(value > goal ? Phone.red : tint).frame(width: max(height, geometry.size.width * fraction))
-                    .opacity(value == 0 ? 0 : 1)
-            }
-        }
-        .frame(height: height)
-        .animation(.spring(response: 0.4), value: value)
-    }
-}
-
 struct RoundIconStyle: ButtonStyle {
     var prominent = false
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(prominent ? Color.black : Phone.accent)
+            .font(.system(size: 16, weight: .medium))
+            .foregroundStyle(Phone.text)
             .frame(width: 44, height: 44)
-            .background(Circle().fill(prominent ? Phone.accent : Phone.accent.opacity(0.12)))
+            .background(Circle().fill(Phone.accent.opacity(prominent ? 0.14 : 0.05)))
+            .overlay(Circle().strokeBorder(Phone.accent.opacity(prominent ? 0.75 : 0.4), lineWidth: 1))
+            .shadow(color: Phone.accent.opacity(prominent ? 0.3 : 0), radius: 7)
             .opacity(enabled ? 1 : 0.35)
             .scaleEffect(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)

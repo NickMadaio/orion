@@ -13,6 +13,8 @@ export declare const NOTE_ASK = "Go ahead \u2014 what's the note?";
 export declare const NOTE_WINDOW_MS: number;
 export declare function isBareNoteRequest(message: string): boolean;
 export declare const isOtherCommand: (message: string) => boolean;
+export declare function looksSecret(text: string): boolean;
+export declare const SECRET_REPLY = "That looks like a password \u2014 I didn't save it.";
 /** Sentences in his text: ". ! ?" runs and line breaks end one; a run-on with no punctuation is one. */
 export declare function countSentences(text: string): number;
 /** "4 sentences", or the word count for one long run-on (voice transcripts have no punctuation). */

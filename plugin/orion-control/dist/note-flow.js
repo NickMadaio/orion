@@ -42,10 +42,39 @@ export function isBareNoteRequest(message) {
     const head = BARE_HEAD.exec(m);
     return !!head && FILLER_TAIL.test(m.slice(head[0].length));
 }
-// A short, clear command (a to-do, a schedule change, a question) is not the note he was about to dictate. A long message that
-// merely starts with such a word is a ramble, and stays the note.
-const OTHER = new RegExp(String.raw `^${LEAD}(?:(?:add|put|move|push|cancel|remind|schedule|set|open|play|pause|turn|text|email|send|mark|tick|delete|remove|undo|book|block|skip|what|whats|what's|when|where|who|how|why)\b|(?:is|are|can|could|should|does|did)\b[^]*\?\s*$|(?:never\s?mind|nvm|cancel|forget it|scratch that)\b)`, "i");
-export const isOtherCommand = (message) => message.trim().split(/\s+/).length <= 16 && OTHER.test(message.trim());
+// While a note is awaited, anything that is not the note yields: a bare answer ("no", "thanks", "yes"), a question, a request to ORION,
+// or a schedule / to-do word anywhere in it (review, w18 note-fix): "actually class moved to 3pm, can you shift my study block?" is a
+// request however long it is, and must never be filed as the note. Plain statements ("i'm so tired") stay notes.
+const BARE_ANSWER = /^(?:(?:no|nope|nah|actually|oh|ok(?:ay)?|well|um+)[,\s]+)*(?:no|nope|nah|nvm|never\s?mind|cancel|cancel that|forget it|scratch that|stop|thanks?|thank you|thx|yes|yeah|yep|yup|ok(?:ay)?|sure|fine)$/i;
+const ASKS_ORION = /\b(?:can|could|would|will) (?:you|u)\b|\bplease\s+[a-z]+|\bremind me\b/i;
+const SCHEDULE_WORD = /\b(?:reschedule|schedule|shift|push|move|postpone|cancel|swap|extend|undo|skip|delete|remove)\b|\badd\b[^.]*\b(?:to-?dos?|calendar|list|schedule|reminders?)\b|\b(?:put|block)\b[^.]*\b(?:calendar|to-?dos?|schedule)\b/i;
+const WH_QUESTION = /^(?:(?:hey|ok(?:ay)?|so|orion)[,\s]+)*(?:what|whats|what's|when|where|who|how|why)\b/i;
+export const isOtherCommand = (message) => {
+    const m = message.trim();
+    const bare = m.replace(/[.!?…\s]+$/, "");
+    return BARE_ANSWER.test(bare) || /\?\s*$/.test(m) || ASKS_ORION.test(m) || SCHEDULE_WORD.test(m) || (WH_QUESTION.test(m) && m.split(/\s+/).length <= 16);
+};
+// A note that looks like a password, token or card number is refused, never filed in the brain (same shapes as orion-note).
+const SECRET_SHAPES = [/sk-[A-Za-z0-9_-]{16,}/, /xox[baprs]-[A-Za-z0-9-]{10,}/, /gh[pousr]_[A-Za-z0-9]{20,}/, /-----BEGIN [A-Z ]*PRIVATE KEY-----/, /AKIA[0-9A-Z]{16}/, /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}\./];
+const SECRET_KEY = /\b(?:password|passcode|passwd|pwd|token|api[ -]?key|secret|pin)\b[^.\n]{0,20}?(?:\bis\b|\bwas\b|[:=])\s*["']?([^\s"']+)/gi;
+const valueLooksSecret = (v) => v.length >= 4 && (/\d/.test(v) || /[^\w]/.test(v) || (/[a-z]/.test(v) && /[A-Z]/.test(v)));
+const luhn = (digits) => {
+    let sum = 0;
+    [...digits].reverse().forEach((d, i) => { let n = Number(d); if (i % 2) {
+        n *= 2;
+        if (n > 9)
+            n -= 9;
+    } sum += n; });
+    return sum % 10 === 0;
+};
+export function looksSecret(text) {
+    if (SECRET_SHAPES.some((shape) => shape.test(text)))
+        return true;
+    if ([...text.matchAll(SECRET_KEY)].some((m) => valueLooksSecret((m[1] ?? "").replace(/[.,;!?]+$/, ""))))
+        return true;
+    return [...text.matchAll(/\b\d(?:[ -]?\d){12,18}\b/g)].some((m) => luhn(m[0].replace(/\D/g, "")));
+}
+export const SECRET_REPLY = "That looks like a password — I didn't save it.";
 // Periods that do not end a sentence: titles, "p.m.", "e.g.". A decimal ("3.30") has no space after, so it never splits.
 const ABBREVIATION = /\b(?:dr|mr|mrs|ms|prof|st|vs|no|approx)\.|\b(?:[ap]\.m|e\.g|i\.e)\./gi;
 /** Sentences in his text: ". ! ?" runs and line breaks end one; a run-on with no punctuation is one. */
@@ -72,6 +101,8 @@ export async function runNote({ message, exec, bound }) {
         return { outcome: "fallback", reason: "empty note" };
     if (!note)
         return { outcome: "fallback", reason: "not a note with content" };
+    if (looksSecret(note.text))
+        return { outcome: "say", kind: "plain", text: SECRET_REPLY };
     const args = ["learn", "Nick", "note", note.text];
     const calls = ["exec orion-brain learn \"Nick\" \"note\" <his full text>"];
     const result = await exec(args);

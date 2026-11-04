@@ -313,6 +313,8 @@ struct PhoneTabBar: View {
     @Binding var selection: PhoneTab
     /// Tabs that need a look (approvals waiting on More).
     var badges: [PhoneTab: Int] = [:]
+    /// The selected tab's colour: ORION's blue, or the focus hue while a session runs.
+    var accent: Color = Phone.accent
 
     var body: some View {
         HStack(spacing: 0) {
@@ -337,7 +339,7 @@ struct PhoneTabBar: View {
                 }
                 Text(tab.title.uppercased()).font(Phone.mono(9, .medium)).tracking(1.6)
             }
-            .foregroundStyle(selected ? Phone.accent : Phone.dim)
+            .foregroundStyle(selected ? accent : Phone.dim)
             .frame(maxWidth: .infinity, minHeight: 56)
             .contentShape(Rectangle())
         }

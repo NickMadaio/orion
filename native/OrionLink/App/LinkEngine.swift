@@ -417,7 +417,7 @@ final class LinkEngine: ObservableObject {
         let id = record.recordID.recordName
         var logged = defaults.stringArray(forKey: "link.mirrorsLogged") ?? []
         guard !logged.contains(id), let text = record[LinkSchema.commandReply] as? String,
-              let args = PhoneMirror.reachArguments(id: id, text: text) else { return }
+              let args = PhoneMirror.reachArguments(id: id, text: text, at: record[LinkSchema.commandSentAt] as? Date) else { return }
         let ok = runner.reach(arguments: args)
         guard ok else { return }   // not marked: the next change feed retries
         logged.append(id)
@@ -477,7 +477,9 @@ final class LinkEngine: ObservableObject {
             }
         }
         record[LinkSchema.commandStatus] = (result.ok ? LinkCommandStatus.done : .failed).rawValue as CKRecordValue
-        if kind == .chat { archiveChat(record, text: text, sentAt: sentAt, result: result) }
+        // A refusal or timeout is not an exchange: the phone shows it with a retry, and archiving it would leave the Mac's
+        // history with a failure line plus the same words again once he retries.
+        if kind == .chat, result.ok { archiveChat(record, text: text, sentAt: sentAt, result: result) }
         record[LinkSchema.commandThinking] = result.thinking as CKRecordValue?
         record[LinkSchema.commandReply] = result.reply as CKRecordValue
         record[LinkSchema.commandRepliedAt] = Date() as CKRecordValue

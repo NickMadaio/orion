@@ -158,8 +158,11 @@ final class CommandRunnerTests: XCTestCase {
         XCTAssertEqual(refused, .init(ok: false, reply: "Orion is locked."))
         let silent = CommandRunner(node: sh, remote: try script("exit 3"), timeout: 5).run(text: "x", id: "3", sentAt: Date())
         XCTAssertFalse(silent.ok)
+        // Plain words for a person: never an exit code (2026-11-03: "ORION refused or could not run that (exit 1)." in his chat).
+        XCTAssertEqual(silent.reply, "Your Mac couldn’t take that one just now.")
+        XCTAssertFalse(silent.reply.contains("exit"))
         let slow = CommandRunner(node: sh, remote: try script("sleep 5"), timeout: 1).run(text: "x", id: "4", sentAt: Date())
-        XCTAssertEqual(slow.reply, "ORION did not answer within 1 seconds.")
+        XCTAssertEqual(slow.reply, "ORION took too long on that one.")
         let empty = CommandRunner(node: sh, remote: try script("echo hi"), timeout: 5).run(text: "   ", id: "5", sentAt: Date())
         XCTAssertFalse(empty.ok)
     }

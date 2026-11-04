@@ -261,9 +261,24 @@ final class RemoteStore: ObservableObject {
         }
         sent?(id)
         Task {
-            // The lock state goes first, so ORION knows it before reading "unlock my apps".
-            if let state = try? FocusLock.screenState().validated().encoded() { _ = await link.send(state, kind: .log) }
-            await link.send(text, kind: .chat, id: id, conversation: conversation, model: model, replyTo: replyTo)
+            // His message shows at once; the lock state goes first, so ORION knows it before reading "unlock my apps".
+            await link.send(text, kind: .chat, id: id, conversation: conversation, model: model, replyTo: replyTo, prelude: {
+                if let state = try? FocusLock.screenState().validated().encoded() { _ = await self.link.send(state, kind: .log) }
+            })
+        }
+    }
+
+    /// "Didn't send — tap to retry". A send that threw goes again under the same id (iCloud ignores a repeat, so it can never
+    /// arrive twice); a message the Mac refused or never picked up is retired and sent as a new one, in the same thread.
+    func retry(_ message: CloudLink.Message) {
+        guard !message.text.isEmpty else { return }
+        let state = message.delivery(now: Date())
+        guard state.canRetry else { return }
+        if state.retriesSameID {
+            Task { await link.send(message.text, kind: .chat, id: message.id, conversation: message.conversationID, model: message.model, replyTo: message.replyTo) }
+        } else {
+            link.retire(message.id)
+            say(message.text, conversation: message.conversationID, model: message.model, replyTo: message.replyTo)
         }
     }
 

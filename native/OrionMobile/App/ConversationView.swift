@@ -44,8 +44,20 @@ struct ConversationView: View {
         "What should I focus on next?",
     ]
 
+    /// Internal job output (a "[daily-memory]" dump) never shows, even where an older build already put it in the thread.
     private var visible: [CloudLink.Message] {
-        remote.conversation.filter { conversationID == nil || $0.conversationID == conversationID || $0.askID != nil }
+        remote.conversation.filter { message in
+            (conversationID == nil || message.conversationID == conversationID || message.askID != nil)
+                && !(message.text.isEmpty && message.askID != nil && message.reply.map { ChatSanitizer.display($0) == nil } == true)
+        }
+    }
+
+    private func isProactive(_ message: CloudLink.Message) -> Bool { message.askID != nil && message.text.isEmpty }
+
+    /// ORION speaking first right after another such message, minutes apart: one group, tighter, one caption.
+    private func grouped(_ index: Int, in messages: [CloudLink.Message]) -> Bool {
+        guard index > 0, isProactive(messages[index]), isProactive(messages[index - 1]) else { return false }
+        return messages[index].sentAt.timeIntervalSince(messages[index - 1].sentAt) < 300
     }
 
     var body: some View {
@@ -68,18 +80,23 @@ struct ConversationView: View {
     private var thread: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: PhoneChat.exchangeGap) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     if visible.isEmpty {
                         ChatEmptyState(mood: OrbMood(voice: voice.phase, waitingForReply: waiting), level: voice.level,
                                        suggestions: suggestions) { remote.say($0, conversation: conversationID, model: selectedModel) }
                     }
-                    ForEach(Array(visible.enumerated()), id: \.element.id) { index, message in
-                        if index == 0 || message.sentAt.timeIntervalSince(visible[index - 1].sentAt) > 3600 { ChatTimeMarker(date: message.sentAt) }
+                    let messages = visible
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                        let together = grouped(index, in: messages)
+                        if index == 0 || message.sentAt.timeIntervalSince(messages[index - 1].sentAt) > 1800 { ChatTimeMarker(date: message.sentAt).padding(.top, index == 0 ? 0 : PhoneChat.exchangeGap) }
                         ChatExchange(message: message, awaitingReplyTo: replyTarget, waitingText: waitingText,
-                                     arriving: firstShown.map { !$0.contains(message.id) } ?? false,
+                                     delivery: message.delivery(now: remote.now), macOnline: remote.presence == .online,
+                                     arriving: firstShown.map { !$0.contains(message.id) } ?? false, grouped: together,
+                                     onRetry: { remote.retry(message) },
                                      onReply: { tappedAsk = $0; typing = true },
                                      onDecline: { id in remote.say("Not now", conversation: conversationID, model: selectedModel, replyTo: id); tappedAsk = nil })
                             .id(message.id)
+                            .padding(.top, index == 0 ? 8 : together ? 10 : PhoneChat.exchangeGap)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -87,8 +104,11 @@ struct ConversationView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom)
+            // Follow the conversation to the bottom when something is added or its state changes, not on every unrelated refresh
+            // (a reply landing must not yank him back down while he is reading older messages), and when the keyboard opens.
+            .onChange(of: bottomMark) { _, _ in scrollToBottom(proxy) }
+            .onChange(of: typing) { _, isTyping in if isTyping { scrollToBottom(proxy, after: 0.25) } }
             .onChange(of: remote.conversation) { _, messages in
-                withAnimation(PhoneMotion.spring(PhoneMotion.enter, reduce: reduceMotion)) { proxy.scrollTo("bottom", anchor: .bottom) }
                 for message in messages where message.status == .done || message.status == .failed {
                     voice.replyArrived(id: message.id, text: message.reply ?? "No answer came back.")
                 }
@@ -152,7 +172,19 @@ struct ConversationView: View {
         }
     }
 
-    private var waiting: Bool { remote.conversation.contains { $0.status == .pending || $0.status == .running } }
+    /// Something is on its way: not a message stuck for ever, which stops showing the indicator (ChatDelivery.stalled).
+    private var waiting: Bool { remote.conversation.contains { $0.delivery(now: remote.now).inFlight } }
+
+    /// Changes when the last message, or the state of any message in flight, changes: the cue to follow the thread down.
+    private var bottomMark: String {
+        let last = visible.last
+        return "\(last?.id ?? "")|\(visible.count)|\(last?.delivery(now: remote.now) ?? .answered)|\(last?.reply?.count ?? 0)"
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, after delay: TimeInterval = 0) {
+        let go = { withAnimation(PhoneMotion.spring(PhoneMotion.enter, reduce: reduceMotion)) { proxy.scrollTo("bottom", anchor: .bottom) } }
+        if delay == 0 { go() } else { DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: go) }
+    }
 
     private var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 

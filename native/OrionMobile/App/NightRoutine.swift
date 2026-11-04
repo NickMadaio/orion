@@ -126,7 +126,7 @@ struct NightPlan: Equatable {
     func isPastBedtime(_ moment: Date) -> Bool { moment >= bed && moment < wake }
 
     static func clock(_ date: Date) -> String {
-        let formatter = DateFormatter(); formatter.dateFormat = "HH:mm"; return formatter.string(from: date)
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "h:mm a"; return formatter.string(from: date)
     }
     static func duration(_ seconds: TimeInterval) -> String {
         let minutes = Int(seconds / 60)

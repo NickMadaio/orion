@@ -133,7 +133,7 @@ final class OfflineBrain {
         return (value.calories, value.protein)
     }
 
-    static func clock(_ date: Date) -> String { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f.string(from: date) }
+    static func clock(_ date: Date) -> String { let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "h:mm a"; return f.string(from: date) }
 }
 
 /// Plain rules for what the phone may DO offline. Anything unrecognised is a question.

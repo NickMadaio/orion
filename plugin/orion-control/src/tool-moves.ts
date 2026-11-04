@@ -14,6 +14,7 @@
  Escalations and every other tool keep the worker's own judgement.
 */
 import type { Decision } from "./front-desk.js";
+import { openRequest, type OpenRequest } from "./open-request.js";
 
 export type ToolDirective =
   /** One orion_task_run call the worker must make; `note` is extra guidance for the reply. */
@@ -57,18 +58,21 @@ export function weatherDirective(sent: string): Extract<ToolDirective, { kind: "
 const NOT_A_NEW_TIMER = /\b(cancel|stop|clear|remove|delete|kill|abort|never ?mind)\b|^\s*(is|are|was|how|what|whats|when|did|does|has|have)\b/i;
 export const isTimerRequest = (message: string): boolean => TIMER.test(message) && !NOT_A_NEW_TIMER.test(message);
 
-// "open spotify", "pull up safari again", "launch discord pls": the existing app_open action (w18 voiceself). Live 2026-11-03 the desk drafted
-// "I can't pull up apps on your Mac" for one of these, so no tool ran. Not apps: his tabs, the day, the mouse popup, a door, a URL, a gerund.
-const OPEN_APP = /^(?:(?:wait|yo|hey|ok|okay|so|and|can you|could you|can u|would you|will you|pls|please|orion|just|go ahead and)[,\s]+)*(?:open(?: up)?|pull up|bring up|fire up|launch)\s+(?:the |my )?(.+?)(?:\s+(?:app|again|please|pls|for me|real quick|rn|now|back up|back))*[\s.!?]*$/i;
-const NOT_AN_APP = /\b(?:tasks?|plans?|schedule|calendar|agenda|day|week|home|health|finances?|projects?|settings|door|tabs?|window|it|that|this|them|something|file|folder|mouse|button|buttons|mapper|setup|focus|session|timer|workout|reminders?|notes? on|what|why|how|when|where|new|a|an|the|my|into|to|of|in|on|for|source|link|url|page|site|email|mail|messages?|texts?|list|stuff|everything|anything|tomorrow|today|tonight|him|her|me|you|us)\b|\.[a-z]{2,}$|^https?:|^[a-z]+ing\b/i;
-
-/** The app named in an open-an-app request, or null when it is anything else. */
+/** The app named in an open-an-app request, or null when it is anything else (open-request.ts reads every shape). */
 export function appOpenName(message: string): string | null {
-  const m = message.trim().replace(/\s+/g, " ");
-  if (!m || m.length > 80) return null;
-  const name = OPEN_APP.exec(m)?.[1]?.trim().replace(/[.,!?]+$/, "") ?? "";
-  if (!name || name.split(" ").length > 3 || NOT_AN_APP.test(name) || !/^[A-Za-z0-9][A-Za-z0-9 .&'+_-]*$/.test(name)) return null;
-  return name;
+  const req = openRequest(message);
+  return req?.kind === "app" ? req.name : null;
+}
+
+const hostOf = (url: string): string => (/google\.com\/search/.test(url) ? "a search" : (/^https?:\/\/(?:www\.)?([^/]+)/i.exec(url)?.[1] ?? url));
+const FIRST_PERSON = "One short sentence, in first person.";
+
+/** "open safari", "open amazon in safari", "open my downloads folder": the one exact call (w18 opensafari). */
+function openDirective(req: OpenRequest): ToolDirective {
+  if (req.kind === "app") return call("app_open", { application: req.name }, `Then say what you did, only if the result shows it, like "I opened ${req.name}." ${FIRST_PERSON}`, `I couldn't open ${req.name} — nothing opened. Is it installed under another name?`);
+  if (req.kind === "folder") return call("folder_open", { folder: req.folder }, `Then say what you did, only if the result shows it, like "I opened your ${req.folder} folder." ${FIRST_PERSON}`, `I couldn't open your ${req.folder} folder — nothing opened.`);
+  const where = req.browser ? ` in ${req.browser}` : "";
+  return call("browser_open_url", { url: req.url, ...(req.browser ? { browser: req.browser } : {}) }, `Then say what you did, only if the result shows it, like "I opened ${hostOf(req.url)}${where}." ${FIRST_PERSON}`, `I couldn't open ${hostOf(req.url)}${where} — nothing opened.`);
 }
 
 /** The exact job for a front-desk tool move, when code can know it; null leaves the turn to the worker. */
@@ -79,8 +83,8 @@ export function toolDirective(decision: Decision | undefined, message: string): 
     const total = seconds(timer[1] ?? timer[3] ?? "0", timer[2] ?? timer[4] ?? "m");
     if (total >= 1 && total <= 86400) return call("timer_set", { seconds: total }, "Then say the timer is set, only if the result shows it.", "I didn't manage to set that timer — nothing is running. Can you say it again?");
   }
-  const app = appOpenName(message);
-  if (app) return call("app_open", { application: app }, "Then say it is opening, only if the result shows it. One short sentence, as I (never \"ORION can\").", `I couldn't open ${app} — nothing opened. Is it installed under another name?`);
+  const opening = openRequest(message);
+  if (opening) return openDirective(opening);
   if (!decision || decision.move !== "tool") return null;
   const args = (decision.args ?? {}) as Record<string, unknown>;
   const tool = decision.tool ?? "";

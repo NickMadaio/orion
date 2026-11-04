@@ -334,7 +334,7 @@ export type ExecutionPolicy =
     }
   | {
       kind: "app_control";
-      operation: "open" | "quit";
+      operation: "open" | "quit" | "open_folder";
       applicationArgument: string;
     }
   | BrowserControlPolicy
@@ -921,6 +921,9 @@ export function browserUrlIssues(value: unknown): string[] {
   }
   return [];
 }
+
+/** Folders Finder may be asked to show: his own, named, never a path. */
+export const OPENABLE_FOLDERS: readonly string[] = ["downloads", "desktop", "documents", "pictures", "music", "movies", "home", "applications"];
 
 export const SUPPORTED_BROWSERS = [
   "Opera Air",
@@ -2040,6 +2043,19 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
       /^[A-Za-z0-9][A-Za-z0-9 .&'()+_-]{0,79}$/.test(arguments_.application)
         ? []
         : ["application must be a plain installed app name"],
+  },
+  folder_open: {
+    risk: "low",
+    requiredArguments: ["folder"],
+    approvalRequired: false,
+    verification: "folder_exists",
+    reversible: true,
+    capabilityTier: "app_control",
+    execution: { kind: "app_control", operation: "open_folder", applicationArgument: "folder" },
+    validateArguments: (arguments_) =>
+      typeof arguments_.folder === "string" && OPENABLE_FOLDERS.includes(arguments_.folder.toLowerCase())
+        ? []
+        : [`folder must be one of ${OPENABLE_FOLDERS.join(", ")}`],
   },
   app_quit: {
     risk: "low",

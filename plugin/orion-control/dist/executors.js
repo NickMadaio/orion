@@ -12,7 +12,7 @@ import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, unl
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { clampVolume, browserUrlIssues, isMutableRoot, isObservationPolicy, isSafeRelativePath, isSafeSegment, isVisibleNonSensitiveName, ORION_APP_DOMAIN, resolveBrowserName, resolvePlayerName, SUPPORTED_BROWSERS, SUPPORTED_PLAYERS, TUNABLE_SETTINGS, } from "./catalog.js";
+import { clampVolume, browserUrlIssues, OPENABLE_FOLDERS, isMutableRoot, isObservationPolicy, isSafeRelativePath, isSafeSegment, isVisibleNonSensitiveName, ORION_APP_DOMAIN, resolveBrowserName, resolvePlayerName, SUPPORTED_BROWSERS, SUPPORTED_PLAYERS, TUNABLE_SETTINGS, } from "./catalog.js";
 import { addSupplement, defaultHealthLogPath, removeSupplement, updateSupplement, logExercise, readHealthLog, supplementStatus, takeSupplement, today as todayKey, workoutStatus, } from "./health.js";
 import { canonicalActionHash, hash } from "./validator.js";
 import { protectedConflict } from "./protected-paths.js";
@@ -43,6 +43,20 @@ export const APPLICATION_ROOTS = Object.freeze([
     "/System/Library/CoreServices/Applications",
     path.join(os.homedir(), "Applications"),
 ]);
+/*
+ Safari moved: on macOS 26 /Applications/Safari.app is a SYMLINK into the system cryptex, and the resolver skipped
+ every symlink, so "open Safari" and every browser action said "not found" (live 2026-11-04). A link is followed
+ only when it lands inside one of these Apple-owned roots (or the roots above), never anywhere a user could write.
+*/
+const SYSTEM_APP_REALPATHS = Object.freeze(["/System/Cryptexes/App/System/Applications", "/System/Volumes/Preboot/Cryptexes/App/System/Applications", "/System/Applications", "/System/Library/CoreServices"]);
+async function realAppDirectory(candidate, roots) {
+    const link = await lstat(candidate);
+    if (!link.isSymbolicLink())
+        return link.isDirectory() ? candidate : null;
+    const real = await realpath(candidate);
+    const inside = [...SYSTEM_APP_REALPATHS, ...roots].some((root) => real.startsWith(`${root}/`));
+    return inside && (await lstat(real)).isDirectory() ? real : null;
+}
 export async function resolveApplication(application, roots = APPLICATION_ROOTS) {
     if (!application || application.includes("/") || application.includes("..")) {
         throw new ActionExecutionError("Application name must be a plain app name.");
@@ -51,10 +65,10 @@ export async function resolveApplication(application, roots = APPLICATION_ROOTS)
     for (const root of roots) {
         const candidate = path.join(root, `${application}.app`);
         try {
-            const stats = await lstat(candidate);
-            if (!stats.isDirectory() || stats.isSymbolicLink())
+            const real = await realAppDirectory(candidate, roots);
+            if (!real)
                 continue;
-            const { stdout } = await execFileAsync("/usr/bin/plutil", ["-extract", "CFBundleIdentifier", "raw", path.join(candidate, "Contents/Info.plist")], { timeout: 5000 });
+            const { stdout } = await execFileAsync("/usr/bin/plutil", ["-extract", "CFBundleIdentifier", "raw", path.join(real, "Contents/Info.plist")], { timeout: 5000 });
             const bundleId = stdout.trim();
             if (!/^[A-Za-z0-9.-]{3,200}$/.test(bundleId)) {
                 throw new ActionExecutionError("Installed app has an invalid bundle identifier.");
@@ -80,7 +94,21 @@ async function applicationIsRunning(bundleId) {
     const { stdout } = await execFileAsync("/usr/bin/osascript", ["-e", `application id "${bundleId}" is running`], { timeout: 5000 });
     return stdout.trim() === "true";
 }
+const FOLDER_DIRECTORY = {
+    downloads: "Downloads", desktop: "Desktop", documents: "Documents", pictures: "Pictures", music: "Music", movies: "Movies", applications: "Applications",
+};
+function folderPath(name) {
+    const key = name.toLowerCase();
+    if (!OPENABLE_FOLDERS.includes(key))
+        throw new ActionExecutionError(`Folder "${name}" is not one I can open.`);
+    return key === "home" ? os.homedir() : path.join(os.homedir(), FOLDER_DIRECTORY[key]);
+}
 async function controlApplication(operation, application, idempotencyKey) {
+    if (operation === "open_folder") {
+        const folder = folderPath(application);
+        await execFileAsync("/usr/bin/open", [folder], { timeout: 10000 });
+        return { mode: "opened", idempotencyKey, target: folder, output: { folder: application.toLowerCase(), path: folder } };
+    }
     const target = await resolveApplication(application);
     if (operation === "open") {
         await execFileAsync("/usr/bin/open", [target.path], { timeout: 10000 });
@@ -2260,6 +2288,11 @@ export async function verifyAction(definition, step, execution, context) {
         const application = step.arguments[definition.execution.applicationArgument];
         if (typeof application !== "string")
             return { observed: false };
+        if (definition.execution.operation === "open_folder") {
+            const folder = folderPath(application);
+            const present = await lstat(folder).then((s) => s.isDirectory(), () => false);
+            return { observed: present, evidence: `${folder}:${present ? "exists" : "missing"}` };
+        }
         const target = await resolveApplication(application);
         const running = await applicationIsRunning(target.bundleId);
         return {

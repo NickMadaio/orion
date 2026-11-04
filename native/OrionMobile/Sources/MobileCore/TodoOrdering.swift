@@ -1,17 +1,21 @@
 import Foundation
 
 /*
- The one order every to-do list is drawn in (2026-11-02), on the Mac and the phone.
+ The one order every to-do list is drawn in, on the Mac and the phone (2026-11-02, reworked 2026-11-04).
 
- "Sort by priority for all categories, overdue the top level": overdue first,
- then high, medium, low, none. Inside a level the earliest due comes first, then
- anything undated, then the title so equal rows never shuffle between refreshes.
- Done items sink below everything open, ordered by the same key, because the
- lists that show them (Done, the Mac's completed tail) always put them last.
+ Open before done. Overdue first. Then high, medium, low, none, and a to-do with no
+ priority is the LOWEST, never the top. Inside the same priority the earlier due comes
+ first, then anything undated, then his hand-placed order (TaskNotes "Order:"), then the
+ title so equal rows never shuffle between refreshes.
 
- Pure on purpose: the Mac's Reminders model and the phone's TodoItem both feed
- it a Key, so there is exactly one comparator to get wrong. It orders DISPLAY
- only; ORION's planner has its own scoring and does not read this.
+ Overdue is a block, but the block is ranked too: the first version ordered it only by how
+ late each item was, so a low item due in October sat above a high one due on Monday and the
+ list looked unranked (his complaint, 2026-11-04).
+
+ Pure on purpose: the Mac's Reminders model, the phone's TodoItem, the widget's glance
+ Todo and the phone's planner all feed it a Key, so there is exactly one comparator to get
+ wrong. JS twin: scripts/lib/life/todo-order.mjs. tests/fixtures/todo-order.json is the
+ fixture both must order identically. It orders DISPLAY only; the planner has its own scoring.
 */
 public enum TodoOrdering {
 
@@ -22,8 +26,14 @@ public enum TodoOrdering {
         public var due: Date?
         public var title: String
         public var id: String
-        public init(done: Bool, priority: TodoPriority, due: Date?, title: String, id: String = "") {
-            self.done = done; self.priority = priority; self.due = due; self.title = title; self.id = id
+        /// His hand-placed position (TaskNotes `order`); only breaks a tie after priority and due.
+        public var order: Double?
+        public init(done: Bool, priority: TodoPriority, due: Date?, title: String, id: String = "", order: Double? = nil) {
+            self.done = done; self.priority = priority; self.due = due; self.title = title; self.id = id; self.order = order
+        }
+        /// For a source that stores EventKit's 0...9 (1 highest, 0 unset).
+        public init(done: Bool, eventKitPriority: Int, due: Date?, title: String, id: String = "", order: Double? = nil) {
+            self.init(done: done, priority: TodoPriority(eventKit: eventKitPriority), due: due, title: title, id: id, order: order)
         }
     }
 
@@ -33,23 +43,30 @@ public enum TodoOrdering {
         return due < now
     }
 
-    /// 0 overdue, 1 high, 2 medium, 3 low, 4 none.
-    public static func level(_ key: Key, now: Date) -> Int {
-        if isOverdue(done: key.done, due: key.due, now: now) { return 0 }
-        switch key.priority {
-        case .high: return 1
-        case .medium: return 2
-        case .low: return 3
-        case .none: return 4
+    /// 0 high, 1 medium, 2 low, 3 none.
+    public static func rank(_ priority: TodoPriority) -> Int {
+        switch priority {
+        case .high: return 0
+        case .medium: return 1
+        case .low: return 2
+        case .none: return 3
         }
     }
 
     /// True when `a` is drawn above `b`.
     public static func isOrderedBefore(_ a: Key, _ b: Key, now: Date) -> Bool {
         if a.done != b.done { return !a.done }
-        let (la, lb) = (level(a, now: now), level(b, now: now))
-        if la != lb { return la < lb }
+        let (lateA, lateB) = (isOverdue(done: a.done, due: a.due, now: now), isOverdue(done: b.done, due: b.due, now: now))
+        if lateA != lateB { return lateA }
+        let (ra, rb) = (rank(a.priority), rank(b.priority))
+        if ra != rb { return ra < rb }
         switch (a.due, b.due) {
+        case let (x?, y?) where x != y: return x < y
+        case (.some, nil): return true
+        case (nil, .some): return false
+        default: break
+        }
+        switch (a.order, b.order) {
         case let (x?, y?) where x != y: return x < y
         case (.some, nil): return true
         case (nil, .some): return false
@@ -61,6 +78,6 @@ public enum TodoOrdering {
     }
 
     public static func sorted<T>(_ items: [T], now: Date = Date(), key: (T) -> Key) -> [T] {
-        items.sorted { isOrderedBefore(key($0), key($1), now: now) }
+        items.map { (item: $0, key: key($0)) }.sorted { isOrderedBefore($0.key, $1.key, now: now) }.map(\.item)
     }
 }

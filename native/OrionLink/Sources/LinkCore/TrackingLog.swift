@@ -29,6 +29,8 @@ public struct TrackingLog {
     public static let placeEventLimit = 500
     /// How many phone event ids are remembered to refuse a repeat (2026-11-02).
     public static let eventIDLimit = 500
+    /// How many focus-session reports (pickups, "I need an app") are kept.
+    public static let focusEventLimit = 300
     static let staleLockAfter: TimeInterval = 15
     static let giveUpAfter: TimeInterval = 6
 
@@ -153,6 +155,13 @@ public struct TrackingLog {
                 events.append(item)
                 log["placeEvents"] = Array(events.suffix(Self.placeEventLimit))
                 reply = "Noted."
+            case let .focus(action, at, session):
+                var events = log["phoneFocusEvents"] as? [[String: Any]] ?? []
+                var item: [String: Any] = ["action": action, "at": at]
+                if let session { item["session"] = session }
+                events.append(item)
+                log["phoneFocusEvents"] = Array(events.suffix(Self.focusEventLimit))
+                reply = "Noted."
             case let .screen(at, locked, until, why, graceUntil, usedMinutes):
                 // The latest state (what ORION reads) plus a short history for patterns.
                 var state: [String: Any] = ["at": at, "locked": locked]
@@ -172,7 +181,7 @@ public struct TrackingLog {
                 log["sleepLog"] = Array(sleepLog.suffix(400))
                 reply = event == "bed" ? "Logged: going to bed." : "Logged: up."
             }
-            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .place = entry {} else if case .screen = entry {} else if case .alarms = entry {} else {
+            if case .water = entry {} else if case .supplement = entry {} else if case .sleep = entry {} else if case .signal = entry {} else if case .place = entry {} else if case .screen = entry {} else if case .alarms = entry {} else if case .focus = entry {} else {
                 nutrition[day] = meals
                 log["nutritionLog"] = nutrition
                 record["calories"] = meals.reduce(0) { $0 + (Self.int($1["calories"]) ?? 0) }

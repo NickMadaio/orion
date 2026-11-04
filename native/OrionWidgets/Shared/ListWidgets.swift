@@ -7,9 +7,18 @@ import MobileCore
 
 struct TodoLine: View {
     let todo: OrionGlance.Todo
+    /// The ring says why the row sits where it does: red high, orange medium, blue low, dim none.
+    private var ring: Color {
+        switch todo.priority {
+        case 1: W.red
+        case 2: W.orange
+        case 3: W.accent
+        default: W.dim
+        }
+    }
     var body: some View {
         HStack(spacing: 7) {
-            Circle().stroke(todo.priority == 1 ? W.orange : W.dim, lineWidth: 1.3).frame(width: 10, height: 10)
+            Circle().stroke(ring, lineWidth: todo.priority == 1 ? 1.8 : 1.3).frame(width: 10, height: 10)
             Text(todo.title).font(.system(size: 12, weight: todo.priority == 1 ? .semibold : .regular)).foregroundStyle(W.text).lineLimit(1)
             Spacer(minLength: 0)
             if let due = todo.due {

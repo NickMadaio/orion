@@ -285,6 +285,9 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
         public init(name: String, until: Double? = nil, why: String? = nil) { self.name = name; self.until = until; self.why = why }
     }
     public var focusPlan: [FocusListPlan]?
+    /// The Mac's running focus session (task, phase, end, allowed groups), for the phone's Home, shields and Live Activity.
+    /// Optional so older snapshots decode, and an older phone ignores it.
+    public var focusSession: FocusSession?
     /// The follow-up ORION is running now, for the phone's lock screen and widgets.
     public var checkin: OrionGlance.Checkin?
     /// One-off deadlines ahead (quizzes, presentations), from the Mac's calendar export.
@@ -314,14 +317,14 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
                 running: [RunningAction] = [], attention: Attention? = nil, health: [HealthDay]? = nil,
                 tracking: Tracking? = nil, plan: TodayPlan? = nil, planRequest: PlanRequest? = nil, wakeRequest: Date? = nil,
                 checkin: OrionGlance.Checkin? = nil, deadlines: [OrionGlance.Deadline]? = nil, lastInputAt: Date? = nil,
-                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil, focusPlan: [FocusListPlan]? = nil,
+                screenGrant: ScreenGrant? = nil, night: [NightDay]? = nil, earlyFinish: EarlyFinishContext? = nil, chatModels: [ModelChoice]? = nil, focusLists: [String]? = nil, focusPlan: [FocusListPlan]? = nil, focusSession: FocusSession? = nil,
                 knownPlaces: [KnownPlace]? = nil, wakePlan: WakePlan? = nil, locationRequest: LocationRequest? = nil) {
         self.version = LinkSnapshot.currentVersion
         self.generatedAt = generatedAt; self.mac = mac; self.runs = runs; self.approvals = approvals
         self.running = running; self.attention = attention; self.health = health
         self.tracking = tracking; self.plan = plan; self.planRequest = planRequest; self.wakeRequest = wakeRequest
         self.checkin = checkin; self.deadlines = deadlines; self.lastInputAt = lastInputAt
-        self.screenGrant = screenGrant; self.night = night; self.earlyFinish = earlyFinish; self.chatModels = chatModels; self.focusLists = focusLists; self.focusPlan = focusPlan
+        self.screenGrant = screenGrant; self.night = night; self.earlyFinish = earlyFinish; self.chatModels = chatModels; self.focusLists = focusLists; self.focusPlan = focusPlan; self.focusSession = focusSession
         self.knownPlaces = knownPlaces
         self.wakePlan = wakePlan
         self.locationRequest = locationRequest
@@ -428,8 +431,12 @@ public enum LinkLog: Codable, Equatable, Sendable {
     /// W18: the alarms the phone really holds (AlarmKit), sent after it schedules, so the Mac can say "set on your phone" only
     /// when it is true. `fires` are ISO-8601 instants, earliest first; empty means none are set. `state` is the phone's own words.
     case alarms(at: String, fires: [String], state: String)
+    /// W19: what Nick does during a focus session. "pickup" (he used a phone app) and "need-app" are reports for ORION to
+    /// nudge on; "finish" (Done early), "pause" (Break now) and "resume" are run on the Mac's session. `session` is its id.
+    case focus(action: String, at: String, session: String?)
 
     public static let meals = ["Breakfast", "Lunch", "Dinner", "Snack", "Other"]
+    public static let focusActions = ["pickup", "need-app", "finish", "pause", "resume"]
     public static let audioRoutes = ["bluetooth", "wired", "speaker", "unknown"]
 
     /// About 100 m, and only sane coordinates.
@@ -494,6 +501,11 @@ public enum LinkLog: Codable, Equatable, Sendable {
             guard ISO8601DateFormatter().date(from: at) != nil else { throw LinkError.invalidCommand("not a time") }
             guard fires.count <= 20, fires.allSatisfy({ WakePlan.parseISO($0) != nil }) else { throw LinkError.invalidCommand("alarms are up to 20 times") }
             guard state.count <= 80 else { throw LinkError.invalidCommand("the alarm state is too long") }
+            return self
+        case let .focus(action, at, session):
+            guard Self.focusActions.contains(action) else { throw LinkError.invalidCommand("not a focus action") }
+            guard ISO8601DateFormatter().date(from: at) != nil else { throw LinkError.invalidCommand("not a time") }
+            if let session { _ = try identifier(session) }
             return self
         case let .sleep(event, at):
             guard ["bed", "up", "unplugged", "used"].contains(event) else { throw LinkError.invalidCommand("sleep event is bed, up, unplugged or used") }

@@ -55,9 +55,11 @@ struct SyncedTask: Identifiable, Equatable {
     var notes: String = ""
 
     /// The shared display order (MobileCore.TodoOrdering): overdue, then priority, then due.
-    /// A date-only due sorts at the start of its day, which is also when it counts as overdue here.
+    /// A date-only due is due at the END of its day, the same rule the Tasks tab's rows use, so a to-do due today
+    /// is not "overdue" on the Mac Home and sorted as late on the list the same morning.
     var orderKey: TodoOrdering.Key {
-        TodoOrdering.Key(done: isComplete, priority: priority.todo, due: dueDate, title: title, id: id)
+        let due = dueDate.map { dueHasTime ? $0 : (Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: $0) ?? $0) }
+        return TodoOrdering.Key(done: isComplete, priority: priority.todo, due: due, title: title, id: id, order: TaskNotes.parse(notes).order)
     }
 
     /// The task as it will be once EventKit confirms a completion change.
@@ -373,8 +375,8 @@ final class AppleRemindersSync: ObservableObject {
             var notes = TaskNotes.parse(task.notes); notes.order = order
             setNotes(id, notes.text)
         }
-        let open = TaskNotes.sortedByOrder(tasks.filter { !$0.isComplete }, order: { TaskNotes.parse($0.notes).order })
-        tasks = open + tasks.filter(\.isComplete)
+        // Hand-placed order only breaks ties (TodoOrdering.Key.order); it never outranks priority or due.
+        tasks = TodoOrdering.sorted(tasks, now: Date(), key: \.orderKey)
     }
 
     func setNotes(_ id: String, _ notes: String) {

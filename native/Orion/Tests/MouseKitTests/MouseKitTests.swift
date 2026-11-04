@@ -175,11 +175,28 @@ final class MouseKitTests: XCTestCase {
         XCTAssertNil(MouseSetupPlan.effective(5, in: b))
         XCTAssertEqual(MouseSetupPlan.effective(4, in: b.settingDefault(4, .system("showDesktop"))), .system("showDesktop"))
     }
-    func testFinalizeKeepsEditsAndFillsSuggestions() {
-        let b = MouseSetupPlan.finalized(BindingsFile().settingDefault(3, .system("desktopLeft")), buttons: [3, 4, 5])
-        XCTAssertEqual(b.default["3"], .system("desktopLeft"))
-        XCTAssertEqual(b.default["4"], .system("stageManager"))
-        XCTAssertNil(b.default["5"])
+    func testFinalizeFillsSuggestionsOnlyForAFreshMouse() {
+        let fresh = MouseSetupPlan.finalized(BindingsFile(), buttons: [3, 4, 5])
+        XCTAssertEqual(fresh.default["3"], .system("missionControl"))
+        XCTAssertEqual(fresh.default["4"], .system("stageManager"))
+        XCTAssertNil(fresh.default["5"])
+    }
+    // w18 audit2, 11-04 09:26: reopening the mapper and pressing Done must never write over what he already has.
+    func testExistingBindingsAreNeverReplacedBySuggestions() {
+        let his = BindingsFile().settingDefault(3, .orion("type")).settingDefault(4, .system("missionControl"))
+        XCTAssertEqual(MouseSetupPlan.finalized(his, buttons: [3, 4, 5]), his)
+        XCTAssertEqual(MouseSetupPlan.effective(3, in: his), .orion("type"))
+        let partial = BindingsFile().settingDefault(3, .orion("type"))
+        XCTAssertNil(MouseSetupPlan.effective(4, in: partial))          // shows his bindings, not the suggestion
+        XCTAssertEqual(MouseSetupPlan.finalized(partial, buttons: [3, 4]), partial)
+    }
+    func testDoneWithNothingChangedSaysSoInsteadOfSet() {
+        let his = BindingsFile().settingDefault(3, .orion("type")).settingDefault(4, .system("missionControl"))
+        XCTAssertEqual(MouseSetupPlan.doneLine(before: his, after: his, buttons: [3, 4]),
+                       "Okay, left as it is. Back: Type to ORION, front: Mission Control.")
+        let moved = his.settingDefault(4, .system("stageManager"))
+        XCTAssertEqual(MouseSetupPlan.doneLine(before: his, after: moved, buttons: [3, 4]),
+                       "Set. Back: Type to ORION, front: Stage Manager.")
     }
     func testConfirmationLine() {
         XCTAssertEqual(MouseSetupPlan.confirmation(BindingsFile(), buttons: [3, 4]),

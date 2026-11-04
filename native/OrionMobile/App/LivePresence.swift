@@ -24,10 +24,17 @@ final class LivePresence: ObservableObject {
         didSet { UserDefaults.standard.set(enabled, forKey: "orion.presence.enabled"); if !enabled { endAll() } }
     }
 
+    /// The Mac's running focus session, set by GlanceWriter just before a sync. A focus or break phase outranks everything else.
+    var focus: LinkSnapshot.FocusSession?
+
     /// What should be on the lock screen at `now`, if anything.
-    static func state(for glance: OrionGlance, now: Date) -> OrionActivityAttributes.ContentState? {
+    static func state(for glance: OrionGlance, focus: LinkSnapshot.FocusSession? = nil, now: Date) -> OrionActivityAttributes.ContentState? {
         let mood = glance.mood(at: now).rawValue
         let next = glance.upcoming(after: now, limit: 2)
+        if let fields = PhoneFocus.liveActivity(focus, now: now) {
+            return .init(mode: fields.mode, title: fields.title, detail: fields.detail, kind: "orion", start: fields.start, end: fields.end,
+                         level: 0, nextTitle: nil, nextAt: nil, mood: mood)
+        }
         // The card stays up for the whole follow-up: iOS will not let the app start
         // a new one from the background, so ending it on a snooze would lose it.
         if let checkin = glance.checkin, checkin.phase == "deferred" || checkin.phase == "active" {
@@ -63,7 +70,7 @@ final class LivePresence: ObservableObject {
 
     func sync(_ glance: OrionGlance, now: Date = Date()) {
         guard enabled, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        let desired = Self.state(for: glance, now: now)
+        let desired = Self.state(for: glance, focus: focus, now: now)
         let running = Activity<OrionActivityAttributes>.activities
         guard let desired else { endAll(); return }
         let content = ActivityContent(state: desired, staleDate: desired.mode == "next" ? desired.start.addingTimeInterval(300) : desired.end.addingTimeInterval(300),

@@ -9,7 +9,7 @@ final class ContractTests: XCTestCase {
     func testSnapshotEncodesEveryContractKeyIncludingNulls() throws {
         let snap = ActivitySnapshot(at: "2026-11-04T10:00:00Z", idleSeconds: 12,
             app: .init(name: "Safari", bundleId: "com.apple.Safari", pid: 123), category: .browser,
-            window: nil, url: "https://www.youtube.com/watch?v=1", domain: "youtube.com", siteCategory: .video,
+            window: nil, domain: "youtube.com", siteCategory: .video,
             game: nil, focus: nil)
         let o = decode(try snap.encoded())
         XCTAssertEqual(o["version"] as? Int, 1)
@@ -26,12 +26,12 @@ final class ContractTests: XCTestCase {
     func testGameAndFocusObjects() throws {
         let snap = ActivitySnapshot(at: "t", idleSeconds: nil,
             app: .init(name: "java", bundleId: nil, pid: 9), category: .game, window: "Minecraft 1.21",
-            url: nil, domain: nil, siteCategory: nil,
+            domain: nil, siteCategory: nil,
             game: .init(name: "Minecraft", since: "2026-11-04T09:20:00Z"),
             focus: .init(active: true, task: "Finish resume", allowedApps: ["com.apple.Safari"], allowedDomains: ["docs.google.com"]))
         let o = decode(try snap.encoded())
         XCTAssertTrue(o["idleSeconds"] is NSNull)
-        XCTAssertTrue(o["url"] is NSNull); XCTAssertTrue(o["siteCategory"] is NSNull)
+        XCTAssertNil(o["url"], "the full URL (query string and all) is never written"); XCTAssertTrue(o["siteCategory"] is NSNull)
         XCTAssertEqual((o["game"] as? [String: Any])?["since"] as? String, "2026-11-04T09:20:00Z")
         let focus = o["focus"] as? [String: Any]
         XCTAssertEqual(focus?["task"] as? String, "Finish resume")
@@ -42,7 +42,7 @@ final class ContractTests: XCTestCase {
     func testHistoryLineHoldsADomainNeverAFullUrl() throws {
         let snap = ActivitySnapshot(at: "2026-11-04T10:00:00Z", idleSeconds: 0,
             app: .init(name: "Safari", bundleId: "com.apple.Safari", pid: 1), category: .browser, window: "secret title",
-            url: "https://www.youtube.com/watch?v=PRIVATE", domain: "youtube.com", siteCategory: .video, game: nil, focus: nil)
+            domain: "youtube.com", siteCategory: .video, game: nil, focus: nil)
         let line = String(decoding: try HistoryLine(snapshot: snap).encoded(), as: UTF8.self)
         XCTAssertFalse(line.contains("PRIVATE")); XCTAssertFalse(line.contains("secret title")); XCTAssertFalse(line.contains("watch?v"))
         XCTAssertFalse(line.contains("\n"))

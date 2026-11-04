@@ -99,7 +99,7 @@ test("through the one gate: resolveAwareness reads the file, gate holds the seco
   const first = gate(aw(), { kind: "checkin", why: "plan: cal-resume", text: SOFT.text, now: NOW });
   assert.equal(first.action, "deliver");
   assert.match(first.text, /^You're in Minecraft/);
-  recordNudge(d, { activity: aw().activity, text: first.text, now: NOW });
+  recordNudge(d, { activity: aw().activity, text: SOFT.text, why: SOFT.why, now: NOW });   // the ORIGINAL text, the one the gate compares
   const again = gate(aw(), { kind: "checkin", why: "plan: cal-resume", text: "Resume - still not started. Just 30 min then.", now: new Date(NOW.getTime() + 10 * 60_000) });
   assert.deepEqual([again.action, again.heldFor, again.drop], ["hold", "activity", true]);
   const cls = gate(aw(), { kind: "reminder", urgentKind: "class", why: "proactive: leave", text: CLASS.text, now: NOW });
@@ -121,4 +121,35 @@ test("the Right now line and the history summary", () => {
   const s = summarizeHistory(rows, { now: NOW });
   assert.equal(s.categories.find((c) => c.name === "work").minutes, 30);
   assert.equal(s.categories.find((c) => c.name === "game").minutes, 30);
+});
+
+test("time-critical wording: leave, head out, late for, and lines tagged leave or deadline", () => {
+  for (const text of ["Time to leave for CS2100.", "You should head out now for class.", "Leave now, the bus is at 3:10.", "You're going to be late for your seminar.", "Out the door in five."])
+    assert.equal(isTimeCritical({ kind: "checkin", why: "proactive: x", text }), true, text);
+  for (const why of ["proactive: leave-930", "proactive: deadline-cs2100", "plan: leave-late-1020"]) assert.equal(isTimeCritical({ kind: "checkin", why, text: "x" }), true, why);
+  for (const kind of ["leave", "deadline"]) assert.equal(isTimeCritical({ kind, text: "x" }), true, kind);
+  assert.equal(isTimeCritical({ kind: "checkin", why: "plan: cal-resume", text: "Time to start: Resume." }), false);
+  assert.match(activityVerdict({ activity: mc(), msg: { kind: "checkin", why: "proactive: x", text: "Time to leave for CS2100." }, now: NOW }).text, /^I know you're in Minecraft, but time to leave/);
+});
+
+test("recordNudge records real nudges only, never replies, briefs or critical lines", () => {
+  const d = dir();
+  const act = mc();
+  recordNudge(d, { activity: act, text: "You asked about Minecraft", why: null, now: NOW });                     // a reply
+  recordNudge(d, { activity: act, text: "Morning. Brief.", why: "morning", now: NOW });                          // the brief
+  recordNudge(d, { activity: act, text: "Leave in 10 min.", why: "proactive: leave-1530", urgentKind: "class", now: NOW });   // critical
+  assert.equal(recentNudges(d, NOW).length, 0);
+  recordNudge(d, { activity: act, text: SOFT.text, why: SOFT.why, now: NOW });
+  assert.equal(recentNudges(d, NOW).length, 1);
+});
+
+test("dedupe compares the original text on both sides: the rewritten line is never what is stored", () => {
+  const d = dir({ "activity.json": mc() });
+  const aw = () => resolveAwareness({ dir: d, now: NOW, env: {}, probe: false });
+  const v = gate(aw(), { kind: "checkin", why: SOFT.why, text: SOFT.text, now: NOW });
+  assert.match(v.text, /^You're in Minecraft/);
+  recordNudge(d, { activity: aw().activity, text: SOFT.text, why: SOFT.why, now: NOW });
+  assert.equal(recentNudges(d, NOW)[0].text, textKey(SOFT.text));
+  const same = activityVerdict({ activity: mc(), recent: recentNudges(d, NOW), msg: SOFT, now: NOW });
+  assert.deepEqual([same.action, same.drop], ["hold", true]);
 });

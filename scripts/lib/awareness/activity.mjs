@@ -16,7 +16,10 @@ export function readActivity(dir, now = new Date()) {
   const a = readJson(join(dir, "activity.json"));
   if (!a || typeof a !== "object" || a.version !== 1 || !a.app?.name) return null;
   const age = new Date(now).getTime() - Date.parse(a.at);
-  return age >= -5_000 && age <= FRESH_MS ? a : null;
+  if (!(age >= -5_000 && age <= FRESH_MS)) return null;
+  // Privacy: whatever an older writer left in the file, a URL never leaves this reader and a window title only for a game.
+  const { url: _url, window: title, ...rest } = a;
+  return { ...rest, window: a.category === "game" || a.game ? title ?? null : null };
 }
 
 /** App and site only: two sessions of "the same thing" share a key, so a repeat is a repeat. */
@@ -66,8 +69,7 @@ export function nowLine(a, { history = [], now = new Date() } = {}) {
   const mins = minutesSince(sinceOf(a, history, now), now);
   const span = mins !== null && mins >= 2 ? ` for ${mins >= 90 ? `${Math.round(mins / 6) / 10} h` : `${mins} min`}` : "";
   const focus = a.focus?.active && a.focus.task ? `; focus session on ${a.focus.task}` : "";
-  const label = a.window && a.category === "browser" && a.domain && !a.game ? ` (${String(a.window).replace(/\s+/g, " ").slice(0, 60)})` : "";
-  return `Right now: ${away ? `away from the Mac (${a.app.name} open)` : `${activityPhrase(a)}${span}`}${label}${focus}`;
+  return `Right now: ${away ? `away from the Mac (${a.app.name} open)` : `${activityPhrase(a)}${span}`}${focus}`;
 }
 
 /** The history rows, newest last, within `days`. */

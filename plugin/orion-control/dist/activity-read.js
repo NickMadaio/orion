@@ -32,7 +32,11 @@ export function readActivity(dir, now) {
     if (!a || a.version !== 1 || !a.app?.name)
         return null;
     const age = now.getTime() - Date.parse(a.at);
-    return age >= -5_000 && age <= FRESH_MS ? a : null;
+    if (!(age >= -5_000 && age <= FRESH_MS))
+        return null;
+    // Privacy: whatever an older writer left in the file, a URL never leaves this reader and a window title only for a game.
+    const { url: _url, window: title, ...rest } = a;
+    return { ...rest, window: a.category === "game" || a.game ? title ?? null : null };
 }
 export function readHistory(dir, now, days = 7) {
     return (text(join(dir, "activity-history.jsonl")) ?? "").split("\n").flatMap((line) => {
@@ -127,8 +131,7 @@ export function nowReply(a, history, now) {
     const focus = a.focus?.active && a.focus.task ? ` You have a focus session on ${a.focus.task}.` : "";
     if (away(a))
         return `You haven't touched the Mac for ${fmtMinutes(Math.round((a.idleSeconds ?? 0) / 60))}. ${a.app.name} is still open.${focus}`;
-    const title = a.category === "browser" && a.window ? `, on "${a.window.replace(/\s+/g, " ").slice(0, 60)}"` : "";
-    return `You're ${phrase(a)}${span(minutesOn(a, history, now))}${title}.${focus}`;
+    return `You're ${phrase(a)}${span(minutesOn(a, history, now))}.${focus}`;
 }
 export function todayReply(rows, now) {
     const s = summarize(rows, now, dayStart(now));

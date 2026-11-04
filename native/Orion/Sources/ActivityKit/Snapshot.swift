@@ -22,16 +22,15 @@ public struct ActivitySnapshot: Equatable {
     public var app: App
     public var category: ActivityCategory
     public var window: String?
-    public var url: String?
     public var domain: String?
     public var siteCategory: SiteCategory?
     public var game: Game?
     public var focus: Focus?
 
-    public init(at: String, idleSeconds: Int?, app: App, category: ActivityCategory, window: String?, url: String?,
+    public init(at: String, idleSeconds: Int?, app: App, category: ActivityCategory, window: String?,
                 domain: String?, siteCategory: SiteCategory?, game: Game?, focus: Focus?) {
         self.at = at; self.idleSeconds = idleSeconds; self.app = app; self.category = category; self.window = window
-        self.url = url; self.domain = domain; self.siteCategory = siteCategory; self.game = game; self.focus = focus
+        self.domain = domain; self.siteCategory = siteCategory; self.game = game; self.focus = focus
     }
 
     public func jsonObject() -> [String: Any] {
@@ -39,7 +38,7 @@ public struct ActivitySnapshot: Equatable {
         return [
             "version": 1, "at": at, "idleSeconds": orNull(idleSeconds),
             "app": ["name": app.name, "bundleId": orNull(app.bundleId), "pid": Int(app.pid)] as [String: Any],
-            "category": category.rawValue, "window": orNull(window), "url": orNull(url), "domain": orNull(domain),
+            "category": category.rawValue, "window": orNull(window), "domain": orNull(domain),
             "siteCategory": orNull(siteCategory?.rawValue),
             "game": game.map { ["name": $0.name, "since": $0.since] as [String: Any] } ?? NSNull(),
             "focus": focus.map { ["active": $0.active, "task": orNull($0.task), "allowedApps": $0.allowedApps,
@@ -53,7 +52,7 @@ public struct ActivitySnapshot: Equatable {
 
     /// What counts as a change worth an immediate rewrite: everything but the clock and the idle counter.
     public var signature: String {
-        [app.bundleId ?? app.name, String(app.pid), category.rawValue, window ?? "", url ?? "", game?.since ?? "", focus.map { "\($0.active)|\($0.task ?? "")" } ?? ""]
+        [app.bundleId ?? app.name, String(app.pid), category.rawValue, window ?? "", domain ?? "", game?.since ?? "", focus.map { "\($0.active)|\($0.task ?? "")" } ?? ""]
             .joined(separator: "\u{1f}")
     }
 }

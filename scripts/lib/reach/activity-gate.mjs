@@ -26,9 +26,11 @@ export function isNudge({ why = null } = {}) {
 
 /** Class, a reminder he set, a protected block or a hard deadline: must reach him whatever he is doing. */
 export function isTimeCritical({ urgentKind = null, tier = null, kind = null, why = null, text = "" } = {}) {
-  if (urgentKind === "class" || urgentKind === "reminder" || kind === "reminder") return true;
+  if (urgentKind === "class" || urgentKind === "reminder" || kind === "reminder" || kind === "leave" || kind === "deadline") return true;
   if (tier === "protected") return true;
-  return /\b(deadline|due (?:in|at|today|tonight)|leave (?:in|by|now)|out the door|submission)\b/i.test(`${why ?? ""} ${text}`);
+  // tagged as a leave or deadline line by its key ("proactive: leave-930", "plan: leave-late-1020", "proactive: deadline-cs")
+  if (/(?:^|[:\s-])(?:leave|deadline)(?:-|\b)/i.test(String(why ?? ""))) return true;
+  return /\b(deadline|due (?:in|at|today|tonight)|time to leave|leave (?:in|by|now|soon)|head(?:ing)? out|out the door|late for|running late|submission)\b/i.test(String(text));
 }
 
 const hm = (m) => { const h = Math.floor((((m % 1440) + 1440) % 1440) / 60), mm = ((m % 60) + 60) % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
@@ -57,7 +59,7 @@ export function acknowledged({ activity, text }) {
   const place = activityPlace(activity);
   if (!place || new RegExp(`\\b${String(activity.game?.name ?? activity.domain ?? activity.app?.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text)) return text;
   const body = lcFirst(String(text).trim());
-  return `I know you're ${place}, but ${/^you\b|^leave\b|^go\b|^get\b/i.test(body) ? body : `this one matters: ${body}`}`;
+  return `I know you're ${place}, but ${/^(?:you\b|leave\b|go\b|get\b|time to\b|it's time\b|head\b|out the door\b)/i.test(body) ? body : `this one matters: ${body}`}`;
 }
 
 const readLines = (dir) => { try { return readFileSync(join(dir, LOG), "utf8").split("\n").flatMap((l) => { try { return l.trim() ? [JSON.parse(l)] : []; } catch { return []; } }); } catch { return []; } };
@@ -66,8 +68,10 @@ export function recentNudges(dir, now) {
   const t = ms(now);
   return readLines(dir).filter((r) => { const at = Date.parse(r.at); return Number.isFinite(at) && t - at <= REPEAT_MS && at <= t + 60_000; });
 }
-/** Remember what was said (best effort; reads only look at the 30 min window). */
-export function recordNudge(dir, { activity, text, now, kind = null }) {
+/** Remember a nudge that went. `text` must be the ORIGINAL text, the one activityVerdict compares (never the rewritten line). */
+export function recordNudge(dir, { activity, text, now, kind = null, why = null, urgentKind = null, tier = null }) {
+  // Only an actual nudge counts toward the repeat rule: not a reply, the brief, a sleep line or a time-critical one (those never back off).
+  if (!isNudge({ why }) || isTimeCritical({ urgentKind, tier, kind, why, text })) return;
   try {
     mkdirSync(dir, { recursive: true });
     appendFileSync(join(dir, LOG), `${JSON.stringify({ at: new Date(ms(now)).toISOString(), key: activityKey(activity), text: textKey(text), kind })}\n`);

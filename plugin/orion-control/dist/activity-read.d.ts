@@ -11,7 +11,6 @@ export type Activity = {
     };
     category: string;
     window: string | null;
-    url: string | null;
     domain: string | null;
     siteCategory: string | null;
     game: {

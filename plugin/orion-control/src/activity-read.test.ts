@@ -11,7 +11,7 @@ import type { Decision } from "./front-desk.js";
 const NOW = new Date(2026, 10, 4, 18, 20);
 const iso = (h: number, m = 0, d = 4) => new Date(2026, 10, d, h, m).toISOString();
 const base = (over: Partial<Activity> = {}): Activity => ({
-  version: 1, at: iso(18, 19, 4), idleSeconds: 3, app: { name: "java", bundleId: null, pid: 9 }, category: "game", window: null, url: null, domain: null, siteCategory: null,
+  version: 1, at: iso(18, 19, 4), idleSeconds: 3, app: { name: "java", bundleId: null, pid: 9 }, category: "game", window: null, domain: null, siteCategory: null,
   game: { name: "Minecraft", since: iso(17, 40) }, focus: null, ...over,
 });
 const dirWith = (files: Record<string, unknown>) => {
@@ -74,9 +74,15 @@ describe("which questions are about what he is doing", () => {
 describe("the answers", () => {
   it("now: first person from the file", () => expect(nowReply(base(), [], NOW)).toBe("You're playing Minecraft for 40 min."));
   it("now: says it cannot see rather than guess", () => expect(nowReply(null, [], NOW)).toMatch(/can't see what you're on/));
-  it("now: a browser tab title is included", () =>
-    expect(nowReply(base({ app: { name: "Safari", bundleId: "com.apple.Safari", pid: 1 }, category: "browser", game: null, domain: "youtube.com", siteCategory: "video", window: "lofi hip hop - YouTube" }), [], NOW))
-      .toBe(`You're watching YouTube, on "lofi hip hop - YouTube".`));
+  it("now: never repeats a window title or a URL, even if an old file carried them", () => {
+    const leaky = { ...base({ app: { name: "Safari", bundleId: "com.apple.Safari", pid: 1 }, category: "browser", game: null, domain: "youtube.com", siteCategory: "video", window: "my medical results - YouTube" }), url: "https://www.youtube.com/watch?v=SECRET" };
+    expect(nowReply(leaky as Activity, [], NOW)).toBe("You're watching YouTube.");
+    expect(nowLine(leaky as Activity, [], NOW)).toBe("Right now: watching YouTube");
+    const dir = dirWith({ "activity.json": leaky });
+    expect(JSON.stringify(readActivity(dir, NOW))).not.toMatch(/SECRET|medical/);
+  });
+  it("now: a game's window title is the one title kept, and it is not spoken as a tab", () =>
+    expect(nowReply(base({ window: "Minecraft 1.21" }), [], NOW)).toBe("You're playing Minecraft for 40 min."));
   it("today: totals by category and the top things, gaps capped at 30 min", () => {
     const rows: HistoryRow[] = [
       { at: iso(9, 0), bundleId: "com.microsoft.VSCode", category: "work", domain: null },

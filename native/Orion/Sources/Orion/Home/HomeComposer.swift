@@ -35,6 +35,8 @@ struct HomeComposerBar: View {
     /// Renders: draw the rim at a fixed phase, and the field as its placeholder (ImageRenderer cannot draw an
     /// AppKit text field).
     var animated = true
+    /// Over an unknown desktop (the typed summon): a denser field, a dark outline behind the rim, a brighter placeholder.
+    var legibility = ComposerLegibility.standard
 
     private static let corner: CGFloat = 20
     private static let prompt = "Tell ORION what you need"
@@ -48,6 +50,7 @@ struct HomeComposerBar: View {
         VStack(spacing: 12) {
             field
                 .background(bloom)
+                .overlay(outline)
                 .overlay(rim)
             if !line.isEmpty {
                 status.transition(.opacity)
@@ -74,7 +77,7 @@ struct HomeComposerBar: View {
             .accessibilityLabel(listening ? "Stop listening" : "Talk to ORION")
 
             if animated {
-                TextField(Self.prompt, text: $text, axis: .vertical)
+                TextField(text: $text, prompt: Text(Self.prompt).foregroundColor(legibility.placeholder), axis: .vertical) { EmptyView() }
                     .textFieldStyle(.plain)
                     .font(.system(size: 15))
                     .lineLimit(1...4)
@@ -84,7 +87,7 @@ struct HomeComposerBar: View {
             } else {
                 Text(text.isEmpty ? Self.prompt : text)
                     .font(.system(size: 15))
-                    .foregroundStyle(text.isEmpty ? OrionTheme.textDim : OrionTheme.text)
+                    .foregroundStyle(text.isEmpty ? legibility.placeholder : OrionTheme.text)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -115,7 +118,7 @@ struct HomeComposerBar: View {
         .padding(.leading, 14)
         .padding(.trailing, 12)
         .padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: Self.corner, style: .continuous).fill(OrionTheme.ink.opacity(0.62)))
+        .background(RoundedRectangle(cornerRadius: Self.corner, style: .continuous).fill(OrionTheme.ink.opacity(legibility.fill)))
     }
 
     /// The light the composer sits in: static, so its blur is drawn once.
@@ -127,6 +130,17 @@ struct HomeComposerBar: View {
             .padding(.horizontal, 30)
             .offset(y: 4)
             .allowsHitTesting(false)
+    }
+
+    /// A dark keyline just outside the rim, so the bright rim still reads on white. Nothing on a dark desktop.
+    @ViewBuilder
+    private var outline: some View {
+        if legibility.outline > 0 {
+            RoundedRectangle(cornerRadius: Self.corner, style: .continuous)
+                .strokeBorder(OrionTheme.ink.opacity(legibility.outline), lineWidth: 2.4)
+                .padding(-1.2)
+                .allowsHitTesting(false)
+        }
     }
 
     /// The drifting rim: three strokes of one slowly turning gradient, fine to soft. No blur, so a frame is cheap.
@@ -170,4 +184,17 @@ struct HomeComposerBar: View {
     }
 
     private var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+}
+
+/// How dense the composer's field is and how its edge and placeholder read, set by what is behind it.
+struct ComposerLegibility: Equatable {
+    var fill: Double
+    var outline: Double
+    var placeholder: Color
+
+    static let standard = ComposerLegibility(fill: 0.62, outline: 0, placeholder: OrionTheme.textDim)
+    /// Placeholder at white 0.66 on the dense field is far above AA.
+    static func lifted(fill: Double, outline: Double) -> ComposerLegibility {
+        ComposerLegibility(fill: fill, outline: outline, placeholder: Color.white.opacity(0.66))
+    }
 }

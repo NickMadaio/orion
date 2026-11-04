@@ -31,6 +31,8 @@ final class TypedSummonPanel: NSPanel {
 final class TypedSummonModel: ObservableObject {
     @Published private(set) var flow = TypedSummonFlow()
     @Published var focusToken = 0
+    /// Luminance behind the overlay; nil is unknown (worst case assumed).
+    @Published var backdropLuminance: Double?
     private let state: AppState
     private var bag: Set<AnyCancellable> = []
     private var baseline = 0
@@ -135,9 +137,11 @@ final class TypedSummonController: NSObject, NSWindowDelegate {
         panel.setFrame(screen.frame, display: true)
         if let host = panel.contentView as? NSHostingView<TypedSummonRoot> {
             host.rootView = TypedSummonRoot(state: state, model: model, bottomInset: Self.bottomInset(for: screen),
-                                            onChat: { [weak self] in self?.openChat() }, onDismiss: { [weak self] in self?.dismiss() })
+                                            onChat: { [weak self] in self?.openChat() }, onDismiss: { [weak self] in self?.dismiss() },
+                                            onContentChange: { [weak self] in self?.measure() })
         }
         model.present()
+        measure(on: screen, panel: panel)
         panel.alphaValue = 1
         panel.makeKeyAndOrderFront(nil)
         onVisibilityChanged?(true)
@@ -148,6 +152,19 @@ final class TypedSummonController: NSObject, NSWindowDelegate {
         model.dismiss()
         panel?.orderOut(nil)
         onVisibilityChanged?(false)
+    }
+
+    /// Samples the desktop behind the overlay (the lower-middle band where everything sits) and re-themes. Reduce
+    /// Transparency needs no sample.
+    func measure(on screen: NSScreen? = nil, panel: NSPanel? = nil) {
+        guard let screen = screen ?? activeScreen(), let panel = panel ?? self.panel else { return }
+        let frame = screen.frame
+        let band = CGRect(x: frame.width * 0.15, y: frame.height * 0.45, width: frame.width * 0.7, height: frame.height * 0.5)
+        let number = panel.windowNumber
+        Task { @MainActor [weak self] in
+            let value = await TypedSummonBackdropSampler.luminance(on: screen, region: band, excluding: number)
+            self?.model.backdropLuminance = value
+        }
     }
 
     private func openChat() {
@@ -194,14 +211,18 @@ struct TypedSummonRoot: View {
     let bottomInset: CGFloat
     var onChat: () -> Void
     var onDismiss: () -> Void
+    var onContentChange: () -> Void = {}
     @FocusState private var focused: Bool
 
     var body: some View {
         TypedSummonView(flow: model.flow, text: $state.composer, focus: $focused, hologram: state.hologram,
                         listening: state.phase == .listening, bottomInset: bottomInset,
-                        onVoice: model.toggleVoice, onChat: onChat, onSend: model.send, onDismiss: onDismiss)
+                        onVoice: model.toggleVoice, onChat: onChat, onSend: model.send, onDismiss: onDismiss,
+                        theme: TypedSummonLegibility.decide(backdrop: model.backdropLuminance,
+                                                            reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency))
             .onAppear { focus() }
             .onChange(of: model.focusToken) { _, _ in focus() }
+            .onChange(of: model.flow.answer) { _, _ in onContentChange() }
     }
 
     /// The window has to be key before a field can take focus; one runloop turn is enough.

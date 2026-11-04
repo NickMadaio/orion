@@ -34,6 +34,16 @@ const DISTRACTIONS = [
 ];
 const isDistraction = (id) => DISTRACTIONS.some((re) => re.test(id.toLowerCase()));
 
+/** An app he asked to keep open at all times (game-prep.json: always / alwaysIds, written by `orion-apps game-prep keep add`) is never quit here. */
+function keptOpen(bundleId) {
+  let file;
+  try { file = JSON.parse(readFileSync(join(CONTROLLED, "game-prep.json"), "utf8")); } catch { return false; }
+  const id = bundleId.toLowerCase(), flat = id.replace(/[^a-z0-9]/g, "");
+  const ids = Array.isArray(file?.alwaysIds) ? file.alwaysIds : [], names = Array.isArray(file?.always) ? file.always : [];
+  return ids.some((x) => String(x).toLowerCase() === id)
+    || names.some((n) => { const k = String(n).toLowerCase().replace(/[^a-z0-9]/g, ""); return k.length >= 4 && flat.includes(k); });
+}
+
 /** { start, end } of tonight's window from the plan, or { reason } when there is none. */
 function tonightWindow() {
   let plan;
@@ -62,6 +72,7 @@ const plans = {
   "quit-app": () => {
     if (!arg || !/^[A-Za-z0-9][A-Za-z0-9._-]{1,200}$/.test(arg)) fail("quit-app needs a bundle id");
     if (!isDistraction(arg)) fail("that is not one of the distraction apps I quit at bedtime (games, browsers, Discord, TV).", 1);
+    if (keptOpen(arg)) fail("you asked me to keep that app open at all times, so I am leaving it open.", 1);
     requireWindow("Quitting an app");
     return ["quit_app", { bundle_id: arg }];
   },

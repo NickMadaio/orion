@@ -8,6 +8,7 @@
                                                           --all: "everything except": also closes recent and audible apps
    orion-apps hide <app> [--json]
    orion-apps game-prep [--now] [--game <bundleOrName>] [--dry-run] [--json]   --now: on demand, no game has to be open ("make my computer game ready"). Game mode: close what the running game does not need, unload idle models, record it in game-session.json
+   orion-apps music play [--player spotify|music] [<playlist or artist>] | pause | skip | previous [--json]   Spotify if installed or running, else Music; says Playing only once it is
    orion-apps game-prep keep add|remove <app...> | keep list | auto on|off | last   the keep list (game-prep.json), the auto-prep setting, what was closed last time
 
  Nick: "he should have these abilities, why are we limiting him." / "things like epic games stay open and i want them closed closed."
@@ -17,20 +18,28 @@
  process tree this script runs in. quit-unused skips terminals, editors, call/recording apps and System Settings; `quit` closes them when named.
  "Unused" = see lib/apps/policy.mjs: macOS keeps no last-used time, so the window stack stands in for it.
  Exit 0 ok, 1 failed, 2 usage.*/
-import { liveSource } from "./lib/apps/live.mjs";
-import { addKeep, controlledDir, lastPrepSay, loadConfig, loadSession, removeKeep, setAutoPrep } from "./lib/apps/gameconfig.mjs";
+import { bundleIdAt, installedApps, liveMusicDeps, liveSource } from "./lib/apps/live.mjs";
+import { addKeep, alwaysKept, controlledDir, keepListSay, lastPrepSay, loadConfig, loadSession, removeKeep, setAutoPrep } from "./lib/apps/gameconfig.mjs";
 import { gamePrep } from "./lib/apps/gameprep.mjs";
+import { runMusic } from "./lib/apps/music.mjs";
 import { hideApp, listApps, quitNamed, quitUnused } from "./lib/apps/run.mjs";
 
 const argv = process.argv.slice(2);
 const json = argv.includes("--json");
 const [command, ...rest] = argv.filter((a) => a !== "--json");
-const USAGE = "usage: orion-apps game-prep [--now] [--game g] [--dry-run] | game-prep keep add|remove|list <app...> | game-prep auto on|off | game-prep last | list | quit <app...> | quit-unused [--keep a,b] [--dry-run] [--all] | hide <app>   [--json]";
+const USAGE = "usage: orion-apps game-prep [--now] [--game g] [--dry-run] | game-prep keep add|remove|list <app...> | game-prep auto on|off | game-prep last | music play|pause|skip|previous [--player p] [query] | list | quit <app...> | quit-unused [--keep a,b] [--dry-run] [--all] | hide <app>   [--json]";
 const flagValue = (name) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] ?? "" : undefined; };
 
 function finish(result) {
   console.log(json ? JSON.stringify(result) : result.say);
   process.exit(result.ok ? 0 : 1);
+}
+
+/** What a spoken app name can be: what is running (with its bundle id) and what is installed (its bundle id is read only for the one picked). */
+function appCandidates() {
+  const running = src.snapshot().map((a) => ({ name: a.name, bundleId: a.bundleId }));
+  const seen = new Set(running.map((a) => a.name.toLowerCase()));
+  return [...running, ...installedApps().filter((a) => !seen.has(a.name.toLowerCase()))];
 }
 
 /** game-prep and its sub-commands. Positionals are what is left once flags (and --game's value) are removed. */
@@ -42,9 +51,9 @@ async function gameCommand() {
   const apps = [op, ...more].filter(Boolean).flatMap((a) => a.split(/\s*,\s*/)).filter(Boolean);
   if (sub === "keep" && (op === "add" || op === "remove")) {
     const names = more.flatMap((a) => a.split(/\s*,\s*/)).filter(Boolean);
-    return names.length ? (op === "add" ? addKeep : removeKeep)(dir, names) : { ok: false, say: "Which app?", error: "usage" };
+    return names.length ? (op === "add" ? addKeep : removeKeep)(dir, names, { candidates: appCandidates(), bundleIdOf: bundleIdAt }) : { ok: false, say: "Which app?", error: "usage" };
   }
-  if (sub === "keep" && op === "list") { const keep = loadConfig(dir).keep; return { ok: true, keep, say: `When you game I leave ${keep.join(", ")} alone.` }; }
+  if (sub === "keep" && op === "list") { const c = loadConfig(dir); return { ok: true, keep: c.keep, always: c.always, say: keepListSay(c) }; }
   if (sub === "auto" && (op === "on" || op === "off")) return setAutoPrep(dir, op === "on");
   if (sub === "last") return { ok: true, say: lastPrepSay(loadSession(dir)) };
   if (sub) return { ok: false, error: "usage", say: `I didn't catch what to do with game mode (${apps.join(" ") || sub}).` };
@@ -53,14 +62,20 @@ async function gameCommand() {
 
 const src = liveSource();
 try {
-  if (command === "game-prep") finish(await gameCommand());
+  if (command === "music") {
+    const player = flagValue("--player");
+    const words = rest.filter((a, i) => !a.startsWith("--") && !(player !== undefined && i === rest.indexOf("--player") + 1));
+    const [action, ...query] = words;
+    finish(await runMusic(action, { query: query.join(" "), player }, liveMusicDeps()));
+  } else if (command === "game-prep") finish(await gameCommand());
   else if (command === "list") finish(listApps(src));
   else if (command === "quit") {
     const names = rest.filter((a) => !a.startsWith("--")).flatMap((a) => a.split(/\s*,\s*/)).filter(Boolean);
     if (!names.length) { console.error(USAGE); process.exit(2); }
     finish(await quitNamed(src, names));
   } else if (command === "quit-unused") {
-    const keep = (flagValue("--keep") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const asked = (flagValue("--keep") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const keep = [...asked, ...alwaysKept(controlledDir()).names];   // what he asked to always keep open is spared here too
     finish(await quitUnused(src, { keep, dryRun: rest.includes("--dry-run"), all: rest.includes("--all") }));
   } else if (command === "hide" && rest[0]) finish(hideApp(src, rest.join(" ")));
   else { console.error(USAGE); process.exit(2); }

@@ -2,6 +2,9 @@
 // ps (an app's helper processes), and NSRunningApplication for the normal quit. Needs no Automation or Accessibility permission.
 // The same shape as the stub the tests use: snapshot() / alive / tree / quit / hide / signal / windowCount / ownsTree / sleep.
 import { execFileSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const run = (cmd, args, timeout = 8000) => { try { return execFileSync(cmd, args, { encoding: "utf8", timeout, maxBuffer: 8 << 20, stdio: ["ignore", "pipe", "ignore"] }); } catch { return ""; } };
 const jxa = (code) => run("/usr/bin/osascript", ["-l", "JavaScript", "-e", code]);
@@ -138,6 +141,34 @@ export function liveSource() {
       return treeOf(app, procs(), entries(), mine).reduce((n, p) => n + (rss.get(p.pid) ?? 0), 0);
     },
     ownsTree: (rest) => rest.some((p) => mine.has(p.pid)),
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  };
+}
+
+/** Installed apps by folder name ("Vorssaint.app" is Vorssaint): enough to say what a misspelled name means. Folders can be overridden (tests). */
+export function installedApps(dirs = (process.env.ORION_APPS_INSTALLED_DIRS ? process.env.ORION_APPS_INSTALLED_DIRS.split(":") : ["/Applications", "/Applications/Utilities", "/System/Applications", join(homedir(), "Applications")])) {
+  const out = [];
+  for (const dir of dirs) {
+    let names = [];
+    try { names = readdirSync(dir); } catch { continue; }
+    for (const f of names) if (f.endsWith(".app")) out.push({ name: f.slice(0, -4), bundleId: "", path: join(dir, f) });
+  }
+  return out;
+}
+
+/** The bundle id inside an app folder, or "" when it cannot be read. */
+export function bundleIdAt(path) {
+  return run("/usr/bin/plutil", ["-extract", "CFBundleIdentifier", "raw", "-o", "-", join(path, "Contents", "Info.plist")], 3000).trim();
+}
+
+/** The real Mac behind `orion-apps music`: which players are installed and open, osascript that throws on failure, and a background launch. */
+export function liveMusicDeps() {
+  const folders = ["/Applications", "/System/Applications", join(homedir(), "Applications")];
+  return {
+    installed: (app) => folders.some((d) => { try { return readdirSync(d).includes(`${app}.app`); } catch { return false; } }),
+    running: (app) => run("/usr/bin/osascript", ["-e", `application "${app}" is running`], 5000).trim() === "true",
+    launch: (app) => { run("/usr/bin/open", ["-g", "-a", app], 8000); },
+    osa: (script) => execFileSync("/usr/bin/osascript", ["-e", script], { encoding: "utf8", timeout: 15000, stdio: ["ignore", "pipe", "pipe"] }),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   };
 }

@@ -1,3 +1,4 @@
+import { type MusicTurn } from "./music-read.js";
 export type AppsTurn = {
     kind: "list";
 } | {
@@ -23,6 +24,8 @@ export type AppsTurn = {
     op: "add" | "remove";
     names: string[];
 } | {
+    kind: "keepList";
+} | MusicTurn | {
     kind: "gameLast";
 };
 export declare function readAppsTurn(message: string): AppsTurn | null;

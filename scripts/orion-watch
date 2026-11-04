@@ -293,10 +293,10 @@ if (sensorSaid.notices.length && (sensorsInBrief || (awake && minute >= 300 && !
 // up, so sleep never holds these. Released by orion-reach --drain-held / orion-proactive's tick.
 const aw = resolveAwareness({ dir: CONTROLLED, now, env: process.env, probe: !dry });
 if (awake) aw.sleep = { state: "awake", source: "watch" };
-const verdictFor = (a) => gate(aw, { kind: "checkin", urgentKind: a.id.startsWith("class-") ? "class" : null, now });
+const verdictFor = (a) => gate(aw, { kind: "checkin", urgentKind: a.id.startsWith("class-") ? "class" : null, now, text: a.text });   // w19: a class reminder owns what he is doing
 const verdicts = alerts.map((a) => ({ a, v: verdictFor(a) }));
-const deliverNow = dry ? alerts : verdicts.filter((x) => x.v.action === "deliver").map((x) => x.a);
-const heldAlerts = dry ? [] : verdicts.filter((x) => x.v.action === "hold");
+const deliverNow = dry ? alerts : verdicts.filter((x) => x.v.action === "deliver").map((x) => (x.v.text ? { ...x.a, text: x.v.text } : x.a));
+const heldAlerts = dry ? [] : verdicts.filter((x) => x.v.action === "hold" && !x.v.drop);
 if (deliverNow.length) {
   day.lastQuestion = deliverNow.at(-1).text;
   day.lastQuestionAt = now.toISOString();

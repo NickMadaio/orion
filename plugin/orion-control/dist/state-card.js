@@ -17,6 +17,7 @@
  an absent line or "unknown", never an exception and never an invented value.
 */
 import { SPEAK_AS_I } from "./self-voice.js";
+import { nowLine, readActivity, readHistory } from "./activity-read.js";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 export const STALE_MS = 20 * 60_000; // orion-proactive rewrites now.json every 5 min; four missed ticks is stale
@@ -166,6 +167,9 @@ export function stateCard(i) {
         "What you know about Nick right now (code read this from his state; \"unknown\" means nobody knows: never fill it in or guess):",
         ...(i.record ? recordLines(i.record) : [`- His plan and what he is doing: unknown (${i.recordGap ?? "no record"})`]),
     ];
+    // What his Mac says he is on, ahead of the plan lines' guesses: "playing Minecraft" is not "at-mac".
+    if (i.activityLine)
+        lines.splice(1, 0, `- ${i.activityLine}`);
     if (i.declared.length)
         lines.push(`- He told you today: ${i.declared.slice(-4).map((f) => (FACT_SAID[f.kind] ?? FACT_SAID.note)(f)).join("; ")}`);
     const slips = slipLines(i.slipsWeek);
@@ -186,6 +190,8 @@ export function deskLine(i) {
     const parts = r
         ? [`should be ${r.shouldBe?.title ?? r.shouldBe?.kind ?? "unknown"}`, `next ${r.next?.title ?? "unknown"}${r.next?.start ? ` at ${clockOf(r.next.start)}` : ""}`, ...(r.mismatch?.kind ? [`off plan: ${r.mismatch.kind}`] : [])]
         : ["his plan right now is unknown"];
+    if (i.activityLine)
+        parts.unshift(i.activityLine.replace(/^Right now: /, "he is "));
     if (i.declared.length)
         parts.push(`he said today: ${i.declared.slice(-2).map((f) => (FACT_SAID[f.kind] ?? FACT_SAID.note)(f)).join(", ")}`);
     if (i.lastOutreach)
@@ -209,5 +215,6 @@ export function loadCardInputs({ stateDir, userMdPath, now }) {
         routines: readRoutines(stateDir),
         lastOutreach: readLastOutreach(stateDir, now),
         essentials: userEssentials(userMdPath ? readText(userMdPath) : null),
+        activityLine: (() => { const a = readActivity(stateDir, now); return a ? nowLine(a, readHistory(stateDir, now), now) : null; })(),
     };
 }

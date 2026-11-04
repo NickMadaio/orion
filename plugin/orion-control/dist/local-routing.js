@@ -98,6 +98,7 @@ import { runSleepTurn, SleepPlanPending } from "./sleep-plan-flow.js";
 import { readDayDefault, runDayDefault } from "./day-defaults.js";
 import { KnowledgePending, readKnowledgeMove } from "./knowledge-moves.js"; // wave 6: forget / links / profile / trash
 import { runKnowledgeMove } from "./knowledge-run.js";
+import { liveSelffixRun, readSelffixMove, runSelffixMove } from "./selffix-flow.js"; // w19 selffix
 import { liveQuestionsRun, readQuestionsMove, runQuestionsMove } from "./questions-flow.js"; // wave 12 L1
 import { readFoodTurn } from "./food-read.js"; // w14 g-food
 import { FoodMemory, readFoodPending, runFoodTurn } from "./food-chat.js"; // w14 g-food
@@ -1218,19 +1219,21 @@ export function registerLocalRouting(api, options) {
         // 2026-10-30: a statement of what happened ("i dont have classes today") is code's from the start: no desk, no model needed for its effect.
         const quietTurn = hushed || quietStart !== undefined;
         // Wave 12 L1 (questions-flow.ts): "any questions for me", "forget that question", or his answer to ORION's question owns the whole turn.
-        const qmove = on && !cutOff && !quietTurn && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
+        // w19 selffix (selffix-flow.ts): "why did you do that" / "that was wrong" (he reads his own last turns and answers), or his now / later / no to a fix offer.
+        const smove = on && !cutOff && !quietTurn && !isCrisis(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw) }) : undefined;
+        const qmove = on && !cutOff && !quietTurn && !smove && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
         // Wave 14 (mail-flow.ts): "not important" / "this matters" to a mail alert, or "stop telling me about X emails", owns the whole turn.
-        const mmove = on && !cutOff && !quietTurn && !qmove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
+        const mmove = on && !cutOff && !quietTurn && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
         // w14 g-food (food-read.ts): a calorie question, "log this: …", a meal with a food in it, a chat photo, or his reply to "Log it?".
         const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
-        const food = on && !cutOff && !quietTurn && !qmove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
+        const food = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
             ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : {}), attachments: Array.isArray(event.attachments) ? event.attachments : [],
             ...(foodMemory.lastLogged(sessionKey) ? { lastLogged: foodMemory.lastLogged(sessionKey) } : {}) }) ?? undefined : undefined;
         if (!food && !quietTurn)
             foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
         // w17 g-workout (workout-read.ts): "just did legs, squats 4x6 at 185", "log my workout: …", "went for a 3 mile run", or his answer to the follow-up question.
         const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
-        const workout = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
+        const workout = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
             ...(workoutPending ? { pending: workoutPending, bound: workoutMemory.bound(sessionKey, workoutPending, parseOutreach(raw)?.text) } : {}), outreach: !!parseOutreach(raw),
             ...(workoutMemory.lastLogged(sessionKey) ? { lastLogged: workoutMemory.lastLogged(sessionKey) } : {}) }) ?? undefined : undefined;
         if (!workout && !quietTurn)
@@ -1239,9 +1242,9 @@ export function registerLocalRouting(api, options) {
         // w18 bedtime (bedtime-shutdown-read.ts): a yes to "want me to shut things down?", "put my computer to bed", "i need 20 more minutes": code runs it.
         const shutdownAt = (options.now ?? pluginNow)();
         const shutdownCtx = options.shutdownRun && options.stateDir ? shutdownContext(options.stateDir, shutdownAt, parseOutreach(raw)?.text, sessionKey ?? "") : undefined;
-        const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !isCrisis(message)
+        const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !isCrisis(message)
             ? readShutdownTurn(message, shutdownCtx) ?? undefined : undefined;
-        const appsTurn = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
+        const appsTurn = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
         // w18 mousechat (mouse-read.ts): "make my side button do stage manager", "dont do anything in minecraft", "what are my mouse buttons set to", or a yes to a new-mouse outreach.
         const mouseAt = (options.now ?? pluginNow)();
         const mouseWaiting = on && options.mouseRun ? mouseMemory.get(sessionKey, mouseAt.getTime()) : undefined;
@@ -1249,14 +1252,14 @@ export function registerLocalRouting(api, options) {
         // 15 minutes and nothing else was said in this chat since.
         const push = options.stateDir ? readLastOutreach(options.stateDir, mouseAt) : null;
         const mouseOutreach = parseOutreach(raw)?.text ?? (push && mouseAt.getTime() - Date.parse(push.at) <= 15 * 60_000 && Date.parse(push.at) > mouseMemory.lastOther(sessionKey) ? push.text : undefined);
-        const mouse = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
+        const mouse = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
             ? readMouseTurn(message, { ...(mouseWaiting ?? {}), outreachAbout: !!mouseOutreach && /\bmouse\b/i.test(mouseOutreach) }) ?? undefined : undefined;
         if (!mouse && !quietTurn) {
             mouseMemory.clear(sessionKey);
             mouseMemory.otherTurn(sessionKey, mouseAt.getTime());
         }
-        const reality = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
+        const reality = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
         // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
         const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
         const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1321,7 +1324,7 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
         // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
         // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-        const pending = on && !cutOff && !quietTurn && !qmove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+        const pending = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
             ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
                 chatSurface: CHAT_SURFACE.test(sessionKey) })
@@ -1357,6 +1360,13 @@ export function registerLocalRouting(api, options) {
                 out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
                 if (out.held && sessionKey)
                     knowledgePending.set(sessionKey, out.held, Date.now());
+            }
+        }
+        if (smove && options.stateDir) { // w19 selffix: the reply is built from orion-selfcheck's and orion-selffix's JSON
+            const out = await withTimeout(runSelffixMove(smove, options.selffixRun ?? liveSelffixRun(options.stateDir), (options.now ?? pluginNow)()).catch(() => undefined), 70000);
+            if (out) {
+                run.ownText = out.text;
+                out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
             }
         }
         if (qmove && options.stateDir) { // wave 12 L1: the reply is built from orion-questions' JSON

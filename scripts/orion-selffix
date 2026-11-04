@@ -120,7 +120,9 @@ if (command === "propose") {
 } else if (command === "accept") {
   const state = readState(dir);
   const item = find(state, rest[0] ?? "");
-  if (!["offered", "candidate"].includes(item.status)) fail(3, `${item.id} is ${item.status}, not waiting for an answer`);
+  const reparking = item.status === "parked" && argv.includes("--later");   // "later" again to the reminder: the same project, a new time
+  if (!reparking && !["offered", "candidate"].includes(item.status)) fail(3, `${item.id} is ${item.status}, not waiting for an answer`);
+  if (reparking) dropReminder(dir, item.reminderId);
   const projectId = ensureProject(item);
   if (argv.includes("--now")) launch(state, item, projectId);
   else if (argv.includes("--later")) {

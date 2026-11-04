@@ -185,3 +185,14 @@ test("a candidate matching an already open fix project is not offered", () => {
   assert.notEqual(r.out.candidate?.signature, "wrong-tool:app_open");
   assert.equal(w.state().items.filter((i) => i.signature === "wrong-tool:app_open").length, 1);
 });
+
+test("later again to the reminder re-parks the same project with one reminder", () => {
+  const w = world();
+  const id = propose(w).out.item.id;
+  w.run(["accept", id, "--later", "--at", "2026-11-04T20:30:00Z"]);
+  const again = w.run(["accept", id, "--later", "--at", "2026-11-05T09:00:00Z"]);
+  assert.equal(again.out.status, "parked");
+  assert.equal(w.projectCalls().filter((c) => c.startsWith("add")).length, 1);
+  const reminders = JSON.parse(readFileSync(join(w.dir, "reminders.json"), "utf8"));
+  assert.deepEqual(reminders.map((r) => r.dueAt), [Date.parse("2026-11-05T09:00:00Z")]);
+});

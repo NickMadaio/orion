@@ -43,6 +43,10 @@ final class PlannerStore: ObservableObject {
         var priority: Int
         var notes: String
         let listName: String
+
+        var orderKey: TodoOrdering.Key {
+            TodoOrdering.Key(done: done, eventKitPriority: priority, due: due, title: title, id: id, order: TaskNotes.parse(notes).order)
+        }
     }
 
     @Published private(set) var access: Access = .notAsked
@@ -101,7 +105,7 @@ final class PlannerStore: ObservableObject {
             self?.store.fetchReminders(matching: doneToday) { doneItems in
                 let all = (openItems ?? []) + (doneItems ?? [])
                 let mapped = all.map(Self.todo)
-                Task { @MainActor in self?.todos = mapped.sorted(by: Self.order) }
+                Task { @MainActor in self?.todos = Self.ordered(mapped) }
             }
         }
     }
@@ -246,7 +250,7 @@ final class PlannerStore: ObservableObject {
         let fetched: [Todo] = await withCheckedContinuation { continuation in
             store.fetchReminders(matching: open) { items in continuation.resume(returning: (items ?? []).map(Self.todo)) }
         }
-        todos = fetched.sorted(by: Self.order)
+        todos = Self.ordered(fetched)
     }
 
     // MARK: - For the widgets
@@ -280,9 +284,9 @@ final class PlannerStore: ObservableObject {
 
     /// Open to-dos in the glance's shape; Reminders' 1…9 priority folded to 1…3.
     var glanceTodos: [OrionGlance.Todo] {
+        // `todos` is already in the shared order, so the cut to 40 keeps the most pressing ones.
         todos.filter { !$0.done }.prefix(40).map { todo in
-            let rank = todo.priority == 0 ? 0 : todo.priority <= 4 ? 1 : todo.priority == 5 ? 2 : 3
-            return OrionGlance.Todo(id: todo.id, title: todo.title, due: todo.due, priority: rank)
+            OrionGlance.Todo(id: todo.id, title: todo.title, due: todo.due, priority: OrionGlance.rank(eventKit: todo.priority))
         }
     }
 
@@ -336,15 +340,11 @@ final class PlannerStore: ObservableObject {
         return Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: date)
     }
 
-    /// Open before done; then by due date (undated last); then by priority.
-    private static func order(_ left: Todo, _ right: Todo) -> Bool {
-        if left.done != right.done { return !left.done }
-        switch (left.due, right.due) {
-        case let (l?, r?) where l != r: return l < r
-        case (.some, nil): return true
-        case (nil, .some): return false
-        default: return (left.priority == 0 ? 10 : left.priority) < (right.priority == 0 ? 10 : right.priority)
-        }
+    /// The one to-do order (MobileCore.TodoOrdering): open before done, overdue first, then priority
+    /// high to none, then the earlier due. Was due-first, which put a low item due Monday above a high
+    /// one due Friday and a high undated one last (2026-11-04).
+    private static func ordered(_ todos: [Todo]) -> [Todo] {
+        TodoOrdering.sorted(todos, key: \.orderKey)
     }
 
     private static func hex(_ color: CGColor) -> String? {

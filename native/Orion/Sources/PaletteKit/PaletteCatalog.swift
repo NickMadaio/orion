@@ -64,7 +64,8 @@ enum PaletteCatalog {
     }
 
     static func today(_ ctx: PaletteContext) -> [PaletteItem] {
-        ctx.todos.sorted { $0.overdue && !$1.overdue }.map { todo in
+        // Already in the shared order (`orion-tasks list`); only lift the overdue ones, keeping that order.
+        (ctx.todos.filter(\.overdue) + ctx.todos.filter { !$0.overdue }).map { todo in
             PaletteItem(id: "todo-\(todo.title)", title: todo.title,
                         subtitle: todo.overdue ? "overdue · \(todo.due)" : (todo.due.isEmpty ? "to-do" : "due \(todo.due)"),
                         keywords: "todo done task", section: .today, symbol: todo.overdue ? "exclamationmark.circle" : "circle",

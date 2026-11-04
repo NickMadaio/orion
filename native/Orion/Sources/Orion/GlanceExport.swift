@@ -77,7 +77,7 @@ final class GlanceExport {
         store.fetchReminders(matching: predicate) { reminders in
             let mapped = (reminders ?? []).map { reminder in
                 OrionGlance.Todo(id: reminder.calendarItemIdentifier, title: reminder.title ?? "Untitled",
-                                 due: reminder.dueDateComponents?.date, priority: Self.rank(reminder.priority), done: false)
+                                 due: Self.due(reminder.dueDateComponents), priority: OrionGlance.rank(eventKit: reminder.priority), done: false)
             }
             // The widget shows the top few, so sort BEFORE cutting: overdue, then priority, then due.
             let ordered = Array(Self.ordered(mapped, now: Date()).prefix(40))
@@ -87,25 +87,14 @@ final class GlanceExport {
 
     /// The shared to-do order (MobileCore.TodoOrdering) over the widget's todos.
     nonisolated static func ordered(_ todos: [OrionGlance.Todo], now: Date) -> [OrionGlance.Todo] {
-        TodoOrdering.sorted(todos, now: now) { todo in
-            let priority: TodoPriority
-            switch todo.priority {
-            case 1: priority = .high
-            case 2: priority = .medium
-            case 3: priority = .low
-            default: priority = .none
-            }
-            return TodoOrdering.Key(done: todo.done, priority: priority, due: todo.due, title: todo.title, id: todo.id)
-        }
+        OrionGlance.ordered(todos, now: now)
     }
 
-    /// EventKit's 1 (high) … 9 (low) into 1…3; 0 stays none.
-    nonisolated static func rank(_ priority: Int) -> Int {
-        switch priority {
-        case 1...4: return 1
-        case 5: return 2
-        case 6...9: return 3
-        default: return 0
-        }
+    /// A date-only due is due at the end of that day (23:59), like the lists and the phone read it,
+    /// so a to-do due today is not drawn red from midnight.
+    nonisolated static func due(_ components: DateComponents?) -> Date? {
+        guard let components, let date = components.date ?? Calendar.current.date(from: components) else { return nil }
+        guard components.hour == nil else { return date }
+        return Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: date) ?? date
     }
 }

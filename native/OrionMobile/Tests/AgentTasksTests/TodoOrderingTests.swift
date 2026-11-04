@@ -28,9 +28,19 @@ final class TodoOrderingTests: XCTestCase {
         XCTAssertEqual(order(items), ["a", "b", "a2", "c"])
     }
 
-    func testOverdueOrdersByHowLongLateWhateverThePriority() {
-        let items = [item("newer", due: at(12), priority: .high), item("older", due: at(2), priority: .none)]
-        XCTAssertEqual(order(items), ["older", "newer"])
+    func testOverdueBlockIsRankedByPriorityThenHowLateAndMissingPriorityIsLast() {
+        let items = [item("olderNone", due: at(2), priority: .none), item("newerHigh", due: at(12), priority: .high),
+                     item("olderHigh", due: at(3), priority: .high), item("midLow", due: at(8), priority: .low)]
+        XCTAssertEqual(order(items), ["olderHigh", "newerHigh", "midLow", "olderNone"])
+    }
+
+    func testHandPlacedOrderBreaksTiesAfterPriorityAndDueButBeforeTitle() {
+        let first = TodoOrdering.Key(done: false, priority: .high, due: nil, title: "zzz", id: "1", order: 1)
+        let second = TodoOrdering.Key(done: false, priority: .high, due: nil, title: "aaa", id: "2", order: 2)
+        let loose = TodoOrdering.Key(done: false, priority: .high, due: nil, title: "bbb", id: "3")
+        XCTAssertEqual(TodoOrdering.sorted([loose, second, first], now: now) { $0 }.map(\.id), ["1", "2", "3"])
+        let dated = TodoOrdering.Key(done: false, priority: .high, due: at(20), title: "zzz", id: "4", order: 9)
+        XCTAssertEqual(TodoOrdering.sorted([first, dated], now: now) { $0 }.map(\.id), ["4", "1"])
     }
 
     func testTimedDueBeforeNowIsOverdueButLaterTodayIsNot() {

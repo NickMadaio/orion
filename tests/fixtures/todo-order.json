@@ -1,0 +1,28 @@
+{
+  "note": "One fixture, every surface. Each surface maps these rows into its own type (EventKit int, word, glance rank) and must give the same order.",
+  "now": "2026-11-04T10:00:00Z",
+  "todos": [
+    { "id": "none-undated", "eventKit": 0, "word": null, "rank": 0, "due": null, "done": false },
+    { "id": "late-low-oldest", "eventKit": 9, "word": "low", "rank": 3, "due": "2026-10-24T22:59:00Z", "done": false },
+    { "id": "med-undated", "eventKit": 5, "word": "medium", "rank": 2, "due": null, "done": false },
+    { "id": "late-high", "eventKit": 1, "word": "high", "rank": 1, "due": "2026-11-02T23:59:00Z", "done": false },
+    { "id": "done-high", "eventKit": 1, "word": "high", "rank": 1, "due": "2026-10-20T23:59:00Z", "done": true },
+    { "id": "high-later", "eventKit": 1, "word": "high", "rank": 1, "due": "2026-11-09T23:59:00Z", "done": false },
+    { "id": "low-undated", "eventKit": 9, "word": "low", "rank": 3, "due": null, "done": false },
+    { "id": "late-none-newest", "eventKit": 0, "word": null, "rank": 0, "due": "2026-11-03T23:59:00Z", "done": false },
+    { "id": "high-undated", "eventKit": 1, "word": "high", "rank": 1, "due": null, "done": false },
+    { "id": "none-today-evening", "eventKit": 0, "word": null, "rank": 0, "due": "2026-11-04T18:00:00Z", "done": false },
+    { "id": "late-med", "eventKit": 5, "word": "medium", "rank": 2, "due": "2026-10-30T23:59:00Z", "done": false },
+    { "id": "high-tomorrow", "eventKit": 2, "word": "high", "rank": 1, "due": "2026-11-05T23:59:00Z", "done": false },
+    { "id": "high-today-evening", "eventKit": 1, "word": "high", "rank": 1, "due": "2026-11-04T20:00:00Z", "done": false },
+    { "id": "med-soon", "eventKit": 5, "word": "medium", "rank": 2, "due": "2026-11-06T23:59:00Z", "done": false }
+  ],
+  "expected": [
+    "late-high", "late-med", "late-low-oldest", "late-none-newest",
+    "high-today-evening", "high-tomorrow", "high-later", "high-undated",
+    "med-soon", "med-undated",
+    "low-undated",
+    "none-today-evening", "none-undated",
+    "done-high"
+  ]
+}

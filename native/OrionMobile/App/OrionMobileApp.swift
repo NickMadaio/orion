@@ -669,7 +669,7 @@ struct PhoneRootView: View {
             ForEach(open.prefix(4)) { todo in
                 Button { withAnimation(.spring(response: 0.3)) { planner.toggle(todo) } } label: {
                     HStack(spacing: 12) {
-                        Circle().stroke(Phone.soft, lineWidth: 1.4).frame(width: 20, height: 20)
+                        Circle().stroke(Self.priorityRing(todo.priority), lineWidth: todo.priority == 1 ? 2 : 1.4).frame(width: 20, height: 20)
                         Text(todo.title).font(.system(size: 16)).foregroundStyle(Phone.text).multilineTextAlignment(.leading)
                         Spacer()
                         if let due = todo.due, Calendar.current.isDateInToday(due) {
@@ -685,6 +685,16 @@ struct PhoneRootView: View {
             if open.isEmpty { Text("All clear.").foregroundStyle(Phone.soft) }
             Button { tab = .lists } label: { Label("All to-dos", systemImage: "arrow.right") }
                 .buttonStyle(PhoneButtonStyle())
+        }
+    }
+
+    /// The ring colour that says why a to-do sits where it does: red high, orange medium, blue low, plain none.
+    private static func priorityRing(_ eventKit: Int) -> Color {
+        switch TodoPriority(eventKit: eventKit) {
+        case .high: Phone.red
+        case .medium: Phone.orange
+        case .low: Phone.accent
+        case .none: Phone.soft
         }
     }
 

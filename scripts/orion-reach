@@ -221,6 +221,7 @@ if (!drain && verdict.action === "hold" && verdict.heldFor === "activity") {
   console.log(`NOT SENT: dropped - ${verdict.reason}.`);
   process.exit(3);
 }
+const originalText = text;   // what the repeat rule compares and records; `text` may become the rewritten line
 if (!drain && verdict.text) text = verdict.text;
 const heard = audienceOf(aw);
 const headphones = heard.macHeadphones ?? !!here.headphones;
@@ -276,7 +277,7 @@ try {
   // timeSensitive lets iOS Announce read it into his AirPods, but only when the phone route is headphones.
   const phone = entry.channel === "phone";
   // An ask gets the phone's `orion.ask` category (a text-reply field) and its askId, which the link carries into the chat thread (WP5).
-  if (!drain && aw.activity) recordNudge(DIR, { activity: aw.activity, text: entry.text, now, kind });   // the 30-min repeat rule reads this
+  if (!drain && aw.activity) recordNudge(DIR, { activity: aw.activity, text: originalText, why: reason, urgentKind, tier, now, kind });   // the 30-min repeat rule reads this
   appendFileSync(OUTBOX, `${JSON.stringify({ id, text: entry.text, kind, push: phone, urgent: genuinelyUrgent, timeSensitive: phone && heard.phoneHeadphones === true,
     ...(ask ? { ask, askId: entry.askId, category: "orion.ask" } : {}), ...(validUntil ? { validUntil } : {}) })}\n`);
   // A phone delivery also posts the same row on the Mac as a silent bubble, so it is there when he is back (3.4.4).

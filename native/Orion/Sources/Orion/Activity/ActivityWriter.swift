@@ -15,6 +15,9 @@ final class ActivityWriter {
     private var observer: NSObjectProtocol?
     private var timer: Timer?
     private var page: (pid: pid_t, value: BrowserProbe.Page?)?
+    /// Facts gathered off the main thread for the app in front (Info.plist, window list). `title` is read only for a game.
+    private var collected: (pid: pid_t, facts: GameClassifier.Facts, title: String?)?
+    private static let collectDeadline: TimeInterval = 3
     private var gameSeen: (key: String, since: String)?
     private var lastSignature: String?
     private var lastWriteAt: Date?
@@ -65,7 +68,23 @@ final class ActivityWriter {
                 self.write(app: NSWorkspace.shared.frontmostApplication)
             }
         }
-        write(app: app)
+        collect(app)
+    }
+
+    /// Accessibility, Info.plist and window-list reads can hang on a sick app: they run off the main thread with a deadline, and a
+    /// miss falls back to what NSRunningApplication says for free (no title, not a game).
+    private func collect(_ app: NSRunningApplication) {
+        let pid = app.processIdentifier
+        TimeoutGate.run(timeout: Self.collectDeadline, work: { () -> (GameClassifier.Facts, String?) in
+            let facts = MouseController.facts(for: app)
+            let title = AppClassifier.category(facts: facts) == .game ? MouseController.windowTitle(pid: pid) : nil
+            return (facts, title)
+        }, completion: { [weak self] outcome in
+            guard let self, NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+            let facts = outcome?.0 ?? GameClassifier.Facts(bundleId: app.bundleIdentifier, name: app.localizedName)
+            self.collected = (pid, facts, outcome?.1)
+            self.write(app: app)
+        })
     }
 
     private func schedule(after seconds: TimeInterval) {
@@ -79,9 +98,9 @@ final class ActivityWriter {
     // MARK: Snapshot
 
     private func write(app: NSRunningApplication?) {
-        guard let app else { return }
+        guard let app, let collected, collected.pid == app.processIdentifier else { return }
         let now = Date()
-        let snapshot = snapshot(for: app, now: now)
+        let snapshot = snapshot(for: app, collected: collected, now: now)
         let signature = snapshot.signature
         // A browser whose page is not known yet would write a domain-less line and then a second one: wait for the probe.
         if !(snapshot.category == .browser && page?.pid != app.processIdentifier) { appendHistory(snapshot, now: now) }
@@ -95,18 +114,16 @@ final class ActivityWriter {
         }
     }
 
-    private func snapshot(for app: NSRunningApplication, now: Date) -> ActivitySnapshot {
-        let facts = MouseController.facts(for: app)
+    private func snapshot(for app: NSRunningApplication, collected: (pid: pid_t, facts: GameClassifier.Facts, title: String?), now: Date) -> ActivitySnapshot {
+        let facts = collected.facts
         let category = AppClassifier.category(facts: facts)
-        let isBrowser = category == .browser
-        let pageNow = isBrowser && page?.pid == app.processIdentifier ? page?.value : nil
-        let domain = pageNow.flatMap { SiteClassifier.domain(fromURL: $0.url) }
+        let domain = category == .browser && page?.pid == app.processIdentifier ? page?.value?.domain : nil
         let name = app.localizedName ?? app.bundleIdentifier ?? "Unknown"
-        let window = pageNow?.title ?? (category == .game || !isBrowser ? MouseController.windowTitle(pid: app.processIdentifier) : nil)
         return ActivitySnapshot(
             at: iso.string(from: now), idleSeconds: IdleReading.current(now: now).map { Int($0) },
             app: .init(name: name, bundleId: app.bundleIdentifier, pid: app.processIdentifier), category: category,
-            window: window, url: pageNow?.url, domain: domain, siteCategory: SiteClassifier.category(domain: domain),
+            window: ActivityPrivacy.window(category: category, title: collected.title), domain: domain,
+            siteCategory: SiteClassifier.category(domain: domain),
             game: game(facts: facts, app: app, now: now), focus: focus())
     }
 

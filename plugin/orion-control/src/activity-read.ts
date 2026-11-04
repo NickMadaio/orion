@@ -16,7 +16,7 @@ const DAY_MS = 86_400_000;
 export type Activity = {
   version: 1; at: string; idleSeconds: number | null;
   app: { name: string; bundleId: string | null; pid: number };
-  category: string; window: string | null; url: string | null; domain: string | null; siteCategory: string | null;
+  category: string; window: string | null; domain: string | null; siteCategory: string | null;
   game: { name: string; since: string } | null;
   focus: { active: boolean; task: string | null; allowedApps: string[]; allowedDomains: string[] } | null;
 };
@@ -32,7 +32,10 @@ export function readActivity(dir: string, now: Date): Activity | null {
   try { a = JSON.parse(raw) as Activity; } catch { return null; }
   if (!a || a.version !== 1 || !a.app?.name) return null;
   const age = now.getTime() - Date.parse(a.at);
-  return age >= -5_000 && age <= FRESH_MS ? a : null;
+  if (!(age >= -5_000 && age <= FRESH_MS)) return null;
+  // Privacy: whatever an older writer left in the file, a URL never leaves this reader and a window title only for a game.
+  const { url: _url, window: title, ...rest } = a as Activity & { url?: unknown };
+  return { ...rest, window: a.category === "game" || a.game ? title ?? null : null };
 }
 
 export function readHistory(dir: string, now: Date, days = 7): HistoryRow[] {
@@ -128,8 +131,7 @@ export function nowReply(a: Activity | null, history: HistoryRow[], now: Date): 
   if (!a) return "I can't see what you're on right now. The Mac hasn't checked in with me in the last minute or so.";
   const focus = a.focus?.active && a.focus.task ? ` You have a focus session on ${a.focus.task}.` : "";
   if (away(a)) return `You haven't touched the Mac for ${fmtMinutes(Math.round((a.idleSeconds ?? 0) / 60))}. ${a.app.name} is still open.${focus}`;
-  const title = a.category === "browser" && a.window ? `, on "${a.window.replace(/\s+/g, " ").slice(0, 60)}"` : "";
-  return `You're ${phrase(a)}${span(minutesOn(a, history, now))}${title}.${focus}`;
+  return `You're ${phrase(a)}${span(minutesOn(a, history, now))}.${focus}`;
 }
 
 export function todayReply(rows: HistoryRow[], now: Date): string {

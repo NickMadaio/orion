@@ -80,6 +80,36 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-04 10:40 GMT: wave 18 relay summary (Claude, orchestrator)
+
+**Found state:** wave 17b had claimed the Health hover and the stray text were fixed. They weren't. Hover worked, but it showed provenance text, which read as stray text. ORION couldn't close apps: the model called the bedtime-only wrapper, and it was off the allowlist. He couldn't open Safari either, because /Applications/Safari.app is a cryptex symlink and resolveApplication skipped symlinks. Last night's bedtime "yes" ran nothing: the model claimed the shutdown with no tool call, and the bridge binary from 11-01 lacks dim/quit_app/lock_screen.
+
+**What changed** (all merged on sweep/integration, pushed to main at 4e1876f and later):
+- **Computer control:** orion-apps (list, quit with escalation, quit-unused, hide, game-prep, keep-always list, music). Mouse: MouseKit plus Sources/Orion/Mouse (IOHID watcher, otherMouse/scroll tap, per-app bindings, a single MouseGate that is off while a game is frontmost, ⌃⌥M flips it, setup popup, Stage Manager via the Control Center AX checkbox, wheel reversal for discrete events only). Also orion-mouse and the chat routes. Razer third button: no HID input over Bluetooth (checked live), so it needs an onboard remap (NICK-TODO).
+- **Game mode:** GameSession, restored on launch; java Minecraft detected by path.
+- **Typed summon overlay:** ⌃⌥Space or orion://type toggles. It is legible on any backdrop. Mouse "summon" now opens it. ⌥Tab is rebuilt as a command palette (PaletteKit). Push-to-talk docks to a notch pill on click-away (Notch/*).
+- **Voice:** first person (self-voice.ts at finalize, prompts rewritten, live IDENTITY.md rewritten; backup IDENTITY.md.bak-2026-11-03).
+- **Notes:** full text; a bare "make a note" binds the next message; secrets refused.
+- **Wake/alarms by chat** (orion-sleepplan wake-on/shift/alarms; the phone acknowledges via LinkLog.alarms).
+- **Bedtime shutdown** (orion-bedtime-shutdown): one-shot offer, one-night window, lock verified via ioreg, 90 min of passes. orion-light reads the ALS.
+- **Food:** photos auto-log, with fix and undo.
+- **Phone:** bottom tab bar (Home/Plan/Health/Lists/More); Done early on Home; Log food only on Health, opening the camera directly; chat cleaned (no plumbing, 12-hour times, condensed piles, send states with retry); CloudLink retries setup; widgets in the blue Home style.
+- Rejected: flipping com.apple.swipescrolldirection (needs logout and flips the trackpad); `defaults write` for Stage Manager (ignored on macOS 26).
+
+**Verification (last full runs):** plugin vitest 4808/4808; root node 2503/2504 (mail-hardening "gog is killed…" is flaky, about 1 run in 2); Swift native/Orion 764 (2 skipped, 0 failures); MobileCore 82; OrionLink 79; MobileCoreCheck 703/0. ClipTests (audio) fail with the lid closed. VoiceFluid and AppWedge are wall-clock flakes.
+
+**Live/installed:** plugin deployed plus orion-remote-install (11-04 ~10:05); Orion.app build 1411 (Link embedded) in /Applications; phone app installed 10:35 from 4e1876f. Allowlisted: orion-apps, orion-mouse, orion-bedtime-shutdown. game-prep.json keeps Vorssaint always.
+
+**Rollback:** `scripts/orion-deploy --rollback` for the plugin. The Mac app: rebuild from an earlier main sha via native/Orion/make_app_bundle.sh (the output is native/Orion/.build/Orion.app). Workspace backups are in ~/.openclaw/workspace/.backup-20261103T150321.
+
+**Open / next:**
+1. Nick to report whether the phone says "Mac online" and whether Health loads. The connection root cause isn't proven; the Mac side was healthy.
+2. Rebuild native/OrionMacBridge release with Nick present (it resets TCC) so dim/quit_app work.
+3. Live-try ⌃⌥M, the notch pill, ⌥Tab keys, Stage Manager from the mouse, and bedtime shutdown tonight.
+4. Nick's open question: "his speech is slightly off". Is that voice or wording?
+5. Learning close-off: the multi-day check is still owed (see the memory note).
+
+
 ### 2026-11-03 afternoon: wave 18 (Claude, orchestrator)
 
 - **Apps:** scripts/orion-apps (list, quit, quit-unused, hide) and apps-read/chat.ts. Root cause of "can't close apps": the model called the bedtime-only `orion-bedtime-act quit-app`, which was off the allowlist. Quit escalates: graceful, then SIGTERM of the app tree, then SIGKILL. Launchers, game, chat and music apps escalate fully. Apps showing a save or question prompt are left and reported. Pids are re-checked by comm and start time before each signal. Ollama, openclaw and orion processes are never signalled.

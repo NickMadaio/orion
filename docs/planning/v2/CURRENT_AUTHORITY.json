@@ -14,11 +14,11 @@
     "askFallback": "deny"
   },
   "counts": {
-    "total": 286,
-    "AUTO": 163,
+    "total": 304,
+    "AUTO": 168,
     "NOTIFY": 24,
-    "APPROVAL": 18,
-    "NEVER": 81
+    "APPROVAL": 21,
+    "NEVER": 91
   },
   "availability": [
     {
@@ -72,9 +72,9 @@
     {
       "tier": "computer_control",
       "flag": "enableComputerControlActions",
-      "configOn": false,
+      "configOn": true,
       "profileOn": true,
-      "available": false,
+      "available": true,
       "unresolved": false
     },
     {
@@ -421,6 +421,50 @@
     },
     {
       "kind": "action",
+      "name": "bedtime_dim",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "bedtime_lock_screen",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "bedtime_quit_app",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "bedtime_undim",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "media_control",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
       "name": "browser_list_tabs",
       "level": "AUTO",
       "rule": "R3 default",
@@ -559,6 +603,17 @@
       "because": "simulated only — it changes nothing at all",
       "enforcedBy": "plugin gate (mechanical)",
       "tier": "simulation",
+      "risk": "low",
+      "reversible": true
+    },
+    {
+      "kind": "action",
+      "name": "folder_open",
+      "level": "AUTO",
+      "rule": "R3 default",
+      "because": "reversible, low risk, confined to reads or to state Orion owns",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "app_control",
       "risk": "low",
       "reversible": true
     },
@@ -2160,6 +2215,39 @@
     },
     {
       "kind": "action",
+      "name": "screen_click",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_control",
+      "risk": "critical",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "screen_key",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_control",
+      "risk": "critical",
+      "reversible": false
+    },
+    {
+      "kind": "action",
+      "name": "screen_type",
+      "level": "APPROVAL",
+      "rule": "R1 gate demands approval",
+      "because": "the catalog sets approvalRequired, so the validator refuses it until a PERSON has granted it — a ticket like A-7F3K, answered with `approve A-7F3K` or `orion-approve A-7F3K`. Orion cannot satisfy this himself; supplying the hash stopped being enough on 2026-09-02",
+      "enforcedBy": "plugin gate (mechanical)",
+      "tier": "computer_control",
+      "risk": "critical",
+      "reversible": false
+    },
+    {
+      "kind": "action",
       "name": "self_config_authority_set",
       "level": "APPROVAL",
       "rule": "R1 gate demands approval",
@@ -2312,39 +2400,6 @@
     },
     {
       "kind": "action",
-      "name": "screen_click",
-      "level": "NEVER",
-      "rule": "R0 unreachable",
-      "because": "config flag enableComputerControlActions is not true in openclaw.json",
-      "enforcedBy": "plugin gate (mechanical)",
-      "tier": "computer_control",
-      "risk": "critical",
-      "reversible": false
-    },
-    {
-      "kind": "action",
-      "name": "screen_key",
-      "level": "NEVER",
-      "rule": "R0 unreachable",
-      "because": "config flag enableComputerControlActions is not true in openclaw.json",
-      "enforcedBy": "plugin gate (mechanical)",
-      "tier": "computer_control",
-      "risk": "critical",
-      "reversible": false
-    },
-    {
-      "kind": "action",
-      "name": "screen_type",
-      "level": "NEVER",
-      "rule": "R0 unreachable",
-      "because": "config flag enableComputerControlActions is not true in openclaw.json",
-      "enforcedBy": "plugin gate (mechanical)",
-      "tier": "computer_control",
-      "risk": "critical",
-      "reversible": false
-    },
-    {
-      "kind": "action",
       "name": "terminal_run",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2381,6 +2436,14 @@
     {
       "kind": "command",
       "name": "orion-approve-resume",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-apps",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2429,6 +2492,22 @@
     {
       "kind": "command",
       "name": "orion-backup",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-bedtime-act",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-bedtime-shutdown",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2596,6 +2675,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-food-estimate",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-forge",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2660,6 +2747,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-light",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-local-tts",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2684,6 +2779,30 @@
     },
     {
       "kind": "command",
+      "name": "orion-mail-accounts",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-mail-prefs",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-mail-watch",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-messages-send",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2701,6 +2820,14 @@
     {
       "kind": "command",
       "name": "orion-morning",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-mouse",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2780,6 +2907,14 @@
     },
     {
       "kind": "command",
+      "name": "orion-questions",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
       "name": "orion-quick",
       "level": "NEVER",
       "rule": "R0 unreachable",
@@ -2837,6 +2972,22 @@
     {
       "kind": "command",
       "name": "orion-sign-setup",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-sleep-nudge",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-sleepplan",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
@@ -2965,6 +3116,14 @@
     {
       "kind": "command",
       "name": "orion-why",
+      "level": "NEVER",
+      "rule": "R0 unreachable",
+      "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",
+      "enforcedBy": "exec allowlist (allow/deny only)"
+    },
+    {
+      "kind": "command",
+      "name": "orion-workout-log",
       "level": "NEVER",
       "rule": "R0 unreachable",
       "because": "not on the exec allowlist for agent 'main', where ask is off and askFallback is deny — the call is refused, it does not prompt",

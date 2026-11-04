@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { guardStep, grantPass, passActive, armNight, setOverride, emptyState, macInUse, PASS_MAX_MIN } from "../scripts/lib/life/bedtime-shutdown.mjs";
+import { guardStep, grantPass, passActive, armNight, setOverride, emptyState, macInUse, PASS_MAX_MIN, PASS_NIGHT_MAX_MIN } from "../scripts/lib/life/bedtime-shutdown.mjs";
+import { tonightWindow } from "../scripts/lib/life/bedtime-window.mjs";
 import { lockMac } from "../scripts/lib/life/lock-mac.mjs";
 import { classifyLight } from "../scripts/lib/light/classify.mjs";
 import { readiness } from "../scripts/lib/life/readiness.mjs";
@@ -104,13 +105,13 @@ test("guard: outside the window it does nothing, and a new night starts clean", 
 test("lockMac tries the real lock first and falls through to the next method only when one fails", async () => {
   const seen = [];
   const exec = (ok) => async (cmd, args) => { seen.push(cmd); return { status: ok.includes(cmd) ? 0 : 1 }; };
-  const r1 = await lockMac({ exec: exec(["bridge"]), bridge: "bridge", osascript: "osascript", pmset: "pmset" });
+  const r1 = await lockMac({ exec: exec(["bridge"]), verify: async () => true, bridge: "bridge", osascript: "osascript", pmset: "pmset" });
   assert.deepEqual([r1.ok, r1.method, seen], [true, "bridge", ["bridge"]]);
   seen.length = 0;
-  const r2 = await lockMac({ exec: exec(["pmset"]), bridge: "bridge", osascript: "osascript", pmset: "pmset" });
-  assert.deepEqual([r2.ok, r2.method, seen], [true, "display-sleep", ["bridge", "osascript", "pmset"]]);
+  const r2 = await lockMac({ exec: exec(["pmset"]), verify: async () => false, bridge: "bridge", osascript: "osascript", pmset: "pmset" });
+  assert.deepEqual([r2.ok, r2.method, r2.locked, seen], [true, "display-sleep", false, ["bridge", "osascript", "pmset"]]);
   seen.length = 0;
-  const r3 = await lockMac({ exec: exec([]), bridge: "bridge", osascript: "osascript", pmset: "pmset" });
+  const r3 = await lockMac({ exec: exec([]), verify: async () => false, bridge: "bridge", osascript: "osascript", pmset: "pmset" });
   assert.equal(r3.ok, false);
   assert.equal(seen.length, 3);
 });
@@ -189,13 +190,13 @@ test("sleep-nudge: ORION's own dimming is not read as a lit room", () => {
 });
 
 // ---- the shutdown command, end to end against stub bins ----
-function rig({ appsJson, lockOk = true, plan: planDoc = plan() } = {}) {
+function rig({ appsJson, lockOk = true, lockOut = "",  plan: planDoc = plan() } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "shutdown-"));
   const calls = join(dir, "calls.jsonl");
   const mk = (name, body) => { const f = join(dir, name); writeFileSync(f, `#!/usr/bin/env node\nrequire("fs").appendFileSync(${JSON.stringify(calls)}, JSON.stringify({bin:${JSON.stringify(name)},args:process.argv.slice(2)})+"\\n");\n${body}`); chmodSync(f, 0o755); return f; };
   writeFileSync(join(dir, "wake-plan.json"), JSON.stringify(planDoc));
   const apps = mk("apps", `console.log(${JSON.stringify(JSON.stringify(appsJson ?? { ok: true, closed: ["Safari", "Discord"], results: [{ name: "Safari", state: "closed" }, { name: "Discord", state: "closed" }], say: "Closed Safari and Discord." }))});`);
-  const lock = mk("lock", `process.exit(${lockOk ? 0 : 1});`);
+  const lock = mk("lock", `${lockOut ? `console.log(${JSON.stringify(lockOut)});` : ""}process.exit(${lockOk ? 0 : 1});`);
   const reach = mk("reach", "console.log('Sent');");
   const env = { ...process.env, ORION_CONTROLLED_DIR: dir, ORION_APPS_BIN: apps, ORION_LOCK_BIN: lock, ORION_REACH_BIN: reach, ORION_SHUTDOWN_NO_FOLLOW: "1" };
   const cli = (args, now = D(3, 23, 50)) => { const r = spawnSync("node", [join(root, "orion-bedtime-shutdown"), ...args, "--json", "--now", now.toISOString()], { env, encoding: "utf8" }); return { ...r, out: r.stdout.trim() ? JSON.parse(r.stdout.trim().split("\n").at(-1)) : null }; };
@@ -302,7 +303,7 @@ test("guard ignores a stale Mac reading", () => {
   assert.equal(t.cli(["guard"], D(3, 23, 50)).out.action, "none");
 });
 
-test("the sleep-nudge lockdown arms the guard too, and its message never claims a lock that failed", () => {
+test("the sleep-nudge lockdown does not arm the guard on a failed lock, and its message never claims a lock that failed", () => {
   const dir = mkdtempSync(join(tmpdir(), "nudge-lock-"));
   const calls = join(dir, "calls.jsonl");
   const mk = (name, code = 0) => { const f = join(dir, name); writeFileSync(f, `#!/usr/bin/env node\nrequire("fs").appendFileSync(${JSON.stringify(calls)}, JSON.stringify({bin:${JSON.stringify(name)},args:process.argv.slice(2)})+"\\n");process.exit(${name === "act" ? 1 : code});\n`); chmodSync(f, 0o755); return f; };
@@ -316,5 +317,75 @@ test("the sleep-nudge lockdown arms the guard too, and its message never claims 
   const reach = readFileSync(calls, "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((c) => c.bin === "reach");
   assert.doesNotMatch(reach.args[0], /locked the Mac/);
   assert.match(reach.args[0], /wouldn't lock/);
-  assert.equal(JSON.parse(readFileSync(join(dir, "bedtime-shutdown.json"), "utf8")).armed, true);
+  assert.equal(existsSync(join(dir, "bedtime-shutdown.json")), false);   // a failed lock arms nothing
+});
+
+// ---- review fixes (2026-11-04) ----
+test("lockMac: a method that returned 0 but did not lock the screen is not reported as a lock", async () => {
+  const seen = [];
+  const exec = async (cmd) => { seen.push(cmd); return { status: 0 }; };
+  const r = await lockMac({ exec, verify: async () => false, bridge: "bridge", osascript: "osascript", pmset: "pmset" });
+  assert.deepEqual([r.ok, r.method, r.locked], [true, "display-sleep", false]);   // display asleep, said so, never "locked"
+  const v = await lockMac({ exec, verify: async () => true, bridge: "bridge", osascript: "osascript", pmset: "pmset" });
+  assert.deepEqual([v.method, v.locked], ["bridge", true]);
+});
+
+function planFile(over) {
+  const dir = mkdtempSync(join(tmpdir(), "win-"));
+  writeFileSync(join(dir, "wake-plan.json"), JSON.stringify({ source: "nick", alarms: [], bedtimes: [{ nudgeAtIso: D(3, 21, 30).toISOString() }], ...over }));
+  return dir;
+}
+test("the window never spans days: capped at 14 hours and at 10:00 the next morning", () => {
+  const far = planFile({ alarms: [{ iso: D(6, 7).toISOString(), byNick: true }] });
+  assert.equal(tonightWindow(far, D(4, 1)).end.getTime(), D(4, 10).getTime());
+  const late = planFile({ bedtimes: [{ nudgeAtIso: D(3, 23).toISOString() }], alarms: [{ iso: D(6, 7).toISOString(), byNick: true }] });
+  assert.equal(tonightWindow(late, D(4, 1)).end.getTime(), D(4, 10).getTime());
+  const early = planFile({ bedtimes: [{ nudgeAtIso: D(4, 0, 30).toISOString() }], alarms: [{ iso: D(6, 7).toISOString(), byNick: true }] });
+  assert.equal(tonightWindow(early, D(4, 1)).end.getTime(), D(4, 10).getTime());
+  const near = planFile({ alarms: [{ iso: D(4, 6).toISOString(), byNick: true }] });
+  assert.equal(tonightWindow(near, D(3, 23)).end.getTime(), D(4, 6).getTime());
+});
+
+test("passes total at most 90 minutes a night, then it says so", () => {
+  let st = armNight(emptyState(), win, D(3, 23, 40));
+  const a = grantPass(st, 60, D(3, 23, 50));
+  const b = grantPass(a.state, 60, D(4, 0, 50));
+  assert.equal(b.minutes, 30);
+  assert.equal(b.capped, true);
+  const c = grantPass(b.state, 15, D(4, 1, 20));
+  assert.equal(c.minutes, 0);
+  assert.equal(c.exhausted, true);
+  assert.equal(passActive(c.state, D(4, 1, 25)), false);
+  assert.equal(PASS_NIGHT_MAX_MIN, 90);
+  assert.equal(armNight(c.state, { start: D(4, 21, 30), end: D(5, 6) }, D(4, 22)).passTotal, 0);
+});
+
+test("run clears an earlier override; a lock that is only display sleep says so and a failed lock does not arm", () => {
+  const t = rig();
+  t.cli(["run"], D(3, 23, 40));
+  t.cli(["override", "on"], D(3, 23, 45));
+  assert.equal(t.state().override, true);
+  t.cli(["run"], D(3, 23, 50));
+  assert.equal(t.state().override, false);
+  const bad = rig({ lockOk: false });
+  assert.equal(bad.cli(["run"], D(3, 23, 50)).out.armed, false);
+  assert.equal(existsSync(join(bad.dir, "bedtime-shutdown.json")), false);
+});
+
+test("the pass command says when the night's passes are used up", () => {
+  const t = rig();
+  t.cli(["run"], D(3, 23, 40));
+  t.cli(["pass", "60"], D(3, 23, 50));
+  t.cli(["pass", "60"], D(4, 0, 55));
+  const r = t.cli(["pass", "10"], D(4, 1, 30));
+  assert.equal(r.out.minutes, 0);
+  assert.match(r.out.say, /90 minutes/);
+});
+
+test("run: display sleep alone is said as the display being asleep, never as locked", () => {
+  const t = rig({ lockOut: JSON.stringify({ method: "display-sleep", locked: false }) });
+  const r = t.cli(["run"]);
+  assert.equal(r.out.locked, false);
+  assert.match(r.out.say, /display's asleep/);
+  assert.doesNotMatch(r.out.say, /Mac is locked/);
 });

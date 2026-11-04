@@ -24,7 +24,10 @@ enum CueKind: String, CaseIterable, Equatable {
 
 enum VoiceCuePolicy {
     /// How long to wait for the reply before saying anything. A reply that arrives within this is spoken bare.
-    static let hold: TimeInterval = 1.2
+    /// w18 audit2 (11-02..11-04: "On it." 149 times in two days): 2 s, so a quick answer is never fronted by an acknowledgement.
+    static let hold: TimeInterval = 2.0
+    /// A cue played less than this long ago is not repeated for the next turn: the acknowledgement is sparing.
+    static let minGap: TimeInterval = 25
     /// After this long from the end of his speech a cue is stale (he is mid-way through the next thought).
     static let staleAfter: TimeInterval = 4.0
     /// How recently the mic must have heard him for a cue to wait.
@@ -32,9 +35,9 @@ enum VoiceCuePolicy {
 
     static let phrases: [CueKind: [String]] = [
         .lookup: ["Let me look.", "Let me check.", "One sec, checking.", "Let me see."],
-        .change: ["On it.", "Okay, on it.", "Sure, one sec.", "Got it, one sec."],
-        .think: ["Hmm, let me think about that.", "Good question, give me a sec.", "Hmm, let me think.", "Let me think that through."],
-        .generic: ["Mm, one sec.", "One moment.", "Give me a sec.", "Mm, one second."],
+        .change: ["On it.", "Okay, on it.", "Sure, one sec.", "Got it, one sec.", "Doing that now.", "Right, one moment."],
+        .think: ["Hmm, let me think about that.", "Good question, give me a sec.", "Hmm, let me think.", "Let me think that through.", "Let me work that out."],
+        .generic: ["Mm, one sec.", "One moment.", "Give me a sec.", "Mm, one second.", "Just a moment."],
     ]
 
     static var allPhrases: [String] { CueKind.allCases.flatMap { phrases[$0] ?? [] } }
@@ -56,10 +59,16 @@ enum VoiceCuePolicy {
 
     /// A phrase of this kind, never the one said last time. `seed` picks among the rest (tests pin it).
     static func phrase(for kind: CueKind, avoiding last: String?, seed: Int) -> String {
+        phrase(for: kind, avoidingAny: last.map { [$0] } ?? [], seed: seed)
+    }
+
+    /// A phrase of this kind that is none of the recent ones (the last few said), so no one phrase dominates.
+    static func phrase(for kind: CueKind, avoidingAny recent: [String], seed: Int) -> String {
         let all = phrases[kind] ?? phrases[.generic]!
-        let choices = all.filter { $0 != last }
-        let pool = choices.isEmpty ? all : choices
-        return pool[abs(seed) % pool.count]
+        let choices = all.filter { !recent.contains($0) }
+        let pool = choices.isEmpty ? all.filter { $0 != recent.last } : choices
+        let usable = pool.isEmpty ? all : pool
+        return usable[abs(seed) % usable.count]
     }
 
     enum Action: Equatable {
@@ -72,8 +81,11 @@ enum VoiceCuePolicy {
     /// - reply already here, or a cue already played: skip (never a cue in front of a ready answer).
     /// - before `hold`: wait.
     /// - he is talking: wait (the cue never talks over him), until it goes stale.
-    static func decide(elapsed: TimeInterval, replyReady: Bool, alreadyPlayed: Bool, heardSpeechAgo: TimeInterval?) -> Action {
+    /// - a cue played within `minGap` before this turn: skip (sparing).
+    static func decide(elapsed: TimeInterval, replyReady: Bool, alreadyPlayed: Bool, heardSpeechAgo: TimeInterval?,
+                       sinceLastCue: TimeInterval? = nil) -> Action {
         if replyReady || alreadyPlayed { return .skip }
+        if let since = sinceLastCue, since < minGap { return .skip }
         if elapsed < hold { return .wait }
         if elapsed >= staleAfter { return .skip }
         if let ago = heardSpeechAgo, ago < quietFor { return .wait }

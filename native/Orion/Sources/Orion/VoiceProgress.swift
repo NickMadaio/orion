@@ -234,7 +234,10 @@ final class VoiceTurnCompanion {
     private var plan = VoiceProgressPlan.start
     private var timer: Timer?
     private(set) var replyReady = false
-    private static var lastCue: String?
+    private static var recentCues: [String] = []
+    private static var lastCueAt: Date?
+    /// Forgets which cues were said and when (tests; a fresh launch starts empty anyway).
+    static func resetCueHistory() { recentCues = []; lastCueAt = nil }
     private static var seed = Int.random(in: 0..<1000)
 
     init(message: String, startedAt: Date = Date(), hooks: Hooks) {
@@ -262,14 +265,16 @@ final class VoiceTurnCompanion {
         let elapsed = now.timeIntervalSince(startedAt)
         let ago = hooks.heardSpeechAgo()
         if !cuePlayed && !cueSkipped {
-            switch VoiceCuePolicy.decide(elapsed: elapsed, replyReady: replyReady, alreadyPlayed: cuePlayed, heardSpeechAgo: ago) {
+            let sinceLast = VoiceTurnCompanion.lastCueAt.map { now.timeIntervalSince($0) }
+            switch VoiceCuePolicy.decide(elapsed: elapsed, replyReady: replyReady, alreadyPlayed: cuePlayed, heardSpeechAgo: ago, sinceLastCue: sinceLast) {
             case .wait: return
             case .skip: cueSkipped = true
             case .play:
                 let kind = VoiceCuePolicy.kind(for: message)
                 VoiceTurnCompanion.seed += 1
-                let phrase = VoiceCuePolicy.phrase(for: kind, avoiding: VoiceTurnCompanion.lastCue, seed: VoiceTurnCompanion.seed)
-                VoiceTurnCompanion.lastCue = phrase
+                let phrase = VoiceCuePolicy.phrase(for: kind, avoidingAny: VoiceTurnCompanion.recentCues, seed: VoiceTurnCompanion.seed)
+                VoiceTurnCompanion.recentCues = Array((VoiceTurnCompanion.recentCues + [phrase]).suffix(3))
+                VoiceTurnCompanion.lastCueAt = now
                 cuePlayed = true
                 _ = hooks.playCue(phrase)
                 return

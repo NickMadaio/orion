@@ -1,3 +1,13 @@
+/*
+ "why" to something ORION sent (W10-A1 follow-up, gate run-1102020539: "why" after "Heads up — take a jacket when you leave for the gym"
+ got "I didn't actually do that — nothing was started or changed", because the worker answered about the weather with no lookup and the
+ work-check turned that into a refusal).
+
+ Code answers it. A weather notice (jacket, umbrella, rain, cold) is a weather lookup that code asks for and the worker only words from
+ the result; a leave nudge, a bedtime line and a start line are explained from their own text. Anything else returns undefined and the
+ worker gets the message as context (outreach-reply.ts whyNote). Pure: no I/O.
+*/
+import { splitQuestion } from "./outreach-reply.js";
 import { weatherDirective } from "./tool-moves.js";
 const WEATHERISH = /\b(?:jacket|coat|umbrella|raincoat|rain\w*|drizzle|snow\w*|storm\w*|cold|freezing|chilly|warm|hot|heat|windy|weather|forecast|sunscreen|sun ?glasses|gloves|scarf|layers?)\b/i;
 const LEAVE = /^leave in (\d{1,3}) min for (.+?) at (\d{1,2}:\d{2}\s*(?:am|pm)?)/i;
@@ -13,5 +23,9 @@ export function whyAnswer(o) {
     }
     if (o.kind === "start" && o.title)
         return { kind: "say", text: `Because ${o.title} was planned for about now and I hadn't seen it start.` };
+    // w18 audit2: ORION asked him something and he asks what he meant: the question again, in its own words, and the promise it made.
+    const asked = splitQuestion(text);
+    if (asked)
+        return { kind: "say", text: `I was asking: "${asked.question}" Just tell me.${asked.rest ? ` ${asked.rest}` : ""}` };
     return undefined;
 }

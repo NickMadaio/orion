@@ -26,16 +26,23 @@ public enum MouseSetupPlan {
         }
     }
 
-    /// What each row shows: what is saved, else the suggestion.
+    /// What each row shows: what is saved. Suggestions appear only for a mouse with nothing saved yet; once he has any
+    /// binding, an unset button shows as Nothing (w18 audit2: Done after reopening the mapper rewrote his buttons).
     public static func effective(_ button: Int, in bindings: BindingsFile) -> MouseAction? {
-        bindings.default[String(button)] ?? suggested(button)
+        bindings.default[String(button)] ?? (bindings.default.isEmpty ? suggested(button) : nil)
     }
 
-    /// Done writes every row's effective action, so the suggestions the user accepted are saved.
+    /// Done on a fresh mouse saves the suggestions it showed. With any binding already saved it changes nothing.
     public static func finalized(_ bindings: BindingsFile, buttons: [Int]) -> BindingsFile {
-        buttons.reduce(bindings) { acc, b in
-            acc.default[String(b)] == nil ? acc.settingDefault(b, suggested(b)) : acc
-        }
+        guard bindings.default.isEmpty else { return bindings }
+        return buttons.reduce(bindings) { acc, b in acc.settingDefault(b, suggested(b)) }
+    }
+
+    /// The line after Done: "Set." only when something actually changed since the popup opened.
+    public static func doneLine(before: BindingsFile, after: BindingsFile, buttons: [Int]) -> String {
+        let line = confirmation(after, buttons: buttons)
+        guard before == after, line.hasPrefix("Set. ") else { return line }
+        return "Okay, left as it is. " + line.dropFirst("Set. ".count)
     }
 
     public static func confirmation(_ bindings: BindingsFile, buttons: [Int]) -> String {

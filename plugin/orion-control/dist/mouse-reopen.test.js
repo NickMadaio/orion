@@ -41,3 +41,12 @@ describe("the type-to-orion mouse action", () => {
         expect(readMouseTurn("make my back button open the text box")).toMatchObject({ action: expect.stringMatching(/text box|type to orion/) });
     });
 });
+describe("w18 audit2: opening the mapper only opens it", () => {
+    it("his 11-04 09:26 sentence and its neighbours are the popup, never a set", () => {
+        for (const m of ["bring up the mouse button mapper please", "open the mouse button mapper", "pull up the mouse button mapper again", "can u pull up the mouse button mapper real quick"])
+            expect(readMouseTurn(m), m).toEqual({ kind: "setup", again: true });
+    });
+    it("opening with the popup already up is still only 'setup --again', which writes no binding", () => {
+        expect(argsFor({ kind: "setup", again: true })).toEqual(["setup", "--again", "--json"]);
+    });
+});

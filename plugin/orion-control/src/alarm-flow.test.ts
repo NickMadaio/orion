@@ -87,6 +87,17 @@ describe("through the routing hooks, against the real orion-sleepplan", () => {
     expect(await turn("what time is my alarm")).toBe("Next alarm 6:45am tomorrow. Bedtime target 10:45pm. It's set on your phone.");
   }, 30000);
 
+  it("w18 audit2, 11-03 22:39: his spoken 'six thirty' moves the alarm, never a calendar failure line", async () => {
+    const { run, dir } = sandbox(EVENING, { link: true });
+    const turn = harness(run, EVENING);
+    for (const said of ["try and scratch that. Can you push my wake time to six thirty?", "Alright. Can you instead push my wake time to six thirty instead of six?", "Push my wake up time to six AM."]) {
+      const reply = await turn(said);
+      expect(reply, said).toMatch(/^Alarm set for 6(?::30)?am tomorrow/);
+      expect(reply, said).not.toMatch(/calendar|couldn't make that change|WORKER/);
+    }
+    expect(plan(dir).alarms[0].at).toBe("06:00");
+  }, 30000);
+
   it("i want to start waking up at 7 on weekdays: saved at once for those days, no questions", async () => {
     const { run, dir } = sandbox(EVENING, { link: true });
     const turn = harness(run, EVENING);

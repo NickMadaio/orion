@@ -67,7 +67,7 @@ import { asksDeadlines, deadlineReply } from "./deadline-read.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes } from "./schedule-pending.js";
 import { whyAnswer } from "./why-answer.js";
-import { kindOf, parseOutreach, asksWhy, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
+import { kindOf, parseOutreach, asksWhy, asksYourQuestion, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, readLastOutreach, stateCard } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip } from "./anchor-guards.js";
@@ -1304,7 +1304,7 @@ export function registerLocalRouting(api, options) {
         const computerFirst = on && !cutOff && !quietTurn && !!options.computer && !!detectComputerIntent(message);
         const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst;
         // "why" to something ORION sent is about THAT message: the front desk (which saw only a one-line history) must not answer it as chat.
-        const whyAsked = on && !cutOff && !quietTurn && asksWhy(message) && !!parseOutreach(raw);
+        const whyAsked = on && !cutOff && !quietTurn && (asksWhy(message) || asksYourQuestion(message)) && !!parseOutreach(raw);
         // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
         const outreach = parseOutreach(raw);
         // 2026-10-30: his state, read once per turn by code (state-card.ts). The desk gets one line of it; the worker gets the card.
@@ -1966,7 +1966,7 @@ export function registerLocalRouting(api, options) {
             // "why" to something ORION sent: code explains THAT message (a weather notice through a forecast lookup it asks for), before any worker guess.
             const whyPush = !run.outreach && asksWhy(run.message) && recentPush(run.card) ? run.card.lastOutreach : null;
             const whyAbout = run.outreach ?? (whyPush ? { text: whyPush.text, minutes: 0, kind: kindOf(whyPush.text) } : undefined);
-            const whyDone = !run.flow && !run.cutOff && whyAbout && asksWhy(run.message) ? whyAnswer(whyAbout) : undefined;
+            const whyDone = !run.flow && !run.cutOff && whyAbout && (asksWhy(run.message) || (asksYourQuestion(run.message) && run.message.trim().split(/\s+/).length <= 10)) ? whyAnswer(whyAbout) : undefined;
             if (whyDone?.kind === "say")
                 run.flow = { outcome: "say", kind: "plain", text: whyDone.text };
             const moved = !run.flow && !run.cutOff ? (whyDone ?? toolDirective(run.settled, run.message)) : null;

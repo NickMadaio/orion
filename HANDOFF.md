@@ -88,6 +88,11 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 - **Phone widgets:** blue hologram stills and palette, Home-style widgets, and a food photo pill on the phone Home.
 - **Projects:** the model picker sizes itself to the longest name.
 - Allowlisted orion-apps and orion-mouse.
+- **11-04 day:**
+  - **Phone:** chat cleanup (chat-text.mjs, ChatDelivery/ChatSanitizer, send states with retry, 12-hour times, condensed piles); every screen in the Home language; log food opens the camera; Plural helper.
+  - **Typed overlay:** legible on any backdrop (TypedSummonLegibility plus backdrop sampler); orion://type toggles.
+  - **Push-to-talk:** docks to a notch pill on click-away mid-turn (Notch/*).
+  - **Safari:** /Applications/Safari.app is a cryptex symlink and resolveApplication skipped symlinks. open-request.ts parses app/site/folder requests; new folder_open action.
 - **Night 11-03→04:**
   - **Notes:** keep the full text; `orion-brain learn` takes up to 4000 characters. A bare "make a note" binds the next message. Secrets are refused.
   - **Wake and alarms:** set by chat (orion-sleepplan wake-on/shift/alarms, plus alarm-read/flow.ts). The phone acknowledges through LinkLog.alarms, which needs the Link and phone rebuilt.

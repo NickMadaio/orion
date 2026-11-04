@@ -63,6 +63,24 @@ export interface Reminder {
     /** Epoch milliseconds. The only field the firing side reads. */
     dueAt: number;
     createdAt: number;
+    /** Every Monday at 9: the days (0 = Sunday) and local HH:MM. `dueAt` is the next occurrence; the clock rolls it on. */
+    repeat?: {
+        days: number[];
+        time: string;
+    };
+    /** Marked important: delivered even during a focus session. Otherwise it waits for the break. */
+    important?: boolean;
+    /** "When I get home": fires on arrival; `dueAt` is only its expiry. */
+    place?: string;
+    /** Set by the clock (scripts/lib/reminders/tick.mjs), never by the plugin. */
+    firedAt?: number | null;
+    open?: number | null;
+    nudged?: boolean;
+    armed?: boolean;
+    attempts?: number;
+    inflight?: number | null;
+    snoozedAt?: number | null;
+    snoozedFrom?: string;
 }
 export declare function remindersPath(configured?: string): string;
 export declare function readReminders(file: string): Promise<Reminder[]>;

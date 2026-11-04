@@ -55,6 +55,9 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     static let askCategory = OutreachThread.askCategory
     static let askReplyAction = "orion.ask.reply"
     static let askLaterAction = "orion.ask.later"
+    static let reminderCategory = OutreachThread.reminderCategory
+    static let reminderSnoozeAction = "orion.reminder.snooze"
+    static let reminderDoneAction = "orion.reminder.done"
 
     /// Bedtime nudges show even while ORION is open: that is exactly when he is on the phone.
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async
@@ -78,6 +81,9 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             return
         }
         if action == Self.askLaterAction { await CloudLink.sendNowChat("Not now", replyTo: askID); return }
+        // A reminder he set: Snooze and Done are words into the chat, which the plugin reads against the reminder that just went off.
+        if action == Self.reminderSnoozeAction { await CloudLink.sendNowChat(OutreachThread.reminderSnoozeText, replyTo: askID); return }
+        if action == Self.reminderDoneAction { await CloudLink.sendNowChat(OutreachThread.reminderDoneText, replyTo: askID); return }
         if action == UNNotificationDefaultActionIdentifier, let askID {
             await MainActor.run { ThreadTarget.open(askID) }
             return
@@ -115,8 +121,11 @@ final class PhoneAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
                                                       textInputButtonTitle: "Send", textInputPlaceholder: "gym, library, nothing...")
             let later = UNNotificationAction(identifier: Self.askLaterAction, title: "Not now", options: [])
             let ask = UNNotificationCategory(identifier: Self.askCategory, actions: [reply, later], intentIdentifiers: [], options: [])
-            let ours: Set<String> = [Self.checkinCategory, Self.askCategory]
-            center.setNotificationCategories(existing.filter { !ours.contains($0.identifier) }.union([checkin, ask]))
+            let snoozeReminder = UNNotificationAction(identifier: Self.reminderSnoozeAction, title: "Snooze 10 min", options: [])
+            let doneReminder = UNNotificationAction(identifier: Self.reminderDoneAction, title: "Done", options: [])
+            let reminder = UNNotificationCategory(identifier: Self.reminderCategory, actions: [snoozeReminder, doneReminder], intentIdentifiers: [], options: [])
+            let ours: Set<String> = [Self.checkinCategory, Self.askCategory, Self.reminderCategory]
+            center.setNotificationCategories(existing.filter { !ours.contains($0.identifier) }.union([checkin, ask, reminder]))
         }
     }
 

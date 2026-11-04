@@ -345,7 +345,7 @@ export type ExecutionPolicy =
     }
   | {
       kind: "reminder";
-      operation: "timer_set" | "alarm_set" | "reminder_list" | "reminder_cancel";
+      operation: "timer_set" | "alarm_set" | "reminder_list" | "reminder_cancel" | "reminder_snooze" | "reminder_done";
     }
   | {
       kind: "self_tuning";
@@ -2624,7 +2624,49 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
       if (label !== undefined && (typeof label !== "string" || label.length > 120)) {
         return ["label must be a short string"];
       }
+      // w19-reminders: a recurring reminder, an important one, one that fires when he gets home.
+      const repeat = arguments_.repeat;
+      if (repeat !== undefined) {
+        const r = repeat as { days?: unknown; time?: unknown };
+        const days = Array.isArray(r?.days) ? (r.days as unknown[]) : [];
+        if (days.length === 0 || !days.every((d) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6) || typeof r.time !== "string" || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(r.time)) {
+          return ["repeat must be { days: [0-6, 0 = Sunday], time: \"HH:MM\" }"];
+        }
+      }
+      if (arguments_.important !== undefined && typeof arguments_.important !== "boolean") return ["important must be true or false"];
+      if (arguments_.place !== undefined && arguments_.place !== "home") return ["place can only be \"home\""];
       return [];
+    },
+  },
+
+  reminder_snooze: {
+    risk: "low",
+    requiredArguments: ["id", "minutes"],
+    approvalRequired: false,
+    verification: "reminder_stored",
+    reversible: true,
+    capabilityTier: "reminders",
+    execution: { kind: "reminder", operation: "reminder_snooze" },
+    validateArguments(arguments_) {
+      const id = arguments_.id;
+      if (typeof id !== "string" || id.trim().length === 0) return ["id must be a reminder id, or \"last\" for the one that just went off"];
+      const minutes = arguments_.minutes;
+      if (!Number.isInteger(minutes) || (minutes as number) < 1 || (minutes as number) > 1440) return ["minutes must be a whole number from 1 to 1440"];
+      return [];
+    },
+  },
+
+  reminder_done: {
+    risk: "low",
+    requiredArguments: ["id"],
+    approvalRequired: false,
+    verification: "reminder_absent",
+    reversible: false,
+    capabilityTier: "reminders",
+    execution: { kind: "reminder", operation: "reminder_done" },
+    validateArguments(arguments_) {
+      const id = arguments_.id;
+      return typeof id === "string" && id.trim().length > 0 ? [] : ["id must be a reminder id, or \"last\" for the one that just went off"];
     },
   },
 

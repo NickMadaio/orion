@@ -34,6 +34,7 @@ import { MODE_SUMMARY, floorForAction, levelForAction, resolveStrictness, } from
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
 import os from "node:os";
 import path from "node:path";
+import { fileOfferPort } from "./reminder-offers.js";
 import { runTaskGraph, defaultLedgerPath, } from "./controller.js";
 import { TaskLedger } from "./ledger.js";
 import { ACTION_CATALOG, optionalArgumentsSummary } from "./catalog.js";
@@ -1407,6 +1408,8 @@ export function installProvenanceHooks(api) {
             extractReminder: liveExtractReminder,
             // Read-only: listing and finding the id to cancel; every change still goes through orion_task_run.
             listReminders: () => readReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined)),
+            // Offered reminders and his "yes" (w19-reminders): next to the reminder store, shared with orion-proactive's deadline offers.
+            offerPort: fileOfferPort(path.dirname(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined))),
             sessionFlow: liveSessionFlow,
             sessionStatus: liveSessionStatus,
             sessionExec: liveSessionExec,

@@ -8,9 +8,9 @@ import {
   readWeather,
   remindersPath,
   resolveAlarmTime,
-  writeReminders,
   type Reminder,
 } from "./ambient.js";
+import { doneReminder, snoozeReminder, updateReminders } from "./reminder-store.js";
 import { createHash, randomUUID } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import {
@@ -2370,9 +2370,13 @@ async function manageReminder(
   // "due in" is worded on the plugin clock, the same clock resolveAlarmTime set it on (gate run-1101020721: a same-day alarm in the
   // sandbox was described against the Mac's clock and said as "tomorrow"). Expiry and ids stay on real time.
   const saidNow = pluginNowMs();
-  // Anything already past is dropped on every touch of the store, so a machine
-  // that was asleep when a timer was due does not wake up and fire a backlog.
-  const live = (await readReminders(file)).filter((entry) => entry.dueAt > now);
+  // What is still to come: recurring and place reminders always, a one-off until it is due or has been delivered. (A one that
+  // fired stays in the file for "done" and "snooze", but it is not "set" any more.)
+  const pendingOf = (list: Reminder[]) => list.filter((entry) => entry.repeat || entry.place || (entry.dueAt > now && !entry.firedAt));
+  // Anything already past and never delivered is dropped on every write, so a machine that was asleep when a timer was due
+  // does not wake up and fire a backlog (the clock says what it slept through before this runs, scripts/lib/reminders/tick.mjs).
+  const keepOf = (list: Reminder[]) => list.filter((entry) => entry.repeat || entry.place || entry.firedAt || entry.dueAt > now);
+  const live = pendingOf(await readReminders(file));
 
   if (policy.operation === "reminder_list") {
     return {
@@ -2385,6 +2389,18 @@ async function manageReminder(
         })),
       },
     };
+  }
+
+  if (policy.operation === "reminder_snooze" || policy.operation === "reminder_done") {
+    const key = String(step.arguments.id).trim();
+    if (policy.operation === "reminder_snooze") {
+      const result = await snoozeReminder(file, key, Number(step.arguments.minutes));
+      if (!result.ok) throw new ActionExecutionError(`Nothing was snoozed: ${result.reason}.`);
+      return { mode: "scheduled", idempotencyKey, target: result.reminder.id, output: { id: result.reminder.id, label: result.reminder.label, dueAt: result.dueAt, dueIn: describeDuration((result.dueAt - now) / 1000) } };
+    }
+    const result = await doneReminder(file, key);
+    if (!result.ok) throw new ActionExecutionError(`Nothing was marked done: ${result.reason}.`);
+    return { mode: "cancelled", idempotencyKey, target: result.reminder.id, output: { id: result.reminder.id, label: result.reminder.label, recurring: result.recurring } };
   }
 
   if (policy.operation === "reminder_cancel") {
@@ -2402,7 +2418,7 @@ async function manageReminder(
       throw new ActionExecutionError(`"${asked}" matches ${named.length} reminders: ${named.map((e) => `${e.id} (${e.label})`).join(", ")}. Cancel one by its id.`);
     }
     const id = named[0].id;
-    await writeReminders(file, live.filter((entry) => entry.id !== id));
+    await updateReminders(file, (list) => keepOf(list).filter((entry) => entry.id !== id));
     return { mode: "cancelled", idempotencyKey, target: id };
   }
 
@@ -2430,16 +2446,24 @@ async function manageReminder(
   // in the same millisecond (one batch) used to share an id, and cancelling one
   // removed both (2026-10-07) — bump until it is free.
   const prefix = policy.operation === "alarm_set" ? "a" : "t";
-  let stamp = now;
-  while (live.some((entry) => entry.id === `${prefix}${stamp.toString(36).slice(-5)}`)) stamp += 1;
-  const reminder: Reminder = {
-    id: `${prefix}${stamp.toString(36).slice(-5)}`,
-    kind: policy.operation === "alarm_set" ? "alarm" : "timer",
-    label,
-    dueAt,
-    createdAt: now,
-  };
-  await writeReminders(file, [...live, reminder]);
+  const repeat = policy.operation === "alarm_set" ? (step.arguments.repeat as Reminder["repeat"] | undefined) : undefined;
+  const place = policy.operation === "alarm_set" && step.arguments.place === "home" ? "home" : undefined;
+  let reminder!: Reminder;
+  await updateReminders(file, (list) => {
+    let stamp = now;
+    while (list.some((entry) => entry.id === `${prefix}${stamp.toString(36).slice(-5)}`)) stamp += 1;
+    reminder = {
+      id: `${prefix}${stamp.toString(36).slice(-5)}`,
+      kind: policy.operation === "alarm_set" ? "alarm" : "timer",
+      label,
+      dueAt,
+      createdAt: now,
+      ...(repeat ? { repeat: { days: [...repeat.days], time: repeat.time } } : {}),
+      ...(step.arguments.important === true ? { important: true } : {}),
+      ...(place ? { place } : {}),
+    };
+    return [...keepOf(list), reminder];
+  });
   return {
     mode: "scheduled",
     idempotencyKey,
@@ -2899,7 +2923,11 @@ export async function verifyAction(
     // rename that silently did not land.
     const id = execution.target;
     const found = stored.some((entry) => entry.id === id);
-    const wantPresent = definition.execution.operation !== "reminder_cancel";
+    const operation = definition.execution.operation;
+    // A recurring reminder marked done stays scheduled; a one-off is gone.
+    const wantPresent = operation === "reminder_cancel" ? false
+      : operation === "reminder_done" ? (execution.output as { recurring?: boolean } | undefined)?.recurring === true
+      : true;
     return {
       observed: found === wantPresent,
       evidence: `${id}:${found ? "present" : "absent"}`,

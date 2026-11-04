@@ -17,10 +17,14 @@ const ms = (t) => (t instanceof Date ? t.getTime() : Number(t));
  * A break (`rest`), `waiting`, `none` and `unknown` deliver: a break is when held things come out.
  * @returns {{ action: "deliver"|"hold", reason: string, heldFor?: "quiet"|"focus"|"class" }}
  */
-export function gate(aw, { kind = null, urgentKind = null, now = Date.now(), why = null, tier = null } = {}) {
+export function gate(aw, { kind = null, urgentKind = null, now = Date.now(), why = null, tier = null, holdInFocus = false } = {}) {
   void kind;
   const t = ms(now);
-  if (bypassesQuiet({ urgentKind })) return { action: "deliver", reason: "a reminder he set or a class he is about to miss always goes" };
+  if (bypassesQuiet({ urgentKind })) {
+    // A reminder he did not mark important still waits for the end of a focus session (w19-reminders); sleep and class do not hold it.
+    if (holdInFocus && urgentKind === "reminder" && aw?.session?.state === "focus") return { action: "hold", reason: "a focus session is running - this reminder is not marked important, so it comes out at the break", heldFor: "focus" };
+    return { action: "deliver", reason: "a reminder he set or a class he is about to miss always goes" };
+  }
   if (aw?.sleep?.state === "asleep") return { action: "hold", reason: "quiet hours - it waits until he is up", heldFor: "quiet" };
   const routine = routineHold(aw, { kind, why, tier });   // learned routine (lib/patterns): no bedtime nag on his usual night out
   if (routine) return { action: "hold", reason: routine, heldFor: "routine" };

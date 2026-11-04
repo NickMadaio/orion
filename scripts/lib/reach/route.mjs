@@ -61,6 +61,9 @@ export function allowed(text, history, { now = Date.now(), windowMs = 2 * 3600_0
   return { ok: true };
 }
 
+/** A reminder he asked for (orion-reminders): never held by the hourly cap, because a reminder that never arrives is the one failure that cannot happen. */
+export const isSetReminder = ({ kind = null, why = null } = {}) => kind === "reminder" && /^a reminder he asked for/.test(String(why ?? ""));
+
 /** Outreach that counts toward the daily ceiling (3.4.3): the loop's own, never a reminder he set or a class rung. */
 export const COUNTED_WHY = /^(proactive|plan|curiosity):/;
 

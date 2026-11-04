@@ -33,6 +33,7 @@ import { controlledDir } from "./lib/clock.mjs";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { parseSpread, planSessions, taskImportance, waitsFor } from "./lib/life/task-spread.mjs";
+import { rankTodos } from "./lib/life/todo-rank.mjs";
 import { parseTodos } from "./lib/life/todo-parse.mjs";
 import { parseTaskNotes, formatTaskNotes, progressOf } from "./lib/life/task-notes.mjs";
 import { todoMatches } from "./lib/life/todo-match.mjs";
@@ -138,7 +139,9 @@ async function plan(list, days, open = list) {
   const horizon = Array.from({ length: days }, (_, i) => addDays(today, i));
   const perDate = new Map(horizon.map((d) => [d, { book: [], drop: [] }]));
   const report = [];
-  for (const task of list) {
+  // Most urgent first (lib/life/todo-rank.mjs): the sessions are booked in this order, so a due or high-priority one gets the earlier time.
+  const urgent = rankTodos(list.map((t, key) => ({ ...t, key })), { today }).map((r) => list[r.key]);
+  for (const task of urgent) {
     // "Only schedule this once X is complete": nothing until X is ticked off;
     // sessions already booked for it come off (2026-10-06).
     const blocker = waitsFor(task.notes, open.filter((t) => t.title !== task.title).map((t) => t.title));

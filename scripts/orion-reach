@@ -58,12 +58,13 @@ import { withKind } from "./lib/curiosity/ask.mjs";
 import { refuseDuringEval } from "./lib/eval-mode.mjs";
 import { clockNow, outboxed, toOutbox } from "./lib/clock.mjs";
 import { logOutreach } from "./lib/reach/log-outreach.mjs";
+import { chatText } from "./lib/reach/chat-text.mjs";
 import { fixStatus, requestFix } from "./lib/awareness/fix-request.mjs";
 import { readJson as readJsonFile } from "./lib/awareness/io.mjs";
 
 const args = process.argv.slice(2);
 const flag = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind", "--ask", "--reason", "--valid-until", "--tier", "--already-sent", "--id"];
+const VALUE_FLAGS = ["--kind", "--why", "--channel", "--urgent-kind", "--ask", "--reason", "--valid-until", "--tier", "--already-sent", "--id", "--at"];
 const drain = args.includes("--drain-held");
 const fail = (m, c = 2) => { console.error(m); process.exit(c); };
 
@@ -101,6 +102,12 @@ if (drain) {
   }
 }
 if (!text?.trim()) fail('usage: orion-reach "<message>" [--kind reminder|warning|update|question|info] [--why "…"] [--urgent [--urgent-kind reminder|class]] [--channel auto|phone|mac] [--dry-run]');
+// The chat shows a sentence for a person (lib/reach/chat-text.mjs): job output is not a message, notify headers and 24-hour times are cleaned.
+{
+  const cleaned = chatText(text);
+  if (cleaned === null) { console.log("NOT SENT: dropped - internal job output is not a message for Nick."); process.exit(3); }
+  text = cleaned;
+}
 const kind = flag("--kind") ?? (drain ? "update" : "info");
 if (!["reminder", "warning", "update", "question", "info", "morning", "checkin"].includes(kind)) fail("--kind must be reminder, warning, update, question, info, morning or checkin");
 // The app's reminder service calls `--kind reminder --urgent` (AppState.swift) without --urgent-kind: that IS a reminder he set
@@ -121,7 +128,8 @@ const dry = args.includes("--dry-run");
 if (!dry) refuseDuringEval("reaching Nick");
 if (args.includes("--log-only") || flag("--already-sent") !== undefined) {
   if (dry) { console.log(`DRY RUN — would record "${text.trim().slice(0, 60)}" as already sent.`); process.exit(0); }
-  const done = logOutreach(DIR, { text, kind, why: flag("--why") ?? null, channel: flag("--already-sent") || "logged", id: flag("--id") ?? null, now, ask });
+  const at = flag("--at") ? new Date(flag("--at")) : null;
+  const done = logOutreach(DIR, { text, kind, why: flag("--why") ?? null, channel: flag("--already-sent") || "logged", id: flag("--id") ?? null, now, ask, at });
   if (!done.ok) fail(`NOT RECORDED: ${done.reason}`, 2);
   console.log(args.includes("--json") ? JSON.stringify({ id: done.id, duplicate: !!done.duplicate }) : `Recorded as already sent (${done.id}).`);
   process.exit(0);

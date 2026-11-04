@@ -28,8 +28,14 @@ struct ChatExchange: View {
     /// The ask this reply would answer right now (nil when nothing is waiting).
     let awaitingReplyTo: String?
     let waitingText: String
+    /// Where his message is in its life (sending, delivered, thinking, answered, stuck), and whether the Mac is answering.
+    var delivery: ChatDelivery = .answered
+    var macOnline = true
     /// True for a message that arrived after the thread was first shown: it eases in.
     var arriving = false
+    /// ORION speaking first, right after another such message: no caption of its own, it reads as one group.
+    var grouped = false
+    var onRetry: () -> Void = {}
     let onReply: (String) -> Void
     let onDecline: (String) -> Void
 
@@ -43,31 +49,59 @@ struct ChatExchange: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var userLine: some View {
-        HStack {
-            Spacer(minLength: 56)
-            Text(message.text)
-                .font(PhoneChat.body).lineSpacing(4).foregroundStyle(Phone.text)
-                .multilineTextAlignment(.leading).textSelection(.enabled)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(Phone.wash(0.08), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    /// The small line under his bubble: Sending…, Delivered, or what to do about a failure.
+    @ViewBuilder private var statusLine: some View {
+        if let caption = delivery.caption(macOnline: macOnline) {
+            let failed = delivery.canRetry
+            HStack(spacing: 6) {
+                if failed { Image(systemName: "exclamationmark.circle").font(.system(size: 11)) }
+                Text(caption).font(PhoneChat.meta)
+            }
+            .foregroundStyle(failed ? Phone.orange : Phone.dim)
+            .transition(.opacity)
+            .accessibilityIdentifier(failed ? "retryMessage" : "messageStatus")
         }
+    }
+
+    private var userLine: some View {
+        VStack(alignment: .trailing, spacing: 5) {
+            HStack {
+                Spacer(minLength: 56)
+                Text(message.text)
+                    .font(PhoneChat.body).lineSpacing(4).foregroundStyle(Phone.text)
+                    .multilineTextAlignment(.leading).textSelection(.enabled)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Phone.wash(delivery.canRetry ? 0.04 : 0.08), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Phone.orange.opacity(delivery.canRetry ? 0.55 : 0), lineWidth: 1))
+            }
+            statusLine.padding(.trailing, 4)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if delivery.canRetry { onRetry() } }
+        .animation(PhoneMotion.enter, value: delivery)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint(delivery.canRetry ? "Double tap to send again" : "")
     }
 
     @ViewBuilder private var orionLine: some View {
         Group {
-            switch message.status {
-            case .pending, .running:
+            switch delivery {
+            case .waiting, .thinking:
                 HStack(spacing: 10) {
                     PhoneThinkingDots()
-                    PhoneShimmerText(text: message.status == .pending ? waitingText : "Thinking")
+                    PhoneShimmerText(text: delivery == .waiting ? waitingText : "Thinking")
                 }
                 .transition(.opacity)
-            case .done, .failed:
+            case .sending, .notSent, .stalled:
+                // Nothing from ORION yet, and none promised: his message carries the state.
+                EmptyView()
+            case .failed:
+                if message.reply != nil { reply.transition(.opacity) }
+            case .answered:
                 reply.transition(.opacity.combined(with: .offset(y: 6)))
             }
         }
-        .animation(PhoneMotion.enter, value: message.status)
+        .animation(PhoneMotion.enter, value: delivery)
     }
 
     private var reply: some View {
@@ -77,15 +111,21 @@ struct ChatExchange: View {
                 DisclosureGroup("Thinking") { Text(thinking).font(.system(size: 13)).textSelection(.enabled) }
                     .font(.system(size: 13)).foregroundStyle(Phone.dim)
             }
-            Text(ConversationView.rendered(message.reply ?? "No answer came back."))
+            Text(ConversationView.rendered(shownReply))
                 .font(PhoneChat.body).lineSpacing(PhoneChat.bodyLineSpacing)
-                .foregroundStyle(message.status == .failed ? Phone.orange : Phone.text)
+                .foregroundStyle(delivery == .failed ? Phone.orange : Phone.text)
                 .textSelection(.enabled)
             if let ask = message.askID, awaitingReplyTo == ask { askActions(ask) }
         }
         .padding(.trailing, 24)
         .padding(.leading, proactive ? 14 : 0)
         .overlay(alignment: .leading) { if proactive { proactiveRule } }
+    }
+
+    /// ORION's words as Nick should read them: no job tags or notify headers, 12-hour times (also for history written before that fix).
+    private var shownReply: String {
+        let raw = message.reply ?? "No answer came back."
+        return ChatSanitizer.display(raw) ?? (message.text.isEmpty ? "" : raw)
     }
 
     /// A short rule that fades out along its length: marks ORION speaking first, quietly.
@@ -105,6 +145,7 @@ struct ChatExchange: View {
     private var originNote: String? {
         let time = message.sentAt.formatted(date: .omitted, time: .shortened)
         if message.id.hasPrefix("local-") { return "Answered on your iPhone" }
+        if grouped { return nil }
         if PhoneMirror.isMirrorID(message.askID) { return "ORION · notification · " + time }
         if message.askID != nil { return "ORION · " + time }
         return nil
@@ -127,7 +168,8 @@ struct ChatExchange: View {
 struct ChatTimeMarker: View {
     let date: Date
     var body: some View {
-        Text(date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
+        Text(Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened)
+             : date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
             .font(PhoneChat.meta).foregroundStyle(Phone.dim)
             .frame(maxWidth: .infinity).padding(.top, 6)
     }

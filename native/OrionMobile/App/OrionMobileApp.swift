@@ -946,9 +946,9 @@ struct PhoneRootView: View {
     }
     private func time(_ date: Date, zone: String = "Europe/London") -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: zone) ?? TimeZone(identifier: "Europe/London")
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = "h:mm a"
         return formatter.string(from: date)
     }
     private func loadSample() {

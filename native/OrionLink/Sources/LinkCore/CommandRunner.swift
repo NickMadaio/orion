@@ -97,12 +97,12 @@ public struct CommandRunner {
         let deadline = DispatchTime.now() + timeout
         if finished.wait(timeout: deadline) == .timedOut {
             process.terminate()
-            return Result(ok: false, reply: "ORION did not answer within \(Int(timeout)) seconds.")
+            return Result(ok: false, reply: "ORION took too long on that one.")
         }
         let stdout = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if process.terminationStatus == 0 { var result = Result(ok: true, reply: stdout.isEmpty ? "Done." : String(stdout.prefix(4000))); if chat { result.thinking = ChatThinking.read(home: FileManager.default.homeDirectoryForCurrentUser, session: session, since: began) }; return result }
         if !stdout.isEmpty { return Result(ok: false, reply: String(stdout.prefix(4000))) }
-        return Result(ok: false, reply: "ORION refused or could not run that (exit \(process.terminationStatus)).")
+        return Result(ok: false, reply: "Your Mac couldn’t take that one just now.")
     }
 }

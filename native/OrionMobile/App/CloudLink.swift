@@ -28,6 +28,15 @@ final class CloudLink: ObservableObject {
         var model: String? = nil
         /// Set on a message ORION started (a pushed nudge, ask or check-in): the id a reply carries back as `replyTo`.
         var askID: String? = nil
+        /// The outreach id this message answered, kept so a retry stays in the same thread.
+        var replyTo: String? = nil
+        /// Whether iCloud has this message yet (a message the phone sent; a message from the feed is always saved).
+        var upload: ChatUpload = .saved
+
+        /// Where this message is in its life: sending, delivered, thinking, answered, or stuck.
+        func delivery(now: Date) -> ChatDelivery {
+            ChatDelivery.state(status: status, upload: upload, sentAt: sentAt, now: now)
+        }
     }
 
     @Published private(set) var snapshot: LinkSnapshot?
@@ -147,6 +156,7 @@ final class CloudLink: ObservableObject {
                     absorb(modification.record)
                 }
                 for deletion in changes.deletions { byID[deletion.recordID.recordName] = nil }
+                for id in retired { byID[id] = nil }
                 token = changes.changeToken
                 more = changes.moreComing
             }
@@ -187,27 +197,32 @@ final class CloudLink: ObservableObject {
                 status: (record[LinkSchema.commandStatus] as? String).flatMap(LinkCommandStatus.init(rawValue:)) ?? .pending,
                 reply: record[LinkSchema.commandReply] as? String,
                 repliedAt: record[LinkSchema.commandRepliedAt] as? Date, thinking: record[LinkSchema.commandThinking] as? String, conversationID: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String,
-                askID: record[LinkSchema.commandAskID] as? String)
+                askID: record[LinkSchema.commandAskID] as? String,
+                replyTo: record[LinkSchema.commandReplyTo] as? String)
         default:
             break
         }
     }
 
     private func publishMessages() {
-        let next = byID.values.sorted { $0.sentAt < $1.sentAt }.suffix(200).map { $0 }
+        let gone = Set(retired)
+        let next = byID.values.filter { !gone.contains($0.id) }.sorted { ($0.sentAt, $0.id) < ($1.sentAt, $1.id) }.suffix(200).map { $0 }
         if next != messages { messages = next }
     }
 
     // MARK: - Sending
 
-    /// Queue a message or command for the Mac. Shown at once as waiting; the
+    /// Queue a message or command for the Mac. Shown at once as sending; the
     /// Mac's reply arrives through the change feed.
+    /// `prelude` runs after the message is on screen and before it is saved (the lock state goes first so ORION
+    /// knows it before reading "unlock my apps"): a slow prelude must never leave his message invisible.
+    /// Saving the same id twice is safe: iCloud answers `serverRecordChanged`, which means "already delivered".
     /// Returns the command's id once iCloud has it, or nil if it was not sent.
     @discardableResult
-    func send(_ text: String, kind: LinkCommandKind, id: String = UUID().uuidString, conversation: String? = nil, model: String? = nil, replyTo: String? = nil) async -> String? {
+    func send(_ text: String, kind: LinkCommandKind, id: String = UUID().uuidString, conversation: String? = nil, model: String? = nil, replyTo: String? = nil, prelude: (() async -> Void)? = nil) async -> String? {
         let command: String
         do { command = try LinkCommand.validate(text) } catch { problem = "That message is empty or too long."; return nil }
-        let now = Date()
+        let now = byID[id]?.sentAt ?? Date()
         let record = CKRecord(recordType: LinkSchema.commandType, recordID: CKRecord.ID(recordName: id, zoneID: zoneID))
         record[LinkSchema.commandConversation] = conversation as CKRecordValue?
         record[LinkSchema.commandModel] = model as CKRecordValue?
@@ -217,20 +232,36 @@ final class CloudLink: ObservableObject {
         record[LinkSchema.commandStatus] = LinkCommandStatus.pending.rawValue as CKRecordValue
         record[LinkSchema.commandDevice] = "iphone" as CKRecordValue
         record[LinkSchema.commandKind] = kind.rawValue as CKRecordValue
-        byID[id] = Message(id: id, text: command, sentAt: now, kind: kind, status: .pending)
+        byID[id] = Message(id: id, text: command, sentAt: now, kind: kind, status: .pending, conversationID: conversation, model: model,
+                           replyTo: replyTo, upload: .uploading)
         publishMessages()
+        await prelude?()
         do {
             let (results, _) = try await database.modifyRecords(saving: [record], deleting: [])
-            for result in results.values { _ = try result.get() }
+            for result in results.values {
+                do { _ = try result.get() } catch let error as CKError where error.code == .serverRecordChanged { /* already there: delivered */ }
+            }
+            if byID[id]?.upload == .uploading { byID[id]?.upload = .saved; publishMessages() }
             return id
         } catch {
-            byID[id]?.status = .failed
+            byID[id]?.upload = .failed
             byID[id]?.reply = "Not sent: \(describe(error))"
             publishMessages()
             problem = describe(error)
             return nil
         }
     }
+
+    /// A failed or stalled message he re-sent under a new id: this one leaves the thread, here and on the next full fetch.
+    func retire(_ id: String) {
+        var ids = retired.filter { $0 != id }
+        ids.append(id)
+        UserDefaults.standard.set(Array(ids.suffix(200)), forKey: "link.retiredCommands")
+        byID[id] = nil
+        publishMessages()
+    }
+
+    private var retired: [String] { UserDefaults.standard.stringArray(forKey: "link.retiredCommands") ?? [] }
 
     /// Send one entry without a running link: answers tapped on a notification,
     /// possibly with the app in the background, and the background location samples
@@ -305,7 +336,13 @@ enum PhoneNotificationMirror {
     @MainActor
     static func sweepDelivered() async {
         let delivered = await UNUserNotificationCenter.current().deliveredNotifications()
-        for note in delivered { await mirror(note) }
+        // A pile of bedtime nudges is one message: only the newest of the pile is mirrored, and the older ones are marked seen
+        // (2026-11-03: three arrived together at 22:44 for 22:18, 22:26 and 22:36).
+        let pile = delivered.filter { PhoneMirror.isPhoneLocal(identifier: $0.request.identifier) && !$0.request.content.body.isEmpty }
+            .map { PhoneMirror.Delivered(identifier: $0.request.identifier, body: $0.request.content.body, date: $0.date) }
+        let (keep, superseded) = PhoneMirror.condense(pile.filter { !ledger.contains(PhoneMirror.id(forNotification: $0.identifier)) })
+        for old in superseded { ledger = ledger.adding(PhoneMirror.id(forNotification: old.identifier)) }
+        for note in keep { await mirror(identifier: note.identifier, body: note.body, at: note.date) }
     }
 
     @MainActor

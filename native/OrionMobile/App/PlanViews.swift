@@ -188,7 +188,7 @@ struct DayScheduleView: View {
 
     private func label(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_GB"); formatter.timeZone = timeZone; formatter.dateFormat = "HH:mm"
+        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = timeZone; formatter.dateFormat = "h:mm a"
         return formatter.string(from: date)
     }
 }

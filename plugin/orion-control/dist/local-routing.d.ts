@@ -272,11 +272,9 @@ export declare const EXACT_REPLY_PROMPT = "Reply to Nick with exactly this text 
 /** "Today is Sunday 2026-10-11; tomorrow is Monday 2026-10-12." — so --date never needs arithmetic. */
 export declare function dateLine(now?: Date): string;
 export declare const PRODUCTION_NOTES: string;
-/** What reaches Nick when the reply still claims what the tools do not show. Dictated as the whole reply
- *  on the last revise: the Mac chat and phone call `openclaw agent --json`, which has no delivery stage,
- *  so the reply_payload_sending swap never runs there. Left to HONEST_STOP alone, the 9B repeated
- *  "I've started the focus session" verbatim (2026-10-15). */
-export declare const honestLine: (calendar: boolean) => string;
+export declare const isPlanStatement: (message: string) => boolean;
+export declare const STATEMENT_LINE = "Got it. I haven't changed or noted anything. Tell me if you want me to add it to your day.";
+export declare const honestLine: (calendar: boolean, message?: string) => string;
 export declare const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
 export declare const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
 /** Spoken turns get one revise round (turn-budget.ts). What HONEST_STOP would have had the model say, said by code instead. */

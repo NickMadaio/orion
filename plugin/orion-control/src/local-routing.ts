@@ -74,7 +74,7 @@ import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readG
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { casualStartTask, workStartTask, type KnownName } from "./work-start.js";
-import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, roomQuiet, roomTalk } from "./chatter.js";
+import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, requestShaped, roomQuiet, roomTalk } from "./chatter.js";
 import { planLighten, readLighten, runLighten, saysYes, type LightenPending, type LightenRead } from "./day-lighten.js";
 import { readFocusMove, runFocusMove, type FocusMove } from "./focus-moves.js";
 import { readHealthIntent, runHealthIntent, sleepLine, type HealthRead } from "./health-log.js";
@@ -704,7 +704,15 @@ const HONEST_STOP = "The check still finds a problem. Undo any change you made i
  *  on the last revise: the Mac chat and phone call `openclaw agent --json`, which has no delivery stage,
  *  so the reply_payload_sending swap never runs there. Left to HONEST_STOP alone, the 9B repeated
  *  "I've started the focus session" verbatim (2026-10-15). */
-export const honestLine = (calendar: boolean): string => calendar
+/** 2026-11-03 phone audit: "I'll get home and see, I need to meal prep" (a plan he was telling ORION, not asking for) got
+ *  "I didn't actually do that — nothing was started or changed. Can you say it again?" twice, as if he had asked and it broke. */
+const OWN_PLAN = /\b(?:i'?ll|i will|ill|i'?m (?:gonna|going to)|im (?:gonna|going to)|i (?:do )?need to|i have to|we'?ll see|gonna)\b/i;
+export const isPlanStatement = (message: string): boolean =>
+  OWN_PLAN.test(message) && !isQuestion(message) && !CHANGE_REQUEST.test(message) && !requestShaped(message);
+export const STATEMENT_LINE = "Got it. I haven't changed or noted anything. Tell me if you want me to add it to your day.";
+export const honestLine = (calendar: boolean, message?: string): string => message && isPlanStatement(message)
+  ? STATEMENT_LINE
+  : calendar
   ? "I couldn't make that change — nothing on your calendar changed. Can you say it again?"
   : "I didn't actually do that — nothing was started or changed. Can you say it again?";
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
@@ -2265,7 +2273,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // line goes in place NOW, from the scheduler's own words when it says nothing was booked/changed.
       const honestNow = on && !flowActed && !run.reminder && ((run.hostTools ?? 0) > 0 || hostDrops) && findings.some((f) => FALSE_CLAIM.test(f))
         ? nothingMovedReply(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).slice(-1).map((t) => t.stdout), /\b(late|move|push)\b/.test(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).at(-1)?.canonical ?? "") ? "I couldn't move anything, so nothing was moved" : "I couldn't make that change, so nothing on your calendar was changed")
-          ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)))
+          ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message)
         : undefined;
       if (honestNow) { owed = honestNow; remember([runId, sessionKeyNow], honestNow); }
       if (on && findings.length > 0 && run.passes < revisePasses(!!run.spoken) && !flowActed && !hostDrops && !honestNow) {
@@ -2278,14 +2286,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // back an earlier turn's change from the journal (review, 2026-10-16).
         const stop = wroteThisTurn(run.tools) ? HONEST_STOP : HONEST_STOP_NO_WRITE;
         const instruction = run.passes === 1 ? retryInstruction(findings)
-          : claimed ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar)}`
+          : claimed ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar, run.message)}`
           : lookedUp ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${LOOKUP_HONEST}`
           : stop;
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
       }
       // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
       if (on && !flowActed && !run.reminder && !honestNow && findings.some((f) => FALSE_CLAIM.test(f))) {
-        owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)));
+        owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message);
         remember([runId, sessionKeyNow], owed);
       } else if (on && !flowActed && !run.reminder && findings.some((f) => LOOKUP_CLAIM.test(f))) {
         // "I checked the weather… no rain" with no lookup, after both retries (review, 2026-10-16).

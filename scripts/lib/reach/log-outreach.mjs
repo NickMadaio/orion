@@ -7,6 +7,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { chatText } from "./chat-text.mjs";
 
 const KINDS = ["reminder", "warning", "update", "question", "info", "morning", "checkin"];
 
@@ -25,14 +26,18 @@ function logged(file, id, nowMs) {
 /**
  * @returns {{ ok: boolean, id?: string, duplicate?: boolean, reason?: string, entry?: object }}
  */
-export function logOutreach(dir, { text, kind = "info", why = null, channel = "logged", id = null, now = new Date(), ask = null, level = null } = {}) {
-  const body = String(text ?? "").trim();
-  if (!body) return { ok: false, reason: "empty text" };
+export function logOutreach(dir, { text, kind = "info", why = null, channel = "logged", id = null, now = new Date(), ask = null, level = null, at = null } = {}) {
+  if (!String(text ?? "").trim()) return { ok: false, reason: "empty text" };
+  // The chat shows a sentence for a person: job output is refused, notify headers are stripped, times are 12-hour (lib/reach/chat-text.mjs).
+  const body = chatText(text);
+  if (!body) return { ok: false, reason: "internal job output is not a chat message" };
   const row = outreachId(now.getTime(), id);
   const log = join(dir, "outreach.jsonl");
   mkdirSync(dir, { recursive: true });
   if (logged(log, row, now.getTime())) return { ok: true, id: row, duplicate: true };
-  const entry = { id: row, at: now.toISOString(), text: body, kind: KINDS.includes(kind) ? kind : "info", why: why ?? null,
+  // `at`: when the message really reached him (a phone notification mirrored hours later), so the thread keeps its true time.
+  const when = at instanceof Date && !Number.isNaN(at.getTime()) && at.getTime() <= now.getTime() ? at : now;
+  const entry = { id: row, at: when.toISOString(), text: body, kind: KINDS.includes(kind) ? kind : "info", why: why ?? null,
     channel: String(channel).slice(0, 40) || "logged", reason: "already sent by another route", urgent: false, urgentKind: null, alreadySent: true,
     ...(ask ? { ask, askId: ask.askId ?? row } : {}), ...(Number.isFinite(level) ? { level } : {}) };
   appendFileSync(log, `${JSON.stringify(entry)}\n`);

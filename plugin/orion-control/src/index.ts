@@ -1639,14 +1639,16 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
         if (typeof oldest === "string" && oldest !== runKey) repeatState.delete(oldest);
       }
       // Two identical attempts are enough to accommodate a stale read or one
-      // honest retry. A third consecutive attempt, or fifth anywhere in the
-      // same run, is a loop until the model changes its approach.
-      if (state.consecutive >= 3 || total >= 5) {
-        state.guardHits += 1;
+      // honest retry. The THIRD identical call (same tool, same arguments)
+      // anywhere in the turn, consecutive or not, is a loop: the turn is over,
+      // every further tool is refused, and the model must say so plainly
+      // (2026-11-04: "go into the code and fix it" looped on one call).
+      if (state.consecutive >= 3 || total >= 3) {
+        state.guardHits = REPEAT_LOCKOUT;
         return {
           block: true,
           blockReason:
-            "Orion repeat guard: this exact tool call has already been attempted in this run. Read the prior result and either change the arguments/tool or stop; repeating it is blocked to prevent token-burning loops.",
+            "Orion repeat guard: you have made this exact tool call three times in this turn, so the turn is ending. Do not call any tool. Tell Nick honestly, in one or two sentences, what you were trying to do, that you tried it three times with the same result and are stopping, and the one thing he can say or do next. Do not claim it worked.",
         };
       }
     }

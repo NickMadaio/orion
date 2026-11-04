@@ -57,3 +57,21 @@ test("it never writes: bad usage is exit 2", () => {
   const { dir } = fresh();
   assert.equal(run(dir, ["frobnicate"]).status, 2);
 });
+
+test("why --request: a turn with no clear fault still becomes a fixable 'requested' diagnosis (he asked for the fix)", () => {
+  const { dir } = fresh();
+  const plain = JSON.parse(run(dir, ["why", "--about", "whats on my plan", "--exclude", "fix your code", "--json"]).stdout);
+  assert.equal(plain.diagnosis.fixable, false);
+  const r = JSON.parse(run(dir, ["why", "--about", "whats on my plan", "--exclude", "fix your code", "--request", "--json"]).stdout);
+  assert.equal(r.diagnosis.kind, "requested");
+  assert.equal(r.diagnosis.fixable, true);
+  assert.match(r.diagnosis.says, /You asked me to fix this/);
+  assert.equal(r.diagnosis.failingExample.message, "whats on my plan");
+  assert.ok(r.diagnosis.files.length > 0);
+});
+
+test("why --request keeps a real diagnosis as it is", () => {
+  const { dir } = fresh();
+  const r = JSON.parse(run(dir, ["why", "--about", "open amazon", "--request", "--json"]).stdout);
+  assert.equal(r.diagnosis.kind, "wrong-tool");
+});

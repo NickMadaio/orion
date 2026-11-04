@@ -2,6 +2,7 @@ import { type FixItem } from "./selffix-store.js";
 export type SelffixRun = (script: "orion-selfcheck" | "orion-selffix", args: string[], input?: string) => Promise<{
     stdout: string;
     code: number;
+    stderr?: string;
 }>;
 export type SelffixMove = {
     kind: "why";
@@ -20,6 +21,9 @@ export type SelffixMove = {
 } | {
     kind: "start";
     id: string;
+} | {
+    kind: "fix";
+    about: string;
 };
 /** `offered`: the reply ends in "now or later?", so his next bare answer is about this offer. */
 export type SelffixOut = {
@@ -27,6 +31,7 @@ export type SelffixOut = {
     calls: string[];
     outputs: string[];
     offered?: boolean;
+    errors?: string[];
 };
 /** `bound`: the offer (or the reminder to start it) was ORION's last message in this chat, so a bare answer is about it. Set by the caller. */
 export type SelffixCtx = {
@@ -37,6 +42,7 @@ export type SelffixCtx = {
     bound?: boolean;
 };
 export declare const asksWhy: (message: string) => boolean;
+export declare const asksFix: (message: string) => boolean;
 /** The time a "later" answer names ("tomorrow at 9", "tonight at 8"): an ISO instant, or undefined to take the default evening slot. */
 export declare function laterAt(message: string, now: Date): string | undefined;
 /** What this message does to the fix offers, if anything. Reads only. */

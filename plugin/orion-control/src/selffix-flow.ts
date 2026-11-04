@@ -10,6 +10,11 @@
    later     "later" / "tonight" / "tomorrow at 9": accept --later parks it and schedules a reminder (default this evening, 19:30).
    no        drops it and records the decision.
    start     "yes" to the reminder, or "start the fix project": starts the parked project.
+   fix       "go into the code and fix it" / "can you fix that yourself" / "fix your code": he is asking for the fix itself, so there is no
+             "now or later?". An earlier diagnosis or open fix project is reused; otherwise the last turn is diagnosed (a wrong answer with no
+             failed call still counts, his request is the evidence). ONE project is created or reused and started, and the reply says what
+             started and that it is in the Projects tab. If it cannot run (execution disabled, another project running, a gate) the reply says
+             exactly why, once, and nothing is retried.
 
  The fix runs through the normal project pipeline with its reviews. It never edits live code directly, and the reply says so.
 */
@@ -17,15 +22,16 @@ import { execFile } from "node:child_process";
 import { scriptPath } from "./tool-guards.js";
 import { dueParked, openOffer, parkedAny, readFixItems, type FixItem } from "./selffix-store.js";
 
-export type SelffixRun = (script: "orion-selfcheck" | "orion-selffix", args: string[], input?: string) => Promise<{ stdout: string; code: number }>;
+export type SelffixRun = (script: "orion-selfcheck" | "orion-selffix", args: string[], input?: string) => Promise<{ stdout: string; code: number; stderr?: string }>;
 export type SelffixMove =
   | { kind: "why"; about: string }
   | { kind: "now"; id: string }
   | { kind: "later"; id: string; at?: string; reparking?: boolean }
   | { kind: "no"; id: string }
-  | { kind: "start"; id: string };
+  | { kind: "start"; id: string }
+  | { kind: "fix"; about: string };
 /** `offered`: the reply ends in "now or later?", so his next bare answer is about this offer. */
-export type SelffixOut = { text: string; calls: string[]; outputs: string[]; offered?: boolean };
+export type SelffixOut = { text: string; calls: string[]; outputs: string[]; offered?: boolean; errors?: string[] };
 /** `bound`: the offer (or the reminder to start it) was ORION's last message in this chat, so a bare answer is about it. Set by the caller. */
 export type SelffixCtx = { stateDir: string; now: Date; outreach?: boolean; items?: FixItem[]; bound?: boolean };
 
@@ -51,11 +57,24 @@ const bare = (m: string, set: { all: Set<string>; core: Set<string> }): boolean 
 };
 const START_FIX = /\b(?:start|run|launch|begin|kick off|get on)\s+(?:the|that|my|ur|your)\s+(?:self[- ]?)?(?:fix|fix project|repair)\b/;
 
+// "go into the code and fix it", "can you fix that yourself", "fix your code", "can you modify something in your own code": a request for the fix itself.
+// A fix verb needs ORION himself or his code as the object; an edit verb needs "your (own) code". "fix my resume", "update yourself" and "fix it" alone are not.
+const FIX_VERB = /\b(?:fix|repair|patch|debug|correct)\b/;
+const EDIT_VERB = /\b(?:modify|change|edit|rewrite|improve|alter)\b/;
+const SELF = /\b(?:yourself|urself|ur self|your self)\b/;
+const OWN_CODE = /\b(?:your|ur|yer)\s+(?:own\s+)?(?:code|source(?: code)?|programming|codebase)\b/;
+const IN_CODE = /\b(?:in|into|inside)\s+(?:to\s+)?(?:the|your|ur)\s+(?:own\s+)?(?:code|source(?: code)?|codebase)\b/;
 const low = (s: string): string => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
 const wordCount = (s: string): number => s.split(" ").filter(Boolean).length;
 // "why did you put X first / schedule X before Y" asks about his plan, which the plan-why flow answers from the plan itself.
 const PLAN_WHY = /\bwhy\b.*\b(?:put|puts|placed?|schedule[ds]?|moved?|order(?:ed)?|list(?:ed)?)\b.*\b(?:first|last|before|after|at|there|then|so (?:late|early))\b/;
 export const asksWhy = (message: string): boolean => { const m = low(message); return wordCount(m) <= 28 && !PLAN_WHY.test(m) && WHY.some((p) => p.test(m)); };
+
+export const asksFix = (message: string): boolean => {
+  const m = low(message);
+  if (wordCount(m) > 24) return false;
+  return (FIX_VERB.test(m) && (SELF.test(m) || OWN_CODE.test(m) || IN_CODE.test(m))) || (EDIT_VERB.test(m) && OWN_CODE.test(m));
+};
 
 /** The time a "later" answer names ("tomorrow at 9", "tonight at 8"): an ISO instant, or undefined to take the default evening slot. */
 export function laterAt(message: string, now: Date): string | undefined {
@@ -88,6 +107,7 @@ export function readSelffixMove(message: string, ctx: SelffixCtx): SelffixMove |
   const due = dueParked(items, ctx.now);
   const waiting = offer ?? due;
   if (START_FIX.test(m)) { const p = due ?? parkedAny(items); if (p) return { kind: "start", id: p.id }; }
+  if (!ctx.outreach && asksFix(m)) return { kind: "fix", about: message.trim() };
   if (waiting && ctx.bound === true) {
     if ((bare(m, LATER_W) || /^not now[.!]*$/.test(m)) && !/^now$/.test(m)) { const at = laterAt(m, ctx.now); return { kind: "later", id: waiting.id, ...(at ? { at } : {}), ...(waiting.status === "parked" ? { reparking: true } : {}) }; }
     if (bare(m, NO_W)) return { kind: "no", id: waiting.id };
@@ -98,10 +118,10 @@ export function readSelffixMove(message: string, ctx: SelffixCtx): SelffixMove |
 }
 
 async function call(run: SelffixRun, script: "orion-selfcheck" | "orion-selffix", args: string[], log: SelffixOut, input?: string): Promise<Record<string, any> | undefined> {
-  const out = await run(script, args, input).catch(() => ({ stdout: "", code: 1 }));
+  const out = await run(script, args, input).catch(() => ({ stdout: "", code: 1, stderr: "" }));
   log.calls.push(`exec ${script} ${args.map((a) => JSON.stringify(a)).join(" ")}`);
   log.outputs.push(out.stdout);
-  if (out.code !== 0) return undefined;
+  if (out.code !== 0) { const why = String(out.stderr ?? "").replace(/^NOTHING WAS CHANGED:\s*/, "").trim(); if (why) (log.errors ??= []).push(why); return undefined; }
   try { return JSON.parse(out.stdout.trim().split("\n").at(-1) ?? "") as Record<string, any>; } catch { return undefined; }
 }
 
@@ -119,9 +139,45 @@ export function spokenWhen(iso: string, now: Date): string {
 const SAFE = "It runs through the normal project pipeline with its reviews, so nothing edits my live code directly.";
 const STATUS_WORDS: Record<string, string> = { offered: "waiting for your answer", parked: "parked, waiting for you to start it", started: "already running", candidate: "queued" };
 
+const FRESH_MS = 24 * 3600_000;
+const stampOf = (i: FixItem): number => Date.parse(i.startedAt ?? i.offeredAt ?? i.createdAt ?? "") || 0;
+const newest = (items: FixItem[]): FixItem | undefined => [...items].sort((a, b) => stampOf(b) - stampOf(a))[0];
+const labelOf = (i: FixItem): string => (i.title ? `'${i.title.replace(/\s+/g, " ").slice(0, 90)}'` : "the fix project");
+
+/** The fix project a request should reuse: one started in the last day, else a parked one, else an offer or candidate from the last day. */
+function reusableFix(items: FixItem[], now: Date): FixItem | undefined {
+  const fresh = (i: FixItem): boolean => now.getTime() - stampOf(i) < FRESH_MS;
+  return newest(items.filter((i) => i.status === "started" && fresh(i))) ?? parkedAny(items) ?? newest(items.filter((i) => (i.status === "offered" || i.status === "candidate") && fresh(i)));
+}
+
+/** Starts (or reports) the one fix project for this item. One attempt: a refusal is said with its exact reason and nothing is retried. */
+async function settleFix(item: FixItem, run: SelffixRun, log: SelffixOut, now: Date): Promise<SelffixOut> {
+  if (item.status === "started") return { ...log, text: `I already started the fix project ${labelOf(item)}. Check the Projects tab to see where it is; I won't open a second one.` };
+  const out = item.status === "parked" ? await call(run, "orion-selffix", ["start", item.id], log) : await call(run, "orion-selffix", ["accept", item.id, "--now"], log);
+  if (!out) return { ...log, text: `I couldn't start the fix project${log.errors?.length ? ` (${log.errors.at(-1)!.slice(0, 200)})` : ""}, so nothing was started. I'm not retrying; tell me when you want me to try again.` };
+  if (out.status === "started") return { ...log, text: `I started a fix project, ${labelOf(item)}. Watch it in the Projects tab; I'll tell you when it needs you. ${SAFE}` };
+  const when = out.remindAt ? ` I'll remind you ${spokenWhen(String(out.remindAt), now)}.` : "";
+  return { ...log, text: `I opened the fix project ${labelOf(item)} but I couldn't start it: ${String(out.reason ?? "it was refused").slice(0, 200)}. It's parked in the Projects tab and I'm not retrying.${when}` };
+}
+
+async function fixRequest(move: { about: string }, run: SelffixRun, log: SelffixOut, now: Date): Promise<SelffixOut> {
+  const listed = await call(run, "orion-selffix", ["list", "--json"], log);
+  const items = Array.isArray(listed?.items) ? (listed.items as FixItem[]) : [];
+  const reuse = reusableFix(items, now);
+  if (reuse) return settleFix(reuse, run, log, now);
+  const found = await call(run, "orion-selfcheck", ["why", "--about", "", "--exclude", move.about, "--request", "--json"], log);
+  if (!found) return { ...log, text: "I couldn't read back my own recent turns just now, so I don't know what to fix and nothing was started. Tell me what went wrong and try again in a minute." };
+  if (!found.diagnosis) return { ...log, text: "I have no recent turns on record to fix from, so nothing was started. Tell me what went wrong." };
+  const offer = await call(run, "orion-selffix", ["propose", "--stdin", "--requested"], log, JSON.stringify(found.diagnosis));
+  const item = offer?.item as FixItem | undefined;
+  if (!offer || !item) return { ...log, text: `I couldn't set up the fix project${log.errors?.length ? ` (${log.errors.at(-1)!.slice(0, 200)})` : ""}, so nothing was started.` };
+  return settleFix(item, run, log, now);
+}
+
 export async function runSelffixMove(move: SelffixMove, run: SelffixRun, now: Date = new Date()): Promise<SelffixOut> {
   const log: SelffixOut = { text: "", calls: [], outputs: [] };
   switch (move.kind) {
+    case "fix": return fixRequest(move, run, log, now);
     case "why": {
       const found = await call(run, "orion-selfcheck", ["why", "--about", move.about, "--exclude", move.about, "--json"], log);
       if (!found) return { ...log, text: "I couldn't read back my own recent turns just now, so I can't tell you why yet. Try me again in a minute." };
@@ -161,6 +217,6 @@ export async function runSelffixMove(move: SelffixMove, run: SelffixRun, now: Da
 /** The real scripts (no shell, fixed argument lists), with ORION's state dir. Wired in by local-routing.ts. */
 export const liveSelffixRun = (stateDir?: string): SelffixRun => (script, args, input) => new Promise((resolve) => {
   const child = execFile(scriptPath(script), args, { timeout: 60000, maxBuffer: 1 << 20, env: { ...process.env, ...(stateDir ? { ORION_CONTROLLED_DIR: stateDir } : {}) } },
-    (e, stdout) => resolve({ stdout: String(stdout ?? ""), code: e ? 1 : 0 }));
+    (e, stdout, stderr) => resolve({ stdout: String(stdout ?? ""), code: e ? 1 : 0, stderr: String(stderr ?? "") }));
   if (input !== undefined) child.stdin?.end(input); else child.stdin?.end();
 });

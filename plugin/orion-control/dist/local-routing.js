@@ -1382,6 +1382,9 @@ export function registerLocalRouting(api, options) {
                 run.ownText = out.text;
                 out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
             }
+            // A fix request that timed out is answered here, once: left to the model, "go into the code and fix it" became a tool loop (2026-11-04).
+            else if (smove.kind === "fix")
+                run.ownText = "I couldn't finish setting up the fix project in time, so I can't say whether it started. Check the Projects tab before asking me again.";
             if (sessionKey) {
                 if (out?.offered)
                     fixOfferChats.set(sessionKey, (options.now ?? pluginNow)().getTime());

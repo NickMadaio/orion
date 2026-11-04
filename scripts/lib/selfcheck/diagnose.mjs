@@ -22,8 +22,8 @@ const quote = (s) => `"${redact(s, 80)}"`;
 const argOf = (tool) => { try { const o = JSON.parse(tool.args); return o.application ?? o.url ?? o.label ?? o.location ?? Object.values(o).find((v) => typeof v === "string") ?? ""; } catch { return ""; } };
 const failedTool = (t) => t.tools.find((x) => !/^(?:completed|succeeded|ok|done|verified)/i.test(x.status));
 
-function build(t, kind, fixable, says, cause, tool) {
-  const action = tool?.action ?? t.route?.tool ?? t.route?.flow ?? t.route?.move ?? "reply";
+function build(t, kind, fixable, says, cause, tool, via) {
+  const action = via ?? tool?.action ?? t.route?.tool ?? t.route?.flow ?? t.route?.move ?? "reply";
   return {
     turnAt: t.at, message: t.message, reply: t.reply, route: t.route, kind, fixable, says, cause,
     tool: tool?.action ?? null, signature: `${kind}:${action}`,
@@ -55,6 +55,16 @@ export function diagnoseTurn(t) {
     return build(t, "no-action", true, `You said ${quote(t.message)} and I answered ${quote(reply)}, but ${how}. I gave up before trying. That's a routing gap on my side.`, how, undefined);
   }
   return build(t, "none", false, `I looked at what I did for ${quote(t.message)}${t.route?.flow ? ` (route: ${t.route.flow})` : t.route?.move ? ` (route: ${t.route.move}${t.route.tool ? ` ${t.route.tool}` : ""})` : ""} and I can't see a clear fault in the record. Tell me what you expected and I'll note it.`, "no failure in the record", undefined);
+}
+
+/**
+ * He asked for a fix ("go into the code and fix it") and the turn he means shows no clear fault in the record (a wrong answer is not a failed
+ * call). His request is the evidence: the diagnosis becomes a fixable "requested" one over that exchange. A real diagnosis is kept as it is.
+ */
+export function requestedDiagnosis(t, d = diagnoseTurn(t)) {
+  if (d.fixable) return d;
+  const via = t.route?.flow ?? t.route?.move ?? "reply";
+  return build(t, "requested", true, `You asked me to fix this, and for ${quote(t.message)} the record shows no failed call, so I'll have a fix project work out the cause from that exchange${t.reply ? ` (I said ${quote(t.reply)})` : ""}.`, "reported by Nick; the record shows no clear failing call", undefined, via);
 }
 
 /** The turn he is asking about: one the words name (latest first), else the latest failure, else the latest turn. */

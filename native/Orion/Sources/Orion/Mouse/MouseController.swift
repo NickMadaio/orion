@@ -152,14 +152,19 @@ final class MouseController: ObservableObject {
 
     private var outreachURL: URL { MouseStore.defaultControlledDir().appendingPathComponent("outreach.jsonl") }
 
-    func setSetupOpen(_ open: Bool) { setupOpen = open; if !open { lastPressed = nil } }
+    private var setupBaseline: BindingsFile?
+    func setSetupOpen(_ open: Bool) {
+        setupOpen = open
+        if open { setupBaseline = bindings } else { lastPressed = nil }
+    }
 
-    /// Done: saves the suggested defaults left untouched, marks the device configured, returns the confirmation line.
+    /// Done: saves the suggested defaults only on a mouse with no bindings yet, marks the device configured, returns the confirmation line.
     func finishSetup() -> String {
         let buttons = Array(Set(devices.devices.filter(\.connected).flatMap(\.extraButtons)).union(bindings.default.keys.compactMap(Int.init))).sorted()
+        let before = setupBaseline ?? bindings
         change { MouseSetupPlan.finalized($0, buttons: buttons) }
         markConfigured()
-        return MouseSetupPlan.confirmation(bindings, buttons: buttons)
+        return MouseSetupPlan.doneLine(before: before, after: bindings, buttons: buttons)
     }
 
     /// New `setup-open` lines appended to outreach.jsonl since launch (the chat side's trigger).

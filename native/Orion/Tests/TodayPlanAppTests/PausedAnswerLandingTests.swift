@@ -46,3 +46,30 @@ final class OrphanedAnswersTests: XCTestCase {
         XCTAssertTrue(rest.claiming(5).0)
     }
 }
+
+/// w18 audit2 (item D): every question gets an answer, or an explicit "I lost that". The last silent holes were a paused turn that
+/// FAILED (only successes were kept), and a question-shaped utterance the address gate refused with nothing shown.
+final class LostTurnTests: XCTestCase {
+
+    func testAFailedPausedTurnSaysItWasLostAndNamesTheQuestion() {
+        XCTAssertEqual(LostTurn.failedLine(question: "What's the weather like tomorrow?"),
+                       "I lost that one — say it again? (\"What's the weather like tomorrow?\")")
+        XCTAssertEqual(LostTurn.failedLine(question: ""), "I lost that one — say it again?")
+    }
+
+    func testQuestionsThatTheGateRefusedAreNotLeftSilent() {
+        for q in ["What time is it?", "What's the weather like tomorrow?", "whats the weather like tomorrow", "what time is it", "Did you say the weather?", "open amazon uk"] {
+            XCTAssertNotNil(LostTurn.skippedLine(text: q), q)
+        }
+    }
+
+    func testRoomChatterStaysSilent() {
+        for t in ["Sounds good. Thank you.", "Well, that was a lot faster. Not much better. Thank you.", "yeah", "haha no way", "I'm going to bed soon"]
+            { XCTAssertNil(LostTurn.skippedLine(text: t), t) }
+    }
+
+    func testTheSkippedLineAsksForARepeatWithoutSpeakingForHim() {
+        XCTAssertEqual(LostTurn.skippedLine(text: "What time is it?"),
+                       "I didn't take that as meant for me, so I skipped it: \"What time is it?\" Say it again if it was.")
+    }
+}

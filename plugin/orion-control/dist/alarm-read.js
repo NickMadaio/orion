@@ -9,6 +9,7 @@
  A wake time is a morning time: 3 AM to noon. "alarm for 3pm" is not a wake-up.
 */
 import { clean } from "./sleep-plan-slots.js";
+import { numeralizeTimes } from "./alarm-words.js";
 const pad = (n) => String(n).padStart(2, "0");
 const ALARM = /\b(?:alarms?|wake[- ]?up|wake ?time|waking up|wake me|get me up)\b/;
 const REMINDER = /\b(?:remind(?:er)?s?|ping me|nudge me|timer|stopwatch|countdown)\b|\balarm\b.{0,12}\bin\s+\d+\s*(?:min|mins|minutes|hours?|hrs?)\b/;
@@ -87,7 +88,7 @@ function readShift(m, named, ctx) {
 }
 /** What he asked of his alarm, or undefined when it is not about it. */
 export function readAlarm(message, ctx = {}) {
-    const m = clean(message).replace(/[.!]+$/, "");
+    const m = numeralizeTimes(clean(message)).replace(/[.!]+$/, "");
     if (!m || m.length > 160 || REMINDER.test(m))
         return undefined;
     const named = ALARM.test(m);
@@ -108,7 +109,8 @@ export function readAlarm(message, ctx = {}) {
         return undefined;
     const time = morningTime(m);
     const question = /\?\s*$/.test(message.trim()) || /^(?:what|whats|what's|when|which|how|is|do|does|am|are|should|will|whens)\b/.test(m);
-    const askForm = /^(?:(?:can|could|would|will|pls|please)\b|hey\b|yo\b|ok\b|orion\b)/.test(m) && /\b(?:set|move|change|make|put|wake|push)\b/.test(m);
+    // A request can follow a sentence of its own ("try and scratch that. can you push my wake time to six thirty?").
+    const askForm = /(?:^|[.!?]\s+)(?:(?:alright|ok|okay|so|well|actually|no|wait|orion)[,\s]+)*(?:(?:can|could|would|will|pls|please)\b|hey\b|yo\b|ok\b|orion\b)/.test(m) && /\b(?:set|move|change|make|put|wake|push)\b/.test(m);
     if (time && (!question || askForm))
         return { kind: "set", time, ...(day ? { day } : {}) };
     if (question && named && (!time || /\b(?:is|set|at)\b/.test(m))) {

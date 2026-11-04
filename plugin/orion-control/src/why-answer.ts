@@ -7,7 +7,7 @@
  the result; a leave nudge, a bedtime line and a start line are explained from their own text. Anything else returns undefined and the
  worker gets the message as context (outreach-reply.ts whyNote). Pure: no I/O.
 */
-import type { Outreach } from "./outreach-reply.js";
+import { splitQuestion, type Outreach } from "./outreach-reply.js";
 import type { ToolDirective } from "./tool-moves.js";
 import { weatherDirective } from "./tool-moves.js";
 
@@ -25,5 +25,8 @@ export function whyAnswer(o: Outreach): WhyAnswer | undefined {
     return weatherDirective(text);
   }
   if (o.kind === "start" && o.title) return { kind: "say", text: `Because ${o.title} was planned for about now and I hadn't seen it start.` };
+  // w18 audit2: ORION asked him something and he asks what he meant: the question again, in its own words, and the promise it made.
+  const asked = splitQuestion(text);
+  if (asked) return { kind: "say", text: `I was asking: "${asked.question}" Just tell me.${asked.rest ? ` ${asked.rest}` : ""}` };
   return undefined;
 }

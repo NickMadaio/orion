@@ -1,4 +1,5 @@
 import SwiftUI
+import MobileCore
 
 /*
  The phone's visual language — the Mac app's, carried to a small screen.
@@ -180,7 +181,7 @@ struct PhoneGauge: View {
         VStack(spacing: 10) {
             ZStack {
                 Circle().stroke(Phone.wash(0.08), lineWidth: 5)
-                Circle().trim(from: 0, to: CGFloat(min(1, max(0, fraction ?? 0))))
+                Circle().trim(from: 0, to: CGFloat(RingMath.clamp(fraction ?? 0)))
                     .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                     .rotationEffect(.degrees(-90)).shadow(color: tint.opacity(0.4), radius: 5)
                 VStack(spacing: 0) {
@@ -302,5 +303,57 @@ struct PhoneSheetFrame<Content: View>: View {
                 .accessibilityLabel("Close").accessibilityIdentifier("closeSheet")
             }
             .background(Phone.ink.ignoresSafeArea())
+    }
+}
+
+
+/// The bottom tab bar, in Home's language: near-black, one thin hairline on top, mono caps labels, the blue accent on
+/// the selected tab, and 56pt targets. Each tab is a full screen; nothing is a pop-up.
+struct PhoneTabBar: View {
+    @Binding var selection: PhoneTab
+    /// Tabs that need a look (approvals waiting on More).
+    var badges: [PhoneTab: Int] = [:]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(PhoneTab.allCases, id: \.self) { tab in item(tab) }
+        }
+        .padding(.top, 2)
+        .background(Phone.ink.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { Rectangle().fill(Phone.hairline).frame(height: 1) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("phoneTabBar")
+    }
+
+    private func item(_ tab: PhoneTab) -> some View {
+        let selected = selection == tab
+        return Button { if !selected { selection = tab } } label: {
+            VStack(spacing: 5) {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: Self.symbol(tab, selected: selected)).font(.system(size: 19, weight: .light))
+                    if let count = badges[tab], count > 0 {
+                        Circle().fill(Phone.orange).frame(width: 7, height: 7).offset(x: 5, y: -1)
+                    }
+                }
+                Text(tab.title.uppercased()).font(Phone.mono(9, .medium)).tracking(1.6)
+            }
+            .foregroundStyle(selected ? Phone.accent : Phone.dim)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PhonePressStyle())
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("tab-\(tab.rawValue)")
+    }
+
+    static func symbol(_ tab: PhoneTab, selected: Bool) -> String {
+        switch tab {
+        case .home: return selected ? "house.fill" : "house"
+        case .plan: return "calendar"
+        case .health: return selected ? "heart.fill" : "heart"
+        case .lists: return "checklist"
+        case .more: return "ellipsis"
+        }
     }
 }

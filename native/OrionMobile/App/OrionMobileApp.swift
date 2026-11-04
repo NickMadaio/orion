@@ -165,7 +165,6 @@ struct PhoneRootView: View {
     @StateObject private var remote = RemoteStore()
     @ObservedObject private var routine = NightRoutine.shared
     @Environment(\.scenePhase) private var scenePhase
-    @State private var planMode = "schedule"
     @State private var selectedItem: PlannerStore.Item?
     @State private var creatingEvent = false
     #if targetEnvironment(simulator)
@@ -185,20 +184,21 @@ struct PhoneRootView: View {
     @State private var sampleError: String?
     private let sampleNow = Date(timeIntervalSince1970: 1_788_948_000) // 2026-09-09 10:00 UTC
 
-    /// Which screen is up: "orion" is the chat (home); anything else is a sheet over it
-    /// ("today", "plan", "health", "control"). `--tab plan` (Simulator only) opens one,
-    /// so a screenshot check can reach every screen without taps.
-    @State private var tab: String = {
+    /// The selected bottom tab. `--tab plan|health|lists|more` (Simulator only) opens one for a screenshot check;
+    /// `--tab chat` starts on Home's chat, and a legacy section name lands on its tab.
+    @State private var tab: PhoneTab = {
         #if targetEnvironment(simulator)
         let arguments = ProcessInfo.processInfo.arguments
         if let index = arguments.firstIndex(of: "--tab"), index + 1 < arguments.count {
-            let name = arguments[index + 1]
-            return ["chat", "home"].contains(name) ? "orion" : name   // full screens, not sheets
+            return PhoneTab.forSection(arguments[index + 1])
         }
         #endif
-        return "orion"
+        return .home
     }()
-    /// The full screen under the sheets: "home" (first, wave 16) or "chat". `--tab orion` or `--tab chat`
+    /// Pushed screens on the More tab. `--push focus|night|today` (Simulator only) opens one.
+    @State private var morePath: [MoreRoute] = []
+
+    /// What the Home tab shows: "home" (first, wave 16) or "chat". `--tab orion` or `--tab chat`
     /// (Simulator only) starts on the chat, as the screenshot checks expect.
     @State private var screen: String = {
         #if targetEnvironment(simulator)
@@ -217,87 +217,139 @@ struct PhoneRootView: View {
         #endif
     }()
     @State private var conversationID: String?
-    @State private var loggingFood = false
     @AppStorage("orion.appearance") private var appearance = "dark"
 
-    private var sheetOpen: Binding<Bool> {
-        Binding(get: { tab != "orion" }, set: { if !$0 { tab = "orion" } })
-    }
     private var colorScheme: ColorScheme? { appearance == "light" ? .light : appearance == "system" ? nil : .dark }
+
+    private var showsTabBar: Bool { !(tab == .home && screen == "chat") }
 
     private var shell: some View {
         PhoneDrawerHost(open: $drawerOpen) {
+            VStack(spacing: 0) {
+                tabContent
+                if showsTabBar {
+                    PhoneTabBar(selection: $tab, badges: [.more: remote.snapshot?.approvals.count ?? 0])
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .background(Phone.ink.ignoresSafeArea())
+        } drawer: {
+            // The drawer is chat history only: everything else is a tab.
+            PhoneDrawer(chats: ChatSummary.list(from: remote.conversation), currentChat: conversationID,
+                        online: remote.presence == .online, appearance: $appearance,
+                        onNewChat: { conversationID = UUID().uuidString; showChat(); drawerOpen = false },
+                        onOpenChat: { conversationID = $0; showChat(); drawerOpen = false })
+        }
+    }
+
+    /// Each tab is a full screen with its own navigation stack.
+    @ViewBuilder private var tabContent: some View {
+        switch tab {
+        case .home:
             NavigationStack {
                 ZStack {
                     if screen == "home" {
-                        PhoneHomeScreen(remote: remote, planner: planner, routine: routine, onMenu: { drawerOpen = true },
-                                        onOpenChat: { show("chat") }, onOpenSection: { tab = $0 },
-                                        onLogFood: { loggingFood = true })
+                        PhoneHomeScreen(remote: remote, planner: planner, routine: routine,
+                                        onOpenChat: { show("chat") }, onOpenSection: open)
                             .transition(.opacity)
                     } else {
                         ConversationView(remote: remote, conversationID: $conversationID, onMenu: { drawerOpen = true },
-                                         onLogFood: { loggingFood = true }, onHome: { show("home") })
+                                         onHome: { show("home") })
                             .transition(.opacity)
                     }
                 }
             }
-        } drawer: {
-            PhoneDrawer(chats: ChatSummary.list(from: remote.conversation), currentChat: conversationID,
-                        waitingApprovals: remote.snapshot?.approvals.count ?? 0, online: remote.presence == .online,
-                        appearance: $appearance,
-                        onNewChat: { conversationID = UUID().uuidString; show("chat"); drawerOpen = false },
-                        onOpenChat: { conversationID = $0; show("chat"); drawerOpen = false },
-                        onOpenSection: { section in
-                            if section == "home" { show("home") } else { tab = section }
-                            drawerOpen = false
-                        },
-                        onLogFood: { drawerOpen = false; loggingFood = true })
+        case .plan: NavigationStack { plan }
+        case .health: NavigationStack { HealthView(remote: remote) }
+        case .lists: NavigationStack { listsScreen }
+        case .more:
+            NavigationStack(path: $morePath) { moreScreen }
         }
-        .foodLogging(trigger: $loggingFood, remote: remote, conversationID: conversationID)
     }
 
-    @ViewBuilder private var sectionScreen: some View {
-        switch tab {
-        case "plan": plan
-        case "health": HealthView(remote: remote)
-        case "control": control
-        #if targetEnvironment(simulator)
-        // Simulator only (`--tab lists|night|todos`): screens that need a tap to reach, for screenshot checks.
-        case "lists": FocusListsView()
-        case "night": RoutineSettingsSheet(routine: routine)
-        case "todos":
-            ScrollView {
-                PhoneHeader(eyebrow: "Plan", title: "To-dos").padding(.horizontal, 22)
-                TodoListScreen(items: [
-                    TodoItem(id: "1", title: "Reply to Prof. Hale", due: Date().addingTimeInterval(7200), priority: .high, notes: "Tags: school"),
-                    TodoItem(id: "2", title: "Essay outline", due: Date().addingTimeInterval(86_400), priority: .medium),
-                    TodoItem(id: "3", title: "Book the gym", done: true),
-                ], actions: TodoActions(add: { _ in }, toggle: { _ in }, rename: { _, _ in }, setPriority: { _, _ in }, setDue: { _, _ in },
-                                        setNotes: { _, _ in }, delete: { _ in }, reorder: { _ in }), density: .touch)
-                    .padding(.horizontal, 22)
+    /// A legacy section name (a Home card, a link) lands on its tab.
+    private func open(_ section: String) {
+        tab = PhoneTab.forSection(section)
+        drawerOpen = false
+    }
+
+    private func showChat() { tab = .home; show("chat") }
+
+    private var listsScreen: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                PhoneHeader(eyebrow: "Open \(planner.todos.filter { !$0.done }.count)", title: "Lists", tint: Phone.green)
+                if planner.access == .granted { TodoListView(planner: planner) } else { connectPlanner }
+                if let problem = planner.problem { Text(problem).font(.footnote).foregroundStyle(Phone.orange) }
             }
-            .phoneScreen()
+            .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 30)
+        }
+        .phoneScreen()
+        .navigationTitle("Lists")
+    }
+
+    private var moreScreen: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 30) {
+                PhoneHeader(eyebrow: "Settings and tools", title: "More")
+                VStack(spacing: 0) {
+                    moreRow("Focus lists", "App lists that ORION can block", symbol: "lock.shield", route: .focus)
+                    moreRow("Night routine", "Bedtime, alarm and wind down", symbol: "moon.stars", route: .night)
+                    moreRow("Today summary", "Tonight, your to-dos and water", symbol: "sun.max", route: .today)
+                }
+                controlContent
+            }
+            .font(.system(size: 15))
+            .foregroundStyle(Phone.text)
+            .padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 30)
+        }
+        .phoneScreen()
+        .navigationTitle("More")
+        #if targetEnvironment(simulator)
+        .task {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "--push"), index + 1 < arguments.count,
+                  let route = MoreRoute(rawValue: arguments[index + 1]), morePath.isEmpty else { return }
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            morePath = [route]
+        }
         #endif
-        default: today
+        .navigationDestination(for: MoreRoute.self) { route in
+            switch route {
+            case .focus: FocusListsView()
+            case .night: RoutineSettingsSheet(routine: routine, embedded: true)
+            case .today: today
+            }
         }
     }
 
-    private var sheetContent: some View {
-        PhoneSheetFrame(close: { tab = "orion" }) { sectionScreen }
-            .tint(Phone.accent).preferredColorScheme(colorScheme)
+    private func moreRow(_ title: String, _ detail: String, symbol: String, route: MoreRoute) -> some View {
+        NavigationLink(value: route) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol).font(.system(size: 18, weight: .light)).foregroundStyle(Phone.accent).frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 16)).foregroundStyle(Phone.text)
+                    Text(detail).font(.system(size: 12.5)).foregroundStyle(Phone.dim)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(Phone.dim)
+            }
+            .frame(minHeight: 56).contentShape(Rectangle())
+            .overlay(alignment: .bottom) { Rectangle().fill(Phone.hairline).frame(height: 1) }
+        }
+        .buttonStyle(PhonePressStyle())
+        .accessibilityIdentifier("more-\(route.rawValue)")
     }
 
     var body: some View {
         shell
-        .sheet(isPresented: sheetOpen) { sheetContent }
         .tint(Phone.accent)
         .preferredColorScheme(colorScheme)
-        .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { _ in tab = "orion"; show("chat"); drawerOpen = false }
-        .onAppear { if ThreadTarget.pending != nil { tab = "orion"; screen = "chat" } }
+        .onReceive(NotificationCenter.default.publisher(for: .orionOpenThread)) { _ in showChat(); drawerOpen = false }
+        .onAppear { if ThreadTarget.pending != nil { tab = .home; screen = "chat" } }
         .task {
             #if targetEnvironment(simulator)
             if ProcessInfo.processInfo.arguments.contains("--sample") { loadSample() }
-            if ProcessInfo.processInfo.arguments.contains("--food") { loggingFood = true }
             if reviewsConnection {
                 do { reviewedSetup = try PhoneHTTPReadSession.loadSetup() }
                 catch { setupStatus = "Connection setup is unavailable. Start a new preview on your Mac." }
@@ -388,22 +440,16 @@ struct PhoneRootView: View {
         .onOpenURL { url in
             // orion://show/<tab> from a widget or the lock screen.
             guard url.scheme == "orion" else { return }
-            if url.host == "listen" { tab = "orion"; show("chat"); return }
-            // orion://water/add: the lock-screen water ring, where iOS opened the app instead of running its button.
-            if url.host == "water" {
+            guard let route = PhoneRoute.resolve(url) else { return }
+            switch route {
+            case .chat: showChat()
+            case .tab(let target): tab = target; morePath = []
+            case .addWater:
+                // orion://water/add: the lock-screen water ring, where iOS opened the app instead of running its button.
                 if let directory = GlanceStore.directory, (try? WaterTap.record(in: directory)) != nil {
                     WaterCourier.reloadSurfaces()
                     Task { await WaterCourier.flush(directory: directory) }
                 }
-                return
-            }
-            switch url.lastPathComponent {
-            case "tasks", "calendar", "plan": tab = "plan"
-            case "health": tab = "health"
-            case "projects", "control": tab = "control"
-            case "orion", "chat": tab = "orion"; show("chat")
-            case "home": tab = "orion"; show("home")
-            default: tab = "today"
             }
             drawerOpen = false
         }
@@ -556,19 +602,11 @@ struct PhoneRootView: View {
                     FinishEarlyButton(context: remote.snapshot?.earlyFinish, feedback: remote.earlyFeedback, onPress: remote.finishEarly)
                     if planner.access == .granted {
                         dayBar
-                        Picker("View", selection: $planMode) {
-                            Text("Schedule").tag("schedule")
-                            Text("To-dos").tag("todos")
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityIdentifier("planMode")
-                        if planMode == "schedule" { planControls }
+                        planControls
                     } else {
                         connectPlanner
                     }
-                    if planMode == "todos" && planner.access == .granted {
-                        TodoListView(planner: planner)
-                    } else if planner.access == .granted {
+                    if planner.access == .granted {
                         let night = routine.markers(for: planner.day, planner: planner, snapshot: remote.snapshot)
                         DayScheduleView(items: items, day: planner.day, onSelect: { selectedItem = $0 },
                                         wake: night.wake, bed: night.bed, woke: night.woke, fellAsleep: night.fellAsleep)
@@ -592,7 +630,7 @@ struct PhoneRootView: View {
             }
             // Re-aimed whenever what is drawn changes: on first show, after access
             // is granted, and on each day change -- not only once at launch.
-            .task(id: "\(planner.access)-\(planner.day.timeIntervalSince1970)-\(planMode)") {
+            .task(id: "\(planner.access)-\(planner.day.timeIntervalSince1970)") {
                 try? await Task.sleep(nanoseconds: 150_000_000)
                 withAnimation(.easeOut(duration: 0.35)) {
                     proxy.scrollTo(DayScheduleView.anchor(for: items, day: planner.day), anchor: .top)
@@ -645,7 +683,7 @@ struct PhoneRootView: View {
                 .accessibilityLabel("Complete \(todo.title)")
             }
             if open.isEmpty { Text("All clear.").foregroundStyle(Phone.soft) }
-            Button { planMode = "todos"; tab = "plan" } label: { Label("All to-dos", systemImage: "arrow.right") }
+            Button { tab = .lists } label: { Label("All to-dos", systemImage: "arrow.right") }
                 .buttonStyle(PhoneButtonStyle())
         }
     }
@@ -714,7 +752,6 @@ struct PhoneRootView: View {
 
     private var controlContent: some View {
         VStack(alignment: .leading, spacing: 30) {
-            PhoneHeader(eyebrow: "Your Mac, from anywhere", title: "Control")
             RemoteSections(remote: remote)
             SignalsSection(signals: PhoneSignals.shared)
             PresenceSection(presence: LivePresence.shared)
@@ -821,7 +858,7 @@ struct PhoneRootView: View {
     /// The Mac's own state lives on Control; only an approval is worth interrupting for.
     @ViewBuilder private var realToday: some View {
         if let waiting = remote.snapshot?.approvals, !waiting.isEmpty {
-            Button { tab = "control" } label: {
+            Button { tab = .more } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "hand.raised.fill").foregroundStyle(Phone.orange)
                     Text(waiting.count == 1 ? "ORION is waiting for your approval" : "\(waiting.count) approvals waiting")
@@ -838,7 +875,7 @@ struct PhoneRootView: View {
         }
         TonightCard(routine: routine)
         if planner.access == .granted { todayFromPlanner } else { connectPlanner }
-        TodayTracking(remote: remote, openHealth: { tab = "health" })
+        TodayTracking(remote: remote, openHealth: { tab = .health })
     }
 
     private func controlSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -980,4 +1017,9 @@ struct PhoneRootView: View {
             sampleError = nil
         } catch { sampleError = "The sample could not be loaded." }
     }
+}
+
+/// Screens pushed from the More tab.
+enum MoreRoute: String, Hashable {
+    case focus, night, today
 }

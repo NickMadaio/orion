@@ -15,11 +15,11 @@ public enum HealthReadout {
 
     /// Sleep as a share of what was needed, 0...1.
     public static func sleepFraction(_ day: LinkSnapshot.HealthDay) -> Double? {
-        day.sleepPerformance.map { min(1, max(0, Double($0) / 100)) }
+        RingMath.fraction(day.sleepPerformance.map(Double.init), of: 100)
     }
 
     public static func strainFraction(_ day: LinkSnapshot.HealthDay) -> Double? {
-        day.strain.map { min(1, max(0, $0 / strainMax)) }
+        RingMath.fraction(day.strain, of: strainMax)
     }
 
     public static func lines(_ day: LinkSnapshot.HealthDay) -> [String] {

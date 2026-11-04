@@ -559,13 +559,21 @@ struct TonightCard: View {
 struct RoutineSettingsSheet: View {
     @ObservedObject var routine: NightRoutine
     @Environment(\.dismiss) private var dismiss
+    /// Pushed from More: no stack or Done button of its own.
+    var embedded = false
 
     private func kicker(_ text: String) -> some View {
         Text(text).textCase(.uppercase).font(Phone.mono(10)).tracking(2.2).foregroundStyle(Phone.sleep)
     }
 
     var body: some View {
-        NavigationStack {
+        if embedded { form } else {
+            NavigationStack { form.toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } } }
+        }
+    }
+
+    private var form: some View {
+        Group {
             Form {
                 Section {
                     Picker("Latest bedtime", selection: $routine.settings.bedtimeMinute) {
@@ -596,7 +604,6 @@ struct RoutineSettingsSheet: View {
             .scrollContentBackground(.hidden).background(PhoneBackdrop(tint: Phone.sleep))
             .tint(Phone.sleep)
             .navigationTitle("Tonight").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
 }

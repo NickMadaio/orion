@@ -14,10 +14,8 @@ struct PhoneHomeScreen: View {
     @ObservedObject var planner: PlannerStore
     @ObservedObject var routine: NightRoutine
     @ObservedObject private var lock = FocusLock.shared
-    let onMenu: () -> Void
     let onOpenChat: () -> Void
     let onOpenSection: (String) -> Void
-    var onLogFood: () -> Void = {}
 
     @State private var decided: [String: Bool] = [:]
     @State private var answered: Set<String> = []
@@ -57,7 +55,6 @@ struct PhoneHomeScreen: View {
 
     private var actions: PhoneHomeActions {
         var actions = PhoneHomeActions()
-        actions.onMenu = onMenu
         actions.onOpenChat = onOpenChat
         // The notification-tap path: the root switches to the chat, which binds the reply to this ask.
         actions.onReply = { ThreadTarget.open($0) }
@@ -72,7 +69,6 @@ struct PhoneHomeScreen: View {
         actions.onAddWater = addWater
         actions.onOpenGlance = { kind in onOpenSection(kind == .focus ? "control" : "health") }
         actions.onOpenPlan = { onOpenSection("plan") }
-        actions.onLogFood = onLogFood
         return actions
     }
 

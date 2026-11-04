@@ -34,7 +34,7 @@ struct HealthView: View {
     private func vitals(_ day: LinkSnapshot.HealthDay) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .top, spacing: 0) {
-                PhoneGauge(label: "Recovery", figure: day.recovery.map { "\($0)" } ?? "—", fraction: day.recovery.map { Double($0) / 100 },
+                PhoneGauge(label: "Recovery", figure: day.recovery.map { "\($0)" } ?? "—", fraction: RingMath.fraction(day.recovery.map(Double.init), of: 100),
                            unit: "%", tint: RecoveryRing.tint(day.recovery), size: 96)
                     .frame(maxWidth: .infinity)
                 PhoneGauge(label: "Sleep", figure: day.sleepHours.map { String(format: "%.1f", $0) } ?? "—",
@@ -63,7 +63,7 @@ struct HealthView: View {
                     VStack(spacing: 8) {
                         ZStack {
                             Circle().stroke(Phone.wash(0.08), lineWidth: 3)
-                            Circle().trim(from: 0, to: CGFloat(day.recovery ?? 0) / 100)
+                            Circle().trim(from: 0, to: CGFloat(RingMath.fraction(day.recovery.map(Double.init), of: 100) ?? 0))
                                 .stroke(RecoveryRing.tint(day.recovery), style: StrokeStyle(lineWidth: 3, lineCap: .round))
                                 .rotationEffect(.degrees(-90))
                             Text(day.recovery.map { "\($0)" } ?? "—").font(Phone.mono(10, .medium)).foregroundStyle(Phone.soft)

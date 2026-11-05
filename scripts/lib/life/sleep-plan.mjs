@@ -85,7 +85,7 @@ const ASKED_REASONS = new Set(["plan", "class"]);
 export function wakePlanDoc({ now, days, config }) {
   const plan = sleepPlanOf(config);
   const byNick = Object.keys(plan.byDay).length > 0 || Number.isInteger(plan.firstClassLeadMin)
-    || Object.values(plan.overrides ?? {}).some((t) => t !== "off");
+    || Object.values(plan.overrides ?? {}).some((t) => t !== "off") || plan.bedFixed === true || Object.keys(plan.bedOverrides ?? {}).length > 0;
   return {
     source: byNick ? "nick" : "default",
     generatedAt: now.toISOString(),

@@ -4,6 +4,7 @@
 // Pure: minutes after midnight in, a verdict out. The files are read by presence().
 import { toMinute } from "../life/config.mjs";
 import { actualWake } from "../life/night.mjs";
+import { effectiveBedtime } from "../life/effective-bed.mjs";
 
 /** Only these may bypass quiet hours. Bedtime nags, check-ins and nudges never do. */
 export const URGENT_KINDS = Object.freeze(["reminder", "class"]);
@@ -39,7 +40,7 @@ export function sleepWindowFor({ date, config, night = null, nights = [] }) {
   const days = night?.days ?? [];
   const today = days.find((d) => d?.date === date);
   const yesterday = days.find((d) => d?.date === dayBefore(date));
-  const cfgBed = toMinute(config?.bedtime ?? "00:00");
+  const cfgBed = toMinute(effectiveBedtime(config, date));
   const bed = Number.isFinite(today?.bed) ? today.bed : cfgBed < 12 * 60 ? 1440 + cfgBed : cfgBed;
   const wake = Number.isFinite(today?.plannedWake) ? today.plannedWake : Number.isFinite(today?.wake) ? today.wake : toMinute(config?.usualWake ?? "09:00");
   const lastBed = Number.isFinite(yesterday?.bed) ? yesterday.bed : null;

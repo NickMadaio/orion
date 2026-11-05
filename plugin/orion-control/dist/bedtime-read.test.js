@@ -26,8 +26,17 @@ describe("readBedtimeChange, in his phrasing", () => {
         expect(r("push my bedtime back an hour from now on")).toEqual({ shift: 60, scope: "always" });
         expect(r("bump bedtime earlier by 20 mins")).toEqual({ shift: -20, scope: "tonight" });
     });
+    it("L2: going to bed at <time> is tonight's bedtime; past tense is a sleep log, not a change", () => {
+        expect(r("No. I took a really long nap, so I'm going to bed at eleven forty five.")).toEqual({ time: "23:45", scope: "tonight" });
+        expect(r("im going to bed at 11")).toEqual({ time: "23:00", scope: "tonight" });
+        expect(r("sleeping at 11:30 tonight")).toEqual({ time: "23:30", scope: "tonight" });
+        expect(r("gonna sleep at midnight")).toBeUndefined(); // no clock digits to read; the model asks
+        expect(r("i went to bed at 1 last night")).toBeUndefined();
+        expect(r("slept at 3 lol")).toBeUndefined();
+        expect(r("going to bed now")).toBeUndefined();
+    });
     it("is not a bedtime change", () => {
-        for (const s of ["what's my bedtime", "when is bedtime", "im going to bed at 11", "wake me at half 6 tomorrow", "i dont want a bedtime", "push my alarm to 7", "bedtime earlier", "i wanna sleep earlier this week", "push my bedtime to 6"])
+        for (const s of ["what's my bedtime", "when is bedtime", "wake me at half 6 tomorrow", "i dont want a bedtime", "push my alarm to 7", "bedtime earlier", "i wanna sleep earlier this week", "push my bedtime to 6"])
             expect(r(s)).toBeUndefined();
     });
 });

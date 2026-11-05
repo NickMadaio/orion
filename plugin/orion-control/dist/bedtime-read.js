@@ -17,6 +17,7 @@ const FILLER = /\b(?:um+|uh+|erm|hmm+|like|just|literally|basically|actually|ple
 const BED = String.raw `(?:bed\s?times?|bed\s?tims?|bedtimes?|sleep\s?times?|lights?\s?out|asleep[- ]by|go(?:ing)? to (?:bed|sleep))`;
 const VERB = /\b(?:push|move|shift|set|change|make|put|bump|adjust|reschedule|update|have|let)\b/;
 const WANT = /\b(?:i\s+(?:want|wanna|need|would like|'?d like|'?d rather)|can we|can you|could you|lets|let'?s|gonna|going to)\b/;
+const PAST_SLEEP = /\b(?:went|got|was|fell|passed out|crashed|slept|woke|been)\b.{0,20}\b(?:bed|sleep|asleep)\b|\b(?:slept|fell asleep|went to bed|got to bed|got into bed)\b/;
 const QUESTION_START = /^(?:what|whats|when|why|how|is|are|does|do you|did|was|which)\b/;
 const NEGATED = /\b(?:don'?t|dont|do not|never|stop|cancel|forget|not)\b.{0,12}\b(?:bed\s?time|sleep|bed)\b/;
 const TONIGHT = /\b(?:tonight|tn|just (?:for )?(?:tonight|today|now)|this once|for now|only tonight|today)\b/;
@@ -74,10 +75,10 @@ export function readBedtimeChange(message) {
         return undefined;
     if (QUESTION_START.test(m) || NEGATED.test(m) || /\b(?:wake|alarm|get up)\b/.test(m))
         return undefined;
-    if (!new RegExp(BED).test(m) && !/\bsleep at\b|\bbed at\b|\bto sleep\b/.test(m))
+    if (!new RegExp(BED).test(m) && !/\bsleep(?:ing)? at\b|\bbed at\b|\bto sleep\b|\bheading to bed\b|\boff to bed\b/.test(m))
         return undefined;
-    // "im going to bed at 11" states where he is going; the bedtime flow and the goodnight reply own that.
-    if (/\b(?:i'?m|im|i am|i'?ll|ill)\s+(?:going|heading|off) to (?:bed|sleep)\b/.test(m) && !VERB.test(m) && !WANT.test(m.replace(/\bgoing to\b/, "")))
+    // Past tense ("went to bed at 1", "slept at 3") is a sleep log, not a change. "going to bed at 11" / "sleeping at 11:45" is tonight's bedtime.
+    if (PAST_SLEEP.test(m))
         return undefined;
     const standing = STANDING.test(m);
     const tonight = TONIGHT.test(m);
@@ -86,7 +87,7 @@ export function readBedtimeChange(message) {
         const time = bedClock(Number(t[1]), Number(t[2] ?? 0), t[3]);
         if (!time)
             return undefined;
-        if (!VERB.test(m) && !WANT.test(m) && !standing && !/\b(?:bed\s?time|sleep\s?time)\b/.test(m) && !/\b(?:sleep|bed) at\b/.test(m))
+        if (!VERB.test(m) && !WANT.test(m) && !standing && !/\b(?:bed\s?time|sleep\s?time)\b/.test(m) && !/\b(?:sleep(?:ing)?|bed|going to (?:bed|sleep)|heading to bed|off to (?:bed|sleep)|gonna sleep|gonna go to bed) at\b/.test(m))
             return undefined;
         const pushed = /\b(?:push|move|shift|bump)\b/.test(m);
         return { time, scope: standing ? "always" : tonight || pushed || WANT.test(m) && !/\bbed\s?time\b/.test(m) ? "tonight" : "always" };

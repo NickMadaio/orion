@@ -30,6 +30,17 @@ describe("L1: push my bedtime to, um, eleven forty five", () => {
         expect(reply).not.toContain("lockdown"); // 6h05 is above the 6h line
     });
 });
+describe("L2: going to bed at eleven forty five", () => {
+    it("is a tonight-only bedtime update with the read-back line, never a stale alarm", async () => {
+        const said = "No. I took a really long nap, so I'm going to bed at eleven forty five.";
+        const { run, calls } = script();
+        const turn = readSleepTurn(said, { now });
+        expect(turn).toEqual({ kind: "bedset", change: { time: "23:45", scope: "tonight" } });
+        const out = await runSleepTurn(turn, { run, now });
+        expect(calls[0]).toEqual(["bedtime", "23:45", "--tonight", "--json"]);
+        expect(out.flow.reply).toMatch(/^Bedtime 11:45pm tonight\..*alarm still 5:50am/);
+    });
+});
 describe("the same writer for every phrasing", () => {
     const cases = [
         ["push bedtime back 30 min", ["bedtime", "shift", "30", "--tonight", "--json"]],

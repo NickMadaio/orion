@@ -2,6 +2,7 @@ import { describeDuration } from "./ambient.js";
 import { ampm12 } from "./reminder-flow.js";
 import { normalizeSpoken } from "./spoken-numbers.js";
 import { timerLength, timerSeconds } from "./tool-moves.js";
+import { REMINDER_START, takeClause } from "./ask-clauses.js";
 const LABEL = /\btimer\b\s*(?:for|to|called|named|:)?\s+(?:the |my |a |an |some )?([a-z][a-z' ]{1,30}?)\s*[.!]*$|\b(?:for|to)\s+(?:the |my |a |an |some )?([a-z][a-z' ]{1,30}?)\s*[.!]*$/i;
 const NOT_LABEL = /^(?:instead|rather|actually|for|of|me|now|please|pls|then|min|mins|minutes?|hours?|seconds?|a while|real quick)$/i;
 /** "set a 10 min timer for the pasta": 600 s, "pasta". Undefined when it is not an order for a new timer. "instead" swaps the one just set (hasLast), else is nothing. */
@@ -40,14 +41,12 @@ export function splitAsk(text, isHit, isRest) {
     return undefined;
 }
 /**
- * A timer order joined to another ask, in either order ("set a 10 min timer and move my gym to 6", "move my gym to 6 and set a 10 min timer"):
- * the timer clause and the rest. Undefined for a single ask, or when the other side is not a request ("... for mac and cheese").
+ * A timer order joined to other asks, in any position: the timer's own clause and the message left (ask-clauses.ts). Undefined for a single ask.
+ * "set a 10 min timer for mac and cheese" is one clause; a reminder's words ("remind me at 5 to eat") are never taken for a timer.
  */
 export function splitTimerAsk(message) {
-    if (timerSeconds(message.trim()) === undefined)
-        return undefined;
-    const s = splitAsk(message, (part) => timerSeconds(part) !== undefined, (part) => REST.test(part) && !/\btimer\b/i.test(part));
-    return s ? { timer: s.hit, rest: s.rest } : undefined;
+    const s = takeClause(message, (c) => timerSeconds(c) !== undefined && !REMINDER_START.test(c.trim()));
+    return s ? { timer: s.clause, rest: s.rest } : undefined;
 }
 export async function runTimer(ask, deps) {
     const calls = [`timer_set ${ask.seconds}s ${ask.label}`];

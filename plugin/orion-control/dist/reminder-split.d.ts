@@ -1,6 +1,6 @@
 import type { Reminder } from "./ambient.js";
 import { type Extracted, type StoredReminder } from "./reminder-flow.js";
-/** "put pasta prep in at 6pm and remind me at 5 to buy pasta" (either order): the reminder clause and the rest. */
+/** A reminder clause and the message left. The reminder's own words run to a sentence break, "also", "then" or a question (ask-clauses.ts), never to a plain "and". */
 export declare function splitReminderAsk(message: string): {
     clause: string;
     rest: string;

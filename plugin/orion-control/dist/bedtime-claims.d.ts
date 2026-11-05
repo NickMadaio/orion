@@ -4,4 +4,4 @@ export declare const claimsBedtimeChange: (sentence: string) => boolean;
 /** The draft without sentences that claim a bedtime change no tool made; unchanged when a sleep-plan write ran this turn. */
 export declare function withoutUnverifiedBedtimeClaims(draft: string, tools: ReadonlyArray<{
     canonical: string;
-}>): string;
+}>, stateDir?: string): string;

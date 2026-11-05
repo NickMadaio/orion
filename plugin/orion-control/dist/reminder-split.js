@@ -1,11 +1,9 @@
 import { planReminder } from "./reminder-flow.js";
-import { splitAsk } from "./timer-flow.js";
-const CLAUSE = /^(?:(?:and|also|then|please|pls)\s+)*(?:remind me|ping me|nudge me|set (?:me )?a reminder|buzz me|give me a (?:ping|nudge|reminder))\b/i;
-const REST = /^(?:move|add|put|schedule|book|push|cancel|delete|remove|text|send|play|turn|log|call|make|take|drop|skip|plan|shift|open|set|start|\d)\b|^(?:a|an)\s+\d/i;
-/** "put pasta prep in at 6pm and remind me at 5 to buy pasta" (either order): the reminder clause and the rest. */
+import { REMINDER_START, takeClause } from "./ask-clauses.js";
+/** A reminder clause and the message left. The reminder's own words run to a sentence break, "also", "then" or a question (ask-clauses.ts), never to a plain "and". */
 export function splitReminderAsk(message) {
-    const s = splitAsk(message, (part) => CLAUSE.test(part.trim()), (part) => REST.test(part.trim()) && !CLAUSE.test(part.trim()));
-    return s ? { clause: s.hit, rest: s.rest } : undefined;
+    const s = takeClause(message, (c) => REMINDER_START.test(c.trim()));
+    return s ? { clause: s.clause, rest: s.rest } : undefined;
 }
 /** Sets the reminders the clause asks for and says so from the store; undefined when the planner would not set a plain one-off (the whole message goes on as before). */
 export async function runReminderClause(clause, deps) {

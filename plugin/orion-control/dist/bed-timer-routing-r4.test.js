@@ -221,7 +221,7 @@ describe("w20 r6 #17: 'scrap the water ping' cancels the water reminder", () => 
 describe("w20 r6 #100: a reminder joined to another ask is a reminder, and the other ask still runs", () => {
     it.each([
         ["put pasta prep in at 6pm and remind me at 5 to buy pasta", "pasta prep"],
-        ["remind me at 5 to buy pasta and put pasta prep in at 6pm", "pasta prep"],
+        ["remind me at 5 to buy pasta. also put pasta prep in at 6pm", "pasta prep"], // a plain "and" would keep it inside the reminder (multi-peel-r6.test.ts)
         ["add gym at 7 and ping me at 6 to pack my bag", "gym"],
         ["move leetcode to 4, then remind me at 3 to charge my laptop", "leetcode"],
         ["book a call with dad at 6pm and nudge me at 5 to ring mum", "call with dad"],

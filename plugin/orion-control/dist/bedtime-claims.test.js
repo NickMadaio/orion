@@ -18,3 +18,26 @@ describe("kept", () => {
         expect(guard(said, none)).toBe(said);
     });
 });
+describe("review r6: only a claimed CHANGE to the bedtime is dropped", () => {
+    it.each([
+        "Yes, your bedtime is set for 11:30 PM already, so you are on track.",
+        "You set your bedtime to 11 yesterday and kept it.",
+        "I changed your gym to 6, that leaves time before bedtime at 11.",
+        "Your bedtime is set for 11:30 PM.",
+        "Your bedtime is usually 11:30.",
+        "I moved your gym to 7. Your bedtime stays at 11:30 PM.",
+        "Gym ends at 10, so you have an hour before bedtime at 11.",
+    ])("kept: %s", (said) => { expect(guard(said, none)).toBe(said); });
+    it("drops only the bedtime sentence and keeps the gym one", () => {
+        expect(guard("I moved your gym to 6. I set your bedtime to 11:30 PM tonight.", none)).toBe("I moved your gym to 6. " + BEDTIME_UNSAVED);
+    });
+    it("a claim is kept when the time it states is the bedtime the plan already holds", async () => {
+        const { mkdtempSync, writeFileSync } = await import("node:fs");
+        const { tmpdir } = await import("node:os");
+        const { join } = await import("node:path");
+        const dir = mkdtempSync(join(tmpdir(), "bc-"));
+        writeFileSync(join(dir, "wake-plan.json"), JSON.stringify({ bedtimes: [{ date: "2026-11-05", sleepBy: "23:30" }] }));
+        expect(guard("I set your bedtime to 11:30 PM tonight.", none, dir)).toBe("I set your bedtime to 11:30 PM tonight.");
+        expect(guard("I set your bedtime to 11:45 PM tonight.", none, dir)).toBe(BEDTIME_UNSAVED);
+    });
+});

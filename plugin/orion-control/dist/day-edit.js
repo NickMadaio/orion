@@ -18,7 +18,7 @@ import { readBedtimeChange } from "./bedtime-read.js";
 import { normalizeSpoken } from "./spoken-numbers.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/[…]/g, ".").replace(/\s+/g, " ").trim();
 const FILLER = /\b(?:um+|uh+|erm|hmm+|like|just|literally|basically|actually|please|pls|plz|hey|ok(?:ay)?|alright|hello|so|really|for me|real quick|quickly|lol|lmao|haha|tbh|btw|idk|ish)\b[,]?/g;
-const VERB = /\b(?:add|ass|put|schedule|book|pencil in|move|push|shift|bump|reschedule|clear|drop|delete|remove|cancel|scrap|log|note|mark|record|plan|set)\b/;
+const VERB = /\b(?:add|ass|put|pop|stick|throw|chuck|whack|squeeze|schedule|book|pencil in|move|push|shift|shove|bump|slide|reschedule|clear|drop|delete|remove|cancel|scrap|log|note|mark|record|plan|set)\b/;
 const CLEAR_VERB = /^(?:clear|drop|delete|remove|cancel|scrap)\b/;
 const QUESTION = /\?\s*$|^(?:what|when|why|how|is|are|did|do|does|was|were|have|has|will|should|which|who)\b/;
 const CONDITION = /\b(?:if|unless|whether|wish|hope|maybe|might|what if)\b/;
@@ -32,7 +32,7 @@ const tidy = (raw) => raw.trim().replace(NAME_STOP, "").replace(/\b(?:to|in|on) 
     .replace(/\s+/g, " ").trim().replace(PREP, "").replace(/^(?:me|that|it)\s+/, "").replace(/[.,!?]+$/g, "").replace(/\s+(?:then|though|tho|instead)$/, "").replace(/\s+/g, " ").trim();
 const nameOf = (raw) => { const t = tidy(raw); return t && t.split(" ").length <= 5 && /[a-z]/.test(t) && !/^(?:everything|all|anything|something|it|that|this|day|my day)\b/.test(t) ? t : null; };
 const dayOf = (c, dflt) => (/\b(?:yesterday|last night)\b/.test(c) ? "yesterday" : /\b(?:tomorrow|tmrw)\b/.test(c) ? "tomorrow" : /\b(?:today|tonight|earlier|this (?:morning|afternoon|evening))\b/.test(c) ? "today" : dflt);
-const SPLIT = /[.;!|]+\s*(?=\S)|\s+(?=(?:add|put|schedule) (?:it|that|them|this)\b)|\s+(?:and then|then|also|plus)\s+|\s*,\s*(?=(?:and |also |then )?(?:add|ass|put|move|push|shift|bump|nudge|reschedule|drop|clear|delete|remove|cancel|schedule|book|log|set)\b)|\s+and\s+(?=(?:add|put|move|push|shift|bump|nudge|reschedule|drop|clear|delete|remove|cancel|schedule|book|log)\b)|\s*,\s*(?=(?:and |also |then )?(?:my )?(?:bed\s?time|sleep(?:\s?time)?|wake|alarm|(?:i )?(?:ate|eaten|drank))\b)|\s+and\s+(?=(?:my\s+)?(?:bed\s?time|sleep(?:\s?time)?|wake\s+(?:me|up)|alarm|set (?:an? )?alarm|(?:i )?(?:ate|eaten|drank|did|went to)\b))/;
+const SPLIT = /[.;!|]+\s*(?=\S)|\s+(?=(?:add|put|schedule) (?:it|that|them|this)\b)|\s+(?:and then|then|also|plus)\s+|\s*,\s*(?=(?:and |also |then )?(?:add|ass|put|move|push|shift|bump|nudge|reschedule|drop|clear|delete|remove|cancel|schedule|book|log|set)\b)|\s+and\s+(?=(?:add|put|pop|stick|throw|move|push|shift|shove|slide|bump|nudge|reschedule|drop|clear|delete|remove|cancel|schedule|book|log)\b)|\s*,\s*(?=(?:and |also |then )?(?:my )?(?:bed\s?time|sleep(?:\s?time)?|wake|alarm|(?:i )?(?:ate|eaten|drank))\b)|\s+and\s+(?=(?:my\s+)?(?:bed\s?time|sleep(?:\s?time)?|wake\s+(?:me|up)|alarm|set (?:an? )?alarm|(?:i )?(?:ate|eaten|drank|did|went to)\b))/;
 const BEDTIME = /(?:\b(?:push|move|shift|set|change|make|put)\s+|^(?:and |also |then )?)(?:my\s+)?(?:sleep(?:\s?time)?|bed\s?time|bed)\s+(?:back\s+|earlier\s+|later\s+|up\s+)?(?:to|until|till|at|for)\s+(\S+(?:\s*[ap]\.?m\.?)?)\b/;
 const SLEEP_HOURS = /\b(?:plan|aim|give me|get|want|need)\b.*\b(\d{1,2})\s*(?:hours?|hrs?)\s+(?:of\s+)?sleep\b/;
 const SLEPT_SAY = /^(?:(?:i|ive|i've)\s+)?(?:just\s+)?(?:went to bed|got to bed|got into bed|fell asleep|slept|got to sleep|crashed)\b/;
@@ -141,6 +141,21 @@ function droppedAfter(c, dflt) {
         return { op: "dropafter", day: dayOf(c, dflt), at: bare.s };
     return name ? { op: "dropafter", day: dayOf(c, dflt), name } : null;
 }
+const AFTER_THAT = /^(?:that|it|then|this|the first one|the one before)$/;
+// "shove the orion plan an hour after that", "put dinner right after the gym", "slide study after it": a block placed after another.
+function movedAfter(c, dflt, prev) {
+    const m = /^(?:move|push|shift|shove|slide|bump)\s+(?:my\s+|the\s+)?(.+?)\s+(?:(?<gap>(?:an?|one|half an?|\d+)\s*(?:hours?|hrs?|h|minutes?|mins?))\s+)?(?:right\s+|straight\s+|just\s+|directly\s+)?after\s+(?:my\s+|the\s+)?(?<anchor>[a-z][a-z' ]{0,30})$/.exec(c);
+    if (!m?.groups)
+        return null;
+    const name = nameOf(m[1]);
+    const anchorSaid = m.groups.anchor.trim();
+    // Only "after that / after it": a block named by name ("move gym after dinner") is the calendar layer's own `--after`.
+    const after = AFTER_THAT.test(anchorSaid) ? prev : undefined;
+    if (!name || !after)
+        return null;
+    const gap = m.groups.gap ? takeLength(m.groups.gap).minutes ?? 0 : 0;
+    return { op: "moveafter", name, day: dayOf(c, dflt), after, gap };
+}
 function dropped(c, dflt) {
     const m = CLEAR_VERB.test(c) ? /^(?:clear|drop|delete|remove|cancel|scrap)\s+(?:the\s+|my\s+|that\s+)?(.+)$/.exec(c) : null;
     if (!m || /\b(?:after|before|everything|all)\b/.test(m[1]))
@@ -149,12 +164,12 @@ function dropped(c, dflt) {
     return name ? { op: "drop", name, day: dayOf(c, dflt) } : null;
 }
 function added(c, dflt, carry) {
-    const lead = /^(?:(?:and|also|then|now|can you|could you|ass|add|put|schedule|book|pencil in|plan|set up|set)\s+)+/.exec(c);
+    const lead = /^(?:(?:and|also|then|now|can you|could you|ass|add|put|pop|stick|throw|chuck|whack|squeeze|schedule|book|pencil in|plan|set up|set)\s+)+/.exec(c);
     if (!lead && !carry)
         return null;
     const body = c.slice(lead ? lead[0].length : 0).replace(/^(?:in|on)\s+/, "");
     // "and shift it to 4:30" is a move of what he just made, never a new block called "Shift it".
-    if (/^(?:move|shift|push|bump|nudge|reschedule)\b/.test(body))
+    if (/^(?:move|shift|shove|slide|push|bump|nudge|reschedule)\b/.test(body))
         return null;
     const range = takeRange(body);
     const rest0 = range ? range.rest : body;
@@ -197,7 +212,7 @@ export function readDayEdit(message, now) {
     // "10 to 11pm add gym": a time said before its verb goes behind it
     m = m.replace(/\b(?:add\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to|till|until)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s+(add|put|schedule|book)\s+([a-z][a-z ]{1,24})(?=[.,!]|$)/g, "$2 $3 $1");
     // "study after lunch and gym at 6": a second thing after a time or an anchor is its own clause
-    m = m.replace(/(\b(?:at|from|after|by|until|till)\s+(?:[\d:]+(?:\s*[ap]m)?|noon|midnight|[a-z]+))\s+and\s+(?=(?:[a-z]+ ){1,4}(?:at|from|after|by)\s)/g, "$1|");
+    m = m.replace(/(\b(?:at|from|after|by|until|till)\s+(?:[\d:]+(?:\s*[ap]m)?|noon|midnight|[a-z]+))\s+and\s+(?=(?:[a-z]+ ){1,6}(?:at|from|after|by)\s)/g, "$1|");
     if (QUESTION.test(m) && !/^(?:can|could|would) you\b/.test(m))
         return null;
     const clauses = m.split(SPLIT).map((c) => c.trim()).filter(Boolean);
@@ -221,7 +236,7 @@ export function readDayEdit(message, now) {
             continue;
         // "make the mum call 45 mins and move it to quarter past 6": "it" is the block the clause before named.
         const named = [...parts].reverse().find((x) => "name" in x && !!x.name);
-        if (named && /^(?:move|shift|push|bump|nudge|reschedule)\s+(?:it|that|this)\b/.test(c))
+        if (named && /^(?:move|shift|shove|slide|push|bump|nudge|reschedule)\s+(?:it|that|this)\b/.test(c) && !/\bafter\b/.test(c))
             c = c.replace(/^(\w+)\s+(?:it|that|this)\b/, `$1 ${named.name}`);
         if (/^(?:add|put|schedule|book) (?:it|that|them|this)\b/.test(c) && !/\d/.test(c))
             continue;
@@ -252,7 +267,7 @@ export function readDayEdit(message, now) {
             part = t ? { op: "busy", until: t.s } : null;
         }
         else
-            part = didnt(c, dflt) ?? corrected(c, dflt, nowMin) ?? droppedAfter(c, dflt) ?? dropped(c, dflt) ?? shifted(c, dflt) ?? resized(c, dflt) ?? moved(c, dflt) ?? logged(c, dflt) ?? (FOOD_SAY.test(c) && /\d|\b(?:noon|midnight)\b/.test(c) ? { op: "food", text: c } : null) ?? added(c, dflt, carry);
+            part = didnt(c, dflt) ?? corrected(c, dflt, nowMin) ?? droppedAfter(c, dflt) ?? movedAfter(c, dflt, named?.name) ?? dropped(c, dflt) ?? shifted(c, dflt) ?? resized(c, dflt) ?? moved(c, dflt) ?? logged(c, dflt) ?? (FOOD_SAY.test(c) && /\d|\b(?:noon|midnight)\b/.test(c) ? { op: "food", text: c } : null) ?? added(c, dflt, carry);
         if (part) {
             parts.push(earlyRead(part, c));
             continue;

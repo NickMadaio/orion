@@ -64,6 +64,14 @@ export type EditPart = {
     day: DayRef;
     minutes: number;
 }
+/** "shove the orion plan an hour after that": the block goes after another (the one named, or the one the clause before moved), `gap` minutes after it ends. */
+ | {
+    op: "moveafter";
+    name: string;
+    day: DayRef;
+    after?: string;
+    gap: number;
+}
 /** scope: bedtime-read.ts's reading of the clause ("change my bedtime to 11:30" is every night, "push it to 12" is tonight). */
  | {
     op: "bedtime";

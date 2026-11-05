@@ -72,6 +72,7 @@ import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinute
 import { parseMessagesRead, readNote } from "./messages-read.js";
 import { isAnotherReminder, isBareTime, isReminderTurn, leaveAsReminder, planReminder } from "./reminder-flow.js";
 import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
+import { refusalOf, schedulerArgs } from "./scheduler-preflight.js";
 import { SPEAK_AS_I } from "./self-voice.js";
 import { readPlanReasons, whyFirstAnswer, whyFirstAsk } from "./plan-why.js";
 import { codeDayAnswer, dayRead, isAfterThat, isFirstThingQuestion, noBlockReply } from "./day-read-answers.js";
@@ -2643,6 +2644,18 @@ export function registerLocalRouting(api, options) {
             if (!["none", "finished"].includes(state))
                 return undefined;
             return { block: true, blockReason: "Orion session check: no focus session is running, so there is nothing to pause, resume or end. Do not run another command; tell Nick plainly that no focus session is running, and offer to start one." };
+        });
+    // Live gate run 3 #36 #37 (scheduler-preflight.ts): a worker write the scheduler would refuse never runs, so the host never appends "Exec failed: …" to the reply.
+    if (on && options.realityRun)
+        api.on("before_tool_call", async (event, ctx) => {
+            if (pick(event, ctx, "toolName") !== "exec")
+                return undefined;
+            const args = schedulerArgs(str(event.params?.command) ?? "");
+            if (!args)
+                return undefined;
+            const look = await options.realityRun("orion-reschedule", [...args, "--dry-run"]).catch(() => undefined);
+            const why = look ? refusalOf(look.stdout, look.code) : undefined;
+            return why ? { block: true, blockReason: `Scheduler check: ${why}. Nothing ran and nothing changed. Do not run another command; tell Nick this plainly in one or two short sentences, and offer the closest option.` } : undefined;
         });
     // 2026-10-30 (chatter.ts): out loud, nothing goes into his memory unless he said "remember …" / "note that …" ("Saved: Frozen.").
     if (on)

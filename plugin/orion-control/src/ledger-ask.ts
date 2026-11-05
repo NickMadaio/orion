@@ -22,12 +22,14 @@ export type LedgerAsk = {
   bare: boolean;
   /** His "yes" to a candidate ORION asked about: carry it out. */
   confirmed?: boolean;
+  /** "put it all back", "undo everything": every calendar change of this chat, newest first. */
+  all?: boolean;
   /** "i dont need the stretch reminder": a remark, not an order, so a reminder found only in the store is asked about first. */
   soft?: boolean;
   /** "revert that and the one before it": how many changes to take back (default 1). */
   count?: number;
   /** "get rid of every call with dad": every matching block ORION made, never his own. */
-  all?: boolean;
+  every?: boolean;
 };
 
 const FILLER = String.raw`(?:(?:actually|ok|okay|hey|orion|pls|please|wait|no|nah|yeah|yep|sorry|oh|and|then|just|can you|could you|can u)[,\s]+)*`;
@@ -37,6 +39,7 @@ const UNDO_BARE = new RegExp(String.raw`^${FILLER}${UNDO_WORD}(?:\s+(?:that|it|t
 const PUT_BACK = new RegExp(String.raw`^${FILLER}(?:put|set|move|change)\s+(.+?)\s+back\s+(?:to\s+|in\s+|at\s+)?(?:where it was|where they were|where it (?:normally |usually )?(?:goes|is|belongs|lives)|how it was|how they were|as it was|like it was|to normal|normal|to how it (?:was|is supposed to be)|(?:to |in |at )?its (?:old|original|normal|usual|regular|proper|default|right|own|previous|earlier) (?:time|spot|place|slot|position))(?:\s+(?:before|please|pls))?$`);
 // "stop the pasta timer", "turn off the stretch alarm": only with a timer / alarm / reminder noun (a bare "stop" is the music's).
 const STOP_TIMER = new RegExp(String.raw`^${FILLER}(?:stop|turn off|switch off|end)\s+((?:(?:the|my|that|this)\s+)?(?:[a-z0-9']+\s+){0,2}(?:timers?|alarms?|reminders?))$`);
+const UNDO_ALL = new RegExp(String.raw`^${FILLER}(?:(?:put|set|move|change|get)\s+(?:it all|it|everything|all of it|all of that|all that|them all|the lot|all)(?:\s+all)?\s+back(?:\s+(?:to\s+)?(?:how|like|as|where)\s+(?:it|they)\s+(?:was|were|is supposed to be))?|(?:undo|revert|reverse|take back)\s+(?:it all|everything|all of (?:it|that|this)|all (?:of )?(?:that|this)|the lot|all|all (?:my|the) changes|every ?thing you (?:just )?(?:did|changed|moved))|(?:go|put things) back to (?:how|the way) (?:it|things|everything) (?:was|were))(?:\s+(?:please|pls|thanks))?$`);
 const REMOVE_AT_START = new RegExp(String.raw`^${FILLER}${REMOVE}\s+(.+)$`);
 const UNDO_OBJECT = new RegExp(String.raw`^${FILLER}${UNDO_WORD}\s+(?:the\s+)?(.+)$`);
 const TAKE_OFF = new RegExp(String.raw`^${FILLER}take\s+(.+?)\s+(?:back\s+)?off(?:\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today|food log))?$`);
@@ -70,6 +73,7 @@ function kindsOf(object: string): MadeKind[] {
 export function readLedgerAsk(message: string): LedgerAsk | null {
   const text = clean(message);
   if (!text || text.length > 160) return null;
+  if (UNDO_ALL.test(text)) return { verb: "undo", strong: true, kinds: ["block"], targets: [], pointing: true, bare: true, all: true };
   if (UNDO_BARE.test(text)) {
     const blockish = /\b(?:move|change|edit)\b/.test(text);
     return { verb: "undo", strong: true, kinds: blockish ? ["block"] : [], targets: [], pointing: true, bare: true };
@@ -102,7 +106,7 @@ export function readLedgerAsk(message: string): LedgerAsk | null {
   // "delete that" / "cancel it" with nothing to say what: pointing only.
   if (!targets.length && !pointing && !kinds.length) return null;
   const strong = pointing || kinds.some((k) => k !== "block") || (verb === "undo" && !noNeed);
-  return { verb, strong: strong || everyOne, kinds, targets: everyOne ? groupsOf(object.replace(EVERY, "")) : targets, pointing, bare: false, ...(noNeed ? { soft: true } : {}), ...(everyOne ? { all: true } : {}) };
+  return { verb, strong: strong || everyOne, kinds, targets: everyOne ? groupsOf(object.replace(EVERY, "")) : targets, pointing, bare: false, ...(noNeed ? { soft: true } : {}), ...(everyOne ? { every: true } : {}) };
 }
 
 /** "and the dentist one too": a new target for the removal he just made. Null when it is not that shape. */

@@ -81,6 +81,21 @@ async function undoCalendar(deps, words) {
     const tail = unread ? " I couldn't read your calendar back to check the times." : "";
     return { ...out, text: lines.length || unread ? `${lines.join(" ")}${tail}`.trim() : `Undone: ${r.stdout.replace(/^Undone:?\s*/i, "").trim() || "the last change"}.` };
 }
+/** "put it all back": this chat's calendar changes taken back one at a time, newest first, each read back from the calendar; stops when there is nothing left. */
+async function undoAllCalendar(deps) {
+    const parts = [];
+    for (let i = 0; i < 12; i += 1) {
+        const one = await undoCalendar(deps);
+        if (!one.wroteCalendar) {
+            if (!parts.length)
+                return one;
+            break;
+        }
+        parts.push(one);
+    }
+    const merged = merge(parts);
+    return { ...merged, text: `I put your calendar changes from this chat back, newest first (${parts.length}). ${merged.text}`.trim() };
+}
 /** Takes ONE block off by its calendar id (found among the blocks ORION made); never a title match, so his own same-named events stay. */
 async function dropBlock(deps, title, dateArgs, knownId) {
     const out = acc();
@@ -241,6 +256,8 @@ async function removeEvery(targets, deps) {
 /** The reply and effects for one ledger ask; undefined when a weak ask found nothing it owns (the turn goes on to the ordinary flows). */
 export async function runLedgerAsk(ask, deps) {
     const pointingOnly = ask.pointing && !ask.targets.length && !ask.kinds.length;
+    if (ask.all)
+        return undoAllCalendar(deps);
     if (ask.bare || pointingOnly) {
         const newest = deps.items.at(-1);
         const calendarLast = deps.calendar && topEntry(deps) ? deps.calendar.last : 0;
@@ -259,7 +276,7 @@ export async function runLedgerAsk(ask, deps) {
         return undoCalendar(deps, ask.targets);
     if (ask.verb === "undo" && ask.pointing && ask.kinds.includes("block"))
         return undoCalendar(deps);
-    if (ask.all)
+    if (ask.every)
         return removeEvery(ask.targets, deps);
     const groups = ask.targets.length ? ask.targets : [[]];
     const parts = [];

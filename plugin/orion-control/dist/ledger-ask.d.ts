@@ -12,12 +12,14 @@ export type LedgerAsk = {
     bare: boolean;
     /** His "yes" to a candidate ORION asked about: carry it out. */
     confirmed?: boolean;
+    /** "put it all back", "undo everything": every calendar change of this chat, newest first. */
+    all?: boolean;
     /** "i dont need the stretch reminder": a remark, not an order, so a reminder found only in the store is asked about first. */
     soft?: boolean;
     /** "revert that and the one before it": how many changes to take back (default 1). */
     count?: number;
     /** "get rid of every call with dad": every matching block ORION made, never his own. */
-    all?: boolean;
+    every?: boolean;
 };
 /** The ledger's reading of his message, or null when it is not about undoing or removing something. */
 export declare function readLedgerAsk(message: string): LedgerAsk | null;

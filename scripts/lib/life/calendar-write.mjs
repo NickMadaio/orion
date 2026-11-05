@@ -11,6 +11,8 @@ import { weightOf } from "./priority.mjs";
 import { removeSlips, touchDirty } from "./slips.mjs";
 import { removeLogged } from "./logged.mjs";
 import { recordWritten } from "./written.mjs";
+import { recordMade } from "./made.mjs";
+import { originalDetails } from "./event-details.mjs";
 import { loadConfig } from "./config.mjs";
 
 export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO
@@ -123,6 +125,7 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
         if (pinCreated.includes(c.id)) addedPins.push(result.identifier);
         createdIds[c.id] = result.identifier;
         if (!c.fixed) recordWritten([result.identifier]);   // ORION's own block, whatever calendar it lands on
+        recordMade([result.identifier]);   // everything ORION creates, a plan with people too: what "take that off my day" may remove
         undo.push({ op: "create", identifier: result.identifier, title: payload.title });
         journal();
       }
@@ -138,12 +141,20 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
       }
       for (const block of removed) {
         if (!block?.calendarId) continue;
-        undo.push({ op: "delete", identifier: block.calendarId, title: block.title, start: iso(date, block.start), end: iso(date, block.end),
+        // w20 r3 #65: the journal holds the event's whole self (location, notes, link, calendar) so undo puts back more than a title and a
+        // time. The day read gave the location BEFORE the delete is sent (a kill still leaves it); the bridge's reply to the delete adds
+        // the notes, link and calendar and the entry is rewritten with them.
+        const step = { op: "delete", identifier: block.calendarId, title: block.title, start: iso(date, block.start), end: iso(date, block.end),
+          ...originalDetails(null, block),
           ...(block.source === "orion" ? { orionKind: block.kind } : {}),
-          ...(block.source === "orion" && block.tags?.length ? { orionTags: block.tags.join(",") } : {}) });
+          ...(block.source === "orion" && block.tags?.length ? { orionTags: block.tags.join(",") } : {}) };
+        undo.push(step);
         journal();
-        try { await bridge("delete_calendar_event", { identifier: block.calendarId }); }
+        let gone;
+        try { gone = await bridge("delete_calendar_event", { identifier: block.calendarId }); }
         catch (e) { undo.pop(); journal(); throw e; }
+        const details = originalDetails(gone, block);
+        if (Object.keys(details).length) { undo[undo.indexOf(step)] = { ...step, ...details }; journal(); }
       }
     } catch (error) {
       try { await reverseSteps(undo); }

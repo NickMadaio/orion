@@ -13,7 +13,8 @@ export type DayBlock = {
     end: string;
     fixed: boolean;
     kind?: string;
-    nameable?: boolean;
+    nameable?: boolean; /** ORION booked it itself (w20 r3: it may come off his day when he says so). */
+    made?: boolean;
 };
 /** plan: what `show --json` says about how the scheduler lays this day out (the trip home, the gap between blocks, the daily anchors). */
 export type Day = {

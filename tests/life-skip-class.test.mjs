@@ -31,21 +31,21 @@ function world(t, extra = {}) {
   return { run, titles, skips };
 }
 
-test("skip removes that class occurrence without asking, and undo restores it", (t) => {
+test("skip marks that class occurrence skipped without asking (w20 r3: never deleted), and undo unmarks it", (t) => {
   const w = world(t);
   const r = w.run("skip", "marketing");
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /skipped MKTG2201/);
-  assert.ok(!w.titles().some((x) => /MKTG/.test(x)));
+  assert.ok(w.titles().some((x) => /MKTG/.test(x)), "the class stays on his calendar");
+  assert.equal(w.skips().length, 1);
   assert.equal(w.run("undo").code, 0);
-  assert.ok(w.titles().some((x) => /MKTG/.test(x)));
+  assert.equal(w.skips().length, 0);
 });
 
 test("a read-only class calendar is skipped in ORION's planning instead, and undo brings it back", (t) => {
   const w = world(t, { FAKE_READONLY: "MKTG" });
   const r = w.run("skip", "marketing");
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /read-only/);
   assert.equal(w.skips().length, 1);
   // planning no longer sees it: dropping study then re-adding at 16:00 is not blocked by the class
   const add = w.run("add", "work on orion", "60", "--at", "16:00");

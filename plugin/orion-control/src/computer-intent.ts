@@ -74,6 +74,9 @@ const NOT_OURS = [
   /\b(?:folder|directory|\.txt|\.pdf|\.docx?|files?\b(?!\s*(?:>|→|->)))/i,
 ];
 
+/** w20 r3 (#5, #55): a sentence about WHEN something is or where it goes back to is his schedule, never text for the Mac's keyboard. */
+const SCHEDULE_SHAPE = /\b(?:at|by|around|@)\s*(?:\d|half\b|quarter\b|noon\b|midnight\b)|\bback\s+(?:where|how|to|as|like)\b|\b(?:where|how)\s+(?:it|they)\s+(?:was|were)\b|\b(?:before|after)\s+(?:lunch|dinner|class|my|the)\b|\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i;
+
 const READ_RE = /\b(?:what(?:'|’)?s|what is)\s+on\s+(?:my|the)\s+screen\b|\b(?:look|glance)\s+at\s+(?:my|the)\s+screen\b|\bread\s+(?:me\s+)?(?:this|the|my)\s+(?:slide|page|screen|window|doc(?:ument)?|article)\b|\bwhat\s+am\s+i\s+looking\s+at\b|\bsummari[sz]e\s+(?:this|the|my)\s+(?:slide|page|screen|window)\b|\bwhat(?:'|’)?s\s+(?:this|on\s+this)\s+(?:slide|page|window)\b/i;
 const SUMMARY_RE = /\bsummari[sz]e|\bbullets?\b|\btl;?dr\b|\bgist\b|\bexplain\b/i;
 
@@ -135,7 +138,8 @@ function parseClause(raw: string): Clause | "title" | null {
     && (/\bnew\b|\bone\b|called|titled|named/i.test(text) || /^(?:make|create|start)\b/i.test(text))) {
     return m[1] ? { kind: "new_doc", title: stripQuotes(m[1]) } : { kind: "new_doc" };
   }
-  if ((m = text.match(/^(?:type|write|enter|put)\s+(?:in\s+)?(["“].+?["”]|.+?)(?:\s+(?:in|into)\s+(.+))?$/i)) && !/^up\b/i.test(m[1]!)) {
+  // "put" types only into a named place ("put hello in the box"): bare, it is "put the gym at 7", his schedule.
+  if ((m = text.match(/^(?:type|write|enter|put)\s+(?:in\s+)?(["“].+?["”]|.+?)(?:\s+(?:in|into)\s+(.+))?$/i)) && !/^up\b/i.test(m[1]!) && (!/^put\b/i.test(text) || m[2])) {
     const into = m[2] ? targetRef(m[2], "editable") : undefined;
     return into ? { kind: "type", text: stripQuotes(m[1]!), into } : { kind: "type", text: stripQuotes(m[1]!) };
   }
@@ -178,6 +182,7 @@ export function detectComputerIntent(message: string): ComputerIntent | null {
   if (!text) return null;
   if (READ_RE.test(text)) return { kind: "read", question: text, wantsSummary: SUMMARY_RE.test(text) };
   if (NOT_OURS.some((re) => re.test(text))) return null;
+  if (SCHEDULE_SHAPE.test(text.replace(/["“][^"”]*["”]/g, " "))) return null;
   const app = appIn(text);
   // Quoted text is typed verbatim: shield it from the clause split (its commas are not step boundaries).
   const quotes: string[] = [];

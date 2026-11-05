@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
-import { liveCheckinRun, liveExtractReminder, liveModelWarm, liveReadDay, liveReadDayJson, liveRealityRun, liveReplay, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
+import { liveCheckinRun, liveExtractReminder, liveModelWarm, liveReadDay, liveLedgerRun, liveReadDayJson, liveRealityRun, liveReplay, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
 import { probeOllama } from "./model-outage.js";
 import { createMacBridge } from "./computer-bridge.js";
 import { createComputerWorker } from "./computer-worker.js";
@@ -21,6 +21,7 @@ import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
 import { liveConnectorStatus } from "./code-answers.js";
 import { readReminders, remindersPath } from "./ambient.js";
+import { updateReminders } from "./reminder-store.js";
 import { liveResolveApp, liveSessionExec, liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { liveFocusProfile, liveFocusSites, livePending, liveTasksRun } from "./focus-ready.js";
 import { liveWakeFlow } from "./wake-flow.js";
@@ -1405,6 +1406,8 @@ export function installProvenanceHooks(api) {
             stateDir: process.env.ORION_CONTROLLED_DIR || path.join(os.homedir(), ".openclaw", "orion-controlled"),
             userMdPath: path.join(os.homedir(), ".openclaw", "workspace", "USER.md"),
             scheduleFlow: liveScheduleFlow,
+            ledgerRun: liveLedgerRun, // w20 r3: undo / remove what ORION made (ledger-run.ts)
+            removeReminders: (ids) => updateReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined), (list) => list.filter((r) => !ids.includes(r.id))).then(() => undefined),
             readDay: liveReadDay,
             readDayJson: liveReadDayJson,
             readDeadlines: liveReadDeadlines,

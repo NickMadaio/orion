@@ -523,6 +523,11 @@ enum OrionMacBridge {
             "title": event.title ?? "Untitled",
             "start": ISO8601DateFormatter().string(from: event.startDate),
             "end": ISO8601DateFormatter().string(from: event.endDate),
+            // w20 r3: the whole event, so the undo journal can put it back with its place, notes and link (not just a title and a time).
+            "calendar": event.calendar.title,
+            "location": event.location ?? "",
+            "notes": event.notes ?? "",
+            "url": event.url?.absoluteString ?? "",
         ]
     }
 
@@ -579,8 +584,10 @@ enum OrionMacBridge {
                     "location": occurrence.location ?? "", "notes": occurrence.notes ?? "", "url": occurrence.url?.absoluteString ?? ""]
         }
         let title = event.title ?? "(untitled)"
+        // w20 r3: what it was, so the undo journal can put it back with its place, notes and link.
+        let details = ["calendar": event.calendar.title, "location": event.location ?? "", "notes": event.notes ?? "", "url": event.url?.absoluteString ?? ""]
         try store.remove(event, span: .thisEvent, commit: true)
-        return ["status": "deleted", "title": title]
+        return ["status": "deleted", "title": title].merging(details) { current, _ in current }
     }
 
     static func requestNotificationPermission() async throws -> Bool {

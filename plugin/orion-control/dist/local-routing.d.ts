@@ -24,6 +24,7 @@ import { type AppsRun } from "./apps-chat.js";
 import { type ShutdownRun } from "./bedtime-shutdown-chat.js";
 import { type WorkoutRun } from "./workout-chat.js";
 import { type MouseRun } from "./mouse-chat.js";
+import { type JournalEntry, type LedgerRun } from "./ledger-run.js";
 import { type MailPrefsRun } from "./mail-flow.js";
 import { type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -147,6 +148,12 @@ export type LocalRoutingOptions = {
     } | null>;
     /** Reads the live reminder store, to list and to find what to cancel (tests pass a stub; wired from index.ts). */
     listReminders?: () => Promise<StoredReminder[]>;
+    /** w20 r3 (ledger-run.ts): scripts the ledger removes things with (orion-reschedule, orion-log, orion-brain, orion-food-estimate); unset: the ledger stays off. */
+    ledgerRun?: LedgerRun;
+    /** Takes reminders out of the store by id (under the store's lock); with listReminders it is how "cancel the stretch one" works. */
+    removeReminders?: (ids: string[]) => Promise<void>;
+    /** The scheduler's undo journal, oldest first (default: the file the scheduler writes). */
+    undoJournal?: () => JournalEntry[];
     /** Reminders ORION offers (a thing he says he has to do, a deadline) and his "yes" to them (reminder-offers.ts). */
     offerPort?: OfferPort;
     /** The current time for reminder arithmetic (tests pin it). */
@@ -235,6 +242,8 @@ export declare const liveReadDay: (tomorrow: boolean) => Promise<string>;
 /** The stamp of the newest change in the scheduler's undo journal (the entry "orion-reschedule undo"
  *  reverts; same file and same skipping of empty entries as scripts/lib/life/calendar-write.mjs). */
 export declare function undoJournalTop(home?: string, now?: number): string | null;
+/** The whole undo journal, oldest first (the file `orion-reschedule undo` pops from); empty when it cannot be read. */
+export declare function undoJournalEntries(home?: string, now?: number): JournalEntry[];
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     lengthDefaulted?: boolean;
@@ -265,6 +274,8 @@ export declare const liveCheckinRun: (args: string[]) => Promise<{
 }>;
 /** orion-declare / orion-reschedule with fixed arguments (no shell), for reality statements (2026-10-30). Wired in by index.ts only. */
 export declare const liveRealityRun: ScriptRun;
+/** The scripts the ledger removes things with, fixed arguments and no shell. Wired in by index.ts only. */
+export declare const liveLedgerRun: LedgerRun;
 /** Loads both local models at the context each is called with (2026-10-30: the outage gate's one warm-and-retry). Wired in by index.ts only. */
 export declare const liveModelWarm: () => Promise<string[]>;
 /** Replays a message queued while the model was down (model-outage.ts): one agent turn in its own session, and the reply is

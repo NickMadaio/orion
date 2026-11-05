@@ -8,6 +8,7 @@ import { bridgeRequest } from "./bridge-path.mjs";
 import { isSkipped } from "./skips.mjs";
 import { markLoggedEvents, withLoggedLedger } from "./logged.mjs";
 import { writtenIdentifiers } from "./written.mjs";
+import { madeIdentifiers } from "./made.mjs";
 
 export const localDate = (at) => at.toLocaleDateString("en-CA");
 const minuteOf = (at) => at.getHours() * 60 + at.getMinutes();
@@ -72,7 +73,7 @@ function blockIds(events) {
   });
 }
 
-export function toBlocks(events, date, written = writtenIdentifiers()) {
+export function toBlocks(events, date, written = writtenIdentifiers(), made = madeIdentifiers()) {
   const todays = events.filter((e) => e.allDay !== "true" && localDate(new Date(e.start)) === date);
   const ids = blockIds(todays);
   return todays
@@ -96,7 +97,10 @@ export function toBlocks(events, date, written = writtenIdentifiers()) {
       return { id: ids[i],
                title: title.slice(0, 120), kind, date, start: minuteOf(start),
                end: Math.max(minuteOf(start) + 1, endMinute), fixed, nameable, source: ours ? "orion" : "calendar",
-               calendarId: e.identifier ?? null, tags, logged: tags.includes("logged"), ...(rank ? { rank } : {}) };
+               calendarId: e.identifier ?? null, tags, logged: tags.includes("logged"), ...(rank ? { rank } : {}),
+               // ORION created this event itself (a plan with people included): "take it off my day" may remove it (made.mjs).
+               ...(e.identifier && made.has(e.identifier) ? { made: true } : {}),
+               ...(typeof e.location === "string" && e.location.trim() ? { location: e.location } : {}) };
     })
     .sort((a, b) => a.start - b.start);
 }

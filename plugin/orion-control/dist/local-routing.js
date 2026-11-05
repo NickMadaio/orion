@@ -125,6 +125,9 @@ import { WorkoutMemory, readWorkoutPending, runWorkoutTurn } from "./workout-cha
 import { readMouseTurn } from "./mouse-read.js"; // w18 mousechat
 import { MouseMemory, runMouseTurn } from "./mouse-chat.js"; // w18 mousechat
 import { answeredCardLine } from "./questions-store.js";
+import { MadeLedger } from "./made-ledger.js"; // w20 r3: one "recent things I made" ledger per chat
+import { readLedgerAsk } from "./ledger-ask.js";
+import { runLedgerAsk } from "./ledger-run.js";
 import { liveMailPrefsRun, readMailMove, runMailMove } from "./mail-flow.js"; // wave 14 f-mail
 import { approvalAsk } from "./approval-reply.js"; // run-1101020721: a held send is said as a draft and a question
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
@@ -419,6 +422,22 @@ export function undoJournalTop(home = homedir(), now = Date.now()) {
         return null;
     }
 }
+/** The whole undo journal, oldest first (the file `orion-reschedule undo` pops from); empty when it cannot be read. */
+export function undoJournalEntries(home = homedir(), now = Date.now()) {
+    const dir = join(home, ".openclaw", "orion-controlled");
+    let evalRun = false;
+    try {
+        evalRun = now - statSync(join(dir, "eval-mode")).mtimeMs < 2 * 3600_000 && existsSync(join(dir, "eval-calendar.json"));
+    }
+    catch { /* not an evaluation */ }
+    try {
+        const list = JSON.parse(readFileSync(join(dir, `${evalRun ? "eval-" : ""}reschedule-undo.json`), "utf8"));
+        return Array.isArray(list) ? list : [];
+    }
+    catch {
+        return [];
+    }
+}
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
     message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
@@ -459,6 +478,10 @@ export const liveCheckinRun = (args) => new Promise((resolve) => execFile(RESCHE
 /** orion-declare / orion-reschedule with fixed arguments (no shell), for reality statements (2026-10-30). Wired in by index.ts only. */
 // ORION_SCRIPTS_DIR: a checkout's own scripts for a replay against a state copy (the live plugin runs the repo's).
 export const liveRealityRun = (script, args) => new Promise((resolve) => execFile(join(process.env.ORION_SCRIPTS_DIR || dirname(RESCHEDULE), script), args, { timeout: 30000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
+/** The scripts the ledger removes things with, fixed arguments and no shell. Wired in by index.ts only. */
+export const liveLedgerRun = (script, args) => script !== "orion-reschedule" && script !== "orion-log" && script !== "orion-brain" && script !== "orion-food-estimate"
+    ? Promise.resolve({ stdout: `${script} is not a ledger script`, code: 1 })
+    : new Promise((resolve) => execFile(join(process.env.ORION_SCRIPTS_DIR || dirname(RESCHEDULE), script), args, { timeout: 30000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
 /** Loads both local models at the context each is called with (2026-10-30: the outage gate's one warm-and-retry). Wired in by index.ts only. */
 export const liveModelWarm = () => keepWarm([{ model: FRONT_DESK_MODEL, numCtx: FRONT_DESK_CTX }, { model: WORKER_MODEL, numCtx: FORM_OPTIONS.num_ctx }]);
 /** Replays a message queued while the model was down (model-outage.ts): one agent turn in its own session, and the reply is
@@ -760,6 +783,8 @@ export function registerLocalRouting(api, options) {
     const buildOffers = new Map();
     /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
     const sessionChanges = new Map();
+    const madeLedger = new MadeLedger(); // w20 r3 (made-ledger.ts)
+    const ledgerSeen = new WeakSet();
     /** Per session: what the last reality statement did (declared facts, calendar writes), for its "undo" (reality.ts). Any later change forgets it. */
     const lastReality = new Map();
     const recordChange = (sessionKey, marks) => {
@@ -768,7 +793,7 @@ export function registerLocalRouting(api, options) {
             return;
         lastReality.delete(sessionKey);
         forgetReplan(sessionKey);
-        sessionChanges.set(sessionKey, { at: Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
+        sessionChanges.set(sessionKey, { at: Date.now(), first: sessionChanges.get(sessionKey)?.first ?? Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
     };
     /** r8b2 (2026-10-16): per session, the block the last code day answer named (what "and after that?" means), short window. */
     const dayMemory = new Map();
@@ -1267,11 +1292,14 @@ export function registerLocalRouting(api, options) {
         };
         // w19 selffix (selffix-flow.ts): "why did you do that" / "that was wrong" (he reads his own last turns and answers), or his now / later / no to a fix offer.
         // A "why is X first" plan question belongs to plan-why.ts, not to self-diagnosis.
-        const smove = on && !cutOff && !quietTurn && !isCrisis(message) && !whyFirstAsk(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()),
+        // w20 r3 (ledger-ask.ts): "undo", "scrap the gym block i just added", "delete that note i just made", "cancel the stretch one": the ledger's.
+        const ledgerAsk = on && !cutOff && !quietTurn && !isCrisis(message) && options.ledgerRun ? readLedgerAsk(message) ?? undefined : undefined;
+        const ledgerOwns = !!ledgerAsk?.strong;
+        const smove = on && !cutOff && !quietTurn && !ledgerOwns && !isCrisis(message) && !whyFirstAsk(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()),
             ...(sessionKey && buildOffers.has(sessionKey) && nowMs() - buildOffers.get(sessionKey).at < 3 * 3600_000 ? { build: { request: buildOffers.get(sessionKey).request } } : {}) }) : undefined;
-        const qmove = on && !cutOff && !quietTurn && !smove && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
+        const qmove = on && !cutOff && !quietTurn && !ledgerOwns && !smove && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
         // Wave 14 (mail-flow.ts): "not important" / "this matters" to a mail alert, or "stop telling me about X emails", owns the whole turn.
-        const mmove = on && !cutOff && !quietTurn && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
+        const mmove = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
         // w14 g-food (food-read.ts): a calorie question, "log this: …", a meal with a food in it, a chat photo, or his reply to "Log it?".
         const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
         const calendarAsk = schedulingAsk(message); // "put gym at 10-11", "add marketing from 7-9:30pm": the calendar's, never a meal, app, mouse or shutdown turn
@@ -1279,14 +1307,14 @@ export function registerLocalRouting(api, options) {
         // for them goes to them from inside the edit (day-edit-run.ts). A pending "Log it?" answer or workout question is still theirs.
         const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
         const dayEditTurn = !workoutPending && !foodPending && !!readDayEdit(message, (options.now ?? pluginNow)());
-        const food = on && !cutOff && !quietTurn && !calendarAsk && !dayEditTurn && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
+        const food = on && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !dayEditTurn && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
             ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : {}), attachments: Array.isArray(event.attachments) ? event.attachments : [],
             ...(foodMemory.lastLogged(sessionKey) ? { lastLogged: foodMemory.lastLogged(sessionKey) } : {}) }) ?? undefined : undefined;
         if (!food && !quietTurn)
             foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
         // w17 g-workout (workout-read.ts): "just did legs, squats 4x6 at 185", "log my workout: …", "went for a 3 mile run", or his answer to the follow-up question.
         // w20 sched: "add gym at 10-11pm" / "i did gym from 2 to 3" is his calendar (day-edit.ts), not a workout to describe; an answer to the workout question is still the workout's.
-        const workout = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !dayEditTurn && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
+        const workout = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !mmove && !food && !dayEditTurn && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
             ...(workoutPending ? { pending: workoutPending, bound: workoutMemory.bound(sessionKey, workoutPending, parseOutreach(raw)?.text) } : {}), outreach: !!parseOutreach(raw),
             ...(workoutMemory.lastLogged(sessionKey) ? { lastLogged: workoutMemory.lastLogged(sessionKey) } : {}) }) ?? undefined : undefined;
         if (!workout && !quietTurn)
@@ -1295,9 +1323,9 @@ export function registerLocalRouting(api, options) {
         // w18 bedtime (bedtime-shutdown-read.ts): a yes to "want me to shut things down?", "put my computer to bed", "i need 20 more minutes": code runs it.
         const shutdownAt = (options.now ?? pluginNow)();
         const shutdownCtx = options.shutdownRun && options.stateDir ? shutdownContext(options.stateDir, shutdownAt, parseOutreach(raw)?.text, sessionKey ?? "") : undefined;
-        const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !isCrisis(message)
+        const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !isCrisis(message)
             ? readShutdownTurn(message, shutdownCtx) ?? undefined : undefined;
-        const appsTurn = on && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
+        const appsTurn = on && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
         // w18 mousechat (mouse-read.ts): "make my side button do stage manager", "dont do anything in minecraft", "what are my mouse buttons set to", or a yes to a new-mouse outreach.
         const mouseAt = (options.now ?? pluginNow)();
         const mouseWaiting = on && options.mouseRun ? mouseMemory.get(sessionKey, mouseAt.getTime()) : undefined;
@@ -1305,7 +1333,7 @@ export function registerLocalRouting(api, options) {
         // 15 minutes and nothing else was said in this chat since.
         const push = options.stateDir ? readLastOutreach(options.stateDir, mouseAt) : null;
         const mouseOutreach = parseOutreach(raw)?.text ?? (push && mouseAt.getTime() - Date.parse(push.at) <= 15 * 60_000 && Date.parse(push.at) > mouseMemory.lastOther(sessionKey) ? push.text : undefined);
-        const mouse = on && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
+        const mouse = on && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
             ? readMouseTurn(message, { ...(mouseWaiting ?? {}), outreachAbout: !!mouseOutreach && /\bmouse\b/i.test(mouseOutreach) }) ?? undefined : undefined;
         if (!mouse && !quietTurn) {
             mouseMemory.clear(sessionKey);
@@ -1313,8 +1341,8 @@ export function registerLocalRouting(api, options) {
         }
         if (on && !quietTurn)
             rememberAsk(message, (options.now ?? pluginNow)()); // day-edit-memory.ts: "those" in "undo, i meant add those"
-        const reality = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
+        const reality = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        const realityWhole = ledgerOwns || (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
         // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
         const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
         const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1346,7 +1374,7 @@ export function registerLocalRouting(api, options) {
             void learnCorrection(message, { run: options.rememberRun, ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.userMdPath ? { userMdPath: options.userMdPath } : {}), ...(offered ? { offered } : {}), sessionKey });
         }
         const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
-        const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
+        const kmove = on && !cutOff && !quietTurn && !ledgerOwns && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
         const knowledge = on && !quietTurn && !kmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && isKnowledgeAsk(message);
         const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
         const pendingAt = (options.now ?? pluginNow)();
@@ -1391,7 +1419,7 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
         // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
         // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-        const pending = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey) && !chatAsks
+        const pending = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey) && !chatAsks
             ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
                 chatSurface: CHAT_SURFACE.test(sessionKey) })
@@ -1401,6 +1429,8 @@ export function registerLocalRouting(api, options) {
             pendingMemory.setMemo(sessionKey, null);
         const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
+        if (ledgerAsk)
+            run.ledger = ledgerAsk;
         if (runId)
             runs.set(runId, run);
         if (sessionKey)
@@ -1578,6 +1608,10 @@ export function registerLocalRouting(api, options) {
                 return { handled: true, reply: { text: gentleCheckIn(run.message) }, reason: "distress: slang tease only" }; // w20 R3 #52
             if (run && (run.room || run.hushed || run.pending || run.preference || run.sleepTurn || run.phoneBlock || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge))
                 return undefined; // 2026-10-31: code's, or the worker's textbook answer
+            if (run && !ledgerSeen.has(run)) {
+                ledgerSeen.add(run);
+                madeLedger.ingest(run.sessionKey, run.tools, Date.now());
+            }
             if (run?.ownText)
                 return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
             if (run && openRequest(run.message))
@@ -1777,6 +1811,28 @@ export function registerLocalRouting(api, options) {
                         if (ran.code === 0)
                             run.flow = { outcome: "say", kind: "plain", text: refused ? ran.stdout.trim().split("\n")[0] : plan.text };
                     }
+                }
+            }
+            // w20 r3 (ledger-run.ts): undo / remove anything ORION made in THIS chat (blocks, notes, reminders, food, water), by description, read back.
+            const undoOfReality = !!run.sessionKey && !!lastReality.get(run.sessionKey) && Date.now() - lastReality.get(run.sessionKey).at < SESSION_CHANGE_WINDOW_MS && isBareUndo(run.message);
+            if (!run.flow && !run.cutOff && run.ledger && options.ledgerRun && !undoOfReality) {
+                const key = run.sessionKey;
+                const changes = key ? sessionChanges.get(key) : undefined;
+                const out = await withTimeout(runLedgerAsk(run.ledger, { run: options.ledgerRun, now: Date.now(), nothingText: UNDO_NOTHING_TO_UNDO,
+                    readDay: (a) => (options.readDayJson ? options.readDayJson(a) : Promise.resolve(undefined)),
+                    items: madeLedger.recent(key, Date.now()), ...(changes ? { calendar: { since: changes.first, last: changes.at } } : {}),
+                    journal: options.undoJournal ?? (() => undoJournalEntries()),
+                    ...(options.listReminders && options.removeReminders ? { reminders: { list: options.listReminders, remove: options.removeReminders } } : {}) }).catch(() => undefined), 90000);
+                if (out) {
+                    run.provided = true;
+                    run.flow = { outcome: "say", kind: "plain", text: out.text };
+                    out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+                    out.removed.forEach((item) => madeLedger.forget(key, madeLedger.recent(key, Date.now()).find((i) => i.kind === item.kind && i.label === item.label) ?? item));
+                    if (out.wroteCalendar) {
+                        recordChange(key, []);
+                        forgetReplan(key);
+                    }
+                    markRead(run, "day");
                 }
             }
             // 2026-10-30: "undo" right after a reality statement takes back its calendar writes AND the facts it declared.
@@ -2590,6 +2646,10 @@ export function registerLocalRouting(api, options) {
             run.findings.push(findings);
             // A revise returns before the end of this hook; it is logged first so no turn goes unrecorded (those 16 had routing null).
             const record = async (extra = {}) => {
+                if (!ledgerSeen.has(run)) {
+                    ledgerSeen.add(run);
+                    madeLedger.ingest(run.sessionKey, run.tools, Date.now());
+                }
                 const decision = run.settled ?? (await settle(run));
                 log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}), ...("blocked" in run.flow && run.flow.blocked ? { blocked: run.flow.blocked } : {}) } : null,
                     ...(run.cutOff ? { heldCutOff: true } : {}), provided: run.provided ?? false, reads: run.reads ?? [], cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,

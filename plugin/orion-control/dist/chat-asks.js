@@ -68,8 +68,13 @@ export function splitLeadListItem(message) {
     return item && rest && item.length <= 80 && !NOT_A_LIST_ITEM.test(item) && /[a-z0-9]/i.test(item) ? { item, rest } : null;
 }
 // "and batteries", "oh and a charger", "also bin bags": right after a list add, a bare "and X" is one more item for the same list (w20 r5 #88).
-const FOLLOW_LEAD = /^(?:(?:oh|ok|okay|hey|actually|wait|yeah|yep|um|uh|so|pls|please)[,\s]+)*(?:and|also|plus|and also|oh and)\s+/i;
+const FOLLOW_LEAD = /^(?:(?:oh|ok|okay|hey|actually|wait|yeah|yep|um|uh|so|pls|please)[,\s]+)*(?:and also|oh and|and|also|plus)\s+/i;
 const NOT_AN_ITEM = /^(?:add|put|stick|set|open|remind|move|cancel|what|whats|what's|how|can|could|do|did|is|are|tell|show|turn|play|start|stop|go|make|call|text|log|tick|mark|remove|delete|undo|i|im|i'm|my|the day|when|why|who|where|then|that|this|it|if|but|so|not|no|yes|nah|thanks|thank)\b/i;
+// A follow-up item must look like a thing to buy or do: no verb (move, book, cancel...), no acknowledgement, filler or feeling, no "nothing / that's all" (review r5).
+const NOT_A_NOUN_ITEM = new RegExp(String.raw `\b(?:${[
+    "move|moves|book|schedule|reschedule|cancel|push|shift|delay|postpone|swap|extend|resize|drop|skip|undo|delete|remove|clear|set|start|stop|send|email|text|message|call|ring|buy|get|got|go|going|goes|do|does|did|done|have|has|had|be|is|are|was|were|am|will|would|should|could|can|may|might|need|needs|want|wanna|gonna|remember|forget|check|look|find|make|take|bring|give|let|tell|ask|say|see|try|use|clean|fix|finish|study|work|read|write|open|close|play|turn|switch|plan|pick|grab|pay|order|add|put|stick|log|tick|mark|show|help|think|know|mean|feel|wait|stay|keep|change|update|rename|wake|sleep|eat|ate|drink|walk|run|meet|visit|leave|come|came|arrive|reply|answer|submit|upload|download|install|print|share|save",
+    "ok|okay|kk|k|lol|lmao|rofl|haha|hehe|yeah|yep|yup|yes|ya|no|nah|nope|idk|hmm|hm|um|uh|umm|er|ah|oh|thanks|thx|ty|thank|cool|nice|sure|fine|alright|aight|whatever|nothing|else|anything|everything|all|thats|that's|that|it|its|same|too|either|please|pls|sorry|wow|ugh|bruh|damn|great|good|bad|tired|sad|stressed|hungry|bored|angry|annoyed|happy|worried|anxious|honestly|actually|basically|literally|just|maybe|probably|never|always|also|and|or|but|so|then|now|later|soon|today|tomorrow|tonight|yesterday|me|my|i|im|i'm|we|you|he|she|they|this|there|here|what|why|how|when|where|who|which|if|not|dont|don't|cant|can't|wont|won't",
+].join("|")})\b`, "i");
 /** The items of a bare "and X" follow-up, or null when it is anything else (a verb, a question, a time, a calendar word). */
 export function readListFollowUp(message) {
     const m = message.trim().replace(/\s+/g, " ");
@@ -77,10 +82,12 @@ export function readListFollowUp(message) {
     if (!lead || /\?\s*$/.test(m))
         return null;
     const rest = m.slice(lead[0].length).replace(/[.!]+$/, "").trim();
-    if (!rest || rest.length > 80 || NOT_AN_ITEM.test(rest) || NOT_A_LIST_ITEM.test(rest) || /\b(?:my list|the list|to-?dos?)\b/i.test(rest))
+    if (!rest)
+        return null;
+    if (rest.length > 80 || NOT_AN_ITEM.test(rest) || NOT_A_LIST_ITEM.test(rest) || /\b(?:my list|the list|to-?dos?)\b/i.test(rest))
         return null;
     const items = splitListItems(rest);
-    return items.length && items.length <= 5 && items.every((i) => i.length <= 60 && i.split(" ").length <= 6) ? items : null;
+    return items.length && items.length <= 5 && !items.some((i) => NOT_A_NOUN_ITEM.test(i)) && items.every((i) => i.length <= 60 && i.split(" ").length <= 6) ? items : null;
 }
 const TRAILING_LIST = new RegExp(String.raw `^(.*?\S)\s*(?:,|;)?\s*(?:and then|and also|and|then|also)\s+((?:add|put|stick|throw|pop|chuck)\s+.+?\s+(?:to|on|onto|in|into)\s+(?:my|the|our)\s+(?:(?:to-?do|todo|to do|shopping|grocery|groceries|task)\s+)?(?:lists?|to-?dos?|tasks))\s*[.!]*$`, "i");
 /** "add a call with bea at 7pm and put eggs on my list": the list part (run by code) and the rest left for the calendar (w20 r5 #101). */

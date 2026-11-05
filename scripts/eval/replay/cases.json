@@ -90,10 +90,6 @@
    ]
   },
   "audit": "E2",
-  "expectFail": {
-   "audit": "E2",
-   "why": "RepeatGuard answers an identical resend with 'Same problem... tell me differently'"
-  },
   "surface": "phone",
   "prior": [
    {
@@ -193,7 +189,8 @@
      "stdout": "NOTHING WAS CHANGED. NOT BOOKED: Admin errand (30 min) did not fit"
     }
    ]
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-e3-four-asks-one-message",
@@ -306,10 +303,6 @@
    ]
   },
   "audit": "E4",
-  "expectFail": {
-   "audit": "E4",
-   "why": "workout LOG regex takes 'put/add ... gym' as a workout he did, asks 'what did you do'"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -354,7 +347,8 @@
     ]
    },
    "scripts": []
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-e5-gym-wont-fit-gives-reason",
@@ -436,10 +430,6 @@
    ]
   },
   "audit": "E6",
-  "expectFail": {
-   "audit": "E6",
-   "why": "the third copy within ten minutes is answered with a bare ellipsis"
-  },
   "surface": "phone",
   "prior": [
    {
@@ -595,7 +585,8 @@
      "stdout": "NOTHING WAS BOOKED.\nNOT BOOKED: Gym (60 min) did not fit: your day ends at 21:50 (bedtime)"
     }
    ]
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-e7-why-was-your-reply-dots",
@@ -609,10 +600,6 @@
    ]
   },
   "audit": "E7",
-  "expectFail": {
-   "audit": "E7",
-   "why": "WHY patterns do not match 'why was your response ...': never diagnosed"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -621,7 +608,8 @@
     "say": "One moment."
    },
    "worker": "I was trying to add gym at 10-11, but it didn't fit. Tell me what to drop or move so I can make room."
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-e8-nothing-left-to-clear-says-so",
@@ -673,10 +661,6 @@
    ]
   },
   "audit": "E9",
-  "expectFail": {
-   "audit": "E9",
-   "why": "repeat of a failure line becomes '…' (spoken or third time)"
-  },
   "surface": "phone",
   "prior": [
    {
@@ -820,7 +804,8 @@
      "stdout": "NOTHING WAS CHANGED: there is no movable block called Nap"
     }
    ]
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-e10-three-asks-not-two-workouts",
@@ -1084,10 +1069,6 @@
    ]
   },
   "audit": "E13",
-  "expectFail": {
-   "audit": "E13",
-   "why": "identical resend gets the repeat-guard line"
-  },
   "surface": "phone",
   "prior": [
    {
@@ -1165,7 +1146,8 @@
      "stdout": "NOTHING WAS CHANGED. NOT BOOKED: art museum (150 min): 19:00 has already started (it is 19:57)"
     }
    ]
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-e14-try-again-true-worker-reply-kept",
@@ -1179,10 +1161,6 @@
    ]
   },
   "audit": "E14",
-  "expectFail": {
-   "audit": "E14",
-   "why": "work check flags a true 'nothing changed' reply and swaps in the canned 'say it again'"
-  },
   "surface": "phone",
   "prior": [
    {
@@ -1229,7 +1207,8 @@
     "Nothing changed. The art museum at 7:00 PM is already running, so I can't add it now.",
     "Nothing changed. The art museum at 7:00 PM is already running, so I can't add it now."
    ]
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-e15-already-started-offers-a-way",
@@ -1351,10 +1330,6 @@
    ]
   },
   "audit": "E17",
-  "expectFail": {
-   "audit": "E17",
-   "why": "same workout-route misfire as E4"
-  },
   "surface": "phone",
   "now": "2026-11-04T20:01",
   "recorded": {
@@ -1381,7 +1356,8 @@
     "blocks": []
    },
    "scripts": []
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-e18-not-now-to-an-outreach",
@@ -1432,10 +1408,6 @@
    ]
   },
   "audit": "E19",
-  "expectFail": {
-   "audit": "E19",
-   "why": "time parser takes the first clock in the sentence (8pm, the one he said he had NOT done it at)"
-  },
   "surface": "phone",
   "now": "2026-11-04T20:02",
   "recorded": {
@@ -1465,7 +1437,8 @@
     "blocks": []
    },
    "scripts": []
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-l1-push-bedtime-spoken-number",
@@ -1557,10 +1530,6 @@
    ]
   },
   "audit": "A1",
-  "expectFail": {
-   "audit": "A1",
-   "why": "4B starts a focus session from narration addressed to nobody"
-  },
   "spoken": true,
   "now": "2026-11-04T14:24",
   "recorded": {
@@ -1579,7 +1548,8 @@
      "code": 1
     }
    ]
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-a2-question-about-his-own-code-answered",
@@ -1824,10 +1794,6 @@
    "replyLacks": []
   },
   "audit": "M1",
-  "expectFail": {
-   "audit": "M1",
-   "why": "4B app_open hallucinated from the calendar; the 9B then tells him to try it himself"
-  },
   "now": "2026-11-04T09:25",
   "recorded": {
    "desk": {
@@ -1838,7 +1804,8 @@
     }
    },
    "worker": "I can't reopen a specific app or fix a desktop shortcut issue with the tools I have. Try restarting the app or checking the desktop shortcut settings directly."
-  }
+  },
+  "fixedBy": "sweep/integration (0297bf1 and later)"
  },
  {
   "id": "tube-m2-open-the-mapper-is-not-configure",

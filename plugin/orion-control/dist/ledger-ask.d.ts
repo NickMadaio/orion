@@ -12,6 +12,8 @@ export type LedgerAsk = {
     bare: boolean;
     /** His "yes" to a candidate ORION asked about: carry it out. */
     confirmed?: boolean;
+    /** "i dont need the stretch reminder": a remark, not an order, so a reminder found only in the store is asked about first. */
+    soft?: boolean;
 };
 /** The ledger's reading of his message, or null when it is not about undoing or removing something. */
 export declare function readLedgerAsk(message: string): LedgerAsk | null;

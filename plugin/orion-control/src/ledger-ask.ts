@@ -22,6 +22,8 @@ export type LedgerAsk = {
   bare: boolean;
   /** His "yes" to a candidate ORION asked about: carry it out. */
   confirmed?: boolean;
+  /** "i dont need the stretch reminder": a remark, not an order, so a reminder found only in the store is asked about first. */
+  soft?: boolean;
 };
 
 const FILLER = String.raw`(?:(?:actually|ok|okay|hey|orion|pls|please|wait|no|nah|yeah|yep|sorry|oh|and|then|just|can you|could you|can u)[,\s]+)*`;
@@ -77,7 +79,7 @@ export function readLedgerAsk(message: string): LedgerAsk | null {
   const noNeed = NO_NEED.exec(stripped);
   const match = noNeed ?? TAKE_OFF.exec(stripped) ?? REMOVE_AT_START.exec(stripped) ?? UNDO_OBJECT.exec(stripped);
   if (!match) return null;
-  const object = match[match.length - 1]!.replace(/\s+(?:off|from)\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today)$/, "").trim();
+  const object = match[match.length - 1]!.replace(/\s+(?:as well|aswell|too|also|either|as well pls|please|pls)$/, "").replace(/\s+(?:off|from)\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today)$/, "").trim();
   const verb = UNDO_OBJECT.test(stripped) && !REMOVE_AT_START.test(stripped) ? "undo" : "remove";
   const pointing = POINTING.test(object);
   const kinds = kindsOf(object);
@@ -86,5 +88,5 @@ export function readLedgerAsk(message: string): LedgerAsk | null {
   // "delete that" / "cancel it" with nothing to say what: pointing only.
   if (!targets.length && !pointing && !kinds.length) return null;
   const strong = pointing || kinds.some((k) => k !== "block") || (verb === "undo" && !noNeed);
-  return { verb, strong, kinds, targets, pointing, bare: false };
+  return { verb, strong, kinds, targets, pointing, bare: false, ...(noNeed ? { soft: true } : {}) };
 }

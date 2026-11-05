@@ -18,6 +18,7 @@ import type { FlowResult } from "./schedule-flow.js";
 import { isTimerRequest } from "./tool-moves.js";
 import { pluginNow } from "./plugin-clock.js";
 import { nextWake, spokenWake } from "./wake-state.js";
+import { readBedtimeChange } from "./bedtime-read.js";
 import { normalizeSpoken } from "./spoken-numbers.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -74,6 +75,8 @@ function answeredTime(message: string): string | undefined {
 export function parseWake(raw: string, decision: Decision | undefined, _now: Date, answering = false): WakeRequest | null {
   const message = normalizeSpoken(raw);   // "at eleven forty five" -> "at 11:45", ahead of every regex below
   if (isTimerRequest(message) || REMINDER_WORDS.test(message)) return null;
+  const bedRead = readBedtimeChange(message);
+  if (bedRead && "reset" in bedRead) return null;   // w20 r4: "go back to working it out from my alarm" is a bedtime reset, never `orion-wake clear`
   const fromDesk = decision?.move === "tool" && decision.tool === "wake";
   const named = ALARM_WORD.test(message) || WAKE_ME.test(message);
   if (answering && !named) { const at = answeredTime(message); if (at) return { kind: "set", time: at }; }

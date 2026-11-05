@@ -17,6 +17,8 @@ export type ToolDirective =
 export declare function weatherDirective(sent: string): Extract<ToolDirective, {
     kind: "call";
 }>;
+/** The seconds in "set a 10 min timer", or undefined (w20 r4: timer-flow.ts carries it out in code). */
+export declare function timerSeconds(message: string): number | undefined;
 export declare const isTimerRequest: (message: string) => boolean;
 /** The app named in an open-an-app request, or null when it is anything else (open-request.ts reads every shape). */
 export declare function appOpenName(message: string): string | null;

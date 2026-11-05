@@ -35,7 +35,9 @@ const turn = async (msg) => {
     return runBedChange(c, liveSleepPlanRun);
 };
 const cfg = () => JSON.parse(readFileSync(join(dir, "life-config.json"), "utf8"));
-describe("bedtime turns through the real script", () => {
+// w20 r4: the answer must not depend on the hour the suite runs at; "tonight" is the coming night once a bedtime has gone by (04:30 "quarter to 12").
+describe.each(["14:00", "23:30", "01:30", "04:30"])("bedtime turns through the real script at %s", (hhmm) => {
+    beforeEach(() => { process.env.ORION_NOW = `2026-11-05T${hhmm}:00`; });
     it.each([
         ["bedtime tonight is quarter to 12 just for tonight", /Bedtime 11:45pm tonight/],
         ["set my bedtime to half eleven every night", /Bedtime 11:30pm every night/],
@@ -47,6 +49,27 @@ describe("bedtime turns through the real script", () => {
         const r = await turn(msg);
         expect(r.flow.outcome).toBe("done");
         expect(r.flow.reply).toMatch(re);
+    });
+    it("gate 2 #15/#105: 'every night' after a tonight-only one replies with the standing time, never the stale one-off", async () => {
+        await turn("can we make bedtime twelve tonight only");
+        const a = await turn("bedtime every night is quarter past 11 from now on");
+        expect(a.flow.reply).toMatch(/^Bedtime 11:15pm every night/);
+        await turn("going to bed at quarter to 12 tonight");
+        const b = await turn("actually make my bedtime half 11 every night");
+        expect(b.flow.reply).toMatch(/^Bedtime 11:30pm every night/);
+    });
+    it("gate 2 #16/#91 spoken times land on the right clock through the real script", async () => {
+        expect((await turn("im heading to bed at ten to twelve")).flow.reply).toMatch(/^Bedtime 11:50pm tonight/);
+        expect((await turn("bedtime tonight is midnight")).flow.reply).toMatch(/^Bedtime midnight tonight/);
+    });
+    it("gate 2 #18: reset after a fixed bedtime and a tonight override gives the bedtime back (nothing fixed, nothing overridden)", async () => {
+        await turn("make my bedtime 11:15 every night");
+        await turn("bedtime tonight is midnight");
+        const r = await turn("reset my bedtime please");
+        expect(r.flow.reply).toMatch(/^Back to normal/);
+        expect(Boolean(cfg().sleepPlan?.bedFixed)).toBe(false);
+        expect(cfg().sleepPlan?.bedOverrides ?? {}).toEqual({});
+        expect(cfg().bedtime).toBe("00:00");
     });
     it("reset replies Back to normal and does not write the default bedtime into the config", async () => {
         await turn("set my bedtime to half eleven every night");

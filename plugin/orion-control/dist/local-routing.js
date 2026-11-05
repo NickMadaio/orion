@@ -44,6 +44,7 @@ import { outreachStale, staleOutreachNote, stripOutreachEcho } from "./outreach-
 import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
 import { failedTools, failureReason } from "./tool-failure.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
+import { readTimer, runTimer } from "./timer-flow.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
@@ -63,7 +64,7 @@ import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksR
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
 import { LATE_ASK, LATE_TOO_SMALL, isBareYes, isLateConfirm, isLateWithoutMinutes, lateMinutesAnswer, nothingMovedReply } from "./late-flow.js";
 import { parseMessagesRead, readNote } from "./messages-read.js";
-import { isBareTime, isReminderTurn, leaveAsReminder, planReminder } from "./reminder-flow.js";
+import { isAnotherReminder, isBareTime, isReminderTurn, leaveAsReminder, planReminder } from "./reminder-flow.js";
 import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
 import { SPEAK_AS_I } from "./self-voice.js";
 import { readPlanReasons, whyFirstAnswer, whyFirstAsk } from "./plan-why.js";
@@ -1398,7 +1399,8 @@ export function registerLocalRouting(api, options) {
         const guarded = !!gymSkip || wipe || !!pendingYes || !!lighten || !!focusMove || !!health || !!dayDefault || !!preference || !!kmove || !!sleepTurn || !!phoneBlock;
         const intentRead = on && !cutOff && !quietTurn && !realityWhole && !guarded && options.scheduleFlow ? readIntent(message, { now: (options.now ?? pluginNow)(), ...(recentReplan(sessionKey) ? { last: recentReplan(sessionKey) } : {}) }) : undefined;
         // Never for something that is not his calendar at all ("book a table at 7", "add a todo …", "text mom at 5").
-        const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message);
+        const elsewhere = SEND_OR_CAPTURE.test(message) || BOOK_ELSEWHERE.test(message) || isCrisis(message)
+            || (isAnotherReminder(message) && Date.now() - (lastReminder.get(sessionKey)?.set ?? 0) < CORRECTION_WINDOW_MS); // w20 r4: "and another in 15 mins" after a reminder is a reminder
         const intentFirst = !!intentRead && !elsewhere && ("intent" in intentRead ? runsFirst(intentRead.intent) : !!intentRead.tookBack);
         // "make it an hour" is an edit of the last thing this chat made: code's, never the desk's (it read a session start in run 4).
         // Only when ORION made something here, and more recently than a reminder ("make it 5:30" after "remind me at 5" is the reminder's).
@@ -2211,6 +2213,17 @@ export function registerLocalRouting(api, options) {
             const whyDone = !run.flow && !run.cutOff && whyAbout && (asksWhy(run.message) || (asksYourQuestion(run.message) && run.message.trim().split(/\s+/).length <= 10)) ? whyAnswer(whyAbout) : undefined;
             if (whyDone?.kind === "say")
                 run.flow = { outcome: "say", kind: "plain", text: whyDone.text };
+            // w20 r4 (timer-flow.ts): a timer is written by code and read back; the worker's one call was never made (gate 2 #61).
+            const timerAsk = !run.flow && !run.cutOff && options.addTimer ? readTimer(run.message) : undefined;
+            if (timerAsk) {
+                const set = await runTimer(timerAsk, { add: options.addTimer, list: options.listReminders ?? (async () => []), now: (options.now ?? pluginNow)() }).catch(() => undefined);
+                if (set) {
+                    set.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: set.outputs[i] ?? "", exit: set.ok ? 0 : 1 }));
+                    if (set.ok && run.sessionKey)
+                        recordOther(run.sessionKey, "timer");
+                    run.flow = { outcome: "say", kind: "plain", text: set.text };
+                }
+            }
             const moved = !run.flow && !run.cutOff ? (whyDone ?? toolDirective(run.settled, run.message)) : null;
             if (moved?.kind === "say")
                 run.flow = { outcome: "say", kind: "plain", text: moved.text };

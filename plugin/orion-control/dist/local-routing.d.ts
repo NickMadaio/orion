@@ -2,6 +2,7 @@ import { type Decision } from "./front-desk.js";
 import { type ToolResult } from "./work-check.js";
 import { type SessionExec, type SessionHint } from "./session-flow.js";
 import { type ChatDeps } from "./chat-asks.js";
+import { type TimerDeps } from "./timer-flow.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { parseEdit, type EditTarget } from "./edit-followup.js";
 import { type ComputerDeps } from "./computer-loop.js";
@@ -147,6 +148,8 @@ export type LocalRoutingOptions = {
         time: string | null;
         label: string;
     } | null>;
+    /** w20 r4 (timer-flow.ts): writes a timer into the reminder store, as timer_set does; unset: timers stay with the worker. Wired from index.ts. */
+    addTimer?: TimerDeps["add"];
     /** Reads the live reminder store, to list and to find what to cancel (tests pass a stub; wired from index.ts). */
     listReminders?: () => Promise<StoredReminder[]>;
     /** w20 r3 (ledger-run.ts): scripts the ledger removes things with (orion-reschedule, orion-log, orion-brain, orion-food-estimate); unset: the ledger stays off. */

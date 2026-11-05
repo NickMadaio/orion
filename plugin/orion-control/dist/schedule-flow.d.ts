@@ -1,3 +1,4 @@
+import type { ScheduleFailure } from "./schedule-failure.js";
 import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
 import { type ReplanAsk } from "./day-replan.js";
@@ -250,7 +251,8 @@ export type FlowResult =
     marks?: string[];
     undone?: number;
     reply?: string; /** a later call failed after an earlier one wrote */
-    partial?: true; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */
+    partial?: true; /** why each refused step refused, as data for the wording layer (schedule-failure.ts) */
+    failures?: ScheduleFailure[]; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */
     uncertain?: true; /** the reschedule request this change carried out, remembered for a follow-up reorder */
     replan?: ReplanAsk;
 }
@@ -261,6 +263,7 @@ export type FlowResult =
     kind: "cannot" | "ask" | "plain";
     calls?: string[];
     outputs?: string[];
+    failures?: ScheduleFailure[];
     pending?: PendingAdd; /** a reschedule request that was read but not carried out, remembered for a follow-up */
     replan?: ReplanAsk;
     /** the writes the time backstop refused, as they were (logged) */ blocked?: string[][];

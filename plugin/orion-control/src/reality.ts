@@ -21,8 +21,12 @@
 */
 import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import { noteOf } from "./scheduler-out.js";
+import { readDayEdit, touchesPast, type DayEdit } from "./day-edit.js";
+import { runDayEdit } from "./day-edit-run.js";
+import { readOverride } from "./day-edit-memory.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf, type DayRequest } from "./day-requests.js";
 import { pluginNow } from "./plugin-clock.js";
+import { readIntent } from "./calendar-intent.js";
 import { intentOf, namesTitle, pickByTime, resolveBlockName, whichOne } from "./block-names.js";
 import { napWindow } from "./nap-window.js";
 import { asksToShiftAfter, namesOwnEvent, nothingToMove } from "./own-event-writes.js";
@@ -42,11 +46,13 @@ export type Reality =
   /** "i was literally in marketing", "you said i missed marketing but i was there, fix it": the missed mark is taken back. */
   | { kind: "attended"; what: string }
   /** A calendar request code carries out itself (day-requests.ts): a deadline, a combination, tomorrow, "X then Y", clear my own blocks. */
-  | { kind: "request"; request: DayRequest };
+  | { kind: "request"; request: DayRequest }
+  /** w20 sched (day-edit.ts): one or more edits to his day, including time already gone: logged, never refused. */
+  | { kind: "edit"; edit: DayEdit };
 /** A reality statement plus whether he also asked for another change in the same breath ("..., put catch-up on it tomorrow"). */
 export type RealityRead = { reality: Reality; rest: boolean };
 
-export type ScriptRun = (script: "orion-declare" | "orion-reschedule" | "orion-tasks", args: string[]) => Promise<{ stdout: string; code: number }>;
+export type ScriptRun = (script: "orion-declare" | "orion-reschedule" | "orion-tasks" | "orion-sleepplan", args: string[]) => Promise<{ stdout: string; code: number }>;
 export type RealityDeps = { run: ScriptRun; readDay: () => Promise<Day | undefined>; now: Date; source: string; text: string;
   /** Another day, by orion-reschedule's --date words ("tomorrow", a weekday, YYYY-MM-DD). Unset: only today is read. */
   readDayOn?: (dateArgs: string[]) => Promise<Day | undefined>;
@@ -141,6 +147,10 @@ export function readReality(message: string, now: Date = pluginNow()): RealityRe
   if (!m) return null;
   // A calendar request code carries out itself comes first (day-requests.ts): its own reader rules out questions and conditions
   // ("can we do gym later, like after dinner" is a request, not a question).
+  // w20 sched: what he says about time that is already gone is a record of his day (logged, not refused), and several edits in one
+  // message are all done. The older readers keep every single future edit they already read.
+  const edit = readOverride(message, now) ?? readDayEdit(message, now);
+  if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op === "bedtime" || p.op === "busy"))) return { reality: { kind: "edit", edit }, rest: false };
   const request = readDayRequest(message, now);
   if (request) return { reality: { kind: "request", request }, rest: false };
   if (QUESTION.test(m)) return null;
@@ -178,6 +188,8 @@ export function readReality(message: string, now: Date = pluginNow()): RealityRe
   if (ATE.test(m)) return { reality: { kind: "ate" }, rest };
   const place = PLACE.exec(m);
   if (place) return { reality: { kind: "place", place: place[1]! }, rest };
+  // natural times, typo'd ranges and filler the older readers leave to the model: one edit read here, when the intent layer would not
+  if (edit && !("intent" in (readIntent(message, { now }) ?? {}))) return { reality: { kind: "edit", edit }, rest: false };
   return null;
 }
 
@@ -472,6 +484,7 @@ export async function runReality(read: RealityRead, deps: RealityDeps & { next?:
   if (r.kind === "done") return doneIt(r, deps);
   if (r.kind === "attended") return attendedIt(r, deps);
   if (r.kind === "request") return runDayRequest(r.request, deps);
+  if (r.kind === "edit") return runDayEdit(r.edit, deps);
   return noted(r, deps, deps.next);
 }
 

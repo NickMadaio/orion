@@ -19,6 +19,7 @@
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { parseSessionJson } from "./session-json.js";
 import { readBreak, runBreak } from "./break-intent.js";
+import { breakOnCalendar } from "./break-block.js";
 import { ampm, toMin } from "./intent-time.js";
 const ACK = String.raw `^(?:(?:ya|yah|yeah|yea|yep|yup|ok(?:ay)?|k|sure|fine|alright|aight|mhm|uh huh|hmm)[,.!\s]+)*`;
 const STALL = new RegExp(`${ACK}(?:(?:i'?ll\\s+|im\\s+|i'?m\\s+|gonna\\s+)?(?:start(?:ing)?(?:\\s+it)?|get(?:ting)?\\s+(?:on it|started|going)|on it|doing it|do it|be there)\\s+)?(?:in\\s+(?:a\\s+)?(sec|second|min|minute|bit|moment|few|(\\d{1,2}))(?:\\s*(?:mins?|minutes?|m|secs?))?|(\\d{1,2})\\s*more\\s*(?:mins?|minutes?)|after this(?:\\s+(?:video|episode|one|game|round))?|(?:give me|gimme|gimmie) (?:a (?:sec|second|minute|min)|(\\d{1,2})\\s*(?:mins?|minutes?)?))\\s*(?:lol|haha)?[.!]*$`, "i");
@@ -82,6 +83,22 @@ export function readFocusMove(message) {
     if (side && !/\?\s*$/.test(m))
         return { kind: "side-missed", label: /youtube|video|editing|content|channel/i.test(side[1]) ? "YouTube" : "Side project" };
     return null;
+}
+/** The break's calendar line leads what is said; a nudge's own "Break till …" sentence gives way to it (the times come from the read-back). */
+function withCalendar(out, cal) {
+    const calls = [...(cal.calls ?? []), ...(out.calls ?? [])];
+    const outputs = [...(cal.outputs ?? []), ...(out.outputs ?? [])];
+    const lead = cal.line ?? cal.note;
+    const writes = (out.writes ?? 0) + cal.writes;
+    if (out.reminder) {
+        const say = lead ? (cal.line && /Break till [^.]*\./.test(out.reminder.say) ? out.reminder.say.replace(/Break till [^.]*\./, cal.line) : `${lead} ${out.reminder.say}`) : out.reminder.say;
+        return { ...out, calls, outputs, writes, reminder: { ...out.reminder, say } };
+    }
+    if (out.flow?.outcome === "done" && out.flow.reply)
+        return { ...out, writes, flow: { ...out.flow, calls: [...cal.calls, ...out.flow.calls], outputs: [...cal.outputs, ...out.flow.outputs], reply: lead ? `${lead} ${out.flow.reply}` : out.flow.reply } };
+    if (out.flow?.outcome === "say")
+        return { ...out, writes, flow: { ...out.flow, text: lead ? `${lead} ${out.flow.text}` : out.flow.text } };
+    return { ...out, writes };
 }
 const parse = parseSessionJson;
 const RUNNING = new Set(["running", "paused", "waiting-for-return"]);
@@ -178,8 +195,12 @@ export async function runFocusMove(move, deps) {
     if (!deps.exec)
         return {};
     // break: break-intent.ts reads the session itself (a running block is paused; nothing starts unless asked; wave 4 review finding 1)
-    if (move.kind === "break")
-        return runBreak(move, { exec: deps.exec, now, ...(deps.task ? { task: deps.task } : {}), ...(deps.mayStart !== undefined ? { mayStart: deps.mayStart } : {}) });
+    if (move.kind === "break") {
+        // The Break goes on today's plan first (its times are read back), then the session is put on break; both are said in one line.
+        const cal = deps.run && deps.readDay ? await breakOnCalendar(move, { run: deps.run, readDay: deps.readDay, now }) : undefined;
+        const out = await runBreak(move, { exec: deps.exec, now, ...(deps.task ? { task: deps.task } : {}), ...(deps.mayStart !== undefined ? { mayStart: deps.mayStart } : {}) });
+        return cal ? withCalendar(out, cal) : out;
+    }
     const status = await call(deps.exec, ["status"], ran) ?? {};
     const running = RUNNING.has(String(status.status ?? ""));
     const task = taskOf(status, deps.task);

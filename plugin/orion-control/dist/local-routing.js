@@ -1105,6 +1105,11 @@ export function registerLocalRouting(api, options) {
                     recordOther(key, "focus");
             }
             if (out.reminder) {
+                if (out.writes) {
+                    recordChange(key, []);
+                    if (key)
+                        lastReality.set(key, { facts: [], writes: out.writes, at: Date.now() });
+                }
                 (out.calls ?? []).forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs?.[i] ?? "", exit: null }));
                 run.reminder = { args: out.reminder.args, say: out.reminder.say, action: "alarm_set", label: out.reminder.label, at: out.reminder.at };
                 return { systemPrompt: `${LOCAL_IDENTITY}\n\nDo this for Nick now with ${taskRunCall(out.reminder.args)}\nThen, only if the result shows it worked, reply: "${out.reminder.say}" If it did not, say so plainly.\n\n${now}`,

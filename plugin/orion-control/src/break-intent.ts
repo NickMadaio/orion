@@ -59,6 +59,9 @@ function lengthOf(m: string): number | undefined {
 /** A request to rest, or null. Never a question about a break, a refusal, or a meal. */
 export function readBreak(message: string): BreakMove | null {
   const m = message.trim().toLowerCase().replace(/\s+/g, " ");
+  // "take 10" / "taking five": the whole message is the rest.
+  const take = /^(?:(?:ok(?:ay)?|ya|yeah|so|pls|please)[,\s]+)*(?:i(?:'?ll)?\s+|im\s+|i'?m\s+|gonna\s+|lemme\s+|let me\s+|can i\s+)*(?:take|taking|takin)\s+(\d{1,2}|five|ten|fifteen|twenty|thirty)(?:\s*(?:mins?|minutes?))?(?:\s+(?:pls|please|now|rn))?[.!]*$/.exec(m);
+  if (take) { const n = /^\d/.test(take[1]!) ? Number(take[1]) : WORD_NUM[take[1]!]!; return { kind: "break", minutes: Math.min(60, Math.max(1, n)), work: WORK_MINUTES, restart: false, assumed: false }; }
   if (!/\bbreak\b/.test(m) || m.split(" ").length > 16 || NOT_A_BREAK.test(m) || !ASKS.test(m) || notHisRest(m)) return null;
   const said = lengthOf(m);
   const minutes = Math.min(60, Math.max(1, said ?? DEFAULT_MINUTES));

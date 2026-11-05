@@ -2204,17 +2204,26 @@ export function registerLocalRouting(api, options) {
                 // His answer to "What time?" is read with the request it answers ("the one with the form", then "tomorrow at 9").
                 const followUp = asked && Date.now() - asked.at < STITCH_WINDOW_MS && (isBareTime(run.message) || (asked.label && answersLabel(run.message, run.settled?.move))) && !/\?\s*$/.test(run.message) && run.message.split(/\s+/).length <= 8 && !REMINDER_DROPPED.test(run.message) ? `${asked.text} ${run.message}` : undefined;
                 const last = lastReminder.get(key);
-                const plan = await planReminder({ message: followUp ?? leaveAsReminder(run.message) ?? run.message, now: (options.now ?? pluginNow)(),
+                // w20 r6 #20: "remind me at 3pm to ring the dentist and put sugar on my list": the list part is code's (one add), the reminder is the rest.
+                const remTail = options.chatRun && !followUp ? splitTrailingListAdd(run.message) : null;
+                const plan = await planReminder({ message: followUp ?? (remTail ? remTail.head : (leaveAsReminder(run.message) ?? run.message)), now: (options.now ?? pluginNow)(),
                     extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
                     list: options.listReminders ?? (async () => []), ...(options.offerPort ? { offers: options.offerPort } : {}), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
+                let listLine = "";
+                if (remTail && plan && (plan.kind === "call" || plan.kind === "say")) {
+                    const added = await withTimeout(runChatAsks(remTail.asks, options.chatRun).catch(() => undefined), 20000);
+                    listLine = ` ${added?.text ?? "I couldn't add that to your list: nothing was added."}`;
+                    added?.calls.forEach((canonical, k) => run.tools.push({ canonical, stdout: added.outputs[k] ?? "", exit: 0 }));
+                }
                 if (plan?.kind === "say") {
-                    run.flow = { outcome: "say", kind: "plain", text: plan.text };
+                    run.flow = { outcome: "say", kind: "plain", text: `${plan.text}${listLine}` };
                     if (plan.pending && key)
                         reminderAsk.set(key, { text: followUp ?? run.message, at: Date.now(), ...(plan.askLabel ? { label: true } : {}) });
                 }
                 if (plan?.kind === "call") {
-                    run.reminder = { args: plan.args, say: plan.reply, action: plan.action, ...(plan.label && plan.at ? { label: plan.label, at: plan.at } : {}) };
-                    return { systemPrompt: `${LOCAL_IDENTITY}\n\nDo this for Nick now with ${taskRunCall(plan.args)}\nThen, only if the result shows it worked, reply: "${plan.reply}" If it did not, say so plainly.\n\n${now}`,
+                    const said = `${plan.reply}${listLine}`;
+                    run.reminder = { args: plan.args, say: said, action: plan.action, ...(plan.label && plan.at ? { label: plan.label, at: plan.at } : {}) };
+                    return { systemPrompt: `${LOCAL_IDENTITY}\n\nDo this for Nick now with ${taskRunCall(plan.args)}\nThen, only if the result shows it worked, reply: "${said}" If it did not, say so plainly.\n\n${now}`,
                         appendContext: `[ORION: ${taskRunNow(plan.args)}]` };
                 }
                 // A reminder turn the plan could not work out gets a fixed reply, never the old free-form prompt (review, 2026-10-16).

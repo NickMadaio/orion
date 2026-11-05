@@ -21,6 +21,10 @@ export type RigOptions = {
     todoDoneFlow?: (m: string) => Promise<FlowResult>;
     health?: object;
     decide?: Decision;
+    extractReminder?: (m: string) => Promise<{
+        time: string | null;
+        label: string;
+    } | null>;
     day?: import("./schedule-flow.js").Day;
     scheduleFlow?: (m: string) => Promise<FlowResult>;
 };

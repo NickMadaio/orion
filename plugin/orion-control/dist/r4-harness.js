@@ -19,6 +19,7 @@ export function rig(o) {
         scheduleFlow: async (m) => { flows.push(m); return o.scheduleFlow ? o.scheduleFlow(m) : { outcome: "fallback", reason: "test" }; },
         readDayJson: async () => o.day, readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [],
         ...(o.foodRun ? { foodRun: o.foodRun } : {}), ...(o.ledgerRun ? { ledgerRun: o.ledgerRun } : {}), ...(o.selffixRun ? { selffixRun: o.selffixRun } : {}),
+        ...(o.extractReminder ? { extractReminder: o.extractReminder } : {}),
         ...(o.noteFlow ? { noteFlow: o.noteFlow } : {}), ...(o.chatRun ? { chatRun: o.chatRun } : {}), ...(o.todoDoneFlow ? { todoDoneFlow: o.todoDoneFlow } : {}), });
     let n = 0;
     const turn = async (prompt) => {

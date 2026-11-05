@@ -9,7 +9,6 @@ export type IntakeRead = {
     what: "calories" | "protein";
     yesterday: boolean;
 };
-/** "had a big bottle of water" = 1 bottle; "drank 2 bottles" = 2; glasses / litres / "some water" ask; null when it is not a report of drinking. */
 export declare function readWaterLog(message: string): IntakeRead | null;
 export declare function readIntakeQuestion(message: string): IntakeRead | null;
 export type OrionLog = (args: string[], healthLog: string) => Promise<{

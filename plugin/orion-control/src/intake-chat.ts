@@ -25,8 +25,10 @@ const OTHER_UNITS = /\b(?:glass(?:es)?|cups?|mugs?|litres?|liters?|oz|ounces?|ml
 const COUNT = /\b(\d{1,2}|one|two|three|a couple(?: of)?|couple|an?|another)\s+(?:(?:big|large|full|huge|small|whole|half|tall|more|extra|other|quick|\w+ing)\s+)*bottles?\b/i;
 
 /** "had a big bottle of water" = 1 bottle; "drank 2 bottles" = 2; glasses / litres / "some water" ask; null when it is not a report of drinking. */
+// "just drank a big bottle of water, how many have i had": the log, and its reply ("7 of 9 today") already answers the count (w20 r6 #104).
+const COUNT_TAIL = /[,;.]?\s*(?:and\s+)?(?:so\s+)?how many(?: (?:bottles|glasses))?(?: (?:have|did) i(?: had| drunk| drank| got)?| (?:is that|in total|so far|today|now|am i on)|)(?: (?:so far|today|now|in total|altogether))*\s*\??$/i;
 export function readWaterLog(message: string): IntakeRead | null {
-  const m = message.trim().replace(/\s+/g, " ");
+  const m = message.trim().replace(/\s+/g, " ").replace(COUNT_TAIL, "");
   if (m.length > 120 || !WATER.test(m) || NOT_A_LOG.test(m) || !DRANK.test(m)) return null;
   if (OTHER_UNITS.test(m) && !COUNT.test(m)) return { kind: "waterlog", amountWord: (OTHER_UNITS.exec(m)?.[0] ?? "water").toLowerCase() };
   const c = COUNT.exec(m)?.[1]?.toLowerCase().replace(/\s+of$/, "");

@@ -5,6 +5,8 @@ import { rig, type Rig } from "./r4-harness.js";
 import type { FoodRun } from "./food-chat.js";
 import { readFoodTurn, type FoodContext } from "./food-read.js";
 import { waterLogBlock } from "./water-guard.js";
+import { isHealthKnowledgeAsk } from "./knowledge-ask.js";
+import { readWaterLog } from "./intake-chat.js";
 import { parseNote } from "./note-flow.js";
 import { readChatAsks, readListFollowUp, runChatAsks, splitListItems, splitTrailingListAdd } from "./chat-asks.js";
 import { parseTodoDone, runTodoDone } from "./todo-done-flow.js";
@@ -348,4 +350,51 @@ describe("round 5 review: a list follow-up must look like an item", () => {
     await r.turn("and ok");
     expect(adds).toEqual([["add", "Eggs"]]);
   });
+});
+
+describe("round 6: list adds from every phrasing, reminders and water with a second part, a meal question", () => {
+  const tasks = () => { const adds: string[][] = []; return { adds, chat: { open: async () => ({ stdout: "", code: 0 }), installed: async () => true, tasks: async (a: string[]) => { adds.push(a); return { stdout: `Added "${a[1]}"`, code: 0 }; } } }; };
+  it.each([["and add milk too", ["Milk"]], ["add a notebook too", ["Notebook"]], ["also put bread on there", ["Bread"]], ["oh and get batteries", ["Batteries"]], ["throw in some floss as well", ["Floss"]], ["add tea bags and a lemon too", ["Tea bags", "Lemon"]]])("right after a list add, %s adds to the same list", async (m, items) => {
+    const t = tasks();
+    const r = rig({ chatRun: t.chat });
+    await r.turn("add eggs to my list");
+    await r.turn(m);
+    expect(t.adds).toEqual([["add", "Eggs"], ...items.map((i) => ["add", i])]);
+  });
+  it.each(["add a notebook too", "and add milk too"])("%s with no list add before it is not read as one", async (m) => {
+    const t = tasks();
+    const r = rig({ chatRun: t.chat });
+    await r.turn(m);
+    expect(t.adds).toEqual([]);
+  });
+  it.each(["and add gym at 6 too", "add a reminder too", "and put it on my calendar too"])("%s is not a list item", (m) => { expect(readListFollowUp(m)).toBeNull(); });
+  it.each([
+    ["add a quick call with bea at 7pm and put eggs on my shopping list", "eggs"], ["add a haircut at 4 and put bin bags on my list", "bin bags"], ["book gym at 6pm, and add oat milk to my shopping list", "oat milk"],
+  ])("%s: the calendar flow and one list add", async (m, item) => {
+    const t = tasks();
+    const r = rig({ chatRun: t.chat, scheduleFlow: async () => ({ outcome: "done", calls: ["exec orion-reschedule add x"], outputs: ["Added"], reply: "Done, it's booked." }) });
+    const reply = String(await r.turn(m));
+    expect(t.adds).toEqual([["add", item[0]!.toUpperCase() + item.slice(1)]]);
+    expect(reply).toContain(`Added ${item} to your list.`);
+  });
+  it.each([
+    ["remind me at 3pm to ring the dentist and put sugar on my list", "ring the dentist", "sugar"], ["remind me at 5pm to call mum and add milk to my shopping list", "call mum", "milk"], ["remind me at 9 to take my meds then put bin bags on the list", "take my meds", "bin bags"],
+  ])("%s is one reminder and one list add", async (m, label, item) => {
+    const t = tasks(); const seen: string[] = [];
+    const r = rig({ chatRun: t.chat, extractReminder: async (x) => { seen.push(x); return { time: "15:00", label }; } });
+    const reply = String(await r.turn(m));
+    expect(seen.join(" ")).not.toMatch(/list/);
+    expect(seen.join(" ")).toContain(label);
+    expect(t.adds).toEqual([["add", item[0]!.toUpperCase() + item.slice(1)]]);
+    expect(reply).toContain(`Added ${item} to your list.`);
+    expect(reply).toMatch(/remind you/i);
+  });
+  it.each([["just drank a big bottle of water, how many have i had"], ["drank a bottle of water, how many so far"], ["finished a bottle of water and how many have i had today"], ["just had a bottle of water how many is that"]])("%s is read as one bottle logged (its reply gives the count)", async (m) => {
+    expect(readWaterLog(m)).toMatchObject({ kind: "waterlog", bottles: 1 });
+  });
+  it("a question about the water count alone still isn't a log", () => { expect(readWaterLog("how many bottles have i had")).toBeNull(); });
+  it.each([
+    "is a meal prep box with chicken and rice good before a lecture", "are overnight oats with banana ok before the gym", "is a chicken wrap and a banana a good lunch before class", "is a smoothie with whey and oats ok before a lecture", "are eggs on toast good before a long study session",
+  ])("%s is a food question answered as food, not a calendar read", (m) => { expect(isHealthKnowledgeAsk(m)).toBe(true); });
+  it.each(["is dinner at 7 ok", "is the gym block at 6 fine", "is my lecture at 9 still on today", "are my classes tomorrow ok"])("%s stays about his day", (m) => { expect(isHealthKnowledgeAsk(m)).toBe(false); });
 });

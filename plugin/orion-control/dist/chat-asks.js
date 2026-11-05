@@ -77,14 +77,22 @@ const NOT_A_NOUN_ITEM = new RegExp(String.raw `\b(?:${[
 ].join("|")})\b`, "i");
 /** The items of a bare "and X" follow-up, or null when it is anything else (a verb, a question, a time, a calendar word). */
 export function readListFollowUp(message) {
-    const m = message.trim().replace(/\s+/g, " ");
-    const lead = FOLLOW_LEAD.exec(m);
-    if (!lead || /\?\s*$/.test(m))
+    let m = message.trim().replace(/\s+/g, " ");
+    if (/\?\s*$/.test(m))
         return null;
-    const rest = m.slice(lead[0].length).replace(/[.!]+$/, "").trim();
+    const lead = FOLLOW_LEAD.exec(m);
+    if (lead)
+        m = m.slice(lead[0].length);
+    // "and add milk too", "add a notebook too", "also put bread": the add verb is fine here, because the chat was just adding to the list.
+    const verb = /^(?:(?:oh|ok|okay|also|and|pls|please)[,\s]+)*(?:add|put|stick|get|grab|throw in|pop|chuck)\s+/i.exec(m);
+    if (verb)
+        m = m.slice(verb[0].length);
+    if (!lead && !verb)
+        return null;
+    const rest = m.replace(/[.!]+$/, "").replace(/\s+(?:too|as well|also|please|pls|to (?:it|that|the list|there)|on there|in there)$/i, "").trim();
     if (!rest)
         return null;
-    if (rest.length > 80 || NOT_AN_ITEM.test(rest) || NOT_A_LIST_ITEM.test(rest) || /\b(?:my list|the list|to-?dos?)\b/i.test(rest))
+    if (rest.length > 80 || NOT_AN_ITEM.test(rest) || NOT_A_LIST_ITEM.test(rest) || /\b(?:my list|the list|to-?dos?|calendar|schedule|reminders?|alarm|timer|plan|day)\b/i.test(rest))
         return null;
     const items = splitListItems(rest);
     return items.length && items.length <= 5 && !items.some((i) => NOT_A_NOUN_ITEM.test(i)) && items.every((i) => i.length <= 60 && i.split(" ").length <= 6) ? items : null;

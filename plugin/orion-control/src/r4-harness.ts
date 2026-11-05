@@ -23,7 +23,7 @@ export type Rig = {
 export type RigOptions = {
   foodRun?: FoodRun; ledgerRun?: LedgerRun; selffixRun?: SelffixRun; noteFlow?: (m: string, b?: boolean) => Promise<FlowResult>;
   chatRun?: ChatDeps; todoDoneFlow?: (m: string) => Promise<FlowResult>; health?: object;
-  decide?: Decision; day?: import("./schedule-flow.js").Day; scheduleFlow?: (m: string) => Promise<FlowResult>;
+  decide?: Decision; extractReminder?: (m: string) => Promise<{ time: string | null; label: string } | null>; day?: import("./schedule-flow.js").Day; scheduleFlow?: (m: string) => Promise<FlowResult>;
 };
 
 /** A chat session; `turn` returns the direct reply when code owns it, else the drafted system prompt text (what the worker is told to say). */
@@ -40,6 +40,7 @@ export function rig(o: RigOptions): Rig {
     scheduleFlow: async (m: string) => { flows.push(m); return o.scheduleFlow ? o.scheduleFlow(m) : { outcome: "fallback", reason: "test" }; },
     readDayJson: async () => o.day, readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [],
     ...(o.foodRun ? { foodRun: o.foodRun } : {}), ...(o.ledgerRun ? { ledgerRun: o.ledgerRun } : {}), ...(o.selffixRun ? { selffixRun: o.selffixRun } : {}),
+    ...(o.extractReminder ? { extractReminder: o.extractReminder } : {}),
     ...(o.noteFlow ? { noteFlow: o.noteFlow } : {}), ...(o.chatRun ? { chatRun: o.chatRun } : {}), ...(o.todoDoneFlow ? { todoDoneFlow: o.todoDoneFlow } : {}),
   } as never);
   let n = 0;

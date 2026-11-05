@@ -75,3 +75,15 @@ test("why --request keeps a real diagnosis as it is", () => {
   const r = JSON.parse(run(dir, ["why", "--about", "open amazon", "--request", "--json"]).stdout);
   assert.equal(r.diagnosis.kind, "wrong-tool");
 });
+
+test("why with the router's last exchange explains THAT reply, never an older failure on disk (live gate 3 #44 #94)", () => {
+  const { dir } = fresh();   // the disk holds a failed 'open amazon uk' from earlier: it must not be the turn
+  for (const about of ["why did you say that", "why did you reply like that", "whyd you say that lol"]) {
+    const r = run(dir, ["why", "--about", about, "--exclude", about, "--last-message", "haha wifi is dead again, love my life", "--last-reply", "Dramatic. You'll survive the wifi.", "--last-at", "2026-11-04T22:58:00Z", "--json"]);
+    assert.equal(r.status, 0, r.stderr);
+    const d = JSON.parse(r.stdout).diagnosis;
+    assert.equal(d.message, "haha wifi is dead again, love my life");
+    assert.equal(d.reply, "Dramatic. You'll survive the wifi.");
+    assert.doesNotMatch(r.stdout, /amazon/);
+  }
+});

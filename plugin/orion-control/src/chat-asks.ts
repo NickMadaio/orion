@@ -101,6 +101,18 @@ export function splitTrailingListAdd(message: string): { head: string; asks: Cha
   return asks && asks.length && asks.every((a) => a.kind === "list-add") ? { head: at[1]!.trim(), asks } : null;
 }
 
+/** "open youtube in safari and tell me whats the weather": the open (run by code, said first) and the question left to answer (live gate 3 #100: only Safari opened and the weather was dropped). */
+export function splitLeadOpen(message: string): { req: Extract<OpenRequest, { kind: "app" | "url" }>; rest: string } | null {
+  const text = message.trim();
+  if (text.length > 240) return null;
+  for (const m of text.matchAll(new RegExp(THEN_ASK.source, "gi"))) {
+    const head = text.slice(0, m.index).trim().replace(/[.,;!]+$/, ""); const rest = text.slice((m.index ?? 0) + m[0].length).trim();
+    const req = openRequest(head);
+    if (req && (req.kind === "app" || req.kind === "url") && rest.length >= 3 && !openRequest(rest)) return { req, rest };
+  }
+  return null;
+}
+
 /** The web player or site for an app that is not installed. */
 const WEB_VERSION: Readonly<Record<string, { url: string; label: string }>> = {
   spotify: { url: "https://open.spotify.com", label: "the Spotify web player" },

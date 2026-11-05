@@ -13,11 +13,11 @@
 */
 import { controlledDir } from "./lib/clock.mjs";
 import { clockNow } from "./lib/life/bridge-path.mjs";
-import { buildTurns, loadSources, recentTurns } from "./lib/selfcheck/turns.mjs";
+import { buildTurns, loadSources, recentTurns, redact } from "./lib/selfcheck/turns.mjs";
 import { diagnoseTurn, findFailures, pickTurn, requestedDiagnosis } from "./lib/selfcheck/diagnose.mjs";
 
 const argv = process.argv.slice(2);
-const VALUE_FLAGS = ["--n", "--about", "--exclude", "--day"];
+const VALUE_FLAGS = ["--n", "--about", "--exclude", "--day", "--last-message", "--last-reply", "--last-at"];
 const flag = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const [command] = argv.filter((a, i) => !a.startsWith("--") && !VALUE_FLAGS.includes(argv[i - 1]));
 const json = argv.includes("--json");
@@ -37,6 +37,15 @@ if (command === "last") {
     return `${t.at.slice(11, 16)} you: ${t.message}\n  route: ${route}  tools: ${tools}\n  me: ${t.reply || "(no reply)"}`;
   });
   emit({ turns }, lines.length ? lines.join("\n") : "No recent turns on record.");
+} else if (command === "why" && flag("--last-message") !== undefined) {
+  // "why did you say that": the router names ORION's previous exchange in THIS chat; it is the turn, never an older one found on disk.
+  const at = Date.parse(flag("--last-at") ?? "");
+  const t = Number.isNaN(at) ? now.getTime() - 1000 : at;
+  const src = loadSources(controlledDir(), { sinceMs: t - 300_000 });
+  const messages = [...src.messages.filter((m) => Math.abs(m.at - t) > 5000), { role: "user", text: flag("--last-message"), at: t }, { role: "assistant", text: flag("--last-reply") ?? "", at: t + 1 }].sort((a, b) => a.at - b.at);
+  const turn = buildTurns({ ...src, messages }).find((x) => x.message === redact(flag("--last-message"), 300));
+  const diagnosis = turn ? (argv.includes("--request") ? requestedDiagnosis(turn) : diagnoseTurn(turn)) : null;
+  emit({ diagnosis }, diagnosis ? diagnosis.says : "I have no reply of mine in this chat to look at.");
 } else if (command === "why") {
   const turn = pickTurn(turnsSince(now.getTime() - WINDOW_MS), { about: flag("--about") ?? "", n: Math.max(n, 6), exclude: flag("--exclude") });
   const diagnosis = turn ? (argv.includes("--request") ? requestedDiagnosis(turn) : diagnoseTurn(turn)) : null;

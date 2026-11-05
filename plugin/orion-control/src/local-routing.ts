@@ -26,6 +26,8 @@
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 import { isBareConfirm } from "./bare-confirm.js";
+import { withoutAsleepClaims, claimsAsleep } from "./awake-claims.js";
+import { newestOffer, slotAnswersGo } from "./offer-binding.js";
 import { ventTease } from "./vent-tease.js";
 import { withoutUnverifiedAlarmClaims } from "./alarm-claims.js";
 import { asksChatSummary, chatSummary } from "./chat-summary.js";
@@ -43,7 +45,7 @@ import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-r
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
 import { openRequest } from "./open-request.js";
-import { answersWebOffer, readChatAsks, readListFollowUp, runChatAsks, splitLeadListItem, splitTrailingListAdd, type ChatAsk, type ChatDeps, type WebOffer } from "./chat-asks.js";   // w20 r3
+import { answersWebOffer, readChatAsks, readListFollowUp, runChatAsks, splitLeadListItem, splitLeadOpen, splitTrailingListAdd, type ChatAsk, type ChatDeps, type WebOffer } from "./chat-asks.js";   // w20 r3
 import { outreachStale, staleOutreachNote, stripOutreachEcho } from "./outreach-stale.js";
 import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
 import { failedTools, failureReason } from "./tool-failure.js";
@@ -918,6 +920,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const retrySlots = new Map<string, NonNullable<RetrySlot>>();
   /** Chats whose last turn hit the context limit: their history is trimmed to half the usual budget until it fits again (history-trim.ts). */
   const overflowed = new Set<string>();
+  /** w20 r5: per chat, ORION's previous exchange (his message and what was said), for "why did you say that" (selffix-flow.ts). Never replaced by a why-turn itself. */
+  const lastExchange = new Map<string, { message: string; reply: string; at: number }>();
   const knowledgePending = new KnowledgePending();   // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
   const sleepPending = new SleepPlanPending();   // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
   /** w20 r3: per chat, the web page ORION just offered ("want the web player?") and the last reply that came back blank. */
@@ -1352,16 +1356,23 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const typed = cont?.full ?? (stitch ? `${stitch.text} ${continuation}` : cont?.rest || said);
     // w20 H3: a bare go / retry after a reply that offered one runs the failed message again. The slot answers one turn, the latest offer's.
     // The phone sends one conversation under several session keys, so a retry word with no offer of its own takes the most recent offer under any key (RETRY_WINDOW_MS still applies).
-    const ownSlot = sessionKey ? retrySlots.get(sessionKey) : undefined;
+    // w20 r5 (offer-binding.ts): a go answers the offer ORION made LAST in this chat (web page, build, food, retry), never an older slot, and a slot under another key only while fresh.
+    const newestOfferAt = newestOffer([sessionKey ? webOffers.get(sessionKey)?.at : undefined, sessionKey ? buildOffers.get(sessionKey)?.at : undefined,
+      sessionKey ? foodMemory.chatOfferAt(sessionKey, nowMs()) : undefined, options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)())?.at : undefined]);
+    const slotOwn = sessionKey ? retrySlots.get(sessionKey) : undefined;
+    const ownSlot = slotOwn && slotAnswersGo(slotOwn.at, newestOfferAt, false, nowMs()) ? slotOwn : undefined;
     const phoneKey = (k: string | undefined): boolean => !!k && /orion-(?:app-v2|chat)/.test(k);   // other chats stay separate
-    const recentKey = !ownSlot && isRetryWord(typed) && phoneKey(sessionKey) ? [...retrySlots.entries()].filter(([k]) => phoneKey(k)).sort((x, y) => y[1].at - x[1].at)[0]?.[0] : undefined;
+    const recentKey = !ownSlot && isRetryWord(typed) && phoneKey(sessionKey) ? [...retrySlots.entries()].filter(([k]) => phoneKey(k) && k !== sessionKey && slotAnswersGo(retrySlots.get(k)!.at, newestOfferAt, true, nowMs())).sort((x, y) => y[1].at - x[1].at)[0]?.[0] : undefined;
     const messageIn = retryReplay(ownSlot ?? (recentKey ? retrySlots.get(recentKey) : undefined), typed, nowMs());
     // w20 r4 (timer-flow.ts): a timer order joined to another ask ("set a 10 min timer and move my gym to 6", either order) is set by code first and read
     // back; only the other clause goes on to the normal routes, and the reply says both. The 9B never called timer_set from a hint (gate 2 #61).
     const timerSplit = on && options.addTimer && !retrySlots.has(sessionKey) ? splitTimerAsk(messageIn) : undefined;
     const timerFirst = timerSplit ? await runTimer(readTimer(timerSplit.timer) ?? { seconds: 0, label: "Timer" }, { add: options.addTimer!, list: options.listReminders ?? (async () => []), now: (options.now ?? pluginNow)() }).catch(() => undefined) : undefined;
-    const message = timerSplit && timerFirst ? timerSplit.rest : messageIn;
-    const timerTools = timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
+    // w20 r5 (chat-asks.ts splitLeadOpen): "open youtube in safari and tell me whats the weather": the open is run by code and said first, the question is what is left.
+    const openSplit = on && options.chatRun && !(timerSplit && timerFirst) ? splitLeadOpen(messageIn) : undefined;
+    const openFirst = openSplit ? await withTimeout(runChatAsks([{ kind: "open", req: openSplit.req }], options.chatRun!).catch(() => undefined), 40000) : undefined;
+    const message = timerSplit && timerFirst ? timerSplit.rest : openSplit && openFirst ? openSplit.rest : messageIn;
+    const timerTools = openFirst ? openFirst.calls.map((canonical, i) => ({ canonical, stdout: openFirst.outputs[i] ?? "", exit: 0 })) : timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
     if (sessionKey) retrySlots.delete(sessionKey);
     if (recentKey) retrySlots.delete(recentKey);
     const spokenTurn = SPOKEN.test(raw);
@@ -1534,7 +1545,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // Wave 6 (bed-state.ts): past his bedtime with no nudge in reach, a stall or "going to bed" is still the bedtime reply.
         ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
     if (sessionKey && !cutOff && !pending) pendingMemory.setMemo(sessionKey, null);
-    const run: Run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : {}), started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : openFirst ? { preface: openFirst.text } : {}), started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff && !quietTurn && !isBareConfirm(message) ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (ledgerAsk) run.ledger = ledgerAsk;
     if (runId) runs.set(runId, run);
@@ -1554,6 +1565,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         ...(options.connectorStatus ? { connectorStatus: options.connectorStatus } : {}) }).catch(() => undefined), 6000);
       if (text) run.ownText = text;
     }
+    if (openFirst?.offer && sessionKey) webOffers.set(sessionKey, { ...openFirst.offer, at: outreachNowMs });
     if (chatAsks && options.chatRun) {   // w20 r3: code does it and says what happened to each ask
       const out = await withTimeout(runChatAsks(chatAsks, options.chatRun).catch(() => undefined), 40000);
       if (out) {
@@ -1567,7 +1579,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (out) { run.ownText = out.text; out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 })); if (out.held && sessionKey) knowledgePending.set(sessionKey, out.held, Date.now()); }
     }
     if (smove && options.stateDir) {   // w19 selffix: the reply is built from orion-selfcheck's and orion-selffix's JSON
-      const out = await withTimeout(runSelffixMove(smove, options.selffixRun ?? liveSelffixRun(options.stateDir), (options.now ?? pluginNow)()).catch(() => undefined), 70000);
+      const prevExchange = sessionKey ? lastExchange.get(sessionKey) : undefined;
+      const smoveWithLast = smove.kind === "why" ? { ...smove, last: prevExchange ? { message: prevExchange.message, reply: prevExchange.reply, at: new Date(prevExchange.at).toISOString() } : null } : smove;
+      const out = await withTimeout(runSelffixMove(smoveWithLast, options.selffixRun ?? liveSelffixRun(options.stateDir), (options.now ?? pluginNow)()).catch(() => undefined), 70000);
       if (out) { run.ownText = out.text; out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 })); }
       // A fix request that timed out is answered here, once: left to the model, "go into the code and fix it" became a tool loop (2026-11-04).
       else if (smove.kind === "fix") run.ownText = "I couldn't finish setting up the fix project in time, so I can't say whether it started. Check the Projects tab before asking me again.";
@@ -1671,7 +1685,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run?.computer || (options.computer && run && detectComputerIntent(run.message))) return undefined; // 2026-10-31: the screen loop's reply, never a drafted "I can't see your screen"
       if (run?.reality) return undefined;   // 2026-10-30: what he said happened is code's (reality.ts), never a drafted "Noted!"
       // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
-      const draftText = withoutUnverifiedAlarmClaims(withoutDayClaims(d?.answer ?? ""), options.stateDir, (options.now ?? pluginNow)());
+      const draftText = withoutUnverifiedAlarmClaims(withoutAsleepClaims(withoutDayClaims(d?.answer ?? "")), options.stateDir, (options.now ?? pluginNow)());
       if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "") && !casualStartTask(run?.message ?? "")) return { handled: true, reply: { text: withGentleCheckIn(run?.message ?? "", draftText) }, reason: "front desk answered" };
       return undefined;
     });
@@ -2285,7 +2299,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // 2026-10-31: inside a run of room talk, nothing reaches the worker's free reply: only a flow that acted above may answer.
       if (run.room === "streak") { run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY }; rooms.mark(run.sessionKey, nowMs()); return fixedReply(QUIET_REPLY); }
       const lookup = needsLiveData(run.message);
-      const draft = withoutUnverifiedAlarmClaims(withoutDayClaims(run.settled.answer ?? ""), options.stateDir, (options.now ?? pluginNow)());
+      const draft = withoutUnverifiedAlarmClaims(withoutAsleepClaims(withoutDayClaims(run.settled.answer ?? "")), options.stateDir, (options.now ?? pluginNow)());
       if (run.settled.move === "answer" && draft && !CHANGE_REQUEST.test(run.message) && !lookup) {
         // Even a pure answer's draft can invent his day ("you've been coding for hours", q082) and the 9B
         // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named
@@ -2734,6 +2748,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), askedChange: !isQuestion(run.message) && (CHANGE_REQUEST.test(run.message) || readStatedMove(run.message) !== null), codeAuthored: owed !== undefined });
         if (clean !== before) { owed = clean; remember([runId, sessionKeyNow], owed); }
       }
+      // w20 r5 (awake-claims.ts): he just sent a message, so no reply says he is asleep.
+      if (on && (owed ?? reply).split(/(?<=[.!?])\s+/).some(claimsAsleep)) { const awake = withoutAsleepClaims(owed ?? reply); if (awake) { owed = awake; remember([runId, sessionKeyNow], owed); } }
+      // w20 r5 (alarm-claims.ts): a reply states his alarm only as wake-plan.json holds it, unless this very turn just set one (the tool result is then the source).
+      if (on && (owed ?? reply).trim() && !run.tools.some((t) => /orion-wake|orion-sleepplan|alarm_set|wake_set/.test(t.canonical))) {
+        const before: string = owed ?? reply;
+        const verified = withoutUnverifiedAlarmClaims(before, options.stateDir, (options.now ?? pluginNow)());
+        if (verified !== before && verified.trim()) { owed = verified; remember([runId, sessionKeyNow], owed); }
+      }
       // 2026-11-02: past tonight's nudge time a reply never ends by ordering him to the gym or a plan task.
       if (on && (owed ?? reply).trim() && pastNudgeTime(options.stateDir, (options.now ?? pluginNow)())) {
         const before: string = owed ?? reply;
@@ -2762,6 +2784,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         if (slot) retrySlots.set(run.sessionKey, slot);
       }
       if (on && owed) putReplyInPlace(event.messages, owed);
+      if (on && run.sessionKey && !(asksWhy(run.message) || asksWhySelf(run.message)) && (owed ?? reply).trim()) lastExchange.set(run.sessionKey, { message: run.message, reply: (owed ?? reply).trim(), at: nowMs() });
       await record();
       done();
     } catch (error) {

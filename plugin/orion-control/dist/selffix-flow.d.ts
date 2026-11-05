@@ -1,4 +1,10 @@
 import { type FixItem } from "./selffix-store.js";
+export type LastExchange = {
+    message: string;
+    reply: string;
+    at: string;
+};
+export declare const isBareWhy: (about: string) => boolean;
 export type SelffixRun = (script: "orion-selfcheck" | "orion-selffix", args: string[], input?: string) => Promise<{
     stdout: string;
     code: number;
@@ -6,7 +12,8 @@ export type SelffixRun = (script: "orion-selfcheck" | "orion-selffix", args: str
 }>;
 export type SelffixMove = {
     kind: "why";
-    about: string;
+    about: string; /** ORION's previous exchange in THIS chat (message, reply), supplied by the router. */
+    last?: LastExchange | null;
 } | {
     kind: "now";
     id: string;

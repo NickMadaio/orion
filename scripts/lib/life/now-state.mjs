@@ -30,6 +30,18 @@ export function sleepPlanFor({ minute, tomorrow = [] }) {
   return { bedtime: hhmm(bed), wake: hhmm(wake) };
 }
 
+/**
+ * His next real alarm as "HH:MM": the earliest alarm in wake-plan.json that is still ahead and not switched off (the plan's own file, what the phone
+ * schedules), or null. The same source plugin/orion-control/src/wake-state.ts reads. Anything that states an alarm states this, never the computed wake.
+ */
+export function nextAlarmClock(dir, now) {
+  const plan = readJson(join(dir, "wake-plan.json"));
+  const ahead = (plan?.alarms ?? []).flatMap((a) => { const t = Date.parse(a?.iso); return a?.off !== true && Number.isFinite(t) && t - now.getTime() >= 60_000 ? [t] : []; });
+  if (!ahead.length) return null;
+  const d = new Date(Math.min(...ahead));
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 /** When each sensor last reported: the phone (awareness, else the health log), the Mac (awareness), WHOOP (nights, today's record). */
 export function sensorsFrom({ aw, healthLog = {}, nights = [] }) {
   const days = healthLog?.days ?? {};
@@ -71,7 +83,7 @@ export async function buildNow({ dir = controlledDir(), now = clockNow(), aw = n
   const cfg = config ?? loadConfig();
   // The bedtime shown goes through effective-bed: a night he named, or a standing bedtime he fixed, beats the computed one.
   const computed = sleepPlanFor({ minute, tomorrow });
-  const sleepPlan = { ...computed, bedtime: planBedtime(cfg, planDate, computed.bedtime) };
+  const sleepPlan = { ...computed, bedtime: planBedtime(cfg, planDate, computed.bedtime), wake: nextAlarmClock(dir, now) ?? computed.wake };
   return nowRecord({ now, aw: awareness, day: blocks, dayOk: ok !== false, config: cfg, sleepPlan,
     slips: s.slips, declared: s.declared, checkins: s.checkins, patterns: s.patterns, sensors: sensorsFrom({ aw: awareness, healthLog: s.healthLog, nights: s.nights }) });
 }

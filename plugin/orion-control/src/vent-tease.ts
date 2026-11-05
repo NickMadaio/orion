@@ -5,8 +5,10 @@
 */
 import { crisisTier, isOverwhelmed } from "./distress.js";
 
-const PLACE = "uni|university|school|college|campus|class|classes|lecture|lectures|seminar|seminars|module|course|lab|labs|exams?|essays?|homework|assignments?|coursework|deadlines?|group project|work|my job|the job|commute|weather|rain|cold|traffic|bus|tube|train|wifi|internet|printer|laptop|library|coding|leetcode|maths?|stats|econ|marketing|chem|physics|bio";
+const PLACE = "uni|university|school|college|campus|class|classes|lecture|lectures|seminar|seminars|module|course|lab|labs|exams?|essays?|homework|assignments?|coursework|deadlines?|group project|work|my job|the job|commute|weather|rain|cold|traffic|bus|tube|train|wifi|internet|printer|laptop|library|coding|leetcode|maths?|stats|econ|marketing|chem|physics|bio|place|building|campus|module";
 const VENT = new RegExp(String.raw`\b(?:i )?(?:hate|hated|despise|cant stand|can'?t stand|am so sick of|so sick of|sick of|so over|dread|loathe)\s+(?:this |my |the |that |these |those |all this |all the )?(?:\w+ ){0,2}?(${PLACE})\b`, "i");
+// "this uni is the worst lol", "lectures are so boring", "uni sucks": the place or chore named first, a plain complaint after.
+const COMPLAINT = new RegExp(String.raw`\b(?:this |my |the |these |all the )?(?:\w+ )?(${PLACE})\b\s+(?:is |are |was |were |just |so |really |literally |honestly )*(?:the worst|boring|trash|rubbish|awful|painful|a joke|dead|too long|so long|slow|draining|exhausting|stressful|rough|tiring|sucks?|so bad|too much|killing me)`, "i");
 const DESPAIR = /\b(?:life|myself|me|everything|everyone|everybody|people|my body|being alive|existing|living|myself|us|humans?|mornings?|monday)\b|\b(?:kill|die|dead|suicid|end it|hurt|cut|worthless|hopeless|alone|cry|crying|panic|anxious|depress|cant cope|can'?t cope|cant do this|can'?t do this|give up)\w*/i;
 const ASKS = /\?|\b(?:can|could|would|will) (?:you|u)\b|\b(?:please|pls|plz|help|remind|move|set|add|cancel|play|open|turn|text|call|log|book|schedule|tell|show|find|check|start|stop|put|push|skip|what|whats|when|how|why|where|who|which)\b/i;
 
@@ -25,7 +27,7 @@ const LINES: Array<(c: string) => string> = [
 /** The one-line tease when the message is only everyday venting; null otherwise (a request, a despair word, or any safety tier). */
 export function ventTease(message: string): string | null {
   const m = message.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
-  if (!m || m.length > 90 || !VENT.test(m) || ASKS.test(m) || DESPAIR.test(m)) return null;
+  if (!m || m.length > 90 || /^(?:lol |ok |so |and )*(?:is|are|does|do|did|why|how|what|which|who|when|where|whats)\b/.test(m) || !(VENT.test(m) || COMPLAINT.test(m)) || ASKS.test(m) || DESPAIR.test(m)) return null;
   if (crisisTier(message) !== null || isOverwhelmed(message)) return null;
   const cause = CAUSES.find(([re]) => re.test(m))?.[1] ?? "it";
   let h = 0;

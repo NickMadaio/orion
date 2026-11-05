@@ -72,6 +72,8 @@ export class FoodMemory {
     const o = this.offers.get(key);
     return o && nowMs - o.at <= 30 * 60_000 && (this.others.get(key) ?? 0) <= o.at ? { food: o.food } : undefined;
   }
+  /** When the offer this chat is still answering was made (undefined when none is open). */
+  chatOfferAt(key: string, nowMs: number): number | undefined { const o = this.offers.get(key); return o && this.chatOffer(key, nowMs) ? o.at : undefined; }
   /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
   bound(key: string, pending: FoodPendingView, label?: string): boolean {
     if (label && !/Log it\?|Add those numbers|Fix anything\?/.test(label)) return false;

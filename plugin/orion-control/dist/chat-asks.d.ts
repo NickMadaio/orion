@@ -46,6 +46,13 @@ export declare function splitTrailingListAdd(message: string): {
     head: string;
     asks: ChatAsk[];
 } | null;
+/** "open youtube in safari and tell me whats the weather": the open (run by code, said first) and the question left to answer (live gate 3 #100: only Safari opened and the weather was dropped). */
+export declare function splitLeadOpen(message: string): {
+    req: Extract<OpenRequest, {
+        kind: "app" | "url";
+    }>;
+    rest: string;
+} | null;
 /** "You have 3 on your list: milk, email careers (due 2026-11-06), ...", from `orion-tasks list` output. */
 export declare function listReply(stdout: string): string;
 /** Runs every ask in order (one failing never stops the next) and says what happened to each; items added in a row are one sentence naming each. */

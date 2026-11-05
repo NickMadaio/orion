@@ -145,10 +145,18 @@ const started = { ok: true, status: "started", item: { id: "sf-1", title: "Fix: 
 const item = (status, extra = {}) => ({ id: "sf-1", title: "Fix: wrong tool on \"open amazon uk\"", status, projectId: "project-1", ...extra });
 const FIX = { kind: "fix", about: "go into the code and fix it" };
 const fixable = { ok: true, diagnosis: { says: "You asked me to fix this.", fixable: true, kind: "requested" } };
+/** w20 r4: "fix your code" confirms the subject in one line first; this runs the ask, then his yes, on the same script. */
+async function confirmed(move, run) {
+    const ask = await runSelffixMove(move, run, NOW);
+    expect(ask.text).toMatch(/^I'll start a fix for: .+\. Go\?$/);
+    expect(run.calls.some((c) => /^orion-selffix (?:propose|accept|start)/.test(c))).toBe(false); // nothing is created or started before his yes
+    expect(ask.hold).toBeDefined();
+    return runSelffixMove({ kind: "fix-go", hold: ask.hold }, run, NOW);
+}
 describe("running a fix request", () => {
     it("no earlier diagnosis: diagnoses with --request, proposes, accepts now, and says what started and where to watch it", async () => {
         const run = script({ "orion-selffix list": { ok: true, items: [] }, "orion-selfcheck why": fixable, "orion-selffix propose": { ok: true, status: "offered", item: item("offered") }, "orion-selffix accept": started });
-        const out = await runSelffixMove(FIX, run, NOW);
+        const out = await confirmed(FIX, run);
         expect(run.calls[1]).toMatch(/^orion-selfcheck why .*--request --json$/);
         expect(run.calls.some((c) => c.startsWith("orion-selffix propose --stdin --requested"))).toBe(true);
         expect(run.calls.at(-1)).toBe("orion-selffix accept sf-1 --now");
@@ -160,13 +168,13 @@ describe("running a fix request", () => {
     });
     it("reuses a recent offered diagnosis: no new diagnosis, no second propose", async () => {
         const run = script({ "orion-selffix list": { ok: true, items: [item("offered", { offeredAt: new Date(NOW.getTime() - 3600_000).toISOString() })] }, "orion-selffix accept": started });
-        const out = await runSelffixMove(FIX, run, NOW);
+        const out = await confirmed(FIX, run);
         expect(run.calls.map((c) => c.split(" ").slice(0, 2).join(" "))).toEqual(["orion-selffix list", "orion-selffix accept"]);
         expect(out.text).toMatch(/Projects tab/);
     });
     it("a parked project is started, not duplicated", async () => {
         const run = script({ "orion-selffix list": { ok: true, items: [item("parked", { remindAt: new Date(NOW.getTime() + 3600_000).toISOString() })] }, "orion-selffix start": started });
-        const out = await runSelffixMove(FIX, run, NOW);
+        const out = await confirmed(FIX, run);
         expect(run.calls.at(-1)).toBe("orion-selffix start sf-1");
         expect(out.text).toMatch(/Projects tab/);
     });
@@ -179,13 +187,13 @@ describe("running a fix request", () => {
     });
     it("the second ask while the first is open is a duplicate from propose: still one project", async () => {
         const run = script({ "orion-selffix list": { ok: true, items: [] }, "orion-selfcheck why": fixable, "orion-selffix propose": { ok: true, status: "duplicate", item: item("started") } });
-        const out = await runSelffixMove(FIX, run, NOW);
+        const out = await confirmed(FIX, run);
         expect(run.calls.some((c) => c.startsWith("orion-selffix accept"))).toBe(false);
         expect(out.text).toMatch(/already started/);
     });
     it("a refused start (execution disabled) is one message with the exact reason, and nothing is retried", async () => {
         const run = script({ "orion-selffix list": { ok: true, items: [item("offered", { offeredAt: NOW.toISOString() })] }, "orion-selffix accept": { ok: true, status: "parked", reason: "Execution is disabled. Choose Enable & start to enable local execution.", remindAt: new Date(2026, 10, 4, 19, 30).toISOString() } });
-        const out = await runSelffixMove(FIX, run, NOW);
+        const out = await confirmed(FIX, run);
         expect(out.text).toMatch(/couldn't start it/);
         expect(out.text).toContain("Execution is disabled. Choose Enable & start to enable local execution.");
         expect(out.text).toMatch(/Projects tab/);
@@ -194,7 +202,8 @@ describe("running a fix request", () => {
     });
     it("a script failure says why from its own words and stops", async () => {
         const run = (async (s, a) => (a[0] === "list" ? { stdout: JSON.stringify({ ok: true, items: [] }), code: 0 } : s === "orion-selfcheck" ? { stdout: JSON.stringify(fixable), code: 0 } : a[0] === "propose" ? { stdout: JSON.stringify({ ok: true, status: "offered", item: item("offered") }), code: 0 } : { stdout: "", code: 3, stderr: "NOTHING WAS CHANGED: the project could not be created: disk full" }));
-        const out = await runSelffixMove(FIX, run, NOW);
+        const ask = await runSelffixMove(FIX, run, NOW);
+        const out = await runSelffixMove({ kind: "fix-go", hold: ask.hold }, run, NOW);
         expect(out.text).toContain("disk full");
         expect(out.text).toMatch(/nothing was started/);
     });

@@ -103,25 +103,39 @@ describe("why did you do that, then now / later / no", () => {
 
 describe("go into the code and fix it (Nick, 2026-11-04: he just looped)", () => {
   const ask = ["go into the code and fix it", "can you fix that yourself", "fix your code", "Can you modify something in your own code?"];
-  it.each(ask)("%s: one project, started, and where to watch it; the desk is never asked", async (phrase) => {
+  it.each(ask)("%s: one line says the subject, nothing starts until his yes, then one project, started, and where to watch it", async (phrase) => {
     const w = world();
-    const text = await w.reply(phrase);
+    const line = await w.reply(phrase);
+    expect(line).toMatch(/^I'll start a fix for: .+\. Go\?$/);
+    expect(w.projectCalls()).toEqual([]);   // never started without his yes
+    const text = await w.reply("yes");
     expect(text).toMatch(/started a fix project/i);
     expect(text).toMatch(/Projects tab/);
     expect(text).toMatch(/nothing edits my live code directly/);
     expect(w.projectCalls()).toEqual(["add", "launch"]);
     expect(w.desk).toEqual([]);
   });
+  it("his no (or any other message) after the question starts nothing", async () => {
+    const w = world();
+    await w.reply("fix your code");
+    expect(await w.reply("nah")).toMatch(/won't start it/);
+    await w.reply("fix your code");
+    await w.reply("what time is it");
+    await w.reply("yes");
+    expect(w.projectCalls()).toEqual([]);
+  });
   it("asking again, in any of his phrasings, never makes a second project or a second launch", async () => {
     const w = world();
     await w.reply("go into the code and fix it");
+    await w.reply("yes");
     for (const phrase of ask) expect(await w.reply(phrase)).toMatch(/already started/);
     expect(w.projectCalls()).toEqual(["add", "launch"]);
   });
   it("reuses the earlier diagnosis: a why, then 'fix your code', is the same one project", async () => {
     const w = world();
     expect(await w.reply("why didnt you open amazon uk")).toMatch(/now, or later\?$/);
-    expect(await w.reply("can you fix that yourself")).toMatch(/started a fix project/i);
+    expect(await w.reply("can you fix that yourself")).toMatch(/Go\?$/);
+    expect(await w.reply("yes")).toMatch(/started a fix project/i);
     const items = (JSON.parse(readFileSync(join(w.dir, "selffix.json"), "utf8")) as { items: Array<{ status: string }> }).items;
     expect(items).toHaveLength(1);
     expect(items[0]!.status).toBe("started");
@@ -129,7 +143,8 @@ describe("go into the code and fix it (Nick, 2026-11-04: he just looped)", () =>
   });
   it("a runtime that cannot execute: one message with the exact reason, no retry, no loop", async () => {
     const w = world({ launchFail: "Execution is disabled. Choose Enable & start to enable local execution." });
-    const text = await w.reply("fix your code");
+    await w.reply("fix your code");
+    const text = await w.reply("yes");
     expect(text).toMatch(/couldn't start it/);
     expect(text).toContain("Execution is disabled. Choose Enable & start to enable local execution.");
     expect(w.projectCalls()).toEqual(["add", "launch"]);

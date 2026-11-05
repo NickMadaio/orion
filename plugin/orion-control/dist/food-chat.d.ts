@@ -30,6 +30,18 @@ export declare class FoodMemory {
         at: number;
     } | undefined;
     forgetLog(key: string): void;
+    private touched;
+    /** Any food turn in this chat (wall clock): "remove the eggs" a little later is about the meal log, not the calendar or water. */
+    touch(key: string): void;
+    recentFood(key: string): boolean;
+    private offers;
+    /** An answer ORION just gave about a food ends in "Log it?": remembered here, because food-pending.json is never written during an evaluation. */
+    offered(key: string, food: string, nowMs: number): void;
+    forgetOffer(key: string): void;
+    /** The food of the offer this chat is still answering (nothing else said since, under 30 minutes old), or undefined. */
+    chatOffer(key: string, nowMs: number): {
+        food: string;
+    } | undefined;
     /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
     bound(key: string, pending: FoodPendingView, label?: string): boolean;
 }

@@ -6,7 +6,7 @@
 import type { Day } from "./schedule-flow.js";
 import type { LedgerAsk } from "./ledger-ask.js";
 import { namesLabel, contentWords, type MadeItem } from "./made-ledger.js";
-import { removeNote, removeReminder } from "./ledger-remove.js";
+import { removeFoodByWords, removeNote, removeReminder } from "./ledger-remove.js";
 import type { StoredReminder } from "./reminder-flow.js";
 
 export type JournalStep = { op?: string; title?: string; start?: string; end?: string };
@@ -24,6 +24,10 @@ export type LedgerDeps = {
   owned?: (at: string) => boolean;
   nothingText: string;
   reminders?: { list: () => Promise<StoredReminder[]>; remove: (ids: string[]) => Promise<void> };
+  /** This chat has been about food lately: a removal that names no calendar thing is a meal to take off the food log. */
+  foodRecent?: boolean;
+  /** What he said, for the checks that read the whole message. */
+  said?: string;
 };
 export type LedgerOutcome = { text: string; calls: string[]; outputs: string[]; removed: MadeItem[]; wroteCalendar: boolean; /** A candidate asked about: his "yes" carries it out. */ held?: { kind: MadeItem["kind"]; label: string } };
 
@@ -185,6 +189,7 @@ async function removeNamed(ask: LedgerAsk, words: string[], deps: LedgerDeps): P
     }
   }
   if (kinds.includes("food")) return removeItem(deps, { kind: "food", label: words.join(" "), at: deps.now });
+  if (deps.foodRecent && !kinds.length && ask.verb === "remove") { const meal = await removeFoodByWords(deps, words, deps.said ?? words.join(" ")); if (meal) return meal; }
   if (kinds.includes("note")) return ask.confirmed ? removeNote(deps, words.join(" ")) : askAboutNote(deps, words);
   void out;
   return undefined;

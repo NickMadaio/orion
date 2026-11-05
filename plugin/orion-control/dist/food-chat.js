@@ -53,6 +53,19 @@ export class FoodMemory {
     logged(key, id, nowMs, ids = [id]) { this.logs.set(key, { id, ids: [...ids], at: nowMs }); }
     lastLogged(key) { return this.logs.get(key); }
     forgetLog(key) { this.logs.delete(key); }
+    touched = new Map();
+    /** Any food turn in this chat (wall clock): "remove the eggs" a little later is about the meal log, not the calendar or water. */
+    touch(key) { this.touched.set(key, Date.now()); }
+    recentFood(key) { return Date.now() - (this.touched.get(key) ?? 0) < 3 * 3600_000; }
+    offers = new Map();
+    /** An answer ORION just gave about a food ends in "Log it?": remembered here, because food-pending.json is never written during an evaluation. */
+    offered(key, food, nowMs) { this.offers.set(key, { food, at: nowMs }); }
+    forgetOffer(key) { this.offers.delete(key); }
+    /** The food of the offer this chat is still answering (nothing else said since, under 30 minutes old), or undefined. */
+    chatOffer(key, nowMs) {
+        const o = this.offers.get(key);
+        return o && nowMs - o.at <= 30 * 60_000 && (this.others.get(key) ?? 0) <= o.at ? { food: o.food } : undefined;
+    }
     /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
     bound(key, pending, label) {
         if (label && !/Log it\?|Add those numbers|Fix anything\?/.test(label))
@@ -73,7 +86,7 @@ const offerOf = (j) => cleanNotes(String(j.offer?.text ?? (j.summary ? `${String
 const lower = (s) => String(s ?? "").toLowerCase();
 async function call(run, args) {
     const r = await run(args).catch((e) => ({ stdout: JSON.stringify({ ok: false, error: String(e) }), code: 1 }));
-    return { j: parse(r.stdout), call: `orion-food-estimate ${args.join(" ")}`, out: r.stdout.trim().slice(0, 2000) };
+    return { j: parse(r.stdout), call: `exec orion-food-estimate ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(" ")}`, out: r.stdout.trim().slice(0, 2000) };
 }
 /** "protein bar, protein bar +1" (an estimate that listed one food twice) is said once: repeats go, and the "+N" that counted them. */
 export function tidyTitle(title) {

@@ -6,7 +6,7 @@ const HOWM = String.raw `h(?:ow|wo|w) (?:many|much|mch|muh|mny)`;
 /** "is a chipotle bowl high protein", "is this high in protein": a question about a food's nutrient, answered like a how-much. */
 const HIGH = new RegExp(String.raw `^(?:is|are|does|do) (.{1,80}?) (?:high|low|good|a lot)(?: in)? ${NUTRIENT}\??$`, "i");
 /** His day totals, budget or goals are another question (code-answers / the worker), not a meal to estimate. */
-const DAY_TOTAL = /\b(?:today|so far|this week|yesterday|left|remaining|goal|target|budget|should i|do i need|my calorie|my protein|my macros)\b/i;
+const DAY_TOTAL = /\b(?:today|so far|this week|yesterday|left|remaining|goal|target|budget|should i|do i need|my calorie|my protein|my macros|have i (?:had|eaten|got|consumed|been)|did i (?:have|eat)|i(?:'ve| have|ve) (?:had|eaten|consumed)|am i (?:on|at))\b/i;
 const THAT = new RegExp(String.raw `^(?:and |so |ok |okay )?(?:${HOWM} ${NUTRIENT}(?: (?:was|is|are|were|in))?(?: in)? (?:that|it|this|those)|(?:what(?:'s|s| is| are|re)? )?(?:the )?${NUTRIENT} (?:on|in|for|of) (?:that|it|this|those)|(?:the )?${NUTRIENT})\??[.!]*$`, "i");
 const ASK = new RegExp(String.raw `\b(?:${HOWM} ${NUTRIENT}(?: (?:is|are|was|were|does|do|would))?(?: (?:there|it|that|this))?(?: (?:in|for|of|on|have|be))?|${NUTRIENT} (?:in|for|of|on)|estimate (?:the |my )?${NUTRIENT}(?: (?:in|for|of|on))?(?: my [a-z]+)?|macro (?:check|estimate)(?: (?:on|for))?)\b`, "i");
 const LOG = /^(?:please |pls |can you |could you )?(?:log|track)\s+(?:(?:this|that|these)\s*(?:meal|food)?\s*:\s*|(?:food|meal)\s*:\s*|(?=(?:a|an|some|two|three|four|half|\d+)\s))(.+)$/i;
@@ -16,6 +16,10 @@ const NOT_FOOD = /\b(?:workout|gym|lift(?:s|ed|ing)?|run|ran|water|bottles?|slee
 const YES = /^(?:y|ya|yah|yes|yeah|yea|yep|yup|sure|ok|okay|k|please|please do|pls|do it|go ahead|go for it|sounds good|perfect|correct|right|that's right|thats right|log it|log that|add it|add that|save it|yes please|yeah please|yes log it|yeah log it|yep log it|sure log it|ok log it|yes add it)(?:\s+(?:please|pls|thanks|thank you|thx|ty))?$/i;
 /** A yes with something after it: "yes actually. log three of them", "yeah but it was a small one". The rest is what he says changed. */
 const YES_LEAD = /^(?:y|ya|yah|yes|yeah|yea|yep|yup|sure|ok|okay)\b[,.!]*\s+(.+)$/i;
+/** "go", "yeah go on", "yeah add it", "put that in", "yep confirm": his yes to a "Log it?" that is still the last thing said (only read when an offer is bound). */
+const OFFER_YES = /^(?:(?:y|ya|yah|yes|yeah|yea|yep|yup|sure|ok|okay|k|alright|aight|fine|cool)[, ]+)*(?:go(?: on| ahead| for it| then)?|do it|do that|confirm(?:ed)?|that works|(?:please |pls )?(?:add|put|stick|log|save|pop|chuck|track|record)(?: (?:it|that|this|those|them|that one))?(?: (?:in|down|on|in there|in then))?(?: (?:to|in|on) (?:my )?(?:log|food|meals|calories|macros|tracker))?)(?:\s+(?:please|pls|thanks|thank you|thx|ty|then|now))?$/i;
+/** A decline of an unlogged offer by what he says about the food: "i didnt eat that", "take it off", "scrap that". */
+const DECLINE = /\b(?:didn'?t|did not|never|haven'?t|havent)\s+(?:actually\s+|even\s+)?(?:eat|ate|eaten|have|had|drink|drank)\s+(?:that|it|this|those|them|any of (?:it|that))\b|\b(?:wasn'?t|wasnt|isn'?t|isnt|not)\s+(?:that|this|it)\b|^(?:(?:nah|no|nope|actually|oh|ok|okay|wait|hey|nvm|nevermind|never mind)[, ]+)*(?:take|remove|delete|scrap|scratch|forget|ditch|drop|cancel|clear)\s+(?:it|that|this)(?:\s+(?:off|out|away))?(?:\s+(?:pls|please))?$/i;
 const NO = /^(?:n|no|nah|nope|no thanks|no thank you|nah thanks|don'?t|dont|don'?t log it|dont log it|don'?t bother|skip it|skip|never ?mind|forget it|leave it|not now|no need)$/i;
 const CORRECTION = /\b(?:it was|was (?:a|an|just|only|more|less|about|like)|actually|only|just|half|small(?:er)?|large|big(?:ger)?|tiny|huge|didn'?t (?:have|eat|finish)|without|no (?:cheese|sauce|oil|mayo|dressing|rice|fries|chips|sugar|milk|bread|bun)|there was no|plus|also had|and (?:a|an|some)|with (?:a|an|some|extra)|extra|diet|zero|grams?|\d+\s?(?:g|ml|oz)\b|two|three|double|single)\b/i;
 const NOT_A_CORRECTION = /\b(?:remind|move|schedule|book|cancel|calendar|gym|class|alarm|timer|lights?|text|call|email|weather|focus|session|tomorrow|tonight|at \d)\b|\?$/i;
@@ -108,6 +112,18 @@ function nutritionQuestion(message) {
     }
     return ASK.test(message) ? { food: askedFood(message) } : null;
 }
+/** His reply to the answer ORION just gave about a food, with no offer file behind it: yes logs that food, no drops it, a correction asks again with it. */
+function readChatOffer(said, m, food) {
+    if (YES.test(said) || OFFER_YES.test(said))
+        return { kind: "log", text: food };
+    if (NO.test(said) || DECLINE.test(said) || readNo(said, m, [food], 1))
+        return { kind: "no" };
+    if (CORRECTION.test(said) && !NOT_A_CORRECTION.test(said) && said.length <= 140)
+        return { kind: "ask", text: `${food}, ${tidy(m)}` };
+    return null;
+}
+/** "ive just had a banana, put that in": what he had, when he also said to log it. Null when there is no such instruction. */
+const HAD_AND_LOG = /^(?:i'?ve |ive |i |just |so |ok |okay )*(?:just )?(?:had|ate|eaten|drank|finished|got through) (.{2,80}?)[,;.]?\s+(?:and |then |so )?(?:pls |please )?(?:put|log|add|track|save|stick|record|chuck)\s+(?:that|it|this|those|them)(?:\s+(?:in|down|on)(?:\s+(?:to|in|on)? ?(?:my )?(?:log|food|meals|calories|macros|tracker|there))?)?\s*(?:pls|please)?$/i;
 /** The food turn in his message, or null. */
 export function readFoodTurn(message, c) {
     const m = message.trim().replace(/\s+/g, " ");
@@ -126,8 +142,17 @@ export function readFoodTurn(message, c) {
         if (t)
             return t;
     }
+    if (!c.pending && c.chatOffer) {
+        const t = readChatOffer(said, m, c.chatOffer.food);
+        if (t)
+            return t;
+    }
     if (c.pending && c.bound && open > 0) {
         const count = open, names = c.pending.names ?? [];
+        if (!c.pending.loggedId && DECLINE.test(said) && !NOT_A_CORRECTION.test(said))
+            return { kind: "no", ...(count >= 2 ? { which: m } : {}) };
+        if (OFFER_YES.test(said) && !(count >= 2 && picked(said, names)))
+            return { kind: "yes" };
         const no = readNo(said, m, names, count);
         if (no)
             return no;
@@ -152,6 +177,9 @@ export function readFoodTurn(message, c) {
     const asked = nutritionQuestion(m);
     if (asked)
         return asked.food.length >= 2 ? { kind: "ask", text: asked.food, question: m } : { kind: "that" };
+    const hadAndLog = HAD_AND_LOG.exec(said);
+    if (hadAndLog && !NOT_FOOD.test(hadAndLog[1]) && !/\b(?:no|not|n't)\b/.test(hadAndLog[1]))
+        return { kind: "log", text: tidy(hadAndLog[1]) };
     const toMeals = ADD_TO_MEALS.exec(m);
     if (toMeals && !NOT_FOOD.test(toMeals[1]))
         return { kind: "log", text: tidy(toMeals[1]) };

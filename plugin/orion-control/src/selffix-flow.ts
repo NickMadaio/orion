@@ -30,11 +30,16 @@ export type SelffixMove =
   | { kind: "no"; id: string }
   | { kind: "start"; id: string }
   /** target: the request ORION said he cannot do and offered to build ("want me to build that?"); the diagnosis is made from it. */
-  | { kind: "fix"; about: string; target?: string };
+  | { kind: "fix"; about: string; target?: string }
+  /** His yes to "I'll start a fix for: X. Go?": the project is created from what was confirmed. */
+  | { kind: "fix-go"; hold: FixHold }
+  | { kind: "fix-drop" };
+/** What "fix your code" resolved to and asked about, kept until his next message: the subject said in the one-line confirmation, and what it will start from. */
+export type FixHold = { subject: string; about: string; target?: string; reuse?: FixItem; diagnosis?: Record<string, any> };
 /** `offered`: the reply ends in "now or later?", so his next bare answer is about this offer. */
-export type SelffixOut = { text: string; calls: string[]; outputs: string[]; offered?: boolean; errors?: string[] };
+export type SelffixOut = { text: string; calls: string[]; outputs: string[]; offered?: boolean; errors?: string[]; /** The fix subject asked about, awaiting his yes. */ hold?: FixHold };
 /** `bound`: the offer (or the reminder to start it) was ORION's last message in this chat, so a bare answer is about it. Set by the caller. */
-export type SelffixCtx = { stateDir: string; now: Date; outreach?: boolean; items?: FixItem[]; bound?: boolean; /** ORION's last reply offered to build something: the request it could not do */ build?: { request: string } };
+export type SelffixCtx = { stateDir: string; now: Date; outreach?: boolean; items?: FixItem[]; bound?: boolean; /** The fix subject ORION just asked "Go?" about (this chat, last message). */ hold?: FixHold; /** ORION's last reply offered to build something: the request it could not do */ build?: { request: string } };
 
 const WHY = [
   /\bwhy\s*(?:did|didn'?t|didnt|would|wouldn'?t|wont|won'?t|cant|can'?t|couldn'?t|do|dont|don'?t)\s+(?:you|u|ya|yu)\b/,
@@ -119,6 +124,10 @@ export function readSelffixMove(message: string, ctx: SelffixCtx): SelffixMove |
   const waiting = offer ?? due;
   if (START_FIX.test(m)) { const p = due ?? parkedAny(items); if (p) return { kind: "start", id: p.id }; }
   if (!ctx.outreach && asksFix(m)) return { kind: "fix", about: message.trim() };
+  if (ctx.hold && !ctx.outreach) {
+    if (bare(m, NO_W) && !bare(m, NOW_W)) return { kind: "fix-drop" };
+    if (bare(m, NOW_W)) return { kind: "fix-go", hold: ctx.hold };
+  }
   if (!ctx.outreach && ctx.build && (BUILD_YES.test(m) || bare(m, NOW_W))) return { kind: "fix", about: message.trim(), target: ctx.build.request };
   if (waiting && ctx.bound === true) {
     if ((bare(m, LATER_W) || /^not now[.!]*$/.test(m)) && !/^now$/.test(m)) { const at = laterAt(m, ctx.now); return { kind: "later", id: waiting.id, ...(at ? { at } : {}), ...(waiting.status === "parked" ? { reparking: true } : {}) }; }
@@ -172,15 +181,66 @@ async function settleFix(item: FixItem, run: SelffixRun, log: SelffixOut, now: D
   return { ...log, text: `I opened the fix project ${labelOf(item)} but I couldn't start it: ${String(out.reason ?? "it was refused").slice(0, 200)}. It's parked in the Projects tab and I'm not retrying.${when}` };
 }
 
+const IRREGULAR_DOUBLE = new Set(["run", "stop", "get", "put", "set", "plan", "hit", "cut", "sit", "drop", "skip", "grab", "chat", "tag", "shut", "swap", "slip"]);
+/** "open" -> "opening", "close" -> "closing", "stop" -> "stopping": the first word of a goal, said as a subject. */
+export function gerund(word: string): string {
+  const w = word.toLowerCase();
+  if (/ing$/.test(w) || w.length < 2) return w;
+  if (IRREGULAR_DOUBLE.has(w)) return `${w}${w.at(-1)}ing`;
+  if (/ie$/.test(w)) return `${w.slice(0, -2)}ying`;
+  if (/[^aeiouy]e$/.test(w)) return `${w.slice(0, -1)}ing`;
+  return `${w}ing`;
+}
+/** What he said the fix is FOR ("so you can open websites without asking me" -> "opening websites without asking me"); undefined when he named nothing. */
+export function explicitFixSubject(message: string): string | undefined {
+  const m = low(message).replace(/[.!?]+$/, "");
+  const goal = /\bso (?:that )?(?:you|u|orion) (?:can|could|will|would|might)\s+(.{4,90})$/.exec(m)?.[1]
+    ?? /\b(?:to be able to|so (?:you|u) are able to)\s+(.{4,90})$/.exec(m)?.[1]
+    ?? /\b(?:code|yourself|urself|ur self|self)\s+(?:so\s+)?(?:to|for)\s+(.{4,90})$/.exec(m)?.[1];
+  if (!goal) return undefined;
+  const [first, ...rest] = goal.trim().split(" ");
+  const text = [gerund(first!), ...rest].join(" ").replace(/\s+(?:please|pls|lol)$/, "").trim();
+  return text.length >= 4 ? text : undefined;
+}
+const WENT_WRONG: Record<string, string> = { "no-action": "I gave up without trying", "tool-error": "the tool failed", "claimed-success": "I said it worked when it hadn't", "wrong-tool": "I used the wrong tool",
+  corrected: "my reply wasn't what you wanted", dropped: "I never answered", blocked: "it was refused", requested: "it didn't go how you wanted", none: "it didn't go how you wanted" };
+/** The failure being discussed, in one phrase: his request in the diagnosed turn, and what went wrong with it. */
+export function subjectOfDiagnosis(d: { message?: string; kind?: string }): string {
+  const request = String(d.message ?? "").replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
+  const clipped = request.length > 70 ? `${request.slice(0, 70).replace(/\s+\S*$/, "")}…` : request;
+  const wrong = WENT_WRONG[String(d.kind ?? "none")] ?? WENT_WRONG.none!;
+  return clipped ? `"${clipped}" (${wrong})` : `the last thing that went wrong (${wrong})`;
+}
+const confirmLine = (subject: string): string => `I'll start a fix for: ${subject}. Go?`;
+
+/** "fix your code": works out the ONE subject, says it in a line, and starts nothing until he says yes (the "go" move). */
 async function fixRequest(move: { about: string; target?: string }, run: SelffixRun, log: SelffixOut, now: Date): Promise<SelffixOut> {
   const listed = await call(run, "orion-selffix", ["list", "--json"], log);
   const items = Array.isArray(listed?.items) ? (listed.items as FixItem[]) : [];
   const reuse = move.target ? undefined : reusableFix(items, now);
-  if (reuse) return settleFix(reuse, run, log, now);
-  const found = await call(run, "orion-selfcheck", ["why", "--about", move.target ?? "", "--exclude", move.about, "--request", "--json"], log);
+  if (reuse?.status === "started") return settleFix(reuse, run, log, now);
+  const explicit = explicitFixSubject(move.about);
+  if (reuse) {
+    const subject = explicit ?? (reuse.title ? reuse.title.replace(/^Fix:\s*/i, "").replace(/\s+/g, " ").slice(0, 90) : "the fix project");
+    return { ...log, text: confirmLine(subject), hold: { subject, about: move.about, reuse } };
+  }
+  const found = await call(run, "orion-selfcheck", ["why", "--about", explicit ?? move.target ?? "", "--exclude", move.about, "--request", "--json"], log);
   if (!found) return { ...log, text: "I couldn't read back my own recent turns just now, so I don't know what to fix and nothing was started. Tell me what went wrong and I'll retry." };
-  if (!found.diagnosis) return { ...log, text: "I have no recent turns on record to fix from, so nothing was started. Tell me what went wrong." };
-  const offer = await call(run, "orion-selffix", ["propose", "--stdin", "--requested"], log, JSON.stringify(found.diagnosis));
+  const diagnosis = found.diagnosis as Record<string, any> | null | undefined;
+  if (!diagnosis && !explicit) return { ...log, text: "I have no recent turns on record to fix from, so nothing was started. Tell me what went wrong." };
+  const subject = explicit ?? subjectOfDiagnosis(diagnosis ?? {});
+  // The project is about the confirmed subject, whatever turn the record search landed on.
+  const brief = { ...(diagnosis ?? { fixable: true, kind: "requested", signature: `requested:${subject}`, route: {}, failingExample: {} }), title: `Fix: ${subject}`.slice(0, 120), subject, fixable: true };
+  const hold: FixHold = { subject, about: move.about, ...(move.target ? { target: move.target } : {}), diagnosis: brief };
+  // "yes" to "Want me to build that?" already is his go for that request: no second question.
+  if (move.target) return fixGo(hold, run, log, now);
+  return { ...log, text: confirmLine(subject), hold };
+}
+
+/** His yes: one project is created (or the held one reused) and started. */
+async function fixGo(hold: FixHold, run: SelffixRun, log: SelffixOut, now: Date): Promise<SelffixOut> {
+  if (hold.reuse) return settleFix(hold.reuse, run, log, now);
+  const offer = await call(run, "orion-selffix", ["propose", "--stdin", "--requested"], log, JSON.stringify(hold.diagnosis ?? {}));
   const item = offer?.item as FixItem | undefined;
   if (!offer || !item) return { ...log, text: `I couldn't set up the fix project${log.errors?.length ? ` (${log.errors.at(-1)!.slice(0, 200)})` : ""}, so nothing was started.` };
   return settleFix(item, run, log, now);
@@ -190,6 +250,8 @@ export async function runSelffixMove(move: SelffixMove, run: SelffixRun, now: Da
   const log: SelffixOut = { text: "", calls: [], outputs: [] };
   switch (move.kind) {
     case "fix": return fixRequest(move, run, log, now);
+    case "fix-go": return fixGo(move.hold, run, log, now);
+    case "fix-drop": return { ...log, text: "Okay, I won't start it. Say \"fix your code\" when you want me to." };
     case "why": {
       const found = await call(run, "orion-selfcheck", ["why", "--about", move.about, "--exclude", move.about, "--json"], log);
       if (!found) return { ...log, text: "I couldn't read back my own recent turns just now, so I can't tell you why yet. Say go and I'll retry it." };

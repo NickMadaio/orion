@@ -4,6 +4,7 @@ import { askModel } from "./ollama.mjs";
 import { macroWords } from "./macros.mjs";
 import { extractJson, totalsOf, validateEstimate, overallConfidence } from "./schema.mjs";
 import { fromTable, loadTable, matchFood } from "./table.mjs";
+import { sanityBound } from "./sanity.mjs";
 
 /** Replaces the model's per-gram numbers with the table's for every item that matches a row (alcohol rows excepted). */
 export function ground(estimate, table = loadTable()) {
@@ -53,8 +54,9 @@ export async function estimateMeal(input, deps = {}) {
   if (!parsed) return { ok: false, error: "the local model's answer wasn't JSON", ms: asked.ms };
   const checked = validateEstimate(parsed);
   if (!checked.ok) return { ok: false, error: checked.error, ...(checked.noFood ? { noFood: true } : {}), ms: asked.ms };
+  const bounded = sanityBound(deps.ground === false ? checked.estimate : ground(checked.estimate, deps.table), deps.table ?? loadTable());
   const estimate = {
-    ...(deps.ground === false ? checked.estimate : ground(checked.estimate, deps.table)),
+    ...bounded,
     input: { ...(text ? { text } : {}), ...(input.imagePaths?.length ? { photos: input.imagePaths } : {}), ...(input.correction ? { correction: input.correction } : {}) },
   };
   return { ok: true, estimate, summary: summaryLine(estimate), ms: asked.ms };

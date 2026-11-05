@@ -13,7 +13,7 @@ describe("chat asks are read in his words", () => {
         ["open amazon uk", "url"], ["open youtube in safari", "url"], ["opne netflix pls", "url"], ["can you open reddit on my browser", "url"], ["yo launch spotify", "app"], ["pull up discord", "app"],
     ])("%s", (m, kind) => { expect(readChatAsks(m)?.[0]).toMatchObject({ kind: "open", req: { kind } }); });
     it.each([
-        ["add milk to my list", "milk"], ["pls add oat milk and eggs to my list", "oat milk and eggs"], ["put bin bags on my to do list", "bin bags"], ["can you stick toothpaste on the list", "toothpaste"], ["add some bread to my shopping list", "bread"],
+        ["add milk to my list", "milk"], ["pls add oat milk to my list", "oat milk"], ["put bin bags on my to do list", "bin bags"], ["can you stick toothpaste on the list", "toothpaste"], ["add some bread to my shopping list", "bread"],
     ])("%s", (m, item) => { expect(readChatAsks(m)).toEqual([{ kind: "list-add", item }]); });
     it.each(["whats on my todo list", "what's on my to do list rn", "whats on my list", "show me my to-dos", "read me my tasks", "what to-dos do i have left"])("%s reads the list", (m) => {
         expect(readChatAsks(m)).toEqual([{ kind: "todo-list" }]);

@@ -64,6 +64,7 @@ import { detectComputerIntent } from "./computer-intent.js";
 import { stepsAsToolResults } from "./computer-evidence.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, gentleCheckIn, isBanterOnly, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
+import { waterLogBlock } from "./water-guard.js";   // w20 r4
 import { NOTE_ASK, NOTE_WINDOW_MS, isBareNoteRequest, isOtherCommand, parseNote } from "./note-flow.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -120,7 +121,7 @@ import { runSleepTurn, SleepPlanPending, type SleepRun } from "./sleep-plan-flow
 import { readDayDefault, runDayDefault, type DayDefault } from "./day-defaults.js";
 import { KnowledgePending, readKnowledgeMove } from "./knowledge-moves.js";   // wave 6: forget / links / profile / trash
 import { runKnowledgeMove, type KnowledgeRun } from "./knowledge-run.js";
-import { asksWhy as asksWhySelf, liveSelffixRun, readSelffixMove, runSelffixMove, type SelffixRun } from "./selffix-flow.js";   // w19 selffix
+import { asksWhy as asksWhySelf, liveSelffixRun, readSelffixMove, runSelffixMove, type FixHold, type SelffixRun } from "./selffix-flow.js";   // w19 selffix
 import { liveQuestionsRun, readQuestionsMove, runQuestionsMove, type QuestionsRun } from "./questions-flow.js";   // wave 12 L1
 import { readFoodTurn } from "./food-read.js";   // w14 g-food
 import { FoodMemory, readFoodPending, runFoodTurn, type FoodRun } from "./food-chat.js";   // w14 g-food
@@ -972,6 +973,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const fixOfferChats = new Map<string, number>();
   // w20 wording: the chats whose last reply was "I can't do that yet ... Want me to build that?": the request, so a yes starts the fix project for it.
   const buildOffers = new Map<string, { request: string; at: number }>();
+  /** w20 r4 (selffix-flow.ts): the fix subject asked about ("I'll start a fix for: X. Go?"), kept for the very next message of that chat. */
+  const fixHolds = new Map<string, { hold: FixHold; at: number }>();
   /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
   const sessionChanges = new Map<string, { at: number; first: number; marks: string[]; /** Journal stamps this chat wrote (another writer's entry is never this chat's to undo). */ stamps: string[] }>();
   const ledgerHeld = new Map<string, { kind: "block" | "note" | "reminder" | "food" | "water"; label: string; at: number }>();
@@ -1370,25 +1373,30 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // w20 r3 (ledger-ask.ts): "undo", "scrap the gym block i just added", "delete that note i just made", "cancel the stretch one": the ledger's.
     const heldAsk = sessionKey ? ledgerHeld.get(sessionKey) : undefined;
     if (sessionKey) ledgerHeld.delete(sessionKey);   // any next turn answers or drops the question
-    const ledgerAsk: LedgerAsk | undefined = on && !cutOff && !quietTurn && !isCrisis(message) && options.ledgerRun
+    const ledgerRead: LedgerAsk | undefined = on && !cutOff && !quietTurn && !isCrisis(message) && options.ledgerRun
       ? (heldAsk && nowMs() - heldAsk.at < STITCH_WINDOW_MS && (isYes(message.replace(/[.!?…]+$/, "")) || saysYes(message))
         ? { verb: "remove", strong: true, kinds: [heldAsk.kind], targets: [contentWords(heldAsk.label)], pointing: false, bare: false, confirmed: true }
         : readLedgerAsk(message) ?? undefined) : undefined;
+    // w20 r4 food: a live "Log it?" offer is his to decline ("nah i didnt eat that, take it off"): nothing was logged, so there is nothing for the ledger to take off.
+    const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
+    const offerNo = !!ledgerRead?.strong && !!options.foodRun && !parseOutreach(raw) && readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: false,
+      ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending) } : (() => { const o = sessionKey ? foodMemory.chatOffer(sessionKey, (options.now ?? pluginNow)().getTime()) : undefined; return o ? { chatOffer: o } : {}; })()) })?.kind === "no";
+    const ledgerAsk = offerNo ? undefined : ledgerRead;
     const ledgerOwns = !!ledgerAsk?.strong;
     const smove = on && !cutOff && !quietTurn && !ledgerOwns && !isCrisis(message) && !whyFirstAsk(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()),
+      ...(sessionKey && fixHolds.has(sessionKey) && nowMs() - fixHolds.get(sessionKey)!.at < 30 * 60_000 ? { hold: fixHolds.get(sessionKey)!.hold } : {}),
       ...(sessionKey && buildOffers.has(sessionKey) && nowMs() - buildOffers.get(sessionKey)!.at < 3 * 3600_000 ? { build: { request: buildOffers.get(sessionKey)!.request } } : {}) }) : undefined;
     const qmove = on && !cutOff && !quietTurn && !ledgerOwns && !smove && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw)!.text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
     // Wave 14 (mail-flow.ts): "not important" / "this matters" to a mail alert, or "stop telling me about X emails", owns the whole turn.
     const mmove = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw)!.text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
     // w14 g-food (food-read.ts): a calorie question, "log this: …", a meal with a food in it, a chat photo, or his reply to "Log it?".
-    const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
     const calendarAsk = schedulingAsk(message);   // "put gym at 10-11", "add marketing from 7-9:30pm": the calendar's, never a meal, app, mouse or shutdown turn
     // w20 fix-dayedit: a message the day-edit reader owns whole ("i did gym 2-3 and ate at 4") is never read again by the food or workout route; the clause
     // for them goes to them from inside the edit (day-edit-run.ts). A pending "Log it?" answer or workout question is still theirs.
     const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
     const dayEditTurn = !workoutPending && !foodPending && !!readDayEdit(message, (options.now ?? pluginNow)());
     const food = on && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !dayEditTurn && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
-      ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : {}), attachments: Array.isArray(event.attachments) ? event.attachments as Array<{ kind?: string }> : [],
+      ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : (() => { const o = sessionKey && !parseOutreach(raw) ? foodMemory.chatOffer(sessionKey, (options.now ?? pluginNow)().getTime()) : undefined; return o ? { chatOffer: o } : {}; })()), attachments: Array.isArray(event.attachments) ? event.attachments as Array<{ kind?: string }> : [],
       ...(foodMemory.lastLogged(sessionKey) ? { lastLogged: foodMemory.lastLogged(sessionKey)! } : {}) }) ?? undefined : undefined;
     if (!food && !quietTurn) foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
     // w17 g-workout (workout-read.ts): "just did legs, squats 4x6 at 185", "log my workout: …", "went for a 3 mile run", or his answer to the follow-up question.
@@ -1423,7 +1431,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 2026-10-31: tired / sick / slept badly / stressed (day-lighten.ts), a focus phrase (focus-moves.ts), or his "yes" to what one proposed.
     const held = sessionKey ? ownPending.get(sessionKey) : undefined;
     if (sessionKey) ownPending.delete(sessionKey);
-    const free = on && !cutOff && !quietTurn && !realityWhole && !gymSkip && !wipe;
+    // w20 r4: a note he asked to save is saved whole (note-flow.ts), whatever feelings or plans its words mention: no lightening, focus move or health read of it.
+    const free = on && !cutOff && !quietTurn && !realityWhole && !gymSkip && !wipe && !(options.noteFlow && parseNote(message));
     const pendingYes = free && held && Date.now() - held.at < STITCH_WINDOW_MS * 3 && (isYes(message.replace(/[.!?…]+$/, "")) || saysYes(message)) ? held.pending : undefined;
     const phoneBlock = free && !pendingYes && options.phoneTimeRun && !isCrisis(message) ? readPhoneBlock(message) : undefined;   // W10-G
     const lighten = free && !pendingYes && !phoneBlock && !isCrisis(message) ? readLighten(message) ?? undefined : undefined;
@@ -1535,8 +1544,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (out) { run.ownText = out.text; out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 })); }
       // A fix request that timed out is answered here, once: left to the model, "go into the code and fix it" became a tool loop (2026-11-04).
       else if (smove.kind === "fix") run.ownText = "I couldn't finish setting up the fix project in time, so I can't say whether it started. Check the Projects tab before asking me again.";
-      if (sessionKey) { if (out?.offered) fixOfferChats.set(sessionKey, (options.now ?? pluginNow)().getTime()); else fixOfferChats.delete(sessionKey); }
-    } else if (sessionKey && on && !quietTurn) fixOfferChats.delete(sessionKey);   // any other turn ends the offer
+      if (sessionKey) { if (out?.offered) fixOfferChats.set(sessionKey, (options.now ?? pluginNow)().getTime()); else fixOfferChats.delete(sessionKey); if (out?.hold) fixHolds.set(sessionKey, { hold: out.hold, at: nowMs() }); else fixHolds.delete(sessionKey); }
+    } else if (sessionKey && on && !quietTurn) { fixOfferChats.delete(sessionKey); fixHolds.delete(sessionKey); }   // any other turn ends the offer
     // w20 r3 (empty-reply.ts): "why did you do that" is about ORION's immediately previous reply; when that one came back blank, that is the answer.
     const blank = sessionKey ? lastEmpty.get(sessionKey) : undefined;
     if (blank && outreachNowMs - blank.at < 20 * 60_000 && (asksWhySelf(message) || asksWhy(message))) run.ownText = whyEmptyLine(blank.reason);
@@ -1554,6 +1563,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       run.ownText = out?.text ?? "I couldn't estimate that just now, so nothing was logged. Say go and I'll retry it.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
       if (out?.logged) foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime(), out.logged.ids ?? [out.logged.id]);
+      // The answer to a food question is an offer this chat can say yes to even with no offer file (food-read.ts chatOffer); any food turn but the ask ends it.
+      foodMemory.touch(sessionKey);
+      if (food.kind === "ask" && out?.text.trim().endsWith("?")) foodMemory.offered(sessionKey, food.text, (options.now ?? pluginNow)().getTime());
+      else foodMemory.forgetOffer(sessionKey);
       if (food.kind === "undo") foodMemory.forgetLog(sessionKey);
       if (out?.logged) workoutMemory.forgetLog(sessionKey);   // "undo" takes off the newest thing logged in this chat
     }
@@ -1733,7 +1746,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Overwhelmed but not a crisis: warmth and one small step. Left to the worker it searched his brain,
       // read two agendas and read him a quiz schedule (16 s, 2026-10-16). A change he asks for still runs.
       // Only when he asks for nothing else: "i'm so stressed, remind me at 3" still sets the reminder (review, 2026-10-16).
-      if (!run.flow && isOverwhelmed(run.message) && !CHANGE_REQUEST.test(run.message) && !REMINDER.test(run.message) && !RUNNING_LATE.test(run.message) && !isSessionStart(run.message)
+      if (!run.flow && isOverwhelmed(run.message) && !(options.noteFlow && parseNote(run.message)) && !CHANGE_REQUEST.test(run.message) && !REMINDER.test(run.message) && !RUNNING_LATE.test(run.message) && !isSessionStart(run.message)
         && !LIVE_DATA.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.settled.move !== "tool") {
         run.provided = true;
         run.noTools = true;
@@ -1776,7 +1789,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const out = await withTimeout(runLedgerAsk(run.ledger, { run: options.ledgerRun, now: Date.now(), nothingText: UNDO_NOTHING_TO_UNDO,
           readDay: (a) => (options.readDayJson ? options.readDayJson(a) : Promise.resolve(undefined)),
           owned: (at) => !!changes?.stamps.includes(at), items: madeLedger.recent(key, Date.now()), ...(changes ? { calendar: { since: changes.first, last: changes.at } } : {}),
-          journal: options.undoJournal ?? (() => undoJournalEntries()),
+          journal: options.undoJournal ?? (() => undoJournalEntries()), said: run.message, ...(key && foodMemory.recentFood(key) ? { foodRecent: true } : {}),
           ...(options.listReminders && options.removeReminders ? { reminders: { list: options.listReminders, remove: options.removeReminders } } : {}) }).catch(() => undefined), 90000);
         if (out) {
           run.provided = true; run.flow = { outcome: "say", kind: "plain", text: out.text };
@@ -2315,6 +2328,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const sessionKey = pick(event, ctx, "sessionKey") ?? runFor(event, ctx)?.sessionKey ?? "";
     if (INTERNAL.test(sessionKey) || changedRecently(sessionKey)) return undefined;
     return { block: true, blockReason: "Orion undo guard: this chat has not changed his calendar, so there is nothing of THIS conversation to undo, and `orion-reschedule undo` would reverse a change from an earlier day. Do not run it. Ask Nick what he wants cancelled." };
+  });
+
+  // w20 r4 (water-guard.ts): a removal ("take it off", "remove the eggs") never logs water, whatever the worker decided.
+  if (on) api.on("before_tool_call", (event, ctx) => {
+    if (pick(event, ctx, "toolName") !== "exec") return undefined;
+    const run = runFor(event, ctx);
+    const reason = run ? waterLogBlock(run.message, str((event.params as Record<string, unknown> | undefined)?.command) ?? "") : undefined;
+    return reason ? { block: true, blockReason: reason } : undefined;
   });
 
   // 2026-10-31 (gate foc-pomodoro-break-c): the worker's `orion-session pause` with no session running exited non-zero, and the host appended

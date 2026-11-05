@@ -355,3 +355,23 @@ test("CLI: discard drops the offer, so a later yes logs nothing", async () => {
     assert.equal((await run(["log-pending"], env)).code, 1);
   } finally { await o.close(); }
 });
+
+// w20 r4 (live gate 2026-11-05 #80): "how much protein is in a chicken wrap" came back as 87 g.
+import { sanityBound } from "../scripts/lib/food/sanity.mjs";
+test("sanity: a chicken wrap the model sizes at 87 g protein is held to a wrap, and a normal one is left alone", async () => {
+  const silly = { items: [{ name: "chicken wrap", grams: 250, kcal: 460, p: 87, c: 20, f: 3, confidence: "medium" }], assumptions: [] };
+  const out = await estimateMeal({ text: "a chicken wrap" }, { fetchImpl: fakeFetch(silly), url: "http://fake" });
+  assert.ok(out.ok);
+  assert.ok(out.estimate.totals.p >= 20 && out.estimate.totals.p <= 40, `wrap protein ${out.estimate.totals.p}`);
+  const loose = sanityBound({ items: [{ name: "protein wrap thing", grams: 250, kcal: 460, p: 87, c: 20, f: 3, confidence: "low" }], totals: {}, assumptions: [], flags: [], confidence: "low" }, undefined);
+  assert.ok(loose.items[0].p <= 45, `capped to ${loose.items[0].p}`);
+  assert.ok(loose.flags.some((f) => /scaled down/.test(f)));
+  const fine = { items: [{ name: "grilled chicken breast", grams: 150, kcal: 248, p: 46.5, c: 0, f: 5.4, confidence: "high" }], totals: {}, assumptions: [], flags: [], confidence: "high" };
+  assert.deepEqual(sanityBound(fine, undefined), fine);
+});
+test("sanity: held-out dishes are bounded by kind (pizza slice, burger, a huge grams guess for a known food)", () => {
+  const big = (name, grams, kcal, p, c, f) => ({ items: [{ name, grams, kcal, p, c, f, confidence: "low" }], totals: {}, assumptions: [], flags: [], confidence: "low" });
+  assert.ok(sanityBound(big("pizza slice", 900, 2400, 100, 300, 90), undefined).items[0].p <= 45);
+  assert.ok(sanityBound(big("cheeseburger", 1500, 3900, 225, 360, 180), undefined).items[0].grams <= 920);
+  assert.ok(sanityBound(big("halloumi wrap", 250, 480, 75, 40, 12), undefined).items[0].p <= 45);
+});

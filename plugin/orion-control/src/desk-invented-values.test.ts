@@ -86,7 +86,7 @@ describe("other flows: a desk- or extractor-invented value writes nothing", () =
   });
 
   it("schedule: a course code is not a time; a desk add length is dropped for the default", async () => {
-    const { r, writes } = await schedule("move CS1800 review later", "07:00");
+    const { r, writes } = await schedule("move ABC100 review later", "07:00");
     expect(writes).toEqual([]);
     expect(r).toMatchObject({ outcome: "say", kind: "ask" });
     const add = async (message: string) => {

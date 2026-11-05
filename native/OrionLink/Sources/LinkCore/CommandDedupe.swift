@@ -38,13 +38,21 @@ public struct CommandDedupe: Sendable, Equatable {
 
     /// Run it, or collapse it into an earlier run. A first run that was refused is a retry, never collapsed.
     public func verdict(id: String, text: String, conversation: String?, sentAt: Date) -> Verdict {
+        guard Self.isWorthCollapsing(text) else { return .run }
         let key = Self.key(text: text, conversation: conversation)
-        let match = entries.last { entry in
-            guard entry.key == key, entry.id != id, abs(sentAt.timeIntervalSince(entry.sentAt)) <= Self.window else { return false }
-            if case .finished(let ok, _, _) = entry.outcome { return ok }
-            return true
-        }
-        return match.map(Verdict.collapse) ?? .run
+        // The earlier copy must be the latest thing in its conversation: if ORION answered a different message since,
+        // the repeat is a new ask (a second "log it?" is answered by a second "log it").
+        let sameThread = Self.key(text: "", conversation: conversation)
+        guard let last = entries.last(where: { $0.id != id && $0.key.hasPrefix(sameThread) }), last.key == key,
+              abs(sentAt.timeIntervalSince(last.sentAt)) <= Self.window else { return .run }
+        if case .finished(let ok, _, _) = last.outcome, !ok { return .run }
+        return .collapse(last)
+    }
+
+    /// Short words (yes, no, undo, go, stop, "yeah do it") answer whatever ORION asked last, so they are never the same
+    /// message twice. Only a longer sentence can be an impatient resend.
+    static func isWorthCollapsing(_ text: String) -> Bool {
+        text.split(whereSeparator: { $0.isWhitespace }).count > 3
     }
 
     public func starting(id: String, text: String, conversation: String?, sentAt: Date) -> CommandDedupe {

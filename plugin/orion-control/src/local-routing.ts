@@ -80,6 +80,7 @@ import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readG
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { casualStartTask, workStartTask, type KnownName } from "./work-start.js";
+import { afterReply as retryAfterReply, replayOf as retryReplay, withoutRetryOffer, RETRY_OFFER, type RetrySlot } from "./retry-slot.js";
 import { capabilityLine, honestReply, offersBuild, refusalRewrite, truthfulDenial } from "./honest-reply.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, requestShaped, roomQuiet, roomTalk } from "./chatter.js";
 import { planLighten, readLighten, runLighten, saysYes, type LightenPending, type LightenRead } from "./day-lighten.js";
@@ -855,6 +856,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); forgetMade(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" } as unknown as R));
   /** Per session: the last thing ORION created or changed (a block, or a focus session it started), for "make it an hour" (edit-followup.ts). */
   const lastMade = new Map<string, EditTarget>();
+  /** w20 H3: per chat, the message whose reply offered "Say go and I'll retry it.". A bare go replays it; any other turn clears it. */
+  const retrySlots = new Map<string, NonNullable<RetrySlot>>();
   const knowledgePending = new KnowledgePending();   // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
   const sleepPending = new SleepPlanPending();   // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
   const pendingMemory = new PendingMemory();   // 2026-10-31 (pending-reply.ts): what a nudge's reply agreed, for the next short reply
@@ -1261,7 +1264,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 2026-10-19: the rest of a message whose first half got the crisis reply. Still joined to it (so more distress, even without the
     // listed words, keeps CRISIS_REPLY); only a concrete request that code then runs gets its own reply (see crisisRest below).
     const crisisRest = stitch && isCrisis(stitch.text) && !isCrisis(continuation ?? "") ? continuation : undefined;
-    const message = cont?.full ?? (stitch ? `${stitch.text} ${continuation}` : cont?.rest || said);
+    const typed = cont?.full ?? (stitch ? `${stitch.text} ${continuation}` : cont?.rest || said);
+    // w20 H3: a bare go / retry after a reply that offered one runs the failed message again. The slot answers one turn, the latest offer's.
+    const message = retryReplay(sessionKey ? retrySlots.get(sessionKey) : undefined, typed, nowMs());
+    if (sessionKey) retrySlots.delete(sessionKey);
     const spokenTurn = SPOKEN.test(raw);
     // 2026-10-30 (chatter.ts): "shush" / "don't reply unless I say orion" starts a quiet window; inside it, spoken turns without
     // "orion" are dropped before anything else reads them (no desk, no flow, no memory). Saying "orion" ends it.
@@ -2438,6 +2444,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const before: string = owed ?? reply;
         const gentle = withGentleCheckIn(run.message, before);
         if (gentle !== before) { owed = gentle; remember([runId, sessionKeyNow], owed); }
+      }
+      // w20 H3: a reply that offers a retry stores what to retry; with nothing to store, it stops promising one.
+      if (on && RETRY_OFFER.test(owed ?? reply)) {
+        const slot = run.sessionKey ? retryAfterReply(owed ?? reply, run.message, nowMs()) : undefined;
+        if (slot && run.sessionKey) retrySlots.set(run.sessionKey, slot);
+        else { owed = withoutRetryOffer(owed ?? reply); remember([runId, sessionKeyNow], owed); }
       }
       if (on && owed) putReplyInPlace(event.messages, owed);
       await record();

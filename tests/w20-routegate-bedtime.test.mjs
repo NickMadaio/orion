@@ -16,7 +16,7 @@ function sandbox(t, extra = []) {
   writeFileSync(join(dir, "eval-mode"), "");
   const ev = (d, h, m, dur, title) => { const s = new Date(2026, 10, d, h, m); return { identifier: `${title}-${d}`, title, allDay: "false", start: s.toISOString(), end: new Date(s.getTime() + dur * 60000).toISOString() }; };
   writeFileSync(join(dir, "eval-calendar.json"), JSON.stringify({ now: new Date(2026, 10, 2, 20, 0).toISOString(),
-    events: [ev(3, 13, 30, 95, "MKTG2201 Lecture"), ev(4, 9, 0, 100, "CS1800 Lecture"), ev(5, 10, 0, 60, "CS2100 Lab"), ev(6, 13, 30, 95, "MKTG2201 Lecture"), ...extra.map((e) => ev(...e))] }));
+    events: [ev(3, 13, 30, 95, "DEF301 Lecture"), ev(4, 9, 0, 100, "ABC100 Lecture"), ev(5, 10, 0, 60, "ABC200 Lab"), ev(6, 13, 30, 95, "DEF301 Lecture"), ...extra.map((e) => ev(...e))] }));
   const env = { ...process.env, HOME: dir, ORION_CONTROLLED_DIR: dir };
   for (const k of ["ORION_LIFE_CONFIG", "ORION_BRIDGE_BIN", "ORION_RESCHEDULE_NOW", "ORION_NOW", "ORION_EVAL_MARKER", "ORION_SANDBOX_CALENDAR"]) delete env[k];
   const run = (...args) => { const r = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8", env }); return { code: r.status, out: r.stdout, err: r.stderr }; };

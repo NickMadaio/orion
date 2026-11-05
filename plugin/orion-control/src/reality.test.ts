@@ -1,5 +1,5 @@
 // Reality statements change the plan (2026-10-30). The incident: "Just note that I don't have classes. I still have my lab
-// to do, but I don't have classes." by voice changed nothing, and three MKTG2201 leave nudges followed. Phrasings are his
+// to do, but I don't have classes." by voice changed nothing, and three DEF301 leave nudges followed. Phrasings are his
 // and the gate bank's (scripts/eval/gate/scenarios/reality.json, schedule.json), vague and clear.
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -59,10 +59,10 @@ describe("what counts as a reality statement", () => {
 
   it("class words name his classes by any word of the title", () => {
     expect(names("macro", "ECON1115 Principles of Macroeconomics — Lecture")).toBe(true);
-    expect(names("marketing", "MKTG2201 Introduction to Marketing — Lecture")).toBe(true);
+    expect(names("marketing", "DEF301 Introduction to Marketing — Lecture")).toBe(true);
     expect(names("econ", "ECON1115 Principles of Macroeconomics")).toBe(true);
-    expect(names("gym", "MKTG2201 Introduction to Marketing")).toBe(false);
-    expect(shortTitle("MKTG2201 Introduction to Marketing — Lecture")).toBe("MKTG2201");
+    expect(names("gym", "DEF301 Introduction to Marketing")).toBe(false);
+    expect(shortTitle("DEF301 Introduction to Marketing — Lecture")).toBe("DEF301");
     expect(shortTitle("Gym")).toBe("Gym");
   });
 });
@@ -70,12 +70,12 @@ describe("what counts as a reality statement", () => {
 // ---- the live route, with every script stubbed ----
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
 const DAY: Day = { date: "2026-10-30", now: "12:40", blocks: [
-  { title: "MKTG2201 Introduction to Marketing — Lecture", start: "13:30", end: "15:00", fixed: true, kind: "class" },
+  { title: "DEF301 Introduction to Marketing — Lecture", start: "13:30", end: "15:00", fixed: true, kind: "class" },
   { title: "ECON1115 Principles of Macroeconomics — Lecture", start: "15:30", end: "17:00", fixed: true, kind: "class" },
   { title: "CS Lab", start: "17:50", end: "19:20", fixed: false, kind: "study" },
   { title: "Gym", start: "12:00", end: "13:30", fixed: false, kind: "gym" },
 ] };
-const CLASSES_OFF = "Changed Friday 2026-10-30:\n  cancelled MKTG2201 Introduction to Marketing — Lecture 13:30–15:00 — marked off in ORION's planning (still in Apple Calendar, not deleted)\n  cancelled ECON1115 Principles of Macroeconomics — Lecture 15:30–17:00 — marked off in ORION's planning (still in Apple Calendar, not deleted)\nWritten. \"orion-reschedule undo\" puts them back.";
+const CLASSES_OFF = "Changed Friday 2026-10-30:\n  cancelled DEF301 Introduction to Marketing — Lecture 13:30–15:00 — marked off in ORION's planning (still in Apple Calendar, not deleted)\n  cancelled ECON1115 Principles of Macroeconomics — Lecture 15:30–17:00 — marked off in ORION's planning (still in Apple Calendar, not deleted)\nWritten. \"orion-reschedule undo\" puts them back.";
 
 function route(opts: { decide?: () => Promise<unknown>; stateDir?: string; script?: (script: string, args: string[]) => string | undefined } = {}) {
   const handlers = new Map<string, Handler[]>();
@@ -94,7 +94,7 @@ function route(opts: { decide?: () => Promise<unknown>; stateDir?: string; scrip
       if (script === "orion-declare" && args[0] === "add") return { stdout: JSON.stringify({ id: `fact-${String(calls.length).padStart(8, "0")}`, kind: args[2] }), code: 0 };
       if (script === "orion-declare") return { stdout: "Removed", code: 0 };
       if (args[0] === "classes-off") return { stdout: CLASSES_OFF, code: 0 };
-      if (args[0] === "undo") return { stdout: "Undone: put MKTG2201 Introduction to Marketing — Lecture back; put ECON1115 Principles of Macroeconomics — Lecture back.", code: 0 };
+      if (args[0] === "undo") return { stdout: "Undone: put DEF301 Introduction to Marketing — Lecture back; put ECON1115 Principles of Macroeconomics — Lecture back.", code: 0 };
       return { stdout: "", code: 0 };
     } } as never);
   const turn = async (prompt: string, runId: string) => {
@@ -117,10 +117,10 @@ describe("reality on the live route", () => {
     expect(r.desk()).toBe(0);   // code's from the start: the outage that ate this message cannot stop it
     expect(r.calls[0]).toEqual(["orion-declare", "add", "--kind", "no-classes", "--text", "No. We're good. Just note that I don't have classes. I still have my lab to do, but I don't have classes.", "--source", "voice"]);
     expect(r.calls[1]).toEqual(["orion-reschedule", "classes-off", "--keep", "lab"]);
-    expect(exact).toBe("Got it, no classes today. I've marked MKTG2201 (1:30 PM) and ECON1115 (3:30 PM) cancelled (still in Apple Calendar), so no leave reminders for them. Your lab is still on. Say \"undo\" to put them back.");
+    expect(exact).toBe("Got it, no classes today. I've marked DEF301 (1:30 PM) and ECON1115 (3:30 PM) cancelled (still in Apple Calendar), so no leave reminders for them. Your lab is still on. Say \"undo\" to put them back.");
     const undo = await r.turn("undo", "inc-2");
     expect(r.calls.slice(2)).toEqual([["orion-reschedule", "undo"], ["orion-declare", "remove", "--id", "fact-00000001"]]);
-    expect(undo.exact).toBe("Undone: MKTG2201 and ECON1115 are back on your plan, and I've forgotten what you told me about it.");
+    expect(undo.exact).toBe("Undone: DEF301 and ECON1115 are back on your plan, and I've forgotten what you told me about it.");
   });
 
   it("typed, vague: 'i dont have classes today' does the same with source chat", async () => {
@@ -128,15 +128,15 @@ describe("reality on the live route", () => {
     const { exact } = await r.turn("i dont have classes today", "t-1");
     expect(r.calls[0]).toContain("chat");
     expect(r.calls[1]).toEqual(["orion-reschedule", "classes-off"]);
-    expect(exact).toMatch(/^Got it, no classes today\. I've marked MKTG2201 \(1:30 PM\) and ECON1115 \(3:30 PM\) cancelled/);
+    expect(exact).toMatch(/^Got it, no classes today\. I've marked DEF301 \(1:30 PM\) and ECON1115 \(3:30 PM\) cancelled/);
   });
 
   it("clear and named: only those classes, a skip fact for each", async () => {
     const r = route({ script: (_s, a) => (a[0] === "classes-off" ? CLASSES_OFF.split("\n").filter((l) => !/ECON/.test(l)).join("\n") : undefined) });
     const { exact } = await r.turn("marketing is cancelled today", "n-1");
-    expect(r.calls[0]).toEqual(expect.arrayContaining(["--kind", "skip", "--title", "MKTG2201 Introduction to Marketing — Lecture"]));
-    expect(r.calls.find((c) => c[1] === "classes-off")).toEqual(["orion-reschedule", "classes-off", "MKTG2201"]);
-    expect(exact).toMatch(/^Got it, no MKTG2201 today\. I've marked MKTG2201 \(1:30 PM\) cancelled/);
+    expect(r.calls[0]).toEqual(expect.arrayContaining(["--kind", "skip", "--title", "DEF301 Introduction to Marketing — Lecture"]));
+    expect(r.calls.find((c) => c[1] === "classes-off")).toEqual(["orion-reschedule", "classes-off", "DEF301"]);
+    expect(exact).toMatch(/^Got it, no DEF301 today\. I've marked DEF301 \(1:30 PM\) cancelled/);
   });
 
   it("'no gym today' names no class: nothing is declared, the turn goes on", async () => {
@@ -173,7 +173,7 @@ describe("reality on the live route", () => {
     const r = route();
     const { exact } = await r.turn("didnt make it to marketing", "m-2");
     expect(r.calls).toHaveLength(1);
-    expect(exact).toBe("Noted: you missed MKTG2201 today, so I won't count it as attended. If you want catch-up time for it, tell me when.");
+    expect(exact).toBe("Noted: you missed DEF301 today, so I won't count it as attended. If you want catch-up time for it, tell me when.");
   });
 
   it("'i ate already' and 'im at the library' are declared facts with a short reply", async () => {

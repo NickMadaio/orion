@@ -9,38 +9,59 @@ final class PhoneCommandFlowTests: XCTestCase {
     // MARK: identical message, same device, within about two minutes
 
     func testAnIdenticalChatWithinTwoMinutesCollapsesIntoTheFirstRun() {
-        let first = CommandDedupe().starting(id: "a", text: "push everything back", conversation: "c1", sentAt: t0)
+        let first = CommandDedupe().starting(id: "a", text: "push everything back by an hour", conversation: "c1", sentAt: t0)
             .finishing(id: "a", ok: true, reply: "Not done: gym didn't fit.", thinking: nil)
-        let verdict = first.verdict(id: "b", text: "push everything back", conversation: "c1", sentAt: t0.addingTimeInterval(64))
+        let verdict = first.verdict(id: "b", text: "push everything back by an hour", conversation: "c1", sentAt: t0.addingTimeInterval(64))
         guard case .collapse(let entry) = verdict else { return XCTFail("expected a collapse, got \(verdict)") }
         XCTAssertEqual(entry.id, "a")
         XCTAssertEqual(entry.outcome, .finished(ok: true, reply: "Not done: gym didn't fit.", thinking: nil))
     }
 
     func testCaseSpacingAndSpellingOfSpacesDoNotMakeItADifferentMessage() {
-        let d = CommandDedupe().starting(id: "a", text: "Drop  everything.\n", conversation: nil, sentAt: t0)
-        XCTAssertNotEqual(d.verdict(id: "b", text: " drop everything. ", conversation: nil, sentAt: t0.addingTimeInterval(5)), .run)
+        let d = CommandDedupe().starting(id: "a", text: "Drop  everything on the plan today.\n", conversation: nil, sentAt: t0)
+        XCTAssertNotEqual(d.verdict(id: "b", text: " drop everything on the plan today. ", conversation: nil, sentAt: t0.addingTimeInterval(5)), .run)
     }
 
     func testAfterTwoMinutesAnIdenticalMessageIsAFreshAsk() {
-        let d = CommandDedupe().starting(id: "a", text: "gym at 10", conversation: nil, sentAt: t0).finishing(id: "a", ok: true, reply: "x", thinking: nil)
-        XCTAssertEqual(d.verdict(id: "b", text: "gym at 10", conversation: nil, sentAt: t0.addingTimeInterval(CommandDedupe.window + 1)), .run)
+        let d = CommandDedupe().starting(id: "a", text: "move the gym block to ten tonight", conversation: nil, sentAt: t0).finishing(id: "a", ok: true, reply: "x", thinking: nil)
+        XCTAssertEqual(d.verdict(id: "b", text: "move the gym block to ten tonight", conversation: nil, sentAt: t0.addingTimeInterval(CommandDedupe.window + 1)), .run)
     }
 
     func testADifferentConversationOrTextRunsNormally() {
-        let d = CommandDedupe().starting(id: "a", text: "gym at 10", conversation: "c1", sentAt: t0)
-        XCTAssertEqual(d.verdict(id: "b", text: "gym at 10", conversation: "c2", sentAt: t0.addingTimeInterval(5)), .run)
-        XCTAssertEqual(d.verdict(id: "b", text: "gym at 11", conversation: "c1", sentAt: t0.addingTimeInterval(5)), .run)
+        let d = CommandDedupe().starting(id: "a", text: "move the gym block to ten tonight", conversation: "c1", sentAt: t0)
+        XCTAssertEqual(d.verdict(id: "b", text: "move the gym block to ten tonight", conversation: "c2", sentAt: t0.addingTimeInterval(5)), .run)
+        XCTAssertEqual(d.verdict(id: "b", text: "move the gym block to eleven tonight", conversation: "c1", sentAt: t0.addingTimeInterval(5)), .run)
     }
 
     func testARefusedFirstRunIsRetriedForRealNotCollapsed() {
-        let d = CommandDedupe().starting(id: "a", text: "unlock", conversation: nil, sentAt: t0).finishing(id: "a", ok: false, reply: "Orion is locked.", thinking: nil)
-        XCTAssertEqual(d.verdict(id: "b", text: "unlock", conversation: nil, sentAt: t0.addingTimeInterval(20)), .run)
+        let d = CommandDedupe().starting(id: "a", text: "unlock the mac for me please", conversation: nil, sentAt: t0).finishing(id: "a", ok: false, reply: "Orion is locked.", thinking: nil)
+        XCTAssertEqual(d.verdict(id: "b", text: "unlock the mac for me please", conversation: nil, sentAt: t0.addingTimeInterval(20)), .run)
+    }
+
+    func testShortConfirmationAndControlWordsAreNeverCollapsed() {
+        for word in ["yes", "no", "undo", "go", "ok", "stop", "yeah do it", "log it", "try again"] {
+            let d = CommandDedupe().starting(id: "a", text: word, conversation: "c1", sentAt: t0).finishing(id: "a", ok: true, reply: "x", thinking: nil)
+            XCTAssertEqual(d.verdict(id: "b", text: word, conversation: "c1", sentAt: t0.addingTimeInterval(30)), .run, word)
+        }
+    }
+
+    func testARepeatAfterADifferentMessageWasAnsweredIsNotCollapsed() {
+        let long = "move the gym block to ten tonight"
+        let d = CommandDedupe()
+            .starting(id: "a", text: long, conversation: "c1", sentAt: t0).finishing(id: "a", ok: true, reply: "x", thinking: nil)
+            .starting(id: "b", text: "what is on tomorrow", conversation: "c1", sentAt: t0.addingTimeInterval(10)).finishing(id: "b", ok: true, reply: "y", thinking: nil)
+        XCTAssertEqual(d.verdict(id: "c", text: long, conversation: "c1", sentAt: t0.addingTimeInterval(30)), .run)
+    }
+
+    func testALongRepeatWithNothingBetweenStillCollapses() {
+        let long = "move the gym block to ten tonight"
+        let d = CommandDedupe().starting(id: "a", text: long, conversation: "c1", sentAt: t0)
+        guard case .collapse = d.verdict(id: "b", text: long, conversation: "c1", sentAt: t0.addingTimeInterval(8)) else { return XCTFail("expected collapse") }
     }
 
     func testTheSameIdIsNeverItsOwnDuplicate() {
-        let d = CommandDedupe().starting(id: "a", text: "hi", conversation: nil, sentAt: t0)
-        XCTAssertEqual(d.verdict(id: "a", text: "hi", conversation: nil, sentAt: t0), .run)
+        let d = CommandDedupe().starting(id: "a", text: "hi there how are you", conversation: nil, sentAt: t0)
+        XCTAssertEqual(d.verdict(id: "a", text: "hi there how are you", conversation: nil, sentAt: t0), .run)
     }
 
     func testTheLedgerIsBoundedAndImmutable() {

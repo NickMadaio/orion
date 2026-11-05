@@ -9,8 +9,8 @@ const SPOKEN = "Nick SAID this out loud and your answer will be SPOKEN: one to t
 // Monday 2 Nov 2026 (the scenarios' setup.now), local time.
 const MON = (h, m = 0) => new Date(2026, 10, 2, h, m);
 const DAY = { date: "2026-11-02", now: null, blocks: [
-        { title: "CS2100 Lecture", start: "09:00", end: "10:30", fixed: true, kind: "class" },
-        { title: "MKTG2201 Lecture", start: "13:30", end: "15:30", fixed: true, kind: "class" },
+        { title: "ABC200 Lecture", start: "09:00", end: "10:30", fixed: true, kind: "class" },
+        { title: "DEF301 Lecture", start: "13:30", end: "15:30", fixed: true, kind: "class" },
         { title: "Gym", start: "17:00", end: "18:30", fixed: false, kind: "gym" },
         { title: "Side project", start: "19:30", end: "20:30", fixed: false, kind: "side_project" },
     ] };
@@ -84,9 +84,9 @@ describe("routegate through the hooks", () => {
         expect(r.sessionFlows.length).toBe(1);
     });
     it("M1: a desk-invented app is never handed to the worker", async () => {
-        const r = route(() => ({ move: "tool", tool: "app_open", args: { application: "CS1802 Seminar" } }));
+        const r = route(() => ({ move: "tool", tool: "app_open", args: { application: "ABC101 Seminar" } }));
         const t = await r.turn('re-open it one more time please, the "desktop ->" isnt working');
-        expect(t.built?.systemPrompt ?? "").not.toMatch(/CS1802/);
+        expect(t.built?.systemPrompt ?? "").not.toMatch(/ABC101/);
     });
     it("A2: a spoken question to ORION the desk calls ignore is answered, not '…'", async () => {
         const r = route(() => ({ move: "ignore" }));

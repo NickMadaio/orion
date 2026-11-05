@@ -12,7 +12,7 @@ describe("workout route needs a past-tense signal and never takes a calendar ask
   });
   it("E10: a scheduling add never binds to the pending workout question", () => {
     const c = ctx({ pending, bound: true });
-    expect(readWorkoutTurn("Okay, now add marketing myseum from 7-9:30pm. Then gym from 10-11. Push sleep to 11:45", c)).toBeNull();
+    expect(readWorkoutTurn("Okay, now add marketing gallery from 7-9:30pm. Then gym from 10-11. Push sleep to 11:45", c)).toBeNull();
     expect(readWorkoutTurn("add gym at 10-11", c)).toBeNull();
   });
   it("a bare 'add gym' with no past signal is not a log either", () => {

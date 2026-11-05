@@ -12,7 +12,7 @@ import type { Day, FlowResult } from "./schedule-flow.js";
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
 const NOW = new Date(2026, 10, 2, 16, 55);
 const DAY: Day = { date: "2026-11-02", now: "16:55", blocks: [
-  { title: "MKTG2201 Introduction to Marketing — Lecture", start: "13:30", end: "15:30", fixed: true, kind: "class" },
+  { title: "DEF301 Introduction to Marketing — Lecture", start: "13:30", end: "15:30", fixed: true, kind: "class" },
   { title: "Gym", start: "17:00", end: "18:30", fixed: false, kind: "gym" },
   { title: "side project", start: "19:30", end: "20:30", fixed: false, kind: "side_project" },
 ] };
@@ -138,15 +138,15 @@ describe("cluster 5: vague reality and replies to ORION's own pushes", () => {
   it("rea-class-late-v 'marketing is running over lol': what follows moves back by a stated guess; the class stays", async () => {
     const r = route({ script: (a) => ({ stdout: a[0] === "overrun" ? "Changed Monday:\n  moved Gym: 17:00 → 17:15\n  moved side project: 19:30 → 19:45" : "", code: 0 }) });
     const t = await r.turn("marketing is running over lol");
-    expect(r.scripts[0]).toEqual(["overrun", "15", "--what", "MKTG2201"]);
-    expect(t.exact).toBe("Okay, MKTG2201 is running over: I pushed what's after it back 15 minutes (my guess is 15 minutes; tell me if it's longer): moved Gym: 5:00 PM → 5:15 PM; moved side project: 7:30 PM → 7:45 PM. MKTG2201 itself stays as it is. Say \"undo\" to put it back.");
+    expect(r.scripts[0]).toEqual(["overrun", "15", "--what", "DEF301"]);
+    expect(t.exact).toBe("Okay, DEF301 is running over: I pushed what's after it back 15 minutes (my guess is 15 minutes; tell me if it's longer): moved Gym: 5:00 PM → 5:15 PM; moved side project: 7:30 PM → 7:45 PM. DEF301 itself stays as it is. Say \"undo\" to put it back.");
     expect(t.exact).not.toMatch(/didn't happen/);
   });
   it("rea-class-late-c 'marketing is running 30 min over, shift my stuff after it by 30': his minutes", async () => {
     const r = route({ script: () => ({ stdout: "Changed Monday:\n  moved Gym: 17:00 → 17:30", code: 0 }) });
     await r.turn("marketing is running 30 min over, shift my stuff after it by 30");
     // 2026-11-01 (wave 5): "shift my stuff after it by 30" asks for the push itself, so the overrun carries --shift.
-    expect(r.scripts[0]).toEqual(["overrun", "30", "--what", "MKTG2201", "--shift"]);
+    expect(r.scripts[0]).toEqual(["overrun", "30", "--what", "DEF301", "--shift"]);
   });
   it("loop-morning-brief-v: 'yeah' right after the morning brief is never 'Didn't catch that'; code makes the items concrete (pending-reply.ts)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "gate-push-"));

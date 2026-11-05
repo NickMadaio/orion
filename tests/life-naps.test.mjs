@@ -62,7 +62,7 @@ test("recoveryFromLog sees naps on the log", () => {
 });
 
 const config = { usualWake: "09:00", bedtime: "00:00", sleepHours: 8, readyMinutes: 75, commuteMinutes: 30 };
-const blocksOf = (d) => (d === "2026-11-05" ? [{ title: "CS1800 Lecture", start: 540, end: 630, fixed: true, source: "calendar" }] : []);
+const blocksOf = (d) => (d === "2026-11-05" ? [{ title: "ABC100 Lecture", start: 540, end: 630, fixed: true, source: "calendar" }] : []);
 
 test("a nap pushes the bedtime later by its credit, never earlier", () => {
   // free day after: bedtime target midnight; with a 70 min nap tonight may slide 35 min

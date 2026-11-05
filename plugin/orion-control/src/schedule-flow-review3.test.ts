@@ -8,11 +8,11 @@ const today: Day = { date: "2026-10-16", now: "10:05", blocks: [
   { title: "Breakfast", start: "09:00", end: "09:30", fixed: false },
   { title: "Study", start: "11:00", end: "12:00", fixed: false },
   { title: "Lunch", start: "12:15", end: "12:45", fixed: false },
-  { title: "MKTG2201 Introduction to Marketing — Lecture", start: "13:30", end: "15:00", fixed: true, kind: "class" },
+  { title: "DEF301 Introduction to Marketing — Lecture", start: "13:30", end: "15:00", fixed: true, kind: "class" },
   { title: "Gym", start: "16:00", end: "17:00", fixed: false },
   { title: "Dinner", start: "18:30", end: "19:15", fixed: false },
 ] };
-const CLASS = "MKTG2201 Introduction to Marketing — Lecture";
+const CLASS = "DEF301 Introduction to Marketing — Lecture";
 const PLAIN_DRY = "Would change Friday 2026-10-16:\n  planned X: 10:10–10:40";
 const WROTE = "Changed Friday 2026-10-16:\n  planned X: 10:10–10:40\nWritten to his calendar.";
 

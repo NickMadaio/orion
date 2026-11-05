@@ -5,9 +5,9 @@ import { FORM_PROMPT, blockList, compile, intentSchema, runScheduleFlow, setPlac
 const monday: Day = {
   date: "2026-10-12", now: "13:06",
   blocks: [
-    { title: "CS2100 Program Design & Implementation 1 — Lecture", start: "09:00", end: "10:30", fixed: true },
-    { title: "CS1800 Discrete Structures — Lecture", start: "11:00", end: "12:30", fixed: true },
-    { title: "CS2101 Lab for Program Design & Implementation 1", start: "15:30", end: "17:10", fixed: true },
+    { title: "ABC200 Program Design & Implementation 1 — Lecture", start: "09:00", end: "10:30", fixed: true },
+    { title: "ABC100 Discrete Structures — Lecture", start: "11:00", end: "12:30", fixed: true },
+    { title: "ABC201 Lab for Program Design & Implementation 1", start: "15:30", end: "17:10", fixed: true },
     { title: "do cert courses", start: "17:50", end: "21:50", fixed: false },
   ],
 };
@@ -15,8 +15,8 @@ const monday: Day = {
 describe("schedule flow", () => {
   it("numbers the whole day, marking fixed and already-happened blocks", () => {
     const list = blockList(monday);
-    expect(list).toMatch(/^B1 09:00–10:30 CS2100 .* \(FIXED\) \(already happened\)$/m);
-    expect(list).toMatch(/^B3 15:30–17:10 CS2101 .* \(FIXED\)$/m);
+    expect(list).toMatch(/^B1 09:00–10:30 ABC200 .* \(FIXED\) \(already happened\)$/m);
+    expect(list).toMatch(/^B3 15:30–17:10 ABC201 .* \(FIXED\)$/m);
   });
 
   it("block references can only be today's real ids", () => {
@@ -41,7 +41,7 @@ describe("schedule flow", () => {
   });
 
   it("titles with & are passed as one argv item (no shell), so they reach the scheduler intact", () => {
-    expect(compile({ do: "swap", what: "B4", with: "B3" }, monday)).toEqual({ args: ["swap", "do cert courses", "CS2101 Lab for Program Design & Implementation 1"] });
+    expect(compile({ do: "swap", what: "B4", with: "B3" }, monday)).toEqual({ args: ["swap", "do cert courses", "ABC201 Lab for Program Design & Implementation 1"] });
   });
 
   it("the reply comes only from what the scheduler printed", () => {
@@ -116,19 +116,19 @@ describe("schedule flow", () => {
   });
 
   it("'clear my schedule after the lab' compiles to drop --after the lab", () => {
-    expect(compile({ do: "clear_after", after: "B3" }, monday)).toEqual({ args: ["drop", "--after", "CS2101 Lab for Program Design & Implementation 1"] });
+    expect(compile({ do: "clear_after", after: "B3" }, monday)).toEqual({ args: ["drop", "--after", "ABC201 Lab for Program Design & Implementation 1"] });
   });
 
   it("'push it back half an hour' is a by-shift computed by code; 'skip' on his own block drops it", () => {
     expect(compile({ do: "move", what: "B4", by: 30 }, monday)).toEqual({ args: ["move", "do cert courses", "--to", "18:20"] });
     expect(compile({ do: "skip", what: "B4" }, monday)).toEqual({ args: ["drop", "do cert courses"] });
-    expect(compile({ do: "skip", what: "B3" }, monday)).toEqual({ args: ["skip", "CS2101 Lab for Program Design & Implementation 1"] });
+    expect(compile({ do: "skip", what: "B3" }, monday)).toEqual({ args: ["skip", "ABC201 Lab for Program Design & Implementation 1"] });
   });
 
   // 2026-10-15, 12:12, in "finish resume": "I'm gonna start meal prepping in about thirty minutes… put [it]
   // from twelve forty five to one forty five and then push everything else to kinda follow that".
   const thursday: Day = { date: "2026-10-15", now: "12:12", blocks: [
-    { title: "CS1800 Discrete Structures — Lecture", start: "09:00", end: "10:30", fixed: true },
+    { title: "ABC100 Discrete Structures — Lecture", start: "09:00", end: "10:30", fixed: true },
     { title: "finish resume", start: "11:20", end: "12:50", fixed: false },
     { title: "DS Lab", start: "12:55", end: "13:40", fixed: false },
     { title: "CS Lab", start: "13:45", end: "14:30", fixed: false },
@@ -183,15 +183,15 @@ describe("schedule flow", () => {
   it("failure lines are spoken without usage text, block dumps, operator notes or 24-hour times", () => {
     expect(spokenReply(['usage: orion-reschedule add "<title>" <minutes> [--at HH:MM | --after "<event>"] [--fixed] [--before HH:MM]'])).toMatch(/^I couldn't make that change\./);
     expect(spokenReply(["NOTHING WAS BOOKED on Thursday (2026-10-15). Do not tell him anything was added or moved."])).toMatch(/^I couldn't do that: nothing could be booked\./);
-    expect(spokenReply(['NOTHING WAS CHANGED: no block called "gym" on Thursday. Blocks today: CS1800 Discrete Structures 09:00–10:30, finish resume 11:20–12:50.'])).toMatch(/^I couldn't do that: there's no block called gym\. Which block did you mean/);
-    expect(spokenReply(["NOTHING WAS CHANGED: moving it would break the day rules — CS2101 Lab (15:48–17:00) overlaps grind leetcode (16:15–17:45). Tell him what clashes and ask which to move; do not retry the same call."]))
-      .toMatch(/^I couldn't do that: moving it would break the day rules — CS2101 Lab \(3:48 PM–5:00 PM\) overlaps grind leetcode \(4:15 PM–5:45 PM\)\./);
+    expect(spokenReply(['NOTHING WAS CHANGED: no block called "gym" on Thursday. Blocks today: ABC100 Discrete Structures 09:00–10:30, finish resume 11:20–12:50.'])).toMatch(/^I couldn't do that: there's no block called gym\. Which block did you mean/);
+    expect(spokenReply(["NOTHING WAS CHANGED: moving it would break the day rules — ABC201 Lab (15:48–17:00) overlaps grind leetcode (16:15–17:45). Tell him what clashes and ask which to move; do not retry the same call."]))
+      .toMatch(/^I couldn't do that: moving it would break the day rules — ABC201 Lab \(3:48 PM–5:00 PM\) overlaps grind leetcode \(4:15 PM–5:45 PM\)\./);
     expect(spokenReply(["  NOT BOOKED: macro (45 min) did not fit on Thursday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)"])).toMatch(/^I couldn't do that: macro didn't fit around your classes and bedtime\./);
     expect(summarize(['NOTHING WAS CHANGED: no block called "gym" on Thursday. Blocks today: finish resume 11:20–12:50.'], []).reply).toBe("Not done: there's no block called gym.");
   });
 
   it("the form's own sentences name blocks by title, never by id", () => {
-    expect(compile({ do: "cannot", text: "Cannot swap B1 (a FIXED class) with DS Lab (B3)." }, thursday)).toEqual({ say: "cannot", text: "Cannot swap CS1800 Discrete Structures — Lecture (a fixed class) with DS Lab." });
+    expect(compile({ do: "cannot", text: "Cannot swap B1 (a FIXED class) with DS Lab (B3)." }, thursday)).toEqual({ say: "cannot", text: "Cannot swap ABC100 Discrete Structures — Lecture (a fixed class) with DS Lab." });
   });
 
   it("a vitamin in the form's sentence is not a block id (review 2026-10-16: 'B12' would become block 12)", () => {

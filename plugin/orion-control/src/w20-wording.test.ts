@@ -36,9 +36,9 @@ describe("E1 E5: the scheduler's real reason reaches him, with the next step", (
 
 describe("E12 E15 E19: a start that already passed", () => {
   it("says it already started, both times, and offers to put it on from now", () => {
-    const said = failureReply("NOTHING WAS CHANGED: marketing myseum at 19:00 has already started (it is 19:57). If he is doing it now: orion-reschedule now");
-    expect(said).toMatch(/marketing myseum already started at 7:00 PM and it's 7:57 PM/);
-    expect(said).toMatch(/put marketing myseum on from now/);
+    const said = failureReply("NOTHING WAS CHANGED: marketing gallery at 19:00 has already started (it is 19:57). If he is doing it now: orion-reschedule now");
+    expect(said).toMatch(/marketing gallery already started at 7:00 PM and it's 7:57 PM/);
+    expect(said).toMatch(/put marketing gallery on from now/);
     expect(said).not.toMatch(/orion-reschedule|19:/);
   });
 });
@@ -52,20 +52,20 @@ describe("E8 E9: nothing to clear is said as a fact with a way forward", () => {
 });
 
 describe("E2 E6 E9 E13: a repeat of a failed ask", () => {
-  const nd = "I couldn't do that: marketing myseum already started at 7:00 PM and it's 7:57 PM. Want me to put marketing myseum on from now instead?";
+  const nd = "I couldn't do that: marketing gallery already started at 7:00 PM and it's 7:57 PM. Want me to put marketing gallery on from now instead?";
   it("keys on his message: a phone repeat gets a different, useful reply, three times, never an ellipsis", () => {
     const g = new RepeatGuard();
-    const ask = "Add marketing myseum from 7pm to 9:30pm. Then gym from 10pm to 11pm.";
+    const ask = "Add marketing gallery from 7pm to 9:30pm. Then gym from 10pm to 11pm.";
     expect(g.guard("p", nd, false, 0, ask)).toBe(nd);
     const out = [60_000, 70_000, 80_000].map((t) => g.guard("p", nd, false, t, ask));
     for (const o of out) { expect(o).not.toBe(QUIET_REPLY); expect(o).not.toBe(nd); expect(o).not.toMatch(NEVER); }
     expect(out[0]).toMatch(/already started/i);
-    expect(out[0]).toMatch(/I'm doing marketing myseum now/);
+    expect(out[0]).toMatch(/I'm doing marketing gallery now/);
     expect(new Set(out).size).toBeGreaterThan(1);
   });
   it("a different message that fails the same way is not a repeat", () => {
     const g = new RepeatGuard();
-    expect(g.guard("p", nd, false, 0, "add marketing myseum 7 to 9:30")).toBe(nd);
+    expect(g.guard("p", nd, false, 0, "add marketing gallery 7 to 9:30")).toBe(nd);
     expect(g.guard("p", nd, false, 10, "ok put the museum thing on at 7")).toBe(nd);
   });
   it("a spoken repeat is answered once, then quiet", () => {

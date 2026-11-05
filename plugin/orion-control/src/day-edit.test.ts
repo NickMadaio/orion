@@ -16,7 +16,7 @@ const at = (h: number, m = 0) => new Date(2026, 10, 4, h, m);
 const parts = (m: string, now = NOW): EditPart[] => readDayEdit(m, now)?.parts ?? [];
 const day = (blocks: Day["blocks"]): Day => ({ date: "2026-11-04", now: "20:02", blocks });
 const B = (title: string, start: string, end: string, kind = "study", fixed = false) => ({ title, start, end, kind, fixed });
-const DAY = day([B("CS1802 Seminar", "09:00", "10:30", "class", true), B("Lunch", "12:30", "13:20", "meal"), B("Study block", "17:00", "18:00"), B("Gym", "20:00", "21:00", "gym")]);
+const DAY = day([B("ABC101 Seminar", "09:00", "10:30", "class", true), B("Lunch", "12:30", "13:20", "meal"), B("Study block", "17:00", "18:00"), B("Gym", "20:00", "21:00", "gym")]);
 
 function fakeRun(day: Day | undefined = DAY, reply?: (script: string, args: string[]) => { stdout: string; code: number } | undefined) {
   const calls: string[][] = [];

@@ -11,12 +11,12 @@ describe("allSlots", () => {
 describe("inHisWords", () => {
     it("accepts what he said and refuses what the desk invented", () => {
         expect(inHisWords("open safari for me", "Safari")).toBe(true);
-        expect(inHisWords("re-open it one more time please", "CS1802 Seminar")).toBe(false);
+        expect(inHisWords("re-open it one more time please", "ABC101 Seminar")).toBe(false);
     });
 });
 describe("schedulingAsk", () => {
     it("catches calendar adds with a time, range or length", () => {
-        for (const s of ["put an hour gym session at 10-11 for me", "add gym from 10pm to 11pm", "okay now add marketing myseum from 7-9:30pm", "push sleep to 11:45", "stick gym at 10 tonight"])
+        for (const s of ["put an hour gym session at 10-11 for me", "add gym from 10pm to 11pm", "okay now add marketing gallery from 7-9:30pm", "push sleep to 11:45", "stick gym at 10 tonight"])
             expect(schedulingAsk(s)).toBe(true);
     });
     it("lets what he did through", () => {
@@ -42,7 +42,7 @@ describe("gateDecision", () => {
         expect(gateDecision(tool("session", { do: "start" }), "start a focus session for my essay", true).move).toBe("tool");
     });
     it("app_open needs the app in his words", () => {
-        expect(gateDecision(tool("app_open", { application: "CS1802 Seminar" }), 're-open it one more time please, the "desktop ->" isnt working', false).move).toBe("escalate");
+        expect(gateDecision(tool("app_open", { application: "ABC101 Seminar" }), 're-open it one more time please, the "desktop ->" isnt working', false).move).toBe("escalate");
         expect(gateDecision(tool("app_open", { application: "Safari" }), "open safari", false).move).toBe("tool");
     });
     it("ignore on a typed question is answered; a typed non-question stays with the worker's ask-what-you-need note", () => {

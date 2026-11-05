@@ -89,7 +89,7 @@ final class ChatSanitizerTests: XCTestCase {
     func testTwentyFourHourTimesBecomeTwelveHour() {
         XCTAssertEqual(ChatSanitizer.twelveHour("It's 22:18. Phone down — 8h 10m left."), "It's 10:18 PM. Phone down — 8h 10m left.")
         XCTAssertEqual(ChatSanitizer.twelveHour("Bed at 00:00."), "Bed at 12:00 AM.")
-        XCTAssertEqual(ChatSanitizer.twelveHour("CS2100 at 09:00 tomorrow"), "CS2100 at 9:00 AM tomorrow")
+        XCTAssertEqual(ChatSanitizer.twelveHour("ABC200 at 09:00 tomorrow"), "ABC200 at 9:00 AM tomorrow")
         XCTAssertEqual(ChatSanitizer.twelveHour("It's 10:08 PM, up at 5:50 AM; what was 12:30 to 3:30?"), "It's 10:08 PM, up at 5:50 AM; what was 12:30 to 3:30?")
     }
 

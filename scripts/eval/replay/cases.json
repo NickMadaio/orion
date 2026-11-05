@@ -27,10 +27,6 @@
    ]
   },
   "audit": "E1",
-  "expectFail": {
-   "audit": "E1",
-   "why": "9B copies the prompt example 'late 15'; three stated facts become one canned shift; failure drops the reason"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -74,8 +70,8 @@
    },
    "scripts": [
     {
-     "match": "late 15",
-     "stdout": "NOTHING WAS CHANGED. NOT BOOKED: Admin errand (30 min) did not fit"
+     "match": "busy 19:45-21:45",
+     "stdout": "Changed Wednesday 2026-11-04:\n  rebuilt the remaining day from fixed commitments and must-haves first\n  cleared 3 prior schedule blocks: Dentist booking, Admin errand, Study block\n  NOT BOOKED: Dentist booking (30 min) did not fit on Wednesday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)\n  NOT BOOKED: Admin errand (30 min) did not fit on Wednesday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)\n  NOT BOOKED: Study block (30 min) did not fit on Wednesday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)\nWritten to his calendar. \"orion-reschedule undo\" puts it back."
     }
    ]
   }
@@ -207,7 +203,7 @@
      "id": "clear-old-gym",
      "call": {
       "script": "orion-reschedule",
-      "args": "(drop|clear|skip).*gym"
+      "args": "(drop|clear|skip).*gym|displace\\s+\"?gym\"?.*skip"
      },
      "reply": [
       "(cleared|dropped|took off|removed).*gym",
@@ -240,10 +236,6 @@
    ]
   },
   "audit": "E3",
-  "expectFail": {
-   "audit": "E3",
-   "why": "a reason ('i napped') becomes a log; three of four asks dropped, a false 45-minute nap written"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -277,10 +269,28 @@
    },
    "scripts": [
     {
-     "match": "log Nap",
-     "stdout": "Logged Nap 19:02–19:47\nGym now ends at 19:02"
+     "match": "displace Gym",
+     "stdout": "Changed Wednesday 2026-11-04:\n  Gym 18:31–19:31 will not happen (skip); it is off its slot\n  re-entered Gym: 19:44–20:44\nWritten to his calendar. \"orion-reschedule undo\" puts it back.\nGym will not happen. Gym moved to 7:44-8:44."
+    },
+    {
+     "match": "bedtime 23:50",
+     "stdout": "{\n  \"ok\": true,\n  \"saved\": true,\n  \"preview\": false,\n  \"calendar\": \"ok\",\n  \"bedtime\": \"00:00\",\n  \"was\": \"21:50\",\n  \"tonight\": true,\n  \"readback\": {\n    \"evening\": \"2026-11-04\",\n    \"sleepBy\": \"23:50\",\n    \"nudgeAt\": \"23:20\",\n    \"wake\": \"05:50\",\n    \"wakeDate\": \"2026-11-05\",\n    \"alarmAsked\": false,\n    \"hours\": 6,\n    \"lockdownBelowHours\": 6,\n    \"standing\": \"00:00\",\n    \"tonightOnly\": true,\n    \"fixed\": false\n  },\n  \"wakePlan\": \"eval-wake-plan.json\"\n}"
+    },
+    {
+     "match": "add Gym 60 --at 22:00",
+     "stdout": "Changed Wednesday 2026-11-04:\n  rebuilt the remaining day from fixed commitments and must-haves first\n  cleared 1 prior schedule block: Gym\n  planned Gym: 22:00–23:00\nWritten to his calendar. \"orion-reschedule undo\" puts it back."
     }
    ]
+  },
+  "seed": {
+   "wake-plan.json": {
+    "alarms": [
+     {
+      "date": "2026-11-05",
+      "iso": "2026-11-05T05:50:00"
+     }
+    ]
+   }
   }
  },
  {
@@ -365,10 +375,6 @@
    ]
   },
   "audit": "E5",
-  "expectFail": {
-   "audit": "E5",
-   "why": "30 minutes instead of 60, and 'gym didn't fit' drops the real reason (the day ends at bedtime)"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -414,10 +420,26 @@
    },
    "scripts": [
     {
-     "match": "add Gym",
-     "stdout": "NOTHING WAS BOOKED.\nNOT BOOKED: Gym (60 min) did not fit: your day ends at 21:50 (bedtime)"
+     "match": "add Gym 60 --at 22:00",
+     "stdout": "Changed Wednesday 2026-11-04:\n  rebuilt the remaining day from fixed commitments and must-haves first\n  cleared 1 prior schedule block: Study block\n  planned Gym: 22:00–23:00\n  NOT BOOKED: Study block (30 min) did not fit on Wednesday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)\nWritten to his calendar. \"orion-reschedule undo\" puts it back."
     }
    ]
+  },
+  "seed": {
+   "wake-plan.json": {
+    "alarms": [
+     {
+      "date": "2026-11-05",
+      "iso": "2026-11-05T05:50:00"
+     }
+    ],
+    "bedtimes": [
+     {
+      "date": "2026-11-04",
+      "sleepBy": "21:50"
+     }
+    ]
+   }
   }
  },
  {
@@ -623,10 +645,6 @@
    ]
   },
   "audit": "E8",
-  "expectFail": {
-   "audit": "E8",
-   "why": "second copy on an empty day says 'no movable block by that name' as a failure"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -638,17 +656,7 @@
     "date": "2026-11-04",
     "now": "19:55",
     "blocks": []
-   },
-   "tools": [
-    {
-     "toolName": "exec",
-     "params": {
-      "command": "orion-reschedule drop --after nap"
-     },
-     "result": "NOTHING WAS CHANGED: there is no movable block called nap"
-    }
-   ],
-   "worker": "Not done: there's no movable block by that name."
+   }
   }
  },
  {
@@ -824,7 +832,7 @@
      "id": "museum",
      "call": {
       "script": "orion-reschedule",
-      "args": "add\\s+\"?art museum\"?\\s+150\\b.*--at 19:00"
+      "args": "add\\s+\"?art museum\"?\\s+150\\b.*--at 19:00|log\\s+\"?art museum\"?\\s+--from 19:00 --to 21:30"
      }
     },
     {
@@ -848,10 +856,6 @@
    ]
   },
   "audit": "E10",
-  "expectFail": {
-   "audit": "E10",
-   "why": "read as two workouts the same minute: wrote a fake 60-minute cardio record, calendar untouched"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -901,7 +905,30 @@
      }
     ]
    },
-   "scripts": []
+   "scripts": [
+    {
+     "match": "log Art museum",
+     "stdout": "Changed Wednesday 2026-11-04:\n  logged Art museum 19:00–21:30 (replaced Dentist booking, Admin errand)\n  bumped Study block (21:30–22:00): lower weight than what it made room for\n  Dentist booking has no room today\n  Admin errand has no room today\nWritten to his calendar. \"orion-reschedule undo\" puts it back.\nLogged Art museum 7-9:30. Dentist booking has no room today; Admin errand has no room today; Study block is off today."
+    },
+    {
+     "match": "add Gym 60 --at 22:00",
+     "stdout": "Changed Wednesday 2026-11-04:\n  rebuilt the remaining day from fixed commitments and must-haves first\n  planned Gym: 22:00–23:00\nWritten to his calendar. \"orion-reschedule undo\" puts it back."
+    },
+    {
+     "match": "bedtime 23:45",
+     "stdout": "{\n  \"ok\": true,\n  \"saved\": true,\n  \"preview\": false,\n  \"calendar\": \"ok\",\n  \"bedtime\": \"00:00\",\n  \"was\": \"21:50\",\n  \"tonight\": true,\n  \"readback\": {\n    \"evening\": \"2026-11-04\",\n    \"sleepBy\": \"23:45\",\n    \"nudgeAt\": \"23:15\",\n    \"wake\": \"05:50\",\n    \"wakeDate\": \"2026-11-05\",\n    \"alarmAsked\": false,\n    \"hours\": 6.08,\n    \"lockdownBelowHours\": 6,\n    \"standing\": \"00:00\",\n    \"tonightOnly\": true,\n    \"fixed\": false\n  },\n  \"wakePlan\": \"eval-wake-plan.json\"\n}"
+    }
+   ]
+  },
+  "seed": {
+   "wake-plan.json": {
+    "alarms": [
+     {
+      "date": "2026-11-05",
+      "iso": "2026-11-05T05:50:00"
+     }
+    ]
+   }
   }
  },
  {
@@ -938,10 +965,6 @@
    ]
   },
   "audit": "E11",
-  "expectFail": {
-   "audit": "E11",
-   "why": "'those' has no antecedent after a reply that claimed a log: the 9B fills 'what' from the day list"
-  },
   "surface": "phone",
   "prior": [
    {
@@ -988,8 +1011,8 @@
    },
    "scripts": [
     {
-     "match": "--dry-run",
-     "stdout": "NOTHING WAS CHANGED. NOT BOOKED: Maths Seminar is already on today's calendar (09:00–10:30)"
+     "match": "undo",
+     "stdout": "Undone: removed Gym."
     }
    ]
   }
@@ -1017,10 +1040,6 @@
    ]
   },
   "audit": "E12",
-  "expectFail": {
-   "audit": "E12",
-   "why": "loop stops on the first failure ('the rest depended on this one'): gym 10-11 never tried"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -1232,10 +1251,6 @@
    ]
   },
   "audit": "E15",
-  "expectFail": {
-   "audit": "E15",
-   "why": "says 'already passed' when he is mid-event; no offer to add from now or log it"
-  },
   "surface": "phone",
   "now": "2026-11-04T19:59",
   "recorded": {
@@ -1290,10 +1305,6 @@
    ]
   },
   "audit": "E16",
-  "expectFail": {
-   "audit": "E16",
-   "why": "4B picks the to-do tool; nothing accepts an override of the past-start rule"
-  },
   "surface": "phone",
   "recorded": {
    "desk": {
@@ -1307,8 +1318,49 @@
    "worker": [
     "I can't add it because 7:00 PM has already passed. Nothing changed.",
     "I can't add it because 7:00 PM has already passed. Nothing changed."
-   ]
-  }
+   ],
+   "day": {
+    "date": "2026-11-04",
+    "now": "20:00",
+    "blocks": []
+   }
+  },
+  "prior": [
+   {
+    "say": "add art museum from 7pm to 9:30pm",
+    "recorded": {
+     "desk": {
+      "move": "escalate",
+      "tier": "standard",
+      "say": "One moment."
+     },
+     "form": [
+      {
+       "steps": [
+        {
+         "do": "add",
+         "what": "art museum",
+         "minutes": 150,
+         "to": "19:00"
+        }
+       ]
+      }
+     ],
+     "day": {
+      "date": "2026-11-04",
+      "now": "19:59",
+      "blocks": []
+     },
+     "scripts": [
+      {
+       "match": "art museum",
+       "stdout": "NOTHING WAS CHANGED. NOT BOOKED: art museum (150 min): 19:00 has already started (it is 19:57)"
+      }
+     ]
+    }
+   }
+  ],
+  "now": "2026-11-04T20:00"
  },
  {
   "id": "tube-e17-add-gym-ten-to-eleven",
@@ -1371,10 +1423,6 @@
    ]
   },
   "audit": "E18",
-  "expectFail": {
-   "audit": "E18",
-   "why": "worker claims a log, check flags it, canned 'say it again' goes out over his refusal"
-  },
   "surface": "phone",
   "now": "2026-11-04T20:01",
   "outreach": "Quick one for tonights review - what was 8:05 to 9?",
@@ -2886,10 +2934,6 @@
     }
    ]
   },
-  "expectFail": {
-   "audit": null,
-   "why": "found while building replay: the direct-add parser keeps 'for' in the title ('Reading for') for 'schedule X for 10 to 11pm'"
-  },
   "now": "2026-11-04T17:30",
   "recorded": {
    "desk": {
@@ -2958,10 +3002,6 @@
      "args": "add\\s+\"?reading\"?\\s+60\\b.*--at 22:00"
     }
    ]
-  },
-  "expectFail": {
-   "audit": null,
-   "why": "found while building replay: 'put X at 10 to 11pm' keeps 'at' in the title ('Reading at')"
   },
   "now": "2026-11-04T17:30",
   "recorded": {

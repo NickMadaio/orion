@@ -27,6 +27,13 @@ export type EditPart = {
     op: "drop";
     name: string;
     day: DayRef;
+}
+/** "everything after my nap should be dropped", "clear everything after 6:30": every movable block from that block's end (or that clock) on. */
+ | {
+    op: "dropafter";
+    day: DayRef;
+    name?: string;
+    at?: Said;
 } | {
     op: "didnt";
     name: string;
@@ -46,6 +53,13 @@ export type EditPart = {
 /** "push the learning plan back an hour": by minutes, later (+) or earlier (-). */
  | {
     op: "shift";
+    name: string;
+    day: DayRef;
+    minutes: number;
+}
+/** "make the mum call 45 mins": a block's total length. */
+ | {
+    op: "resize";
     name: string;
     day: DayRef;
     minutes: number;

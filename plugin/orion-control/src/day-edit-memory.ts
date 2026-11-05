@@ -4,7 +4,7 @@
  twelve minutes (orion-app-v2, orion-chat-<id>, orion-chat-phone-history), so a per-session memory lost exactly what he was referring to.
  He is the only person on this Mac. What is remembered for "anyway" is only the part(s) that were refused, never what already worked.
 */
-import type { DayEdit } from "./day-edit.js";
+import { readDayEdit, type DayEdit } from "./day-edit.js";
 
 const KEEP_MS = 30 * 60_000;
 let last: { edit: DayEdit; at: number } | null = null;
@@ -23,7 +23,7 @@ const BARE = /^(?:(?:ok|okay|wait|no)[,\s]+)*(?:undo|revert|cancel)\b/;
 export const isUndoThen = (message: string): boolean => UNDO_THEN.test(message.toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, " ").trim());
 
 /** What he last asked (any message that is not itself an undo), for "those" in an undo-then. */
-export const rememberAsk = (text: string, now: Date): void => { if (!isUndoThen(text) && !BARE.test(text.trim().toLowerCase())) lastAsk = { text, at: now.getTime() }; };
+export const rememberAsk = (text: string, now: Date): void => { if (!isUndoThen(text) && !BARE.test(text.trim().toLowerCase()) && !OVERRIDE.test(text.toLowerCase().replace(/[’`]/g, "'"))) lastAsk = { text, at: now.getTime() }; };
 export const recallAsk = (now: Date): string | null => (lastAsk && now.getTime() - lastAsk.at <= KEEP_MS ? lastAsk.text : null);
 /** The writes the last day edit made, so an undo takes back exactly those. */
 export const rememberRun = (writes: number, facts: string[], now: Date): void => { lastRun = writes || facts.length ? { writes, facts, at: now.getTime() } : null; };
@@ -34,8 +34,10 @@ const OVERRIDE = /\b(?:anyway|anyways|regardless|even though|even if|still (?:ad
 export function readOverride(message: string, now: Date): DayEdit | null {
   const m = message.toLowerCase().replace(/[’`]/g, "'");
   if (!OVERRIDE.test(m) || !/\b(?:add|put|log|do|book|schedule|keep|that|it)\b/.test(m)) return null;
-  const prev = recallEdit(now);
+  // What was refused is remembered as an edit; when nothing was (it went through another way), the ask before this one is read again.
+  const asked = recallAsk(now);
+  const prev = recallEdit(now) ?? (asked ? readDayEdit(asked, now) : null);
   if (!prev) return null;
-  const named = prev.parts.filter((p) => "name" in p && p.name.length > 2 && m.includes(p.name.toLowerCase().split(" ")[0]!));
+  const named = prev.parts.filter((p) => "name" in p && !!p.name && p.name.length > 2 && m.includes(p.name.toLowerCase().split(" ")[0]!));
   return { parts: named.length ? named : prev.parts };
 }

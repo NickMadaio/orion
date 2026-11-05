@@ -43,7 +43,7 @@ import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-r
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
 import { openRequest } from "./open-request.js";
-import { answersWebOffer, readChatAsks, runChatAsks, type ChatAsk, type ChatDeps, type WebOffer } from "./chat-asks.js";   // w20 r3
+import { answersWebOffer, readChatAsks, runChatAsks, splitLeadListItem, type ChatAsk, type ChatDeps, type WebOffer } from "./chat-asks.js";   // w20 r3
 import { outreachStale, staleOutreachNote, stripOutreachEcho } from "./outreach-stale.js";
 import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
 import { failedTools, failureReason } from "./tool-failure.js";
@@ -55,7 +55,7 @@ import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
 import { asksDayRead, asksHabit, habitAnswer } from "./day-questions.js";
 import { answerAvailability } from "./availability-read.js";
-import { blockTarget, isEdit, parseEdit, SESSION_EDIT, whichOne, type EditTarget } from "./edit-followup.js";
+import { blockTarget, isEdit, parseEdit, SESSION_EDIT, singleBlockTarget, whichOne, type EditTarget } from "./edit-followup.js";
 import { timeMismatch, writesIn } from "./time-backstop.js";
 import { carriesNamedFlag, unnamedAnchorWrite } from "./anchor-write-guard.js";
 import { TurnProgress, stageForTool, stagesForReads } from "./turn-progress.js";
@@ -1828,6 +1828,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             if ("calls" in f && f.calls) f.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: f.outputs?.[i] ?? "", exit: null }));
             if (out.writes) recordChange(key, []);
             if (key && (out.writes || out.facts.length)) lastReality.set(key, { facts: out.facts, writes: out.writes, at: Date.now() });
+            // What "make it 45" means next: the one block a day edit wrote (two or more blocks written leave "it" unclear, so it is asked).
+            if (key && out.writes && "calls" in f && f.calls) { const t = singleBlockTarget(f.calls, f.outputs ?? [], Date.now()); if (t) lastMade.set(key, t); else lastMade.delete(key); }
           }
         }
       }
@@ -2129,8 +2131,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       }
       // Wave 9 B (availability-read.ts): "am i free sat night" reads that day and answers from it (the model was handed today's list and said it had no calendar).
       if (!run.flow && !run.cutOff && options.readDayJson) {
-        const free = await answerAvailability(run.message, (options.now ?? pluginNow)(), (a) => withTimeout(options.readDayJson!(a), options.dayReadMs ?? DAY_READ_MS));
-        if (free) { run.provided = true; markRead(run, "day"); run.flow = { outcome: "say", kind: "plain", text: free }; }
+        // A list item said first ("a list item: pick up parcel, then tell me whats on tomorrow evening") is added by code, and the answer follows it.
+        const lead = options.chatRun ? splitLeadListItem(run.message) : null;
+        const free = await answerAvailability(lead?.rest ?? run.message, (options.now ?? pluginNow)(), (a) => withTimeout(options.readDayJson!(a), options.dayReadMs ?? DAY_READ_MS));
+        if (free) {
+          const added = lead ? await withTimeout(runChatAsks([{ kind: "list-add", item: lead.item }], options.chatRun!).catch(() => undefined), 20000) : undefined;
+          if (added) added.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: added.outputs[i] ?? "", exit: 0 }));
+          run.provided = true; markRead(run, "day"); run.flow = { outcome: "say", kind: "plain", text: lead ? `${added?.text ?? `I couldn't add ${lead.item} to your list.`} ${free}` : free };
+        }
       }
       // Calendar changes run as a fixed sequence (schedule-flow.ts): code reads the day, the worker
       // fills one form, code runs the exact command; the worker only phrases the result.

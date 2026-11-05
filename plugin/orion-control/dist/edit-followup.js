@@ -54,6 +54,12 @@ export function blockTarget(calls, outputs, at) {
     const minutes = span ? (Number(span[3]) * 60 + Number(span[4])) - (Number(span[1]) * 60 + Number(span[2])) : undefined;
     return { kind: "block", title, dateArgs: d >= 0 && argv[d + 1] ? ["--date", argv[d + 1]] : [], ...(minutes && minutes > 0 ? { minutes } : {}), ...(span ? { start: `${span[1]}:${span[2]}` } : {}), at };
 }
+/** The block a run wrote when it wrote exactly one (a day edit that added two things leaves "it" unclear). */
+export function singleBlockTarget(calls, outputs, at) {
+    const writes = calls.flatMap((c) => writesIn(c)).filter((a) => ["add", "move", "resize", "extend", "day", "now", "log"].includes(a[0] ?? ""));
+    const titles = new Set(writes.map((a) => (a[1] ?? "").toLowerCase()));
+    return titles.size === 1 && !calls.some((c) => /\bundo\b/.test(c)) ? blockTarget(calls, outputs, at) : undefined;
+}
 /** The new length for the block, or what to ask. */
 export function editLength(req, current) {
     if (req.minutes)

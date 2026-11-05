@@ -43,7 +43,7 @@ export function fixTypos(text) {
 }
 // Only an imperative request fires: a hypothetical, a question, a negation, a past event or a plan he is only thinking about does not rewrite his day.
 export const NOT_A_REQUEST = /\b(?:don'?t|do not|dont|doesn'?t|never ?mind|nvm|no need|not|n'?t|rescheduled|replanned|rearranged|reorgani[sz]ed|did|had|already|was going to|were going to|used to|going to|gonna|should|shall|what if|what about|how about|thinking|wondering|maybe|perhaps|might|could i|can i|may i|whether|if i|if we|would it|would i|why|supposed to|unless|if it|decide later|i guess|meh)\b/i;
-export const COURTESY = /^(?:(?:ok(?:ay)?|so|yo|hey|please|pls|orion|can u|can you|could you|would you|will you|just)[,.\s]+)*/i;
+export const COURTESY = /^(?:(?:ok(?:ay)?|so|yo|hey|please|pls|orion|and|also|then|actually|alright|can u|can you|could you|would you|will you|just)[,.\s]+)*/i;
 const IMPERATIVE = /^(?:re-?schedule|re-?do|re-?plan|re-?arrange|re-?organi[sz]e|re-?work|move|push|put|shift|do|have|start)\b|^(?:after|when|once)\b[^,.;]*?[,\s]+(?:do|put|have|start with)\b/i;
 export const TAKEN_BACK = /(?:\bjk+|\bj\/k|just kidding|\bkidd?in[g']?|\bjkjk|\bn(?:ever|evr|vr)\s*-?\s*m(?:i|y)?n?d\b|\bnevermnd|\bnvm+|\blo+l+z*|\blm+a+o+|\bro+fl|\bha(?:ha)+h?|\bor not|\bscratch that|\bforget (?:it|that)|\bi dunno|\bdunno|\bidc|\bi don'?t care|\bwhatever|\bidk|\bgot nothing)\W*$/i;
 // Doubt in the middle of the message: "gym first or whatever, idc".

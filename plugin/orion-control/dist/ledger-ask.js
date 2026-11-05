@@ -11,7 +11,7 @@ import { contentWords } from "./made-ledger.js";
 const FILLER = String.raw `(?:(?:actually|ok|okay|hey|orion|pls|please|wait|no|nah|yeah|yep|sorry|oh|and|then|just|can you|could you|can u)[,\s]+)*`;
 const REMOVE = String.raw `(?:cancel|scrap|delete|remove|drop|ditch|nuke|forget|erase|bin|scratch|zap|kill|get rid of|take off|clear)`;
 const UNDO_BARE = new RegExp(String.raw `^${FILLER}(?:undo|revert)(?:\s+(?:that|it|this|all of that|the last (?:one|change|thing|move|edit)|my last (?:change|move)|that last (?:one|change|thing|move|edit)))?(?:\s+(?:please|pls|thanks))?$`);
-const PUT_BACK = new RegExp(String.raw `^${FILLER}(?:put|set|move|change)\s+(.+?)\s+back\s+(?:to\s+)?(?:where it was|where they were|how it was|how they were|as it was|like it was|to normal|to how it (?:was|is supposed to be)|to its (?:old|original) (?:time|spot|place|slot))(?:\s+(?:before|please|pls))?$`);
+const PUT_BACK = new RegExp(String.raw `^${FILLER}(?:put|set|move|change)\s+(.+?)\s+back\s+(?:to\s+|in\s+|at\s+)?(?:where it was|where they were|where it (?:normally |usually )?(?:goes|is|belongs|lives)|how it was|how they were|as it was|like it was|to normal|normal|to how it (?:was|is supposed to be)|(?:to |in |at )?its (?:old|original|normal|usual|regular|proper|default|right|own|previous|earlier) (?:time|spot|place|slot|position))(?:\s+(?:before|please|pls))?$`);
 const REMOVE_AT_START = new RegExp(String.raw `^${FILLER}${REMOVE}\s+(.+)$`);
 const UNDO_OBJECT = new RegExp(String.raw `^${FILLER}(?:undo|revert)\s+(?:the\s+)?(.+)$`);
 const TAKE_OFF = new RegExp(String.raw `^${FILLER}take\s+(.+?)\s+(?:back\s+)?off(?:\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today|food log))?$`);

@@ -21,6 +21,8 @@ export declare function parseEdit(message: string): EditRequest | undefined;
 export declare const isEdit: (message: string) => boolean;
 /** The block a calendar change just wrote, from its own call and output (what "make it an hour" means next). */
 export declare function blockTarget(calls: string[], outputs: string[], at: number): EditTarget | undefined;
+/** The block a run wrote when it wrote exactly one (a day edit that added two things leaves "it" unclear). */
+export declare function singleBlockTarget(calls: string[], outputs: string[], at: number): EditTarget | undefined;
 /** The new length for the block, or what to ask. */
 export declare function editLength(req: EditRequest, current?: number): {
     minutes: number;

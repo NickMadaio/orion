@@ -94,6 +94,13 @@ export function spokenReply(outputs, when, kept) {
             said.push(why ? `${m[1]} couldn't go at ${why.at} (${why.because} is there), so it's ${ampm(m[2])}–${ampm(m[3])}` : `${m[1]} ${ampm(m[2])}–${ampm(m[3])}`);
             continue;
         }
+        // A plan with people ("call with mum") is booked fixed: "added (fixed) X: 13:30–14:10", not "planned X" (live gate 2, #54 #101).
+        m = l.match(/^added(?: \(fixed\))? (.+?): (\d{2}:\d{2})–(\d{2}:\d{2})/);
+        if (m) {
+            planned.push(m[1]);
+            said.push(`${m[1]} ${ampm(m[2])}–${ampm(m[3])}`);
+            continue;
+        }
         m = l.match(/^(.+?) moved: \d{2}:\d{2} → (\d{2}:\d{2})–(\d{2}:\d{2})/);
         if (m) {
             said.push(`${m[1]} now ${ampm(m[2])}–${ampm(m[3])}`);

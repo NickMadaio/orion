@@ -898,6 +898,9 @@ function offerFor(compiled: Compiled[], day: Day, when?: string): Extract<FlowRe
   const at = flag("--to") ?? flag("--at") ?? flag("--until");
   if (!at || !/^\d{2}:\d{2}$/.test(at) || !["add", "move", "extend"].includes(a[0]!)) return undefined;
   const title = a[1]!;
+  // The pick is where it already sits ("put leetcode back to its normal slot" when it is there): never offered as a change.
+  const sits = a[0] === "move" ? day.blocks.find((b) => b.title === title && b.start === at) : undefined;
+  if (sits) return { outcome: "say", kind: "ask", text: `${title} is already at ${ampm(sits.start)}–${ampm(sits.end)}${when ? ` ${when}` : ""}, so I haven't moved it. Tell me the time you want instead.` };
   const what = a[0] === "add" ? `put ${title} in at ${ampm(at)}` : a[0] === "move" ? `move ${title} to ${ampm(at)}` : `run ${title} until ${ampm(at)}`;
   return { outcome: "say", kind: "ask", text: `You didn't give a time, so here's my pick: ${what}${when ? ` ${when}` : ""}. Go ahead? I haven't changed anything yet.`,
     pending: { kind: "push", argvs: [[...a, "--date", day.date]], displaced: [], ...(when ? { when } : {}) } };

@@ -29,8 +29,9 @@ const LOG_AHEAD = 180;
 /** "7 PM", "9:30 PM": the way he says it. */
 const ampm = (m: number): string => ampmFull(m).replace(":00", "");
 const spanText = (a: number, b: number): string => { const [x, y] = [ampm(a), ampm(b)]; return x.slice(-2) === y.slice(-2) ? `${x.slice(0, -3)}–${y}` : `${x}–${y}`; };
+const norm = (t: string): string => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const CAP = (t: string) => t.replace(/^./, (c) => c.toUpperCase());
-const DEFAULT_MIN: Array<[RegExp, number]> = [[/lunch/, 30], [/dinner|supper/, 45], [/breakfast/, 20], [/nap/, 45], [/call|chat/, 30], [/walk|tube|commute|train/, 30], [/gym|workout|lift|run/, 60]];
+const DEFAULT_MIN: Array<[RegExp, number]> = [[/lunch/, 30], [/dinner|supper/, 45], [/breakfast/, 20], [/nap/, 45], [/call|chat/, 30], [/walk|tube|commute|train/, 30], [/gym|workout|lift|run/, 60], [/hair\s?cut|barber|hairdresser|haircut/, 30]];
 const defaultMinutes = (name: string): number => DEFAULT_MIN.find(([re]) => re.test(name.toLowerCase()))?.[1] ?? 60;
 const list = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
@@ -120,6 +121,14 @@ async function addPart(ctx: Ctx, p: Extract<EditPart, { op: "add" }>): Promise<v
     }
     to = from + mins;
   }
+  // "put the call with mum at 5" when the call is already on the day is a move of that block (the scheduler never keeps two): never a second one.
+  if (p.day !== "yesterday" && !(p.day === "today" && from < ctx.nowMin)) {
+    const seen = day ?? await dayOf(ctx, p.day);
+    const there = blockNamed(p.name, seen, p.day === "today" ? ctx.nowMin : -1);
+    // Restating a block by its own title replaces it (the scheduler's rule), so only another way of naming it, or a plan with people, is a move.
+    const sameTitle = norm(there?.title ?? "") === norm(CAP(p.name));
+    if (there && (!sameTitle || there.fixed) && (p.day !== "today" || toMin(there.end) > ctx.nowMin) && !there.kind?.match(/^(?:class|commute|deadline)$/)) { await moveExisting(ctx, p, there, from, to); return; }
+  }
   if (p.day !== "today" ? p.day === "yesterday" : from < ctx.nowMin) {
     const seen = day ?? await dayOf(ctx, p.day);
     if (unreadable(ctx, p.day, `log ${p.name}`)) return;   // writing the past blind could double a block that is already there
@@ -127,6 +136,31 @@ async function addPart(ctx: Ctx, p: Extract<EditPart, { op: "add" }>): Promise<v
   }
   const out = await exec(ctx, "orion-reschedule", ["add", title, String(to - from), "--at", hhmm(from), "--length-explicit", ...DAY_ARGS[p.day]]);
   if (settle(ctx, out, title, `add ${p.name}`, from)) ctx.done.push(`put ${title.toLowerCase()} at ${spanText(from, to)}${p.day === "tomorrow" ? " tomorrow" : ""}`);
+}
+
+/** The block he named is already on that day: it goes to the time he said (and the length, when he said one). */
+async function moveExisting(ctx: Ctx, p: Extract<EditPart, { op: "add" }>, block: DayBlock, from: number, to: number): Promise<void> {
+  const short = block.title.replace(/\s+[—–-].*$/, "");
+  const len = toMin(block.end) - toMin(block.start);
+  const sameSpan = toMin(block.start) === from && (p.minutes === undefined && !p.span ? true : len === to - from);
+  if (sameSpan) { ctx.done.push(`left ${short} as it is, it's already at ${spanText(toMin(block.start), toMin(block.end))}`); return; }
+  const length = p.minutes !== undefined || p.span ? ["--until", hhmm(to)] : [];
+  const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(from), ...length, ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
+  if (settle(ctx, out, block.title, `move ${short}`, from)) ctx.done.push(`moved ${short} to ${spanText(from, p.minutes !== undefined || p.span ? to : from + len)}${p.day === "tomorrow" ? " tomorrow" : ""}`);
+}
+
+/** "make the mum call 45 mins": the block's new total length, same start. */
+async function resizePart(ctx: Ctx, p: Extract<EditPart, { op: "resize" }>): Promise<void> {
+  const day = await dayOf(ctx, p.day);
+  const block = blockNamed(p.name, day, ctx.nowMin);
+  if (!block && unreadable(ctx, p.day, `resize ${p.name}`)) return;
+  if (!block) { ctx.failed.push(`make ${p.name} ${p.minutes} minutes (I can't see it on ${p.day === "today" ? "today's" : "that day's"} plan)`); return; }
+  const short = block.title.replace(/\s+[—–-].*$/, "");
+  const start = toMin(block.start);
+  const out = block.fixed
+    ? await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(start), "--until", hhmm(start + p.minutes), "--named", ...DAY_ARGS[p.day]])
+    : await exec(ctx, "orion-reschedule", ["resize", block.title, String(p.minutes), ...DAY_ARGS[p.day]]);
+  if (settle(ctx, out, block.title, `resize ${short}`, start)) ctx.done.push(`made ${short} ${p.minutes} minutes (${spanText(start, start + p.minutes)})`);
 }
 
 async function movePart(ctx: Ctx, p: Extract<EditPart, { op: "move" }>): Promise<void> {
@@ -199,8 +233,14 @@ async function dropPart(ctx: Ctx, p: Extract<EditPart, { op: "drop" }>): Promise
   if (!block && unreadable(ctx, p.day, `clear ${p.name}`)) return;
   if (!block) { ctx.failed.push(`clear ${p.name} (I can't see it on ${p.day === "today" ? "today's" : p.day === "tomorrow" ? "tomorrow's" : "yesterday's"} plan)`); return; }
   const started = p.day === "today" && toMin(block.start) <= ctx.nowMin;
-  const out = await exec(ctx, "orion-reschedule", started ? ["displace", block.title, "--why", "skip"] : ["drop", block.title, ...DAY_ARGS[p.day]]);
+  let out = await exec(ctx, "orion-reschedule", started ? ["displace", block.title, "--why", "skip"] : ["drop", block.title, ...DAY_ARGS[p.day]]);
   const short = block.title.replace(/\s+[—–-].*$/, "");
+  // A plan with people the scheduler will not drop says "use skip": he said take it off, so that occurrence comes off (undo puts it back).
+  if (!started && refused(out) && /\buse skip\b/i.test(out.stdout)) {
+    out = await exec(ctx, "orion-reschedule", ["skip", block.title, ...DAY_ARGS[p.day]]);
+    if (settle(ctx, out, block.title, `clear ${short}`)) ctx.done.push(`took ${short} off ${p.day === "today" ? "today" : p.day}`);
+    return;
+  }
   if (settle(ctx, out, block.title, `clear ${short}`)) ctx.done.push(started ? `marked ${short} as skipped` : `took ${short} off ${p.day === "today" ? "today" : p.day}`);
 }
 
@@ -318,6 +358,7 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
     }
     else if (p.op === "correct") await movePart(ctx, { op: "move", name: p.name, day: p.evening && p.day === "today" ? "yesterday" : p.day, to: p.at });
     else if (p.op === "shift") await shiftPart(ctx, p);
+    else if (p.op === "resize") await resizePart(ctx, p);
     else if (p.op === "move") await movePart(ctx, p);
     else if (p.op === "drop") await dropPart(ctx, p);
     else if (p.op === "didnt") await didntPart(ctx, p);

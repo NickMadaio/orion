@@ -42,6 +42,18 @@ export function readChatAsks(message) {
     const asks = parts.map(readOne);
     return asks.every((a) => a !== null) ? asks : null;
 }
+const LIST_ITEM = new RegExp(String.raw `^${LEAD}(?:a |another |one more |new )?(?:list|to-?do|todo|task) item\s*[:,-]?\s*(.+)$`, "i");
+const THEN_ASK = /\s*(?:,\s*)?(?:and\s+then|then|and\s+also|also|and)\s+(?=(?:tell|show|what|whats|what's|how|when|is|are|do|any|anything|check|read|give)\b)/i;
+/** "and a list item: pick up parcel from reception, then tell me whats on tomorrow evening": the list add (run by code) and the question left to answer. */
+export function splitLeadListItem(message) {
+    const at = THEN_ASK.exec(message);
+    if (!at)
+        return null;
+    const head = message.slice(0, at.index).trim().replace(/[.,;!]+$/, "");
+    const rest = message.slice(at.index + at[0].length).trim();
+    const item = (LIST_ITEM.exec(head)?.[1] ?? ADD.exec(head)?.[1])?.trim().replace(/^(?:some|a bit of)\s+/i, "");
+    return item && rest && item.length <= 80 && !NOT_A_LIST_ITEM.test(item) && /[a-z0-9]/i.test(item) ? { item, rest } : null;
+}
 /** The web player or site for an app that is not installed. */
 const WEB_VERSION = {
     spotify: { url: "https://open.spotify.com", label: "the Spotify web player" },

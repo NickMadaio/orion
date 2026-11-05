@@ -50,6 +50,13 @@ export type EditPart = {
     day: DayRef;
     minutes: number;
 }
+/** "make the mum call 45 mins": a block's total length. */
+ | {
+    op: "resize";
+    name: string;
+    day: DayRef;
+    minutes: number;
+}
 /** scope: bedtime-read.ts's reading of the clause ("change my bedtime to 11:30" is every night, "push it to 12" is tonight). */
  | {
     op: "bedtime";

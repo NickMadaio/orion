@@ -205,7 +205,7 @@ function earlierThan(current) {
 /** The bedtime this command leaves (config.bedtime, the cap night.mjs puts on asleep-by), or undefined for other commands and tonight-only changes. */
 function nextBedtime(config) {
   if (command !== "bedtime") return undefined;
-  if (bedChange) return bedChange.tonight ? undefined : bedChange.time;
+  if (bedChange) return bedChange.tonight || bedChange.reset ? undefined : bedChange.time;   // a reset never writes the default bedtime back as an explicit one
   const raw = args[1];
   const t = raw === "earlier" ? earlierThan(config.bedtime) : normTime(raw);
   if (!t) throw new TypeError("bedtime takes HH:MM, earlier, later or shift N");

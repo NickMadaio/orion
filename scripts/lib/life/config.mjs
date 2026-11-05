@@ -116,8 +116,9 @@ export function setSleepPlan(plan, file = CONFIG_FILE) {
   if (!validSleepPlan(plan)) throw new TypeError("that sleep plan is not valid");
   const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(`${file}.tmp`, JSON.stringify({ ...current, sleepPlan: plan }, null, 2));
-  renameSync(`${file}.tmp`, file);
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify({ ...current, sleepPlan: plan }, null, 2));
+  renameSync(tmp, file);
   return plan;
 }
 
@@ -203,7 +204,7 @@ export function setConfig(key, raw, file = CONFIG_FILE) {
   if (!VALIDATORS[key](value)) throw new TypeError(`${key} cannot be ${raw}`);
   const current = (() => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return {}; } })();
   mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
+  const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify({ ...current, [key]: value }, null, 2));
   renameSync(tmp, file);
   return value;

@@ -12,6 +12,7 @@
 //   orion-sleepplan clear-except [--date tonight|YYYY-MM-DD]       take it back (no --date: every exception)
 //   orion-sleepplan bedtime HH:MM|earlier|later [--tonight] [--json]   his bedtime (asleep-by cap); earlier = 30 min earlier, not before 22:00.
 //                                                                 HH:MM is EXACT (no sleep-need cap): --tonight names it for this one night only, else every night
+//   orion-sleepplan bedtime reset [--json]                         back to the normal bedtime: the exact standing one (bedFixed) and tonight's override are cleared
 //   orion-sleepplan bedtime shift N [--tonight] [--json]           tonight's bedtime N minutes later (+) or earlier (-); the answer's `readback` is re-read from disk
 //   orion-sleepplan refresh [--json]                               rewrite wake-plan.json from the stored plan + calendar (the nudge tick does this daily)
 //   orion-sleepplan wake-on --date tomorrow|today|next|sat|YYYY-MM-DD --time HH:MM|off [--json]
@@ -33,6 +34,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { napMinutesOf } from "./lib/life/naps.mjs";
+import { acquireLock } from "./lib/reminders/store.mjs";
 // Naps WHOOP saw (health-log days[date].napMinutes) credit that evening's bedtime (W20).
 const napToday = (date) => { try { return napMinutesOf(JSON.parse(readFileSync(join(controlledDir(), "health-log.json"), "utf8")).days?.[date]); } catch { return 0; } };
 import { addDays, eveningOf, hhmm, instant, parseDays, pruneOverrides, wakeDate, weekPlan, wakePlanDoc, withBedOverride, withException, withOverride, withWake, writeWakePlan } from "./lib/life/sleep-plan.mjs";
@@ -227,6 +229,11 @@ function bedPlan(plan, blocksOf, config) {
     const n = Number(args[2]);
     if (!Number.isInteger(n) || n === 0 || Math.abs(n) > 360) throw new TypeError("bedtime shift takes a whole number of minutes, 1 to 360, minus for earlier");
     time = clockOfMin(mins(tonightBed) + n);
+  } else if (raw === "reset") {
+    // "go back to normal bedtime": the standing bedtime stops being exact (the sleep-need cap applies again) and tonight's override goes.
+    // The standing time itself stays; it is only a cap now.
+    bedChange = { time: config.bedtime, tonight: false, evening, was: config.bedtime, reset: true };
+    return { ...plan, bedFixed: false, bedOverrides: {} };
   } else if (raw === "earlier") return plan;   // the legacy cap rule, in nextBedtime
   else time = normTime(raw);
   if (!time) throw new TypeError("bedtime takes HH:MM, earlier, later or shift N");
@@ -273,9 +280,16 @@ async function main() {
   const WRITES = new Set(["set", "unset", "lead", "except", "clear-except", "bedtime", "wake-on", "shift"]);
   const REFRESH = command === "refresh";   // rewrite wake-plan.json from the stored plan and the calendar; the stored plan is untouched
   if (!WRITES.has(command) && !REFRESH && !["show", "plan", "alarms"].includes(command)) fail(2, `unknown command ${command}. Commands: show, set, unset, lead, except, clear-except, wake-on, shift, alarms, plan, refresh`);
+  const { calendar, blocksOf } = await blocksSource();   // the calendar is read before the lock: it can be slow, and it is not ours
+  // One writer at a time over life-config.json and wake-plan.json (the same lock helper as reminders.json): the config is read AFTER the lock is
+  // held, so two changes in a row each start from what the other wrote. process.exit (fail) releases it too.
+  if (WRITES.has(command) || REFRESH) {
+    const release = acquireLock(controlledDir(), { name: "sleepplan.lock", tries: Number(process.env.ORION_SLEEPPLAN_LOCK_TRIES) || 100 });
+    if (!release) fail(1, "another change to your sleep plan is still running; try again");
+    process.on("exit", release);
+  }
   const config = loadConfig();
   const saved = config.sleepPlan;
-  const { calendar, blocksOf } = await blocksSource();
   let plan; let bedtime;
   try { plan = nextPlan(sleepPlanOf(config), blocksOf, config); bedtime = nextBedtime(config); }
   catch (error) { fail(error instanceof RangeError ? 3 : 2, error.message); }

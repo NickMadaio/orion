@@ -18,7 +18,7 @@ import { isNo, isYes } from "./schedule-pending.js";
 import { saysYes } from "./day-lighten.js";
 import { readAlarm } from "./alarm-read.js";
 import { normalizeSpoken } from "./spoken-numbers.js";
-import { readBedtimeChange } from "./bedtime-read.js";
+import { readBedtimeChange, readBedtimeWithAlarm } from "./bedtime-read.js";
 import { AMOUNT, clean, LEAD, leadMinutes, slotsOf, wakeTime } from "./sleep-plan-slots.js";
 export { slotsOf } from "./sleep-plan-slots.js";
 const pad = (n) => String(n).padStart(2, "0");
@@ -209,6 +209,11 @@ export function readSleepTurn(raw, { held, now, recentAlarm }) {
     const fresh = readHabit(message);
     if (fresh)
         return { kind: "interview", draft: held && held.step !== "confirm" ? merge(held.draft, fresh) : fresh };
+    const both = readBedtimeWithAlarm(message);
+    if (both) {
+        const alarm = readAlarm(both.alarmText, alarmCtx({ now, ...(recentAlarm ? { recentAlarm } : {}) }));
+        return alarm?.kind === "set" ? { kind: "bedset", change: both.change, alarm } : undefined; // an alarm half that cannot be read: nothing is guessed, the model asks
+    }
     const bedset = readBedtimeChange(message);
     if (bedset)
         return { kind: "bedset", change: bedset };

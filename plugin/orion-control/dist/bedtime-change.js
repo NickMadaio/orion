@@ -1,6 +1,6 @@
 import { meridiem } from "./sleep-fmt.js";
 export const bedArgs = (c) => [
-    "bedtime", ...("time" in c ? [c.time] : ["shift", String(c.shift)]), ...(c.scope === "tonight" ? ["--tonight"] : []), "--json",
+    "bedtime", ...("reset" in c ? ["reset"] : "time" in c ? [c.time] : ["shift", String(c.shift)]), ...(c.scope === "tonight" ? ["--tonight"] : []), "--json",
 ];
 /** Runs the one writer and parses its read-back; any failure is an error with the script's own reason. */
 export async function applyBedChange(c, run) {
@@ -18,7 +18,9 @@ export async function applyBedChange(c, run) {
 }
 const hm = (hours) => { const t = Math.round(hours * 60); const h = Math.floor(t / 60); const m = t % 60; return m ? `${h}h${String(m).padStart(2, "0")}` : `${h}h`; };
 /** What moved with the bedtime, in his words, from the read-back alone. */
-export function bedtimeSentence(b) {
+export function bedtimeSentence(b, reset = false) {
+    if (reset)
+        return `Back to normal. Bedtime's ${meridiem(b.sleepBy)} tonight, worked out from your ${meridiem(b.wake)} alarm and how much sleep you need, not a fixed time. Wind-down at ${meridiem(b.nudgeAt)}.`;
     const when = b.tonightOnly ? "tonight" : "every night from now on";
     const alarm = `alarm ${b.alarmAsked ? "still" : "(the automatic one)"} ${meridiem(b.wake)}`;
     const parts = [`Bedtime ${meridiem(b.sleepBy)} ${when}.`, `Wind-down at ${meridiem(b.nudgeAt)}, ${alarm}, that's ${hm(b.hours)} of sleep.`];
@@ -33,5 +35,5 @@ export async function runBedChange(c, run) {
     const tools = [{ canonical: `exec orion-sleepplan ${r.args.join(" ")}`, stdout: r.stdout, exit: r.ok ? 0 : 1 }];
     if (!r.ok)
         return { flow: { outcome: "say", kind: "plain", text: `I couldn't change your bedtime (${r.error}), so it's as it was.` }, tools };
-    return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply: bedtimeSentence(r.readback) }, tools };
+    return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply: bedtimeSentence(r.readback, "reset" in c) }, tools };
 }

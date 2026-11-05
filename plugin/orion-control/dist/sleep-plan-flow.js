@@ -199,6 +199,17 @@ async function bedtime(time, run) {
     const reply = `Bedtime's now ${meridiem(out.bedtime)}${out.was ? ` (was ${meridiem(out.was)})` : ""} and stays that way till you change it; I'll nudge you at ${meridiem(d.nudgeAt ?? d.sleepBy)}. Your ${clock(d.wake)} wake-up ${cap(d.weekday)} doesn't move, so that's ${sleep} of sleep.${assumed}`;
     return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply }, tools };
 }
+const textOf = (f) => (f.outcome === "done" ? f.reply ?? "" : f.outcome === "say" ? f.text : "");
+/** "going to bed at 11:30, set an alarm for 7": both halves run, and the reply states each as it came back (a failed half says so). */
+async function bedAndAlarm(change, alarm, { run, now }) {
+    const bed = await runBedChange(change, run);
+    const wake = await runAlarmTurn(alarm, { run, now });
+    const tools = [...bed.tools, ...wake.tools];
+    if (bed.flow.outcome === "done" && wake.flow.outcome === "done") {
+        return { flow: { outcome: "done", calls: [...bed.flow.calls, ...wake.flow.calls], outputs: [...bed.flow.outputs, ...wake.flow.outputs], reply: `${textOf(bed.flow)} ${textOf(wake.flow)}`.trim() }, tools };
+    }
+    return { flow: say(`${textOf(bed.flow)} ${textOf(wake.flow)}`.trim()), tools };
+}
 /** One turn of the sleep plan, end to end. `now` is the plugin clock (pluginNow); checkin books the grace's check-back. */
 export async function runSleepTurn(turn, { run, now = pluginNow(), checkin }) {
     if (turn.kind === "decline")
@@ -212,7 +223,7 @@ export async function runSleepTurn(turn, { run, now = pluginNow(), checkin }) {
     if (turn.kind === "bedtime")
         return bedtime(turn.time, run);
     if (turn.kind === "bedset")
-        return runBedChange(turn.change, run);
+        return turn.alarm ? bedAndAlarm(turn.change, turn.alarm, { run, now }) : runBedChange(turn.change, run);
     if (turn.kind === "alarm")
         return runAlarmTurn(turn.req, { run, now });
     return noExcept(turn, run, now, checkin);

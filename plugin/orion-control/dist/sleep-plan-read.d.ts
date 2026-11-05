@@ -37,7 +37,8 @@ export type SleepTurn = {
 /** w20 routegate (bedtime-read.ts): an exact bedtime or a shift, tonight or every night; carried out by bedtime-change.ts. */
  | {
     kind: "bedset";
-    change: BedChange;
+    change: BedChange; /** "going to bed at 11:30, set an alarm for 7": the alarm clause, read on its own */
+    alarm?: AlarmReq;
 }
 /** W18: one morning's alarm said outright: set, off, moved, or read (alarm-read.ts, alarm-flow.ts). */
  | {

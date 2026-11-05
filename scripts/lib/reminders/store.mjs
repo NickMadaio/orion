@@ -18,18 +18,29 @@ export function readReminders(dir) {
 
 const sleep = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* no wait available: spin once */ } };
 
-/** Run `fn` holding the store lock (the plugin uses the same directory name). */
-export function withLock(dir, fn) {
-  const lock = join(dir, `${FILE}.lock`);
+/**
+ * Take the lock directory `name` in `dir` (mkdir is atomic; one older than LOCK_STALE_MS is taken over). Returns a release function,
+ * or null when it could not be had in `tries` tries (20 ms apart).
+ */
+export function acquireLock(dir, { name = `${FILE}.lock`, tries = 100 } = {}) {
+  const lock = join(dir, name);
   mkdirSync(dir, { recursive: true });
-  let have = false;
-  for (let i = 0; i < 100 && !have; i++) {
-    try { mkdirSync(lock); have = true; } catch {
+  for (let i = 0; i < tries; i++) {
+    try {
+      mkdirSync(lock);
+      return () => { try { rmdirSync(lock); } catch { /* already gone */ } };
+    } catch {
       try { if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) rmdirSync(lock); } catch { /* released meanwhile */ }
       sleep(20);
     }
   }
-  try { return fn(); } finally { if (have) { try { rmdirSync(lock); } catch { /* already gone */ } } }
+  return null;
+}
+
+/** Run `fn` holding the store lock (the plugin uses the same directory name). After the tries run out it runs anyway, as it always has. */
+export function withLock(dir, fn) {
+  const release = acquireLock(dir);
+  try { return fn(); } finally { release?.(); }
 }
 
 /** Read, change (fn returns the new list, or undefined for no change), and write back, under the lock. */

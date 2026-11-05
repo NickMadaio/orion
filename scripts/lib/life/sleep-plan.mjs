@@ -102,8 +102,9 @@ export function wakePlanDoc({ now, days, config }) {
 export function writeWakePlan(dir, name, doc) {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, name);
-  writeFileSync(`${file}.tmp`, JSON.stringify(doc, null, 2));
-  renameSync(`${file}.tmp`, file);
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(doc, null, 2));
+  renameSync(tmp, file);
   return file;
 }
 

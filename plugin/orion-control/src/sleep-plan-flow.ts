@@ -20,6 +20,8 @@ import { pluginNow } from "./plugin-clock.js";
 import { cap, clock, meridiem } from "./sleep-fmt.js";
 import { runAlarmTurn } from "./alarm-flow.js";
 import { runBedChange } from "./bedtime-change.js";
+import type { BedChange } from "./bedtime-read.js";
+import type { AlarmReq } from "./alarm-read.js";
 import type { Draft, SleepPending, SleepStep, SleepTurn } from "./sleep-plan-read.js";
 
 export type SleepRun = (args: string[]) => Promise<{ stdout: string; code: number }>;
@@ -211,6 +213,19 @@ async function bedtime(time: string | undefined, run: SleepRun): Promise<SleepOu
   return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply }, tools };
 }
 
+const textOf = (f: FlowResult): string => (f.outcome === "done" ? f.reply ?? "" : f.outcome === "say" ? f.text : "");
+
+/** "going to bed at 11:30, set an alarm for 7": both halves run, and the reply states each as it came back (a failed half says so). */
+async function bedAndAlarm(change: BedChange, alarm: AlarmReq, { run, now }: { run: SleepRun; now: Date }): Promise<SleepOutcome> {
+  const bed = await runBedChange(change, run);
+  const wake = await runAlarmTurn(alarm, { run, now });
+  const tools = [...bed.tools, ...wake.tools];
+  if (bed.flow.outcome === "done" && wake.flow.outcome === "done") {
+    return { flow: { outcome: "done", calls: [...bed.flow.calls, ...wake.flow.calls], outputs: [...bed.flow.outputs, ...wake.flow.outputs], reply: `${textOf(bed.flow)} ${textOf(wake.flow)}`.trim() }, tools };
+  }
+  return { flow: say(`${textOf(bed.flow)} ${textOf(wake.flow)}`.trim()), tools };
+}
+
 /** One turn of the sleep plan, end to end. `now` is the plugin clock (pluginNow); checkin books the grace's check-back. */
 export async function runSleepTurn(turn: SleepTurn, { run, now = pluginNow(), checkin }: { run: SleepRun; now?: Date; checkin?: SleepCheckin }): Promise<SleepOutcome> {
   if (turn.kind === "decline") return { flow: say("Okay, I left your sleep plan as it was."), tools: [] };
@@ -218,7 +233,7 @@ export async function runSleepTurn(turn: SleepTurn, { run, now = pluginNow(), ch
   if (turn.kind === "confirm") return save(turn.draft, run);
   if (turn.kind === "except") return except(turn.reason, turn.until, run);
   if (turn.kind === "bedtime") return bedtime(turn.time, run);
-  if (turn.kind === "bedset") return runBedChange(turn.change, run);
+  if (turn.kind === "bedset") return turn.alarm ? bedAndAlarm(turn.change, turn.alarm, { run, now }) : runBedChange(turn.change, run);
   if (turn.kind === "alarm") return runAlarmTurn(turn.req, { run, now });
   return noExcept(turn, run, now, checkin);
 }

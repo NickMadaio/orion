@@ -11,3 +11,13 @@ export function effectiveBedtime(config, evening) {
 
 /** The config with `bedtime` replaced by that evening's effective one (a drop-in for readers that take `config.bedtime`). */
 export const withEffectiveBed = (config, evening) => ({ ...config, bedtime: effectiveBedtime(config, evening) });
+
+/**
+ * The bedtime a readout that works one out itself (orion-now's tonight line) should show: the night he named wins, then a standing bedtime
+ * he fixed (sleepPlan.bedFixed), else the one it computed.
+ */
+export function planBedtime(config, evening, computed) {
+  const forced = config?.sleepPlan?.bedOverrides?.[evening];
+  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(forced ?? "")) return forced;
+  return config?.sleepPlan?.bedFixed === true && /^([01]\d|2[0-3]):[0-5]\d$/.test(config?.bedtime ?? "") ? config.bedtime : computed;
+}

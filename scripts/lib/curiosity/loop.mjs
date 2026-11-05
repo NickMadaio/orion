@@ -54,7 +54,22 @@ export function evidenceOfStart(aw, b, { day, checkin, minute }) {
 
 const dwell = (loc, now) => (Date.parse(loc?.since) ? Math.floor((now.getTime() - Date.parse(loc.since)) / MIN) : null);
 
-function offPlan(aw, b, now) {
+const MAC_IDLE_IN_USE_S = 15 * 60;
+const TURN_IN_USE_MS = 30 * MIN;
+/**
+ * Real evidence that he is at his Mac right now: it reports him active, or idle for under 15 minutes, or he messaged ORION in the last 30.
+ * The phone's location can say "elsewhere" while he sits typing at the Mac (live 11-05: "You're out - is GET A GP still happening" at 11:24 and
+ * 11:54 with a message from him at 11:47): a place the phone is not at home is not evidence he is out.
+ */
+export function atMacNow(aw, turns, now) {
+  const mac = aw.mac ?? {};
+  if (mac.state === "active") return true;
+  if (Number.isFinite(mac.idleSeconds) && mac.idleSeconds < MAC_IDLE_IN_USE_S && ["idle", "active"].includes(mac.state)) return true;
+  return (turns ?? []).some((t) => Number.isFinite(t) && t <= now.getTime() && now.getTime() - t < TURN_IN_USE_MS);
+}
+
+function offPlan(aw, b, now, turns = []) {
+  if (atMacNow(aw, turns, now)) return false;                         // he is at the Mac: not "out" on a phone location alone
   const loc = aw.location ?? {};
   const place = blockPlace(b);
   if (place) return false;                                            // a block with its own place is judged by not-started
@@ -95,7 +110,7 @@ export function planVsReality(aw, ctx) {
   for (const b of day.filter((x) => planned(x) && x.start <= minute && x.end > minute && !cancels(declared, x))) {
     const checkin = loopFor(checkins, b);
     if (checkin) continue;                                            // one live loop per block: it owns the follow-ups
-    if (offPlan(aw, b, now)) {
+    if (offPlan(aw, b, now, turns)) {
       const key = `mismatch-off-plan-${b.id}-1`;
       if (!sent[key]) mismatches.push({ key, type: "off-plan", action: "ask", blockId: b.id, rank: rankOf(b), kind: "question", text: words.offPlan({ title: b.title }),
         ask: { type: "mismatch", blockId: b.id, title: b.title, window: { date, start: b.start, end: b.end } } });

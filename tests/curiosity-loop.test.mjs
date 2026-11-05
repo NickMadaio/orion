@@ -51,7 +51,7 @@ test("unknown is never a mismatch: an unreadable calendar, an unknown location a
 });
 
 test("off-plan away (scenario 15): elsewhere 20 min during a home study block asks once, window = the block", () => {
-  const away = { ...onNow(resume), location: { state: "elsewhere", placeId: null, cell: "51.53,-0.09", since: T(14, 10).toISOString() } };
+  const away = { ...onNow(resume), location: { state: "elsewhere", placeId: null, cell: "51.53,-0.09", since: T(14, 10).toISOString() }, mac: { state: "idle", idleSeconds: 3600 } };   // the Mac sat unused for an hour: nothing says he is at it
   const out = run(T(14, 30), away);
   assert.equal(out.length, 1);
   assert.equal(out[0].type, "off-plan");
@@ -101,4 +101,17 @@ test("deferral: focus, a pause under 3 minutes, sleep and class hold the loop (u
   assert.equal(deferral(aw(now, { calendar: { now: { kind: "class" } } }), now), "class");
   assert.equal(deferral(aw(now, { session: { state: "rest" } }), now), null, "a break is when things come out");
   assert.deepEqual(run(now, { ...onNow(resume), session: { state: "focus", task: "something else" } }), []);
+});
+
+test("off-plan needs real evidence he is out: never while he is at the Mac (live 11-05 11:24 and 11:54)", () => {
+  const away = { ...onNow(resume), location: { state: "elsewhere", placeId: null, cell: "51.53,-0.09", since: T(14, 10).toISOString() } };
+  const idleHour = { state: "idle", idleSeconds: 3600 };
+  assert.equal(run(T(14, 30), { ...away, mac: idleHour }).length, 1, "control: away and the Mac unused for an hour asks");
+  assert.deepEqual(run(T(14, 30), { ...away, mac: { state: "active", idleSeconds: 5 } }), [], "the Mac shows him active");
+  assert.deepEqual(run(T(14, 30), { ...away, mac: { state: "idle", idleSeconds: 371 } }), [], "idle 6 minutes is still at the Mac");
+  assert.deepEqual(run(T(14, 30), { ...away, mac: idleHour }, { turns: [T(14, 23).getTime()] }), [], "he messaged ORION 7 minutes ago");
+  assert.equal(run(T(14, 30), { ...away, mac: idleHour }, { turns: [T(13, 40).getTime()] }).length, 1, "a message from 50 minutes ago is not evidence he is here now");
+  assert.deepEqual(run(T(14, 30), { ...away, mac: { state: "idle", idleSeconds: 899 } }), [], "just under the 15 minute line");
+  assert.equal(run(T(14, 30), { ...away, mac: { state: "idle", idleSeconds: 901 } }).length, 1, "just over it");
+  assert.equal(run(T(14, 30), { ...away, mac: { state: "unknown", idleSeconds: 5 } }).length, 1, "an unknown mac state proves nothing");
 });

@@ -12,14 +12,15 @@
 */
 import { openRequest, type OpenRequest } from "./open-request.js";
 import { splitAsks } from "./multi-ask.js";
+import { askLink, askWhich } from "./named-page.js";
 
 export type ChatAsk =
-  | { kind: "open"; req: Extract<OpenRequest, { kind: "app" | "url" }> }
+  | { kind: "open"; req: Extract<OpenRequest, { kind: "app" | "url" | "personal" }> }
   | { kind: "list-add"; item: string }
   | { kind: "todo-list" };
 
 export type Exec = (args: string[]) => Promise<{ stdout: string; code: number }>;
-export type ChatDeps = { open: Exec; installed: (app: string) => Promise<boolean>; tasks: Exec };
+export type ChatDeps = { open: Exec; installed: (app: string) => Promise<boolean>; tasks: Exec; /** The addresses ORION holds for a page he names ("cs group"): notes, domains he has been on. Unset: none known. */ resolveNamed?: (name: string) => Promise<string[]> };
 /** A question ORION asked that a bare "yeah" answers: open this address. */
 export type WebOffer = { url: string; label: string };
 export type ChatOut = { text: string; calls: string[]; outputs: string[]; offer?: WebOffer };
@@ -53,7 +54,7 @@ function readOne(clause: string): ChatAsk[] | null {
   }
   if (READ.test(said) && !/\b(?:calendar|schedule|day)\b/i.test(said)) return [{ kind: "todo-list" }];
   const open = openRequest(said);
-  if (open && (open.kind === "app" || open.kind === "url")) return [{ kind: "open", req: open }];
+  if (open && (open.kind === "app" || open.kind === "url" || open.kind === "personal")) return [{ kind: "open", req: open }];
   return null;
 }
 
@@ -113,13 +114,13 @@ export function splitTrailingListAdd(message: string): { head: string; asks: Cha
 }
 
 /** "open youtube in safari and tell me whats the weather": the open (run by code, said first) and the question left to answer (live gate 3 #100: only Safari opened and the weather was dropped). */
-export function splitLeadOpen(message: string): { req: Extract<OpenRequest, { kind: "app" | "url" }>; rest: string } | null {
+export function splitLeadOpen(message: string): { req: Extract<OpenRequest, { kind: "app" | "url" | "personal" }>; rest: string } | null {
   const text = message.trim();
   if (text.length > 240) return null;
   for (const m of text.matchAll(new RegExp(THEN_ASK.source, "gi"))) {
     const head = text.slice(0, m.index).trim().replace(/[.,;!]+$/, ""); const rest = text.slice((m.index ?? 0) + m[0].length).trim();
     const req = openRequest(head);
-    if (req && (req.kind === "app" || req.kind === "url") && rest.length >= 3 && !openRequest(rest)) return { req, rest };
+    if (req && (req.kind === "app" || req.kind === "url" || req.kind === "personal") && rest.length >= 3 && !openRequest(rest)) return { req, rest };
   }
   return null;
 }
@@ -143,6 +144,16 @@ const appLabel = (name: string): string => name.split(" ").map(cap).join(" ");
 
 async function openOne(ask: Extract<ChatAsk, { kind: "open" }>, deps: ChatDeps, out: ChatOut): Promise<string> {
   const run = async (args: string[]) => { const r = await deps.open(args).catch(() => ({ stdout: "", code: 1 })); out.calls.push(`open ${args.join(" ")}`); out.outputs.push(r.stdout); return r; };
+  if (ask.req.kind === "personal") {
+    // A page he named in his own words: opened only when exactly one address is held for it, else asked about. Never a search.
+    const { name, browser } = ask.req;
+    const found = (await deps.resolveNamed?.(name).catch(() => [] as string[])) ?? [];
+    if (found.length === 1) {
+      const r = await run(browser ? ["-a", browser, found[0]!] : [found[0]!]);
+      return r.code === 0 ? `Opened ${hostOf(found[0]!)} for your ${name}${browser ? ` in ${browser}` : ""}.` : `I couldn't open ${hostOf(found[0]!)}: nothing opened.`;
+    }
+    return found.length > 1 ? askWhich(name, found) : askLink(name);
+  }
   if (ask.req.kind === "url") {
     const { url, browser } = ask.req;
     const r = await run(browser ? ["-a", browser, url] : [url]);

@@ -8,9 +8,10 @@ describe("a second reminder, asked with no verb", () => {
     it.each([
         "and another in 15 mins to drink water", "another in 20 min to stretch", "also another at 5pm to call mum", "one more in an hour to check the oven",
         "and a second one in 10 mins for tea", "another one at 6 to eat",
+        "and again in 15 mins to drink water", "again in 20 min to stretch", "once more in an hour to check the oven", "and then again at 5pm to call mum", "same again in 10 mins to drink water",
     ])("%s", (said) => { expect(isAnotherReminder(said)).toBe(true); });
     it("is not one without a time, or when it is a different ask", () => {
-        for (const s of ["another coffee", "add another block at 5pm", "remind me again", "i need another hour of sleep"])
+        for (const s of ["another coffee", "add another block at 5pm", "remind me again", "i need another hour of sleep", "again", "ill try again at 5 if it fails"])
             expect(isAnotherReminder(s)).toBe(false);
     });
     it("plans a new alarm_set, never a correction of the last one", async () => {

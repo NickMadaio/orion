@@ -73,7 +73,7 @@ test("bedtime reset clears the exact standing bedtime and any tonight override; 
   const saved = read(dir, "eval-life-config.json");
   assert.notEqual(saved.sleepPlan.bedFixed, true);
   assert.equal(saved.sleepPlan.bedOverrides, undefined);
-  assert.equal(saved.bedtime, "00:00");   // w20 r4: the one before he fixed 23:45
+  assert.equal("bedtime" in saved, false);   // w20 r5: there was none before he fixed 23:45
 });
 
 test("orion-sleepplan waits for its lock and says so instead of writing over another change", (t) => {

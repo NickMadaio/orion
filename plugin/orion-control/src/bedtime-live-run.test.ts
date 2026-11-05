@@ -69,7 +69,7 @@ describe.each(["14:00", "23:30", "01:30", "04:30"])("bedtime turns through the r
     expect((r.flow as { reply: string }).reply).toMatch(/^Back to normal/);
     expect(Boolean(cfg().sleepPlan?.bedFixed)).toBe(false);
     expect(cfg().sleepPlan?.bedOverrides ?? {}).toEqual({});
-    expect(cfg().bedtime).toBe("00:00");
+    expect(cfg().bedtime).toBeUndefined();   // the config had none before he fixed one
   });
 
   it("reset replies Back to normal and does not write the default bedtime into the config", async () => {

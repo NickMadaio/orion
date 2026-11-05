@@ -27,7 +27,7 @@
 // writes the eval copies (eval-life-config.json, eval-wake-plan.json), like scripts/lib/life/config.mjs, and the sandbox clock.
 // Add --json to any write for a machine-readable answer. Exit 2: bad arguments, nothing saved; exit 3: refused (a reason
 // that does not lift the lockdown), nothing saved.
-import { CONFIG_FILE, loadConfig, setConfig, setSleepPlan, sleepPlanOf, toMinute, WEEKDAYS } from "./lib/life/config.mjs";
+import { CONFIG_FILE, DEFAULTS, loadConfig, setConfig, unsetConfig, setSleepPlan, sleepPlanOf, toMinute, WEEKDAYS } from "./lib/life/config.mjs";
 import { clockNow, sandbox } from "./lib/life/bridge-path.mjs";
 import { controlledDir, isolated } from "./lib/clock.mjs";
 import { readFileSync, rmSync } from "node:fs";
@@ -212,6 +212,8 @@ function nextBedtime(config) {
   return t;
 }
 
+/** The bedtime the config FILE holds (not the default the loader fills in), or undefined. */
+const savedBedtime = () => { try { const v = JSON.parse(readFileSync(CONFIG_FILE, "utf8")).bedtime; return /^([01]\d|2[0-3]):[0-5]\d$/.test(v ?? "") ? v : undefined; } catch { return undefined; } };
 let bedChange = null;   // { time, tonight, evening, was } of a bedtime command, for the plan and the answer
 const mins = (hhmm_) => { const m = toMinute(hhmm_); return m < 12 * 60 ? m + 1440 : m; };
 const clockOfMin = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
@@ -243,9 +245,9 @@ function bedPlan(plan, blocksOf, config) {
   } else if (raw === "reset") {
     // "go back to normal bedtime": the exact standing bedtime and tonight's override go, and the bedtime he had before he fixed one comes back,
     // so the computed bedtime (alarm and sleep need) is what is in force again.
-    const back = plan.bedWas ?? config.bedtime;
     const { bedWas, ...rest } = plan;
-    bedChange = { time: back, tonight: false, evening, was: config.bedtime, reset: true, restore: plan.bedWas };
+    // Back to exactly what the file held before a bedtime was fixed: that time, or no bedtime key at all.
+    bedChange = { time: bedWas ?? DEFAULTS.bedtime, tonight: false, evening, was: config.bedtime, reset: true, restore: bedWas, unset: !bedWas && plan.bedFixed === true };
     return { ...rest, bedFixed: false, bedOverrides: {} };
   } else if (raw === "earlier") return plan;   // the legacy cap rule, in nextBedtime
   else time = normTime(raw);
@@ -257,7 +259,7 @@ function bedPlan(plan, blocksOf, config) {
   if (tonight) return withBedOverride(plan, target, time);
   // A standing bedtime supersedes a one-off for the night it names, so the read-back is what is in force. The bedtime he had is kept to go back to.
   const { [target]: _gone, [evening]: _also, ...overrides } = plan.bedOverrides ?? {};
-  return { ...plan, bedFixed: true, bedOverrides: overrides, bedWas: plan.bedFixed ? plan.bedWas : config.bedtime };
+  return { ...plan, bedFixed: true, bedOverrides: overrides, ...(plan.bedFixed ? (plan.bedWas ? { bedWas: plan.bedWas } : {}) : (savedBedtime() ? { bedWas: savedBedtime() } : {})) };
 }
 
 /** An older one-off request (orion-wake) for the same morning is removed: the plan holds that alarm now. Other mornings' requests stay. */
@@ -310,12 +312,13 @@ async function main() {
   let plan; let bedtime;
   try { plan = nextPlan(sleepPlanOf(config), blocksOf, config); bedtime = nextBedtime(config); }
   catch (error) { fail(error instanceof RangeError ? 3 : 2, error.message); }
-  const nextConfig = { ...config, sleepPlan: storable(plan, saved), ...(bedtime ? { bedtime } : {}) };
+  const nextConfig = { ...config, sleepPlan: storable(plan, saved), ...(bedtime ? { bedtime } : bedChange?.unset ? { bedtime: DEFAULTS.bedtime } : {}) };
   const days = weekPlan({ now, config: nextConfig, blocksOf, wakeRequest: null, napMinutesOf: napToday });
   let file = null;
   if (WRITES.has(command) || REFRESH) {
     try {
       if (bedtime) setConfig("bedtime", bedtime, CONFIG_FILE);
+      else if (bedChange?.unset) unsetConfig("bedtime", CONFIG_FILE);
       if (!REFRESH && (!bedtime || bedChange)) setSleepPlan(storable(plan, saved), CONFIG_FILE);
     } catch (error) { fail(2, error.message); }
     file = writeWakePlan(controlledDir(), wakePlanName, wakePlanDoc({ now, days, config: nextConfig }));

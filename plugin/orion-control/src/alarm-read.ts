@@ -56,7 +56,11 @@ const SHIFT_UP = String.raw`(?:up|forward|earlier|ahead|sooner)`;
 export function minutesIn(m: string): number | undefined {
   if (/\bhalf an? hour\b|\bhalf hour\b/.test(m)) return 30;
   if (/\bhour and a half\b|\b1\.5 ?h/.test(m)) return 90;
-  const a = m.replace(/\ba (couple|few)\b/g, "$1").match(new RegExp(AMT));
+  // Fractions of an hour (w20 r5, gate 3 #62: "another quarter of an hour" was read as "an hour").
+  if (/\b(?:an? )?hour and a quarter\b/.test(m)) return 75;
+  if (/\bthree quarters?\b|\b3\/4 (?:of )?an? hour\b/.test(m)) return 45;
+  if (/\b(?:a |an |another )?quarter(?: of)?(?: an?)?(?: hour)?\b/.test(m) && !/\bquarter (?:to|past|after)\b/.test(m)) return 15;
+  const a = m.replace(/\banother\s+(?=\d)/g, "").replace(/\banother\b/g, "an").replace(/\ba (couple|few)\b/g, "$1").match(new RegExp(AMT));
   if (!a) return undefined;
   const raw = a[1]!;
   const n = /^couple/.test(raw) ? 2 : raw === "few" ? 3 : /^half/.test(raw) ? 0.5 : NUMWORD[raw] ?? Number(raw);

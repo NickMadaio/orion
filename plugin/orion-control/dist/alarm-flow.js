@@ -9,8 +9,9 @@ const weekdayOf = (date) => ORDER[new Date(`${date}T12:00:00`).getDay()];
 const hhmmOf = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 /** The wake date a request means: tomorrow (the coming morning), today, a weekday word (the CLI picks the next), or the next time that clock comes round. */
 export function wakeDateArg(day, time, now) {
+    // Before 5 AM he is still in tonight: "tomorrow" is the coming morning, today's date (calendar-intent.ts LATE_NIGHT_UNTIL, the same rule as the day reads).
     if (day === "tomorrow")
-        return plusDays(eveningOf(now), 1);
+        return now.getHours() < 5 ? ymd(now) : plusDays(ymd(now), 1);
     if (day === "today")
         return ymd(now);
     if (day)

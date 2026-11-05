@@ -53,9 +53,10 @@ import { answersWebOffer, readChatAsks, readListFollowUp, runChatAsks, splitLead
 import { outreachStale, staleOutreachNote, stripOutreachEcho } from "./outreach-stale.js";
 import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
 import { failedTools, failureReason } from "./tool-failure.js";
-import { isTimerRequest, toolDirective } from "./tool-moves.js";
-import { readTimer, runTimer, splitTimerAsk } from "./timer-flow.js";
-import { runReminderClause, splitReminderAsk } from "./reminder-split.js";
+import { isTimerRequest, timerSeconds, toolDirective } from "./tool-moves.js";
+import { readTimer, runTimer } from "./timer-flow.js";
+import { runReminderClause } from "./reminder-split.js";
+import { REMINDER_START, takeClause } from "./ask-clauses.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
@@ -1270,6 +1271,51 @@ export function registerLocalRouting(api, options) {
                 clearTimeout(timer);
         }
     };
+    /**
+     * One peel (ask-clauses.ts): the first clause code can run on its own, run and read back, and the message left. Timer, then reminder, then a leading open, then a
+     * leading mouse step. A clause the planner will not run by itself (a repeat, no time) is left in the message for the old routes, and is not tried twice.
+     */
+    const peelOne = async (message, tried) => {
+        const nowDate = (options.now ?? pluginNow)();
+        if (options.addTimer) {
+            const hit = takeClause(message, (c) => timerSeconds(c) !== undefined && !REMINDER_START.test(c.trim()));
+            if (hit && !tried.has(`timer:${hit.clause}`)) {
+                tried.add(`timer:${hit.clause}`);
+                const ask = readTimer(hit.clause) ?? { seconds: timerSeconds(hit.clause) ?? 0, label: "Timer" };
+                const set = await runTimer(ask, { add: options.addTimer, list: options.listReminders ?? (async () => []), now: nowDate }).catch(() => undefined);
+                return { done: set ?? { text: `I couldn't set the ${ask.seconds / 60} minute timer, so that one isn't done.`, calls: [], outputs: [], ok: false }, rest: hit.rest };
+            }
+        }
+        if (options.addReminder) {
+            const hit = takeClause(message, (c) => REMINDER_START.test(c.trim()));
+            if (hit && !tried.has(`rem:${hit.clause}`)) {
+                tried.add(`rem:${hit.clause}`);
+                const set = await runReminderClause(hit.clause, { now: nowDate, extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)), list: options.listReminders ?? (async () => []), add: options.addReminder }).catch(() => undefined);
+                if (set)
+                    return { done: set, rest: hit.rest };
+            }
+        }
+        if (options.chatRun) {
+            const open = splitLeadOpen(message);
+            if (open && !tried.has(`open:${open.rest}`)) {
+                tried.add(`open:${open.rest}`);
+                const first = await withTimeout(runChatAsks([{ kind: "open", req: open.req }], options.chatRun).catch(() => undefined), 40000);
+                if (first)
+                    return { done: { text: first.text, calls: first.calls, outputs: first.outputs, ok: true, ...(first.offer ? { offer: first.offer } : {}) }, rest: open.rest };
+            }
+        }
+        if (options.mouseRun) {
+            const mouse = splitLeadMouse(message);
+            if (mouse && !tried.has(`mouse:${mouse.rest}`)) {
+                tried.add(`mouse:${mouse.rest}`);
+                const first = await withTimeout(runMouseTurn(mouse.turn, { run: options.mouseRun }).catch(() => undefined), 20000);
+                if (first)
+                    return { done: { text: first.text, calls: first.calls, outputs: first.outputs, ok: true }, rest: mouse.rest };
+                return { done: { text: "I couldn't open the mouse mapper (it didn't answer), so that one isn't done.", calls: [], outputs: [], ok: false }, rest: mouse.rest };
+            }
+        }
+        return undefined;
+    };
     api.on("before_model_resolve", async (event, ctx) => {
         const runId = pick(event, ctx, "runId");
         const sessionKey = pick(event, ctx, "sessionKey") ?? "";
@@ -1311,21 +1357,22 @@ export function registerLocalRouting(api, options) {
         const phoneKey = (k) => !!k && /orion-(?:app-v2|chat)/.test(k); // other chats stay separate
         const recentKey = !ownSlot && isRetryWord(typed) && phoneKey(sessionKey) ? [...retrySlots.entries()].filter(([k]) => phoneKey(k) && k !== sessionKey && slotAnswersGo(retrySlots.get(k).at, newestOfferAt, true, nowMs())).sort((x, y) => y[1].at - x[1].at)[0]?.[0] : undefined;
         const messageIn = retryReplay(ownSlot ?? (recentKey ? retrySlots.get(recentKey) : undefined), typed, nowMs());
-        // w20 r4 (timer-flow.ts): a timer order joined to another ask ("set a 10 min timer and move my gym to 6", either order) is set by code first and read
-        // back; only the other clause goes on to the normal routes, and the reply says both. The 9B never called timer_set from a hint (gate 2 #61).
-        const timerSplit = on && options.addTimer && !retrySlots.has(sessionKey) ? splitTimerAsk(messageIn) : undefined;
-        const timerFirst = timerSplit ? await runTimer(readTimer(timerSplit.timer) ?? { seconds: 0, label: "Timer" }, { add: options.addTimer, list: options.listReminders ?? (async () => []), now: (options.now ?? pluginNow)() }).catch(() => undefined) : undefined;
-        // w20 r6 (reminder-split.ts): a reminder joined to another ask is set by code first, read back, and the rest goes on ("put pasta prep in at 6pm and remind me at 5 to buy pasta").
-        const remSplit = on && options.addReminder && !(timerSplit && timerFirst) ? splitReminderAsk(messageIn) : undefined;
-        const remFirst = remSplit ? await runReminderClause(remSplit.clause, { now: (options.now ?? pluginNow)(), extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)), list: options.listReminders ?? (async () => []), add: options.addReminder }).catch(() => undefined) : undefined;
-        // w20 r5 (chat-asks.ts splitLeadOpen): "open youtube in safari and tell me whats the weather": the open is run by code and said first, the question is what is left.
-        const openSplit = on && options.chatRun && !(timerSplit && timerFirst) && !(remSplit && remFirst) ? splitLeadOpen(messageIn) : undefined;
-        const openFirst = openSplit ? await withTimeout(runChatAsks([{ kind: "open", req: openSplit.req }], options.chatRun).catch(() => undefined), 40000) : undefined;
-        // w20 r6 (mouse-lead.ts): "open the mouse mapper and whats the weather tomorrow": the mouse clause is run by code and said first, the question is what is left.
-        const mouseSplit = on && options.mouseRun && !(timerSplit && timerFirst) && !(remSplit && remFirst) && !(openSplit && openFirst) ? splitLeadMouse(messageIn) : undefined;
-        const mouseFirst = mouseSplit ? await withTimeout(runMouseTurn(mouseSplit.turn, { run: options.mouseRun }).catch(() => undefined), 20000) : undefined;
-        const message = timerSplit && timerFirst ? timerSplit.rest : remSplit && remFirst ? remSplit.rest : openSplit && openFirst ? openSplit.rest : mouseSplit && mouseFirst ? mouseSplit.rest : messageIn;
-        const timerTools = mouseFirst ? mouseFirst.calls.map((canonical, i) => ({ canonical, stdout: mouseFirst.outputs[i] ?? "", exit: 0 })) : openFirst ? openFirst.calls.map((canonical, i) => ({ canonical, stdout: openFirst.outputs[i] ?? "", exit: 0 })) : remFirst ? remFirst.calls.map((canonical, i) => ({ canonical, stdout: remFirst.outputs[i] ?? "", exit: remFirst.ok ? 0 : 1 })) : timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
+        // w20 r4-r6 (ask-clauses.ts): clauses code can run by itself (a timer, a reminder, an open, a mouse step) are peeled off the message one after another, each run
+        // and read back, then what is left goes on to the normal routes. The reply says every one: done, or why not. The 9B never called timer_set from a hint.
+        const peeled = [];
+        let message = messageIn;
+        if (on && !retrySlots.has(sessionKey)) {
+            const tried = new Set();
+            for (let step = 0; step < 6; step += 1) {
+                const out = await peelOne(message, tried);
+                if (!out)
+                    break;
+                peeled.push(out.done);
+                message = out.rest;
+            }
+        }
+        const timerTools = peeled.flatMap((p) => p.calls.map((canonical, i) => ({ canonical, stdout: p.outputs[i] ?? "", exit: p.ok ? 0 : 1 })));
+        const peeledText = peeled.map((p) => p.text).join(" ");
         if (sessionKey)
             retrySlots.delete(sessionKey);
         if (recentKey)
@@ -1520,7 +1567,7 @@ export function registerLocalRouting(api, options) {
                 ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : remFirst ? { preface: remFirst.text } : openFirst ? { preface: openFirst.text } : mouseFirst ? { preface: mouseFirst.text } : {}), started: Date.now(), journalTop0: journalTopAt() ?? null, passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(peeledText ? { preface: peeledText } : {}), started: Date.now(), journalTop0: journalTopAt() ?? null, passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn && !isBareConfirm(message) ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (ledgerAsk)
             run.ledger = ledgerAsk;
@@ -1547,8 +1594,9 @@ export function registerLocalRouting(api, options) {
             if (text)
                 run.ownText = text;
         }
-        if (openFirst?.offer && sessionKey)
-            webOffers.set(sessionKey, { ...openFirst.offer, at: outreachNowMs });
+        const peeledOffer = peeled.find((p) => p.offer)?.offer;
+        if (peeledOffer && sessionKey)
+            webOffers.set(sessionKey, { ...peeledOffer, at: outreachNowMs });
         if (chatAsks && options.chatRun) { // w20 r3: code does it and says what happened to each ask
             const out = await withTimeout(runChatAsks(chatAsks, options.chatRun).catch(() => undefined), 40000);
             if (out) {
@@ -3166,7 +3214,7 @@ export function registerLocalRouting(api, options) {
             // w20 r6 (bedtime-claims.ts): a reply claims a bedtime change only when orion-sleepplan wrote one this turn; its own read-back is what code states.
             if (on && (owed ?? reply).trim() && !(run.flow && (run.flow.outcome === "done" || run.flow.outcome === "say"))) { // code's own sentences are built from its read-backs
                 const before = owed ?? reply;
-                const verified = withoutUnverifiedBedtimeClaims(before, run.tools);
+                const verified = withoutUnverifiedBedtimeClaims(before, run.tools, options.stateDir);
                 if (verified !== before) {
                     owed = verified;
                     remember([runId, sessionKeyNow], owed);

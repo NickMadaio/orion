@@ -39,8 +39,8 @@ export declare function splitAsk(text: string, isHit: (part: string) => boolean,
     rest: string;
 } | undefined;
 /**
- * A timer order joined to another ask, in either order ("set a 10 min timer and move my gym to 6", "move my gym to 6 and set a 10 min timer"):
- * the timer clause and the rest. Undefined for a single ask, or when the other side is not a request ("... for mac and cheese").
+ * A timer order joined to other asks, in any position: the timer's own clause and the message left (ask-clauses.ts). Undefined for a single ask.
+ * "set a 10 min timer for mac and cheese" is one clause; a reminder's words ("remind me at 5 to eat") are never taken for a timer.
  */
 export declare function splitTimerAsk(message: string): {
     timer: string;

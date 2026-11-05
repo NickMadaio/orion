@@ -10,6 +10,7 @@ import { describeDuration } from "./ambient.js";
 import { ampm12 } from "./reminder-flow.js";
 import { normalizeSpoken } from "./spoken-numbers.js";
 import { timerLength, timerSeconds } from "./tool-moves.js";
+import { REMINDER_START, takeClause } from "./ask-clauses.js";
 
 export type TimerDeps = {
   add: (seconds: number, label: string) => Promise<Reminder>;
@@ -55,13 +56,12 @@ export function splitAsk(text: string, isHit: (part: string) => boolean, isRest:
 }
 
 /**
- * A timer order joined to another ask, in either order ("set a 10 min timer and move my gym to 6", "move my gym to 6 and set a 10 min timer"):
- * the timer clause and the rest. Undefined for a single ask, or when the other side is not a request ("... for mac and cheese").
+ * A timer order joined to other asks, in any position: the timer's own clause and the message left (ask-clauses.ts). Undefined for a single ask.
+ * "set a 10 min timer for mac and cheese" is one clause; a reminder's words ("remind me at 5 to eat") are never taken for a timer.
  */
 export function splitTimerAsk(message: string): { timer: string; rest: string } | undefined {
-  if (timerSeconds(message.trim()) === undefined) return undefined;
-  const s = splitAsk(message, (part) => timerSeconds(part) !== undefined, (part) => REST.test(part) && !/\btimer\b/i.test(part));
-  return s ? { timer: s.hit, rest: s.rest } : undefined;
+  const s = takeClause(message, (c) => timerSeconds(c) !== undefined && !REMINDER_START.test(c.trim()));
+  return s ? { timer: s.clause, rest: s.rest } : undefined;
 }
 
 export async function runTimer(ask: TimerAsk, deps: TimerDeps): Promise<TimerOutcome> {

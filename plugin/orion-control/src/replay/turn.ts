@@ -12,6 +12,7 @@ import { resetClockCache } from "../plugin-clock.js";
 import { runScheduleFlow, type Day } from "../schedule-flow.js";
 import { runWakeFlow } from "../wake-flow.js";
 import type { Decision } from "../front-desk.js";
+import type { Intent } from "../schedule-flow.js";
 import type { Outcome, PriorTurn, Recorded, RecordedScript, ReplayCase, ScriptCall } from "./types.js";
 
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
@@ -33,12 +34,13 @@ const DEFAULT_NOW = "2026-11-04T19:44";
 const ESCAPED_CALENDAR = "eval-calendar.json";
 
 /** Builds the pinned sandbox clock files in `dir`. */
-function pinClock(dir: string, nowIso: string): void {
+function pinClock(dir: string, nowIso: string, keepEvents = false): void {
   const at = new Date(nowIso);
   const marker = join(dir, "eval-mode");
   const calendar = join(dir, ESCAPED_CALENDAR);
   writeFileSync(marker, "replay\n");
-  writeFileSync(calendar, JSON.stringify({ now: at.toISOString(), events: [], reminders: [] }));
+  const kept = keepEvents ? (() => { try { return JSON.parse(readFileSync(calendar, "utf8")) as { events?: unknown[]; reminders?: unknown[] }; } catch { return {}; } })() : {};
+  writeFileSync(calendar, JSON.stringify({ now: at.toISOString(), events: kept.events ?? [], reminders: kept.reminders ?? [] }));
   const fresh = new Date();
   for (const f of [marker, calendar]) utimesSync(f, fresh, fresh);
   resetClockCache();
@@ -72,6 +74,29 @@ const matchScript = (scripts: readonly RecordedScript[] | undefined, args: strin
   return made ? { stdout: made, code: 0 } : { stdout: NOT_RECORDED, code: 1 };
 };
 
+/** The live layer's way in: real local models and the real scheduler (in the sandbox), in place of recorded outputs. */
+export type LiveHooks = {
+  desk: (input: { message: string; clock: string; history?: Array<{ role: "user" | "assistant"; content: string }>; context?: string }) => Promise<Decision>;
+  ask: (system: string, user: string, schema: object, budgetMs?: number) => Promise<{ steps?: Intent[] } | null>;
+  reschedule: (args: string[]) => Promise<RunResult>;
+  /** One worker model pass; it may call tools through runTool (which runs the plugin's own guards) and answers with its reply. */
+  worker: (a: { prompt: string; say: string; retry?: string; runTool: (toolName: string, params: Record<string, unknown>) => Promise<string> }) => Promise<string>;
+  /** What a tool the worker called answers (a read-only scheduler call runs for real in the sandbox; anything else is a canned "ok"). */
+  tool: (toolName: string, params: Record<string, unknown>) => Promise<string>;
+  /** The day the sandbox calendar starts with. */
+  day?: Day;
+};
+
+/** Writes the sandbox calendar the real scheduler reads (the shape scripts/orion-eval-schedule writes). */
+function seedDay(dir: string, day: Day, nowIso: string): void {
+  const iso = (hhmm: string) => new Date(`${day.date}T${hhmm}:00`).toISOString();
+  const events = day.blocks.map((b, i) => ({ identifier: `seed-${i}`, title: b.title, start: iso(b.start), end: iso(b.end), ...(b.fixed ? {} : { orion: b.kind ?? "other" }) }));
+  writeFileSync(join(dir, ESCAPED_CALENDAR), JSON.stringify({ now: new Date(nowIso).toISOString(), events, reminders: [] }));
+  // A copy of his real preferences (bedtime, minimums), read-only, in the sandbox only: the scheduler's day depends on them.
+  const real = join(process.env.HOME ?? "", ".openclaw", "orion-controlled", "life-config.json");
+  try { const text = readFileSync(real, "utf8"); writeFileSync(join(dir, "life-config.json"), text); writeFileSync(join(dir, "eval-life-config.json"), text); } catch { /* none: defaults */ }
+}
+
 /** A session of turns in one chat: per-chat memory (repeats, pending questions, undo) lives as long as the Session. */
 export class Session {
   readonly dir = mkdtempSync(join(tmpdir(), "orion-replay-"));
@@ -83,13 +108,14 @@ export class Session {
   private readonly previousDir = process.env.ORION_CONTROLLED_DIR;
   private closed = false;
 
-  constructor(nowIso: string = DEFAULT_NOW, readonly surface: "mac" | "phone" = "mac", private readonly spoken = false, seed: Record<string, unknown> = {}) {
+  constructor(nowIso: string = DEFAULT_NOW, readonly surface: "mac" | "phone" = "mac", private readonly spoken = false, seed: Record<string, unknown> = {}, private readonly live?: LiveHooks) {
     this.clock = new Date(nowIso).getTime();
     mkdirSync(this.dir, { recursive: true });
     process.env.ORION_CONTROLLED_DIR = this.dir;
     writeFileSync(join(this.dir, "health-log.json"), JSON.stringify({ schema: "orion.health.v3", supplements: [], supplementLog: {}, workouts: [] }));
     for (const [name, value] of Object.entries(seed)) writeFileSync(join(this.dir, name), JSON.stringify(value));
     pinClock(this.dir, nowIso);
+    if (live?.day) seedDay(this.dir, live.day, nowIso);
     const api = { on: (name: string, fn: Handler) => this.handlers.set(name, [...(this.handlers.get(name) ?? []), fn]) };
     registerLocalRouting(api, this.options() as never);
   }
@@ -112,7 +138,10 @@ export class Session {
     this.scripts.push({ script, args });
     const hit = matchScript(this.recorded.scripts, args);
     // A script nothing was recorded for answers as a tidy JSON refusal, so a route that parses JSON never throws.
-    return hit.code !== 0 && hit.stdout === NOT_RECORDED ? { stdout: JSON.stringify({ ok: false, error: "not recorded" }), code: 1 } : hit;
+    // Live layer: a script that does not run for real in the sandbox answers "done" so the route's own wording is what gets graded;
+    // recorded layer: a tidy JSON refusal, so a route that parses JSON never throws.
+    if (hit.code !== 0 && hit.stdout === NOT_RECORDED) return this.live ? { stdout: JSON.stringify({ ok: true, say: "Done." }), code: 0 } : { stdout: JSON.stringify({ ok: false, error: "not recorded" }), code: 1 };
+    return hit;
   };
 
   private day = (): Day | undefined => this.recorded.day;
@@ -121,6 +150,7 @@ export class Session {
     const rec = this.recorder;
     const execReschedule = async (args: string[]): Promise<RunResult> => {
       this.scripts.push({ script: "orion-reschedule", args });
+      if (this.live) return this.live.reschedule(args);
       if (args[0] === "show") return { stdout: JSON.stringify(this.day() ?? { date: "2026-11-04", now: null, blocks: [] }), code: 0 };
       return matchScript(this.recorded.scripts, args, true);
     };
@@ -130,20 +160,20 @@ export class Session {
     return {
       warm: false, mode: "on", logPath: join(this.dir, "local-routing", "shadow.jsonl"), progressDir: join(this.dir, "turn-progress"), stateDir: this.dir,
       finalizeWaitMs: 50, now: () => new Date(this.clock), clock: () => "Wed 19:44",
-      decideImpl: async (): Promise<Decision> => this.recorded.desk ?? { move: "escalate", tier: "standard", say: "One moment." },
+      decideImpl: async (input: Parameters<LiveHooks["desk"]>[0]): Promise<Decision> => (this.live ? this.live.desk(input) : this.recorded.desk ?? { move: "escalate", tier: "standard", say: "One moment." }),
       brainSearch: async () => "",
       scheduleFlow: (message: string, clock: string, opts: Record<string, unknown> = {}) => {
         if (!queue.length) queue = formQueue();
         return runScheduleFlow({
           message, clock, now: new Date(this.clock), exec: async (args: string[]) => execReschedule(args), undoTop: () => null,
-          ask: async () => (queue.length ? queue.shift() ?? null : null),
+          ask: async (system: string, user: string, schema: object, budgetMs?: number) => (this.live ? this.live.ask(system, user, schema, budgetMs) : queue.length ? queue.shift() ?? null : null),
           ...(opts.askContext ? { askContext: opts.askContext as never } : {}), ...(opts.pending ? { pending: opts.pending as never } : {}), ...(opts.undo ? { undo: opts.undo as string[] } : {}),
           ...(opts.replanContext ? { replanContext: opts.replanContext as never } : {}), ...(opts.lastTarget ? { lastTarget: opts.lastTarget as never } : {}), ...(opts.edit ? { edit: opts.edit as never } : {}),
           ...(opts.lengthDefaulted ? { lengthDefaulted: true } : {}),
         });
       },
-      readDayJson: async () => this.day(), readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [], readDay: async () => "",
-      realityRun: async (script: string, args: string[]) => { this.scripts.push({ script, args }); return matchScript(this.recorded.scripts, args, script === "orion-reschedule"); },
+      readDayJson: async (dateArgs: string[] = []) => { if (!this.live) return this.day(); try { return JSON.parse((await this.live.reschedule(["show", "--json", ...dateArgs])).stdout) as Day; } catch { return undefined; } }, readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [], readDay: async () => "",
+      realityRun: async (script: string, args: string[]) => { this.scripts.push({ script, args }); if (this.live && script === "orion-reschedule") return this.live.reschedule(args); return matchScript(this.recorded.scripts, args, script === "orion-reschedule"); },
       lateFlow: async (minutes: number) => { const r = await execReschedule(["late", String(minutes)]); return { outcome: "say" as const, kind: "plain" as const, text: r.stdout.trim().split("\n").at(-1) ?? "", calls: [`exec orion-reschedule late ${minutes}`], outputs: [r.stdout] }; },
       wakeFlow: (message: string, decision?: Decision) => runWakeFlow({ message, ...(decision ? { decision } : {}), now: new Date(this.clock), exec: wakeExec }),
       workoutRun: rec("orion-workout"), foodRun: rec("orion-food-estimate"), mouseRun: rec("orion-mouse"), appsRun: rec("orion-apps"), shutdownRun: rec("orion-bedtime-shutdown"),
@@ -158,7 +188,7 @@ export class Session {
   async turn(say: string, recorded: Recorded = {}, advanceMs = 45_000, outreach?: string): Promise<Outcome> {
     this.recorded = recorded;
     this.clock += advanceMs;
-    pinClock(this.dir, new Date(this.clock).toISOString().slice(0, 19));
+    pinClock(this.dir, new Date(this.clock).toISOString().slice(0, 19), this.live !== undefined);
     const before = this.scripts.length;
     const started = Date.now();
     const ctx = { runId: `r${(this.n += 1)}`, sessionKey: this.surface === "phone" ? "agent:main:orion-chat-phone" : "agent:main:orion-app-v2" };
@@ -174,21 +204,31 @@ export class Session {
       const lines = Array.isArray(recorded.worker) ? recorded.worker : [recorded.worker ?? ""];
       const told = recorded.obey !== undefined ? /exactly these arguments[^\n]*:\n(\{[^\n]*\})/.exec(workerPrompt ?? "")?.[1] : undefined;
       const tools = [...(recorded.tools ?? []), ...(told ? [{ toolName: "tool_call", params: { id: "openclaw:orion-control:orion_task_run", args: JSON.parse(told) as Record<string, unknown> }, result: recorded.obey! }] : [])];
-      for (const t of tools) {
-        const gate = (await this.fire("before_tool_call", { toolName: t.toolName, params: t.params }, ctx)) as Array<{ block?: boolean } | undefined>;
-        if (gate.some((g) => g?.block)) continue;
-        this.scripts.push({ script: `tool:${t.toolName}`, args: [JSON.stringify(t.params)] });
-        await this.fire("after_tool_call", { toolName: t.toolName, params: t.params, result: { content: [{ type: "text", text: t.result }] } }, ctx);
-      }
-      let text = lines[0] ?? "";
+      // One tool call, through the plugin's own guards, in the order the gateway runs them.
+      const runTool = async (toolName: string, params: Record<string, unknown>, recordedResult?: string): Promise<string> => {
+        const gate = (await this.fire("before_tool_call", { toolName, params }, ctx)) as Array<{ block?: boolean; blockReason?: string; params?: Record<string, unknown> } | undefined>;
+        const blocked = gate.find((g) => g?.block);
+        if (blocked) return `tool call blocked by plugin: ${blocked.blockReason ?? ""}`;
+        const used = gate.find((g) => g?.params)?.params ?? params;
+        this.scripts.push({ script: `tool:${toolName}`, args: [JSON.stringify(used)] });
+        const result = recordedResult ?? (this.live ? await this.live.tool(toolName, used) : "ok");
+        await this.fire("after_tool_call", { toolName, params: used, result: { content: [{ type: "text", text: result }] } }, ctx);
+        return result;
+      };
+      let text = "";
+      if (this.live) text = await this.live.worker({ prompt: workerPrompt ?? say, say, runTool });
+      else { for (const t of tools) await runTool(t.toolName, t.params, t.result); text = lines[0] ?? ""; }
       for (let pass = 0; pass < 4; pass += 1) {
         const messages: Array<{ role: string; content: unknown }> = [{ role: "user", content: say }, { role: "assistant", content: [{ type: "text", text }] }];
         const [fin] = (await this.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: text, messages, model: "qwen3.5:9b" }, ctx)) as Array<{ action?: string; retry?: { instruction?: string } } | undefined>;
         if (fin?.action === "revise") {
           revised += 1;
-          // An obedient worker: it writes exactly the text it is told to, else the next recorded line, else repeats itself.
-          const exact = /(?:exactly this text[^:]*|exactly)[^:]*:\s*([\s\S]+)$/i.exec(fin.retry?.instruction ?? "");
-          text = exact?.[1]?.trim() ?? lines[revised] ?? text;
+          const instruction = fin.retry?.instruction ?? "";
+          // The exact-text retries are the code's own sentence: any obedient worker writes it. Anything else is the worker's second go.
+          const exact = /(?:exactly this text[^:]*|exactly)[^:]*:\s*([\s\S]+)$/i.exec(instruction);
+          if (exact?.[1]) text = exact[1].trim();
+          else if (this.live) text = await this.live.worker({ prompt: workerPrompt ?? say, say, retry: instruction, runTool });
+          else text = lines[revised] ?? text;
           continue;
         }
         const first = messages[1]!.content as Array<{ type?: string; text?: string }>;

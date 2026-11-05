@@ -5,6 +5,8 @@
 import { gradeOutcome } from "./grade.js";
 import { playCase } from "./turn.js";
 export function classify(c, failures, outcome) {
+    if (c.liveOnly)
+        return { id: c.id, status: "skip", failures: ["live only"] };
     if (c.skip)
         return { id: c.id, ...(c.audit ? { audit: c.audit } : {}), status: "skip", failures: [c.skip] };
     const broke = failures.length > 0;
@@ -14,7 +16,7 @@ export function classify(c, failures, outcome) {
 export async function runDeterministic(cases) {
     const verdicts = [];
     for (const c of cases) {
-        if (c.skip) {
+        if (c.skip || c.liveOnly) {
             verdicts.push(classify(c, []));
             continue;
         }

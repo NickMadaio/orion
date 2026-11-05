@@ -9,6 +9,7 @@ import type { Outcome, ReplayCase, Verdict } from "./types.js";
 export type Summary = { total: number; pass: number; fail: number; xfail: number; xpass: number; skip: number };
 
 export function classify(c: ReplayCase, failures: string[], outcome?: Outcome): Verdict {
+  if (c.liveOnly) return { id: c.id, status: "skip", failures: ["live only"] };
   if (c.skip) return { id: c.id, ...(c.audit ? { audit: c.audit } : {}), status: "skip", failures: [c.skip] };
   const broke = failures.length > 0;
   const status = c.expectFail ? (broke ? "xfail" : "xpass") : broke ? "fail" : "pass";
@@ -18,7 +19,7 @@ export function classify(c: ReplayCase, failures: string[], outcome?: Outcome): 
 export async function runDeterministic(cases: readonly ReplayCase[]): Promise<Verdict[]> {
   const verdicts: Verdict[] = [];
   for (const c of cases) {
-    if (c.skip) { verdicts.push(classify(c, [])); continue; }
+    if (c.skip || c.liveOnly) { verdicts.push(classify(c, [])); continue; }
     try {
       const outcome = await playCase(c);
       verdicts.push(classify(c, gradeOutcome(c.expect, outcome), outcome));

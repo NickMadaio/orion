@@ -58,6 +58,8 @@ export type Expect = {
     /** Which handler took the turn: "schedule", "workout", "mouse", "wake", "food", "selffix", "desk-answer", "worker", "quiet", ... */
     route?: string;
     routeNot?: string[];
+    /** The route class that handled this turn when it worked (private corpus): a code route must still take it. A "worker" class asks nothing. */
+    routeLike?: string;
     /** Script calls that must have happened (args tested as regex sources against the joined arguments)... */
     calls?: Array<{
         script: string;
@@ -89,6 +91,11 @@ export type ReplayCase = {
     /** Free text: what Nick meant, in a line. */
     intent?: string;
     say: string;
+    /** What happened when it worked, for the record (private corpus). */
+    observed?: {
+        reply?: string;
+        route?: string;
+    };
     /** ORION spoke first (a push): the line this message answers. */
     outreach?: string;
     surface?: Surface;
@@ -102,6 +109,8 @@ export type ReplayCase = {
     seed?: Record<string, unknown>;
     /** Cannot run in this harness (say why: a Swift or phone-side path). Counted, never silently dropped. */
     skip?: string;
+    /** Needs the live models (a private-corpus turn with no recorded worker output): the deterministic layer counts it as skipped. */
+    liveOnly?: boolean;
     /** Known to fail today: the audit id or reason. CI stays green; the count is printed; a surprise pass is reported. */
     expectFail?: {
         audit?: string;

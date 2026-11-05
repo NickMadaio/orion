@@ -16,6 +16,8 @@ export function gradeOutcome(expect, o) {
     const out = [];
     if (expect.route !== undefined && o.route !== expect.route)
         out.push(`route: wanted ${expect.route}, got ${o.route}`);
+    if (expect.routeLike && expect.routeLike !== "worker" && o.route !== expect.routeLike)
+        out.push(`route drift: it was ${expect.routeLike}, now ${o.route}`);
     for (const r of expect.routeNot ?? [])
         if (o.route === r)
             out.push(`route: must not be ${r}`);

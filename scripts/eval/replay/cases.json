@@ -926,7 +926,7 @@
    "noCalls": [
     {
      "script": "orion-reschedule",
-     "args": "Seminar|Discrete"
+     "args": "Seminar"
     }
    ],
    "asks": [
@@ -982,7 +982,7 @@
      "steps": [
       {
        "do": "add",
-       "what": "Discrete Structures — Seminar",
+       "what": "Maths Seminar",
        "minutes": 30,
        "to": "09:00"
       }
@@ -994,7 +994,7 @@
     "now": "19:56",
     "blocks": [
      {
-      "title": "Discrete Structures — Seminar",
+      "title": "Maths Seminar",
       "start": "09:00",
       "end": "10:30",
       "fixed": true
@@ -1004,7 +1004,7 @@
    "scripts": [
     {
      "match": "--dry-run",
-     "stdout": "NOTHING WAS CHANGED. NOT BOOKED: Discrete Structures — Seminar is already on today's calendar (09:00–10:30)"
+     "stdout": "NOTHING WAS CHANGED. NOT BOOKED: Maths Seminar is already on today's calendar (09:00–10:30)"
     }
    ]
   }
@@ -1815,11 +1815,11 @@
    "noCalls": [
     {
      "script": "tool:tool_call",
-     "args": "CS1802"
+     "args": "MATH12"
     }
    ],
    "promptLacks": [
-    "CS1802"
+    "MATH12"
    ],
    "replyLacks": []
   },
@@ -1834,7 +1834,7 @@
     "move": "tool",
     "tool": "app_open",
     "args": {
-     "application": "CS1802 Seminar"
+     "application": "Maths Seminar"
     }
    },
    "worker": "I can't reopen a specific app or fix a desktop shortcut issue with the tools I have. Try restarting the app or checking the desktop shortcut settings directly."

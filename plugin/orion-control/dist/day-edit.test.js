@@ -164,8 +164,6 @@ describe("through reality: the same reply from both surfaces", () => {
         expect(out?.writes).toBe(2);
     });
 });
-// A static day with no Gym on it: the reply's times are read back from the calendar, and a fake that never changes would show the old Gym.
-const ROUTE_DAY = day(DAY.blocks.filter((b) => b.title !== "Gym"));
 describe("chat route: scheduling words never reach the workout logger", () => {
     function route() {
         const handlers = new Map();
@@ -176,10 +174,16 @@ describe("chat route: scheduling words never reach the workout logger", () => {
         writeFileSync(join(dir, "health-log.json"), JSON.stringify({ schema: "orion.health.v3", supplements: [], supplementLog: {}, workouts: [] }));
         const calls = [];
         const workouts = [];
+        let current = DAY;
         registerLocalRouting(api, { warm: false, mode: "on", logPath: join(dir, "r.jsonl"), progressDir: join(dir, "tp"), stateDir: dir, clock: () => "Wed 20:02", now: () => NOW,
             decideImpl: async () => ({ move: "escalate" }), brainSearch: async () => "",
-            scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), readDayJson: async () => ROUTE_DAY, readDay: async () => JSON.stringify(ROUTE_DAY),
-            realityRun: async (s, a) => { calls.push([s, ...a]); return { stdout: "Changed Wednesday\nWritten to his calendar.", code: 0 }; },
+            scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), readDayJson: async () => current, readDay: async () => JSON.stringify(current),
+            realityRun: async (s, a) => { calls.push([s, ...a]); if (a[0] === "add") {
+                const at = a[a.indexOf("--at") + 1];
+                const [h, m] = at.split(":").map(Number);
+                const end = h * 60 + m + Number(a[2]);
+                current = day([...current.blocks.filter((b) => b.title !== a[1]), B(a[1], at, `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`, "gym")]);
+            } return { stdout: "Changed Wednesday\nWritten to his calendar.", code: 0 }; },
             workoutRun: async (a) => { workouts.push(a); return { stdout: "{}", code: 0 }; } });
         let n = 0;
         const turn = async (prompt) => {
@@ -202,5 +206,11 @@ describe("chat route: scheduling words never reach the workout logger", () => {
         const r = route();
         await r.turn("i was at the pub 5-6");
         expect(r.calls[0]).toEqual(["orion-reschedule", "log", "Pub", "--from", "17:00", "--to", "18:00"]);
+    });
+    it("the scheduler kept the gym where it was (8 PM), so the reply says 8 PM, never the 10 PM that was asked", async () => {
+        const { calls, deps } = fakeRun(DAY); // a day that never changes: Gym is still on it at 20:00 when the edit reads it back
+        const out = await runDayEdit(readDayEdit("put an hour gym session at 10-11 for me", NOW), deps);
+        expect(calls.map((c) => c[1])).toEqual(["add"]);
+        expect("reply" in out.flow && out.flow.reply).toBe("I put gym at 8–9 PM (the scheduler couldn't keep it at 10 PM).");
     });
 });

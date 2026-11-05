@@ -33,4 +33,23 @@ describe("a stated wake-up time must be the real one", () => {
     it("leaves sentences that are not about the alarm, and alarm talk with no time", () => {
         expect(withoutUnverifiedAlarmClaims("Your lecture is at 9:00 AM. Your alarm is on.", dirWith(alarm), now)).toBe("Your lecture is at 9:00 AM. Your alarm is on.");
     });
+    describe("only HIS alarm is stripped, and only the clause that states it wrongly (review r5 #4)", () => {
+        const real7 = new Date(2026, 10, 5, 7, 0).toISOString();
+        it("keeps a reminder to wake someone else", () => {
+            expect(withoutUnverifiedAlarmClaims("You have a reminder at 9:00 AM to wake dad for the dentist. Your alarm is 7:00 AM.", dirWith(real7), now)).toBe("You have a reminder at 9:00 AM to wake dad for the dentist. Your alarm is 7:00 AM.");
+            expect(withoutUnverifiedAlarmClaims("I set a reminder to wake mum at 8:15.", dirWith(real7), now)).toBe("I set a reminder to wake mum at 8:15.");
+        });
+        it("keeps the other half of a compound sentence", () => {
+            expect(withoutUnverifiedAlarmClaims("You've got a call at 8:00 and your alarm is 6:00.", dirWith(new Date(2026, 10, 5, 6, 0).toISOString()), now)).toBe("You've got a call at 8:00 and your alarm is 6:00.");
+            expect(withoutUnverifiedAlarmClaims("You've got a call at 8:00 and your alarm is 6:45.", dirWith(real7), now)).toBe("You've got a call at 8:00.");
+            expect(withoutUnverifiedAlarmClaims("Your alarm is 6:45, and you have a call at 8:00.", dirWith(real7), now)).toBe("You have a call at 8:00.");
+        });
+        it("checks the time that belongs to the alarm, not another time in the clause", () => {
+            expect(withoutUnverifiedAlarmClaims("I'll wake you at 7:00 for the class at 9:00.", dirWith(real7), now)).toBe("I'll wake you at 7:00 for the class at 9:00.");
+            expect(withoutUnverifiedAlarmClaims("I'll wake you at 7:45 for the class at 9:00.", dirWith(real7), now)).toBe("");
+        });
+        it("still drops the invented ones", () => {
+            expect(withoutUnverifiedAlarmClaims("Goodnight. Your wake-up is 7:45 AM.", dirWith(real7), now)).toBe("Goodnight.");
+        });
+    });
 });

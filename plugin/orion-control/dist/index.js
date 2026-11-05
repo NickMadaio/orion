@@ -29,7 +29,8 @@ import { liveFocusProfile, liveFocusSites, livePending, liveTasksRun } from "./f
 import { liveWakeFlow } from "./wake-flow.js";
 import { liveTodoDoneFlow } from "./todo-done-flow.js";
 import { liveNoteFlow } from "./note-flow.js";
-import { liveChatDeps } from "./chat-asks-live.js"; // w20 r3
+import { liveChatDeps } from "./chat-asks-live.js";
+import { livePlaceRun } from "./place-save-live.js"; // w20 r3
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import { appendEpisode, defaultEpisodicMemoryPath, episodeFromUserText, } from "./episodic.js";
@@ -1435,6 +1436,7 @@ export function installProvenanceHooks(api) {
             shutdownRun: liveShutdownRun(), // w18 bedtime: shut the Mac down on a yes (bedtime-shutdown-chat.ts)
             appsRun: liveAppsRun(), // w18 apps: see and close running apps (apps-chat.ts)
             mouseRun: liveMouseRun(process.env.ORION_CONTROLLED_DIR || path.join(os.homedir(), ".openclaw", "orion-controlled")), // w18 mousechat: mouse button setup (mouse-chat.ts)
+            placeRun: livePlaceRun(process.env.ORION_CONTROLLED_DIR || path.join(os.homedir(), ".openclaw", "orion-controlled")), // w20 (place-save.ts): save the place he named, read back from the places file
             sleepPlanRun: liveSleepPlanRun, // W10-B: the sleep-plan interview and night exceptions (sleep-plan-flow.ts)
             knowledgeRun: liveKnowledgeRun, // wave 6: forget / links / profile / trash (knowledge-run.ts)
             lateFlow: (minutes) => liveLateFlow(minutes, () => undoJournalTop()),

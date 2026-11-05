@@ -22,6 +22,19 @@ export function resolvePending(last, now) {
         return { pending: true, refers: tail.slice(0, 240) };
     return { pending: false };
 }
+const WH_QUESTION = /\b(?:how (?:much|many|long|far|often|big|old)|what(?:'s| is| was| time| kind| size| should| do| did)?|which|when|where|who|why)\b[^.?!]*\?\s*$/i;
+/** A short answer that is not a yes/no: a number or a few words ("2", "chicken", "the big one", "at 5"). */
+export const isShortAnswer = (message) => {
+    const m = message.trim();
+    return m.length > 0 && m.length <= 40 && m.split(/\s+/).length <= 5 && !/\?\s*$/.test(m) && !/^(?:what|whats|how|when|where|who|why|can|could|would|is|are|do|does)\b/i.test(m);
+};
+/** ORION's last reply ends with a question that needs an answer ("How much?", "What time?"): a short answer next is that answer. */
+export function resolveQuestion(last, now) {
+    if (!last || now - last.at > PENDING_WINDOW_MS || NOTHING_PENDING_LINES.includes(last.reply.trim()))
+        return { pending: false };
+    const tail = last.reply.trim().split(/(?<=[.!?])\s+/).filter(Boolean).at(-1) ?? "";
+    return WH_QUESTION.test(tail) ? { pending: true, refers: tail.slice(0, 240) } : { pending: false };
+}
 /** The newest exchange across a chat's session keys: the phone sends one conversation under several (as the retry slots already allow). */
 export function latestExchange(all, key, isFamily) {
     const own = key ? all.get(key) : undefined;

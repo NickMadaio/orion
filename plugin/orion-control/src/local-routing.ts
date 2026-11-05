@@ -26,11 +26,13 @@
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 import { isBareConfirm } from "./bare-confirm.js";
+import { asksToSavePlace, nameInQuestion, readPlaceReply, type PlacePending } from "./place-save.js";
+import { runPlaceTurn, type PlaceRun } from "./place-save-run.js";
 import { ackImpliesChange } from "./ack-draft.js";
 import { correctedAsk, readCorrection } from "./correction-read.js";
 import { askedForTechnical, finalSanitize } from "./final-sanitizer.js";
 import { splitLeadMouse } from "./mouse-lead.js";
-import { isBareGoAhead, latestExchange, nothingPending, pendingNote, resolvePending } from "./pending-resolver.js";
+import { isBareGoAhead, isShortAnswer, latestExchange, nothingPending, pendingNote, resolvePending, resolveQuestion } from "./pending-resolver.js";
 import { withoutAsleepClaims, claimsAsleep } from "./awake-claims.js";
 import { newestOffer, slotAnswersGo } from "./offer-binding.js";
 import { ventTease } from "./vent-tease.js";
@@ -275,6 +277,8 @@ export type LocalRoutingOptions = {
   shutdownRun?: ShutdownRun;
   /** w18 mousechat: orion-mouse (mouse-chat.ts). Without it no turn is a mouse-button request. */
   mouseRun?: MouseRun;
+  /** w20 (place-save.ts): scripts/orion-awareness, the one writer of known places. Unset: the save-a-place thread is not code's. */
+  placeRun?: PlaceRun;
   /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
   nickNote?: () => string;
   /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */
@@ -943,6 +947,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const overflowed = new Set<string>();
   /** w20 r5: per chat, ORION's previous exchange (his message and what was said), for "why did you say that" (selffix-flow.ts). Never replaced by a why-turn itself. */
   const lastExchange = new Map<string, { message: string; reply: string; at: number }>();
+  /** w20 (place-save.ts): the save-a-place question ORION is waiting on in this chat family (the name, or the yes). */
+  const placePending = new Map<string, PlacePending>();
   const knowledgePending = new KnowledgePending();   // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
   const sleepPending = new SleepPlanPending();   // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
   /** w20 r3: per chat, the web page ORION just offered ("want the web player?") and the last reply that came back blank. */
@@ -1540,7 +1546,18 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!mouse && !quietTurn) { mouseMemory.clear(sessionKey); mouseMemory.otherTurn(sessionKey, mouseAt.getTime()); }
     if (on && !quietTurn) rememberAsk(message, (options.now ?? pluginNow)());   // day-edit-memory.ts: "those" in "undo, i meant add those"
     const reality = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-    const realityWhole = ledgerOwns || (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
+    // w20 (place-save.ts): the save-a-place thread. His answer to ORION's proactive "want me to save this spot? What is it?", a yes to a follow-up "want me to save that spot?"
+    // (the model's or ours), or the name we asked for, is code's: it saves the place and reads it back. Every question in the thread is the pending item.
+    const placeFamily = (k: string) => /orion-(?:app-v2|chat)/.test(k);
+    const placeOutreach = options.placeRun && on ? parseOutreach(raw)?.text : undefined;
+    const placeLast = options.placeRun && on ? latestExchange(lastExchange, sessionKey, placeFamily) : undefined;
+    const placeWaiting = options.placeRun && on ? latestExchange(placePending, sessionKey, placeFamily) : undefined;
+    const placeAsked = !!placeOutreach && asksToSavePlace(placeOutreach);
+    const placeModelAsked = !!placeLast && nowMs() - placeLast.at < 15 * 60_000 && asksToSavePlace(placeLast.reply);
+    const placeOpen = placeAsked || (!!placeWaiting && nowMs() - placeWaiting.at < 15 * 60_000);
+    const placeReply = !cutOff && !quietTurn && !isCrisis(message) && (placeOpen || placeModelAsked) ? readPlaceReply(message, placeOpen ? { stage: placeWaiting?.stage ?? "name", at: nowMs() } : undefined) : null;
+    const placeTurn = placeReply ? { reply: placeReply, name: placeWaiting?.name ?? (placeModelAsked && placeLast ? nameInQuestion(placeLast.reply) : undefined) } : undefined;
+    const realityWhole = ledgerOwns || (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse || !!placeTurn;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
     const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
     const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1600,7 +1617,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // w20 r5 #88: the chat whose last turn added to his list; a bare "and batteries" next is one more item.
     if (sessionKey && on && !quietTurn) { if (chatAsks?.some((a) => a.kind === "list-add")) listChats.set(sessionKey, outreachNowMs); else listChats.delete(sessionKey); }
     if (sessionKey) webOffers.delete(sessionKey);   // the offer answers one turn
-    const codeFirst = !!corrects || intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst || !!chatAsks;
+    const codeFirst = !!corrects || !!placeTurn || intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst || !!chatAsks;
     // "why" to something ORION sent is about THAT message: the front desk (which saw only a one-line history) must not answer it as chat.
     const whyAsked = on && !cutOff && !quietTurn && (asksWhy(message) || asksYourQuestion(message)) && !!parseOutreach(raw);
     // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
@@ -1708,6 +1725,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const out = await withTimeout(runAppsTurn(appsTurn, { run: options.appsRun }).catch(() => undefined), 70000);
       run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Say go and I'll retry it.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+    } else if (placeTurn && options.placeRun) {   // w20 (place-save-run.ts): the reply is read back from the places file
+      const out = await withTimeout(runPlaceTurn(placeTurn.reply, { ...(placeTurn.name ? { name: placeTurn.name } : {}) }, options.placeRun, nowMs()).catch(() => undefined), 20000);
+      run.ownText = out?.text ?? "I couldn't save that place just now, so nothing was saved.";
+      out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+      if (sessionKey) { if (out?.pending) placePending.set(sessionKey, out.pending); else for (const k of [...placePending.keys()]) if (k === sessionKey || placeFamily(k)) placePending.delete(k); }
     } else if (mouse && options.mouseRun) {   // w18 mousechat: the reply is orion-mouse's own sentence
       const out = await withTimeout(runMouseTurn(mouse, { run: options.mouseRun }).catch(() => undefined), 20000);
       run.ownText = out?.text ?? "I couldn't change the mouse settings just now, so nothing was changed. Say go and I'll retry it.";
@@ -1761,6 +1783,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         run.pendingRefers = resolved.refers;
         return undefined;   // the worker answers it, told what it refers to (pendingNote)
       }
+      // w20: a short answer ("2", "chicken") to a question ORION just asked ("How much?") is that answer: the worker is told what it answers, never left to guess a context.
+      if (run && !run.ownText && !run.flow && isShortAnswer(run.message) && !isBareGoAhead(run.message) && !(run.room || run.hushed || run.pending || run.pendingYes || run.preference || run.sleepTurn || run.phoneBlock || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge || run.ledger || run.reality || run.late || run.reminder || run.addAnswer || run.computer || run.stitched)) {
+        const lastQ = latestExchange(lastExchange, run.sessionKey, (k) => /orion-(?:app-v2|chat)/.test(k));
+        const q = resolveQuestion(lastQ ? { reply: lastQ.reply, at: lastQ.at } : undefined, nowMs());
+        if (q.pending) { run.pendingRefers = q.refers; return undefined; }
+      }
       if (run && (run.room || run.hushed || run.pending || run.preference || run.sleepTurn || run.phoneBlock || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
       if (run && !ledgerSeen.has(run)) { ledgerSeen.add(run); madeLedger.ingest(run.sessionKey, run.tools, Date.now()); }
       if (run?.ownText) return { handled: true, reply: { text: withGentleCheckIn(run.message, run.preface ? `${run.preface} ${run.ownText}` : run.ownText) }, reason: "code answered from data" };
@@ -1780,7 +1808,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (d?.move === "answer" && draftText && ackImpliesChange(draftText) && (CHANGE_REQUEST.test(run?.message ?? "") || readCorrection(run?.message ?? ""))) return undefined;
       if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "") && !casualStartTask(run?.message ?? "")) return { handled: true, reply: { text: withGentleCheckIn(run?.message ?? "", draftText) }, reason: "front desk answered" };
       return undefined;
-    })(), runFor(event, ctx)?.message));
+    })(), runFor(event, ctx)?.message, runFor(event, ctx)?.sessionKey));
 
     api.on("before_prompt_build", guardedPrompt(async (event, ctx) => {
       const run = runFor(event, ctx);
@@ -2471,9 +2499,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   // delivery: the 9B paraphrased it from session history ("Done: grind leetcode 6:15…" after a clear).
   const finalText = new Map<string, { text: string; at: number }>();
   /** w20 r6 (final-sanitizer.ts): the last pass over a direct reply: no JSON fragment, unfilled value or tool name reaches him. */
-  const leakFree = <R>(result: R, message?: string): R => {
+  const leakFree = <R>(result: R, message?: string, key?: string): R => {
     const r = result as unknown as { reply?: { text?: string } } | undefined;
     const text = r?.reply?.text;
+    if (r?.reply && typeof text === "string" && key && message && text.trim() && !(asksWhy(message) || asksWhySelf(message))) lastExchange.set(key, { message, reply: text.trim(), at: nowMs() });   // a direct reply is ORION's latest word too
     if (r?.reply && typeof text === "string") { const clean = finalSanitize(text, { asked: askedForTechnical(message) }); if (clean !== text) return { ...r, reply: { ...r.reply, text: clean } } as unknown as R; }
     return result;
   };

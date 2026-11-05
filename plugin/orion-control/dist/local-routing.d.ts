@@ -1,3 +1,4 @@
+import { type PlaceRun } from "./place-save-run.js";
 import { type Decision } from "./front-desk.js";
 import { type ToolResult } from "./work-check.js";
 import { type SessionExec, type SessionHint } from "./session-flow.js";
@@ -198,6 +199,8 @@ export type LocalRoutingOptions = {
     shutdownRun?: ShutdownRun;
     /** w18 mousechat: orion-mouse (mouse-chat.ts). Without it no turn is a mouse-button request. */
     mouseRun?: MouseRun;
+    /** w20 (place-save.ts): scripts/orion-awareness, the one writer of known places. Unset: the save-a-place thread is not code's. */
+    placeRun?: PlaceRun;
     /** His Nick note's text, read directly for recall (tests pass a stub; never his real file) (2026-10-16). */
     nickNote?: () => string;
     /** Acceptance record "on" requires (see acceptanceVerdict); undefined skips the gate (tests only). */

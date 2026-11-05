@@ -109,14 +109,19 @@ const FULL_MORE = new RegExp([
 
 // The heavy-but-everyday phrasings that may be GENTLE when a mundane cause or joke sits beside them.
 const SOFTENABLE = new RegExp([
+  // "this uni is actually killing me lol": slang for a grind, softened only with a joke or an everyday cause beside it (MUNDANE), never alone.
+  String.raw`\b(?:is|are|was|were) (?:actually |literally |honestly |so |really |just )*(?:killing|murdering|destroying|finishing|ending) me\b`,
   String.raw`\b(?:hate|hating|sick of|tired of|done with|so done with|over) (?:my |this )?life\b`,
   String.raw`\b(?:i['’]?d|id|i would|honestly i['’]?d) (?:honestly |literally |genuinely )?rather (?:die|be dead)\b`,
   String.raw`\b${TOWARD}\s+(?:sleep(?:ing)?|sleep in) forever\b`,
 ].join("|"), "gi");
 // A stated trivial cause, or a joking marker, in the same message.
-const MUNDANE = /\b(?:lol+|lmao+|lmfao|haha\w*|hehe\w*|rn|jk|kidding|xd|bruh|smh|wifi|wi-fi|internet|connection|signal|printer|laptop|charger|battery|traffic|bus|train|tube|queue|line|weather|rain|coffee|boring|bored|so slow|lecture|class|seminar|meeting|group (?:project|meeting|chat)|homework|this assignment|monday|mondays|(?:on|this) (?:a )?(?:mon|tues|wednes|thurs|fri|satur|sun)day|weekend|sleep in|lie in|alarm|hangover|hungover|game|fifa|exam season|deadline)\b|[😂🤣💀🙃😭]/i;
+const MUNDANE = /\b(?:uni|university|college|school|exams?|coursework|lol+|lmao+|lmfao|haha\w*|hehe\w*|rn|jk|kidding|xd|bruh|smh|wifi|wi-fi|internet|connection|signal|printer|laptop|charger|battery|traffic|bus|train|tube|queue|line|weather|rain|coffee|boring|bored|so slow|lecture|class|seminar|meeting|group (?:project|meeting|chat)|homework|this assignment|monday|mondays|(?:on|this) (?:a )?(?:mon|tues|wednes|thurs|fri|satur|sun)day|weekend|sleep in|lie in|alarm|hangover|hungover|game|fifa|exam season|deadline)\b|[😂🤣💀🙃😭]/i;
 // "die on this hill" / "a hill to die on": an idiom, cleared before any check.
 const IDIOM = /\b(?:die|dying|died|dies) on (?:this|that|a|the|my|which|what|every|any) (?:\w+ )?hill\b|\bhills? (?:i['’]?(?:d|ll|m)? |i would |i will |to |worth )?(?:\w+ )?(?:die|dying) on\b/gi;
+
+const KILLING_ME = /\b(?:killing|murdering|destroying|finishing|ending) me\b/i;
+const REAL_TROUBLE = /\b(?:pain|hurts?|hurting|hospital|dying|die|dead|death|sick|ill|cancer|surgery|dad|mum|mom|family|parents?|cope|coping|alone|cry|crying|panic|anxiety|depress\w*|hopeless|breathe|chest|heart)\b/i;
 
 export type CrisisTier = "full" | "gentle" | null;
 /** Which tier this message is: the fixed reply (full), a normal turn with one teasing line first (gentle), or nothing. Pure. */
@@ -125,12 +130,14 @@ export function crisisTier(message: string): CrisisTier {
   const soft = new RegExp(SOFTENABLE.source, "i").test(text);
   const rest = text.replace(SOFTENABLE, " ");
   if (CRISIS.test(rest) || FULL_MORE.test(rest)) return "full";
+  // "killing me" is only slang about a grind: with pain, illness, dying or family beside it, it is not softened.
+  if (soft && KILLING_ME.test(text) && REAL_TROUBLE.test(text)) return "full";
   if (soft) return MUNDANE.test(rest) ? "gentle" : "full";
   return null;
 }
 
 const CAUSES: Array<[RegExp, string]> = [
-  [/\b(?:wifi|wi-fi|internet|connection|signal)\b/i, "the wifi"], [/\b(?:class|lecture|seminar)\b/i, "the class"], [/\bprinter\b/i, "the printer"],
+  [/\b(?:wifi|wi-fi|internet|connection|signal)\b/i, "the wifi"], [/\b(?:uni|university|college)\b/i, "the uni"], [/\b(?:class|lecture|seminar)\b/i, "the class"], [/\bprinter\b/i, "the printer"],
   [/\b(?:bus|train|tube|traffic)\b/i, "the commute"], [/\b(?:meeting|group (?:project|meeting|chat))\b/i, "the meeting"], [/\bhomework|assignment\b/i, "the homework"],
 ];
 // Nick, 2026-11-01: he says these as slang and never means them, so a GENTLE line is a dry tease, not a check-in.

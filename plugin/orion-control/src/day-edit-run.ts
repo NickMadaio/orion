@@ -36,7 +36,8 @@ const DEFAULT_MIN: Array<[RegExp, number]> = [[/lunch/, 30], [/dinner|supper/, 4
 const defaultMinutes = (name: string): number => DEFAULT_MIN.find(([re]) => re.test(name.toLowerCase()))?.[1] ?? 60;
 const list = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
-type Ctx = { deps: RealityDeps; nowMin: number; calls: string[]; outputs: string[]; done: string[]; failed: string[]; sides: string[]; writes: number; failures: ScheduleFailure[]; bedtime?: string; /** days the calendar could not be read for (a failed read is never "no block by that name") */ unread: Set<DayRef>; /** sentences another route answered for a clause it took (the food log), said as they are */ extra: string[]; /** ids of facts declared (undone with the edit) */ facts: string[]; /** blocks put on today by this edit, for the bedtime note */ placed: Array<{ title: string; end: number }> };
+type Ctx = { deps: RealityDeps; nowMin: number; calls: string[]; outputs: string[]; done: string[]; failed: string[]; sides: string[]; writes: number; failures: ScheduleFailure[]; bedtime?: string; /** days the calendar could not be read for (a failed read is never "no block by that name") */ unread: Set<DayRef>; /** sentences another route answered for a clause it took (the food log), said as they are */ extra: string[]; /** ids of facts declared (undone with the edit) */ facts: string[]; /** blocks put on today by this edit, for the bedtime note */ placed: Array<{ title: string; end: number }>; /** what the reply says about where a block went, checked against the calendar read back at the end */ claims: Claim[] };
+type Claim = { day: DayRef; title: string; start: number; end: number; idx: number; say: (span: string) => string };
 
 /** Yesterday cannot be read by the scheduler (a past day is refused); what the calendar held comes from the agenda, as blocks of a guessed length. */
 async function yesterdayDay(ctx: Ctx): Promise<Day> {
@@ -65,6 +66,9 @@ const unreadable = (ctx: Ctx, ref: DayRef, what: string): boolean => {
   return true;
 };
 const blockNamed = (name: string, day: Day | undefined, now: number): DayBlock | undefined => {
+  // "the 11:20 thing": the block that starts at that clock.
+  const clock = /^(\d{1,2}:\d{2})\b/.exec(name.trim())?.[1];
+  if (clock) { const at = (day?.blocks ?? []).filter((b) => b.kind !== "commute" && toMin(b.start) === toMin(clock)); return at.length === 1 ? at[0] : undefined; }
   const found = blocksNamedBy(name, (day?.blocks ?? []).filter((b) => b.kind !== "commute"));
   if (found.length) return pickByTime(found, now);
   // "the lecture" / "the seminar": the kind of thing, not a title word; the day's class it means ("i didnt go to the lecture yesterday").
@@ -140,7 +144,28 @@ async function addPart(ctx: Ctx, p: Extract<EditPart, { op: "add" }>): Promise<v
     await logIt(ctx, p.day, title, from, to, blockNamed(p.name, seen, ctx.nowMin), true); return;
   }
   const out = await exec(ctx, "orion-reschedule", ["add", title, String(to - from), "--at", hhmm(from), "--length-explicit", ...DAY_ARGS[p.day]]);
-  if (settle(ctx, out, title, `add ${p.name}`, from)) { ctx.done.push(`put ${title.toLowerCase()} at ${spanText(from, to)}${p.day === "tomorrow" ? " tomorrow" : ""}`); if (p.day === "today") ctx.placed.push({ title, end: to }); }
+  if (settle(ctx, out, title, `add ${p.name}`, from)) { claim(ctx, p.day, title, from, to, (span) => `put ${title.toLowerCase()} at ${span}${p.day === "tomorrow" ? " tomorrow" : ""}`); if (p.day === "today") ctx.placed.push({ title, end: to }); }
+}
+
+
+/** A line the reply will say about where a block went: kept with how to say it again, so the end can say what the calendar shows instead. */
+function claim(ctx: Ctx, day: DayRef, title: string, start: number, end: number, say: (span: string) => string): void {
+  ctx.done.push(say(spanText(start, end)));
+  ctx.claims.push({ day, title, start, end, idx: ctx.done.length - 1, say });
+}
+
+/** Every time the reply states is read back from the calendar: where the scheduler really put a block (it may have kept it elsewhere) is what is said. */
+async function verifyClaims(ctx: Ctx): Promise<void> {
+  const days = new Map<DayRef, Day | undefined>();
+  for (const c of ctx.claims) {
+    if (!days.has(c.day)) days.set(c.day, c.day === "yesterday" ? undefined : await dayOf(ctx, c.day).catch(() => undefined));
+    const blocks = (days.get(c.day)?.blocks ?? []).filter((b) => norm(b.title) === norm(c.title));
+    if (!blocks.length) continue;   // not seen on the read-back (an unreadable day, or the scheduler's own note says why): the line stands
+    const b = blocks.reduce((best, x) => (Math.abs(toMin(x.start) - c.start) < Math.abs(toMin(best.start) - c.start) ? x : best));
+    if (toMin(b.start) === c.start && toMin(b.end) === c.end) continue;
+    ctx.done[c.idx] = `${c.say(spanText(toMin(b.start), toMin(b.end)))} (the scheduler couldn't keep it at ${ampm(c.start)})`;
+  }
+  ctx.done = ctx.done.filter(Boolean);
 }
 
 /** The block he named is already on that day: it goes to the time he said (and the length, when he said one). */
@@ -151,7 +176,7 @@ async function moveExisting(ctx: Ctx, p: Extract<EditPart, { op: "add" }>, block
   if (sameSpan) { ctx.done.push(`left ${short} as it is, it's already at ${spanText(toMin(block.start), toMin(block.end))}`); return; }
   const length = p.minutes !== undefined || p.span ? ["--until", hhmm(to)] : [];
   const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(from), ...length, ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
-  if (settle(ctx, out, block.title, `move ${short}`, from)) ctx.done.push(`moved ${short} to ${spanText(from, p.minutes !== undefined || p.span ? to : from + len)}${p.day === "tomorrow" ? " tomorrow" : ""}`);
+  if (settle(ctx, out, block.title, `move ${short}`, from)) claim(ctx, p.day, block.title, from, p.minutes !== undefined || p.span ? to : from + len, (span) => `moved ${short} to ${span}${p.day === "tomorrow" ? " tomorrow" : ""}`);
 }
 
 /** "make the mum call 45 mins": the block's new total length, same start. */
@@ -187,7 +212,7 @@ async function movePart(ctx: Ctx, p: Extract<EditPart, { op: "move" }>): Promise
   const short = block.title.replace(/\s+[—–-].*$/, "");
   if (behind || (p.day === "today" && to < ctx.nowMin)) { if (await logIt(ctx, p.day, block.title, to, to + len, block)) ctx.done[ctx.done.length - 1] = `moved ${short} to ${spanText(to, Math.min(to + len, p.day === "today" ? ctx.nowMin + LOG_AHEAD : to + len))}`; return; }
   const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
-  if (settle(ctx, out, block.title, `move ${short}`)) ctx.done.push(`moved ${short} to ${ampm(to)}`);
+  if (settle(ctx, out, block.title, `move ${short}`)) claim(ctx, p.day, block.title, to, to + len, (span) => `moved ${short} to ${span.split("–")[0]}`);
 }
 
 /** "shove the plan after that": it goes where the other block ends (read from the day after the other one moved), `gap` minutes later. */
@@ -201,7 +226,7 @@ async function moveAfterPart(ctx: Ctx, p: Extract<EditPart, { op: "moveafter" }>
   const to = toMin(anchor.end) + p.gap;
   if (to + (toMin(block.end) - toMin(block.start)) > 1440) { ctx.failed.push(`move ${short} (that would push it past the day)`); return; }
   const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
-  if (settle(ctx, out, block.title, `move ${short}`, to)) ctx.done.push(`moved ${short} to ${ampm(to)}, ${p.gap ? `${p.gap} minutes` : "right"} after ${anchor.title.replace(/\s+[—–-].*$/, "")}`);
+  if (settle(ctx, out, block.title, `move ${short}`, to)) claim(ctx, p.day, block.title, to, to + (toMin(block.end) - toMin(block.start)), (span) => `moved ${short} to ${span.split("–")[0]}, ${p.gap ? `${p.gap} minutes` : "right"} after ${anchor.title.replace(/\s+[—–-].*$/, "")}`);
 }
 
 /** "push the learning plan back an hour": one block, by an amount. Only what has not started; what already happened is moved with a clock. */
@@ -215,7 +240,7 @@ async function shiftPart(ctx: Ctx, p: Extract<EditPart, { op: "shift" }>): Promi
   if (p.day === "today" && start <= ctx.nowMin) { ctx.failed.push(`move ${short} (it has already started, so tell me the time it really happened)`); return; }
   if (to < 0 || to + (toMin(block.end) - start) > 1440) { ctx.failed.push(`move ${short} (that would push it past the day)`); return; }
   const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
-  if (settle(ctx, out, block.title, `move ${short}`, to)) ctx.done.push(`moved ${short} ${p.minutes > 0 ? "back" : "earlier"} to ${ampm(to)}`);
+  if (settle(ctx, out, block.title, `move ${short}`, to)) claim(ctx, p.day, block.title, to, to + (toMin(block.end) - start), (span) => `moved ${short} ${p.minutes > 0 ? "back" : "earlier"} to ${span.split("–")[0]}`);
 }
 
 type Plan = { p: Extract<EditPart, { op: "move" | "shift" }>; mover: Mover; title: string };
@@ -382,7 +407,7 @@ function bedtimeOf(deps: RealityDeps): string | undefined {
 }
 
 export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<RealityOutcome> {
-  const ctx: Ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set<DayRef>(), extra: [], facts: [], placed: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps)! } : {}) };
+  const ctx: Ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set<DayRef>(), extra: [], facts: [], placed: [], claims: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps)! } : {}) };
   const notes: string[] = []; const refused: EditPart[] = [];
   const runPart = async (p: EditPart): Promise<void> => {
     if (p.op === "add") await addPart(ctx, p);
@@ -429,6 +454,7 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
     }
     if (ctx.failed.length > failedBefore) refused.push(p);
   }
+  if (ctx.claims.length) await verifyClaims(ctx);
   // "anyway" later re-runs only what was refused, never what already worked
   if (refused.length) rememberEdit({ parts: refused }, deps.now); else forgetEdit();
   rememberRun(ctx.writes, ctx.facts, deps.now);

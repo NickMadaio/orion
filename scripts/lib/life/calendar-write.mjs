@@ -14,6 +14,7 @@ import { recordWritten } from "./written.mjs";
 import { recordMade } from "./made.mjs";
 import { originalDetails } from "./event-details.mjs";
 import { loadConfig } from "./config.mjs";
+import { pickUndoIndex } from "./undo-expiry.mjs";
 
 export const UNDO_FILE = process.env.ORION_RESCHEDULE_UNDO
   || join(controlledDir(), `${sandbox() ? "eval-" : ""}reschedule-undo.json`);
@@ -174,12 +175,13 @@ export async function applyPlan({ date, moves, created, removed = [], blocksById
   }
 }
 
-export async function undoLast() {
+export async function undoLast({ id } = {}) {
   const history = (() => { try { return JSON.parse(readFileSync(UNDO_FILE, "utf8")); } catch { return []; } })();
-  // Skip empty entries older versions wrote: undo always undoes something real.
-  while (history.length && !(history.at(-1).steps ?? []).length) history.pop();
-  const last = history.pop();
-  if (!last) return [];
+  // Skip empty entries older versions wrote: undo always undoes something real. And never reach back past today's session (undo-expiry.mjs):
+  // an entry from an earlier day is only undone by its own stamp.
+  const at = pickUndoIndex(history, clockNow(), id);
+  if (at < 0) { const done = []; done.expired = !id && history.some((e) => (e?.steps ?? []).length); return done; }
+  const [last] = history.splice(at, 1);
   const { done, restored } = await reverseSteps(last.steps);
   if (last.pinsBefore) savePins(Object.fromEntries(Object.entries(last.pinsBefore).map(([date, ids]) => [date, ids.map(id => restored.get(id) ?? id)])));
   writeFileSync(UNDO_FILE, JSON.stringify(history, null, 2));

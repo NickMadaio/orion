@@ -180,7 +180,12 @@ export const UNDO_NOTHING_TO_UNDO = "I haven't changed your calendar in this cha
 // running. A session start, a timer or a logged supplement made in this chat is something "cancel that" may mean;
 // ending or undoing it is a different action from the calendar undo, so code ASKS (the safer choice) and never
 // ends it on a guess. The undo exec block stays calendar-only.
-const OTHER_ASKS = { focus: "End the focus session you just started?", timer: "Cancel the timer you just set?", supplement: "Undo the supplement you just logged?" };
+const OTHER_ASKS = { focus: "End the focus session you just started?", timer: "Cancel the timer you just set?", supplement: "Undo the supplement you just logged?",
+    bedtime: "The last thing I changed was your bedtime, not your calendar, so I haven't undone anything. Tell me the bedtime you want and I'll set it.",
+    alarm: "The last thing I changed was your alarm, not your calendar, so I haven't undone anything. Tell me the time you want it at and I'll set it." };
+/** A write to his bedtime or wake alarm in a tool call (sleep plan, wake, alarm_set): not the calendar, and the newest thing "put it back" may mean. */
+const BED_OR_ALARM_WRITE = /\borion-sleepplan\s+(?:bedtime|wake|shift|alarm-set)|\borion-wake\s+(?!status|clear\b)|"action"\s*:\s*"(?:alarm_set|wake_set)"/;
+const bedOrAlarmKind = (canonical) => (BED_OR_ALARM_WRITE.test(canonical) ? (/bedtime|sleepplan\s+bedtime/.test(canonical) ? "bedtime" : "alarm") : undefined);
 const SESSION_CHANGE_WINDOW_MS = 30 * 60_000;
 const BARE_UNDO = /^(?:(?:ok|okay|please|pls|orion|hey|actually|wait|no)\s+)*(?:(?:cancel|undo|revert)(?:\s+(?:that|it|this|the last (?:one|change|thing)|my last change))?|(?:never ?mind|nvm)\s+(?:that|it|this)|(?:put|take)\s+(?:it|that|this|them)\s+back)(?:\s+(?:please|pls|thanks))?$/;
 /** A cancel or undo that names nothing: "cancel that", "undo", "put it back", "never mind that". */
@@ -828,7 +833,12 @@ export function registerLocalRouting(api, options) {
         forgetReplan(sessionKey);
         const top = stamp ? journalTopAt() : undefined;
         const prior = sessionChanges.get(sessionKey);
-        sessionChanges.set(sessionKey, { at: Date.now(), first: prior?.first ?? Date.now(), marks: [...(prior?.marks ?? []), ...marks], stamps: [...(prior?.stamps ?? []), ...(top ? [top] : [])] });
+        // Every journal entry this turn wrote is this chat's (the scheduler calls of one turn each make one), so "put it all back" reaches all of them.
+        const began = building.getStore()?.journalTop0;
+        const journal = [...(options.undoJournal ? options.undoJournal() : undoJournalEntries())].filter((e) => (e.steps ?? []).length && e.at);
+        const from = began === undefined || began === null ? -1 : journal.findIndex((e) => e.at === began);
+        const mine = stamp && began !== undefined && (began === null || from >= 0) ? journal.slice(from + 1).map((e) => e.at) : [];
+        sessionChanges.set(sessionKey, { at: Date.now(), first: prior?.first ?? Date.now(), marks: [...(prior?.marks ?? []), ...marks], stamps: [...new Set([...(prior?.stamps ?? []), ...marks, ...mine, ...(top ? [top] : [])])] });
     };
     /** r8b2 (2026-10-16): per session, the block the last code day answer named (what "and after that?" means), short window. */
     const dayMemory = new Map();
@@ -1503,7 +1513,7 @@ export function registerLocalRouting(api, options) {
                 ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : remFirst ? { preface: remFirst.text } : openFirst ? { preface: openFirst.text } : {}), started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : remFirst ? { preface: remFirst.text } : openFirst ? { preface: openFirst.text } : {}), started: Date.now(), journalTop0: journalTopAt() ?? null, passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn && !isBareConfirm(message) ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (ledgerAsk)
             run.ledger = ledgerAsk;
@@ -1817,6 +1827,11 @@ export function registerLocalRouting(api, options) {
                 run.tools.push(...out.tools);
                 if (run.sessionKey)
                     sleepPending.set(run.sessionKey, out.pending, Date.now());
+                if (run.sessionKey && out.flow.outcome === "done") {
+                    const k = out.tools.map((t) => bedOrAlarmKind(t.canonical)).find(Boolean);
+                    if (k)
+                        recordOther(run.sessionKey, k);
+                }
                 if (run.sessionKey && run.sleepTurn.kind === "alarm")
                     sleepPending.noteAlarm(run.sessionKey, Date.now());
             }
@@ -1928,6 +1943,14 @@ export function registerLocalRouting(api, options) {
             }
             // w20 r3 (ledger-run.ts): undo / remove anything ORION made in THIS chat (blocks, notes, reminders, food, water), by description, read back.
             const undoOfReality = !!run.sessionKey && !!lastReality.get(run.sessionKey) && Date.now() - lastReality.get(run.sessionKey).at < SESSION_CHANGE_WINDOW_MS && isBareUndo(run.message);
+            // "put it back" / "undo" / "take that back" mean the NEWEST thing done in this chat, whatever kind: when that was his bedtime or alarm, the calendar is never undone instead.
+            const lastOther = run.sessionKey ? otherChanges.get(run.sessionKey) : undefined;
+            const newestElse = Math.max(sessionChanges.get(run.sessionKey ?? "")?.at ?? 0, madeLedger.recent(run.sessionKey, Date.now()).at(-1)?.at ?? 0);
+            if (!run.flow && !run.cutOff && run.ledger?.pointing && !run.ledger.targets.length && !run.ledger.all && lastOther && (lastOther.kind === "bedtime" || lastOther.kind === "alarm")
+                && Date.now() - lastOther.at < SESSION_CHANGE_WINDOW_MS && lastOther.at >= newestElse) {
+                run.provided = true;
+                run.flow = { outcome: "say", kind: "plain", text: OTHER_ASKS[lastOther.kind] };
+            }
             if (!run.flow && !run.cutOff && run.ledger && options.ledgerRun && !undoOfReality) {
                 const key = run.sessionKey;
                 const changes = key ? sessionChanges.get(key) : undefined;
@@ -2009,6 +2032,9 @@ export function registerLocalRouting(api, options) {
                             f.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: f.outputs?.[i] ?? "", exit: null }));
                         if (out.writes)
                             recordChange(key, []);
+                        const bedOrAlarm = "calls" in f && f.calls ? f.calls.map(bedOrAlarmKind).find(Boolean) : undefined;
+                        if (key && bedOrAlarm && f.outcome === "done" && !f.calls?.some((c) => /\borion-reschedule\b/.test(c)))
+                            recordOther(key, bedOrAlarm);
                         if (key && (out.writes || out.facts.length))
                             lastReality.set(key, { facts: out.facts, writes: out.writes, at: Date.now() });
                         // What "make it 45" means next: the one block a day edit wrote (two or more blocks written leave "it" unclear, so it is asked).
@@ -2155,8 +2181,11 @@ export function registerLocalRouting(api, options) {
                 const woke = await options.wakeFlow(run.message, run.settled).catch((e) => ({ outcome: "fallback", reason: String(e) }));
                 if (woke.outcome !== "fallback") {
                     run.flow = woke;
-                    if (woke.outcome === "done")
+                    if (woke.outcome === "done") {
                         woke.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: woke.outputs[i] ?? "", exit: null }));
+                        if (run.sessionKey)
+                            recordOther(run.sessionKey, "alarm");
+                    }
                 }
             }
             // "how much focus time is left": code reads the session (q049 said "15 minutes remaining" from nothing).
@@ -2840,6 +2869,11 @@ export function registerLocalRouting(api, options) {
         run.tools.push({ canonical: canonicalCall(toolName, event.params), stdout: resultText(event.result ?? event.output), exit: null });
         const made = run.tools[run.tools.length - 1];
         const action = run.directive?.action;
+        {
+            const k = bedOrAlarmKind(made.canonical);
+            if (k && run.sessionKey && !["failed", "nothing", "pending"].includes(outcomeOf(made)))
+                recordOther(run.sessionKey, k);
+        }
         if ((action === "timer_set" || action === "supplement_take") && madeTaskRunCall(made, action) && outcomeOf(made) === "success")
             recordOther(run.sessionKey, action === "timer_set" ? "timer" : "supplement");
     });

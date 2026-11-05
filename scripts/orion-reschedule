@@ -225,9 +225,9 @@ if (!dry) {
 }
 
 if (command === "undo") {
-  const done = await undoLast().catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+  const idAt = args.indexOf("--id"); const done = await undoLast({ ...(idAt >= 0 && args[idAt + 1] ? { id: args[idAt + 1] } : {}) }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
   const notes = done.notes?.length ? ` Your ${done.notes.join(" and ")} weren't restored.` : "";
-  console.log(done.length || notes ? `Undone${done.length ? `: ${done.join("; ")}` : ""}.${notes}` : "Nothing to undo.");
+  console.log(done.length || notes ? `Undone${done.length ? `: ${done.join("; ")}` : ""}.${notes}` : `Nothing to undo${done.expired ? " (the older changes are from earlier days, so a plain undo leaves them; name the change with --id <its stamp> if you really mean one)" : ""}.`);
   process.exit(0);
 }
 

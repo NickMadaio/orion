@@ -273,6 +273,14 @@ async function removeEvery(targets: string[][], deps: LedgerDeps): Promise<Ledge
 export async function runLedgerAsk(ask: LedgerAsk, deps: LedgerDeps): Promise<LedgerOutcome | undefined> {
   const pointingOnly = ask.pointing && !ask.targets.length && !ask.kinds.length;
   if (ask.all) return undoAllCalendar(deps);
+  // "cancel both of those": the two newest things made in this chat, each taken off (a block by its id) and read back; never two journal steps of one block.
+  if (ask.count && ask.verb === "remove" && !ask.targets.length && deps.items.length) {
+    const seen = new Set<string>(); const picks: MadeItem[] = [];
+    for (const item of [...deps.items].reverse()) { const key = `${item.kind}:${item.label.toLowerCase()}`; if (!seen.has(key)) { seen.add(key); picks.push(item); } if (picks.length >= ask.count) break; }
+    const parts: LedgerOutcome[] = [];
+    for (const item of picks) parts.push(await removeItem(deps, item));
+    return merge(parts);
+  }
   if (ask.bare || pointingOnly) {
     const newest = deps.items.at(-1);
     const calendarLast = deps.calendar && topEntry(deps) ? deps.calendar.last : 0;

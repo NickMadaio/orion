@@ -35,6 +35,7 @@ export type LedgerAsk = {
 const FILLER = String.raw`(?:(?:actually|ok|okay|hey|orion|pls|please|wait|no|nah|yeah|yep|sorry|oh|and|then|just|can you|could you|can u)[,\s]+)*`;
 const UNDO_WORD = String.raw`(?:undo|revert|reverse|roll\s?back|take back)`;
 const REMOVE = String.raw`(?:cancel|scrap|delete|remove|drop|ditch|nuke|forget|erase|bin|scratch|zap|kill|get rid of|take off|clear)`;
+const TAKE_BACK = new RegExp(String.raw`^${FILLER}take\s+(?:that|it|this|the last (?:one|thing|change|move))\s+back(?:\s+(?:please|pls|thanks))?$`);
 const UNDO_BARE = new RegExp(String.raw`^${FILLER}${UNDO_WORD}(?:\s+(?:that|it|this|all of that|the last (?:one|change|thing|move|edit)|my last (?:change|move)|that last (?:one|change|thing|move|edit)))?(?:\s+(?:please|pls|thanks))?$`);
 const PUT_BACK = new RegExp(String.raw`^${FILLER}(?:put|set|move|change)\s+(.+?)\s+back\s+(?:to\s+|in\s+|at\s+)?(?:where it was|where they were|where it (?:normally |usually )?(?:goes|is|belongs|lives)|how it was|how they were|as it was|like it was|to normal|normal|to how it (?:was|is supposed to be)|(?:to |in |at )?its (?:old|original|normal|usual|regular|proper|default|right|own|previous|earlier) (?:time|spot|place|slot|position))(?:\s+(?:before|please|pls))?$`);
 // "stop the pasta timer", "turn off the stretch alarm": only with a timer / alarm / reminder noun (a bare "stop" is the music's).
@@ -45,7 +46,7 @@ const UNDO_OBJECT = new RegExp(String.raw`^${FILLER}${UNDO_WORD}\s+(?:the\s+)?(.
 const TAKE_OFF = new RegExp(String.raw`^${FILLER}take\s+(.+?)\s+(?:back\s+)?off(?:\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today|food log))?$`);
 const NO_NEED = new RegExp(String.raw`^${FILLER}(?:i\s+)?(?:don'?t|do not|dont|no longer)\s+need\s+(.+?)(?:\s+(?:any\s?more|anymore|now))?$`);
 const DIDNT_HAVE = /(?:,|\.|\s)\s*(?:i\s+)?(?:didn'?t|did not|never|haven'?t|havent)\s+(?:actually\s+|even\s+)?(?:have|had|eat|ate|drink|drank)\b.*$/;
-const POINTING = /^(?:that|it|this|those|them|the last (?:one|thing)|that last \w+|the one i (?:just )?\w+)(?:\s|$)|\b(?:i|you) (?:just\s+)?(?:added|made|saved|logged|set|booked|created|put in)\b|\bjust (?:added|made|saved|logged|set|booked|created)\b/;
+const POINTING = /^(?:both(?: of)?(?: those| them| these| that)?|those two|these two|the last two|all of (?:those|them|these)|that|it|this|those|them|the last (?:one|thing)|that last \w+|the one i (?:just )?\w+)(?:\s|$)|\b(?:i|you) (?:just\s+)?(?:added|made|saved|logged|set|booked|created|put in)\b|\bjust (?:added|made|saved|logged|set|booked|created)\b/;
 // "undo that move", "undo what you just did", "undo the last thing you did": the newest change, whatever it was (never a thing called "move").
 const GENERIC_OBJECT = /^(?:(?:that|the|my|this|your)\s+)?(?:(?:last|latest|previous)\s+)?(?:one|change|changes|thing|move|moves|edit|edits)(?:\s+(?:you|i)\s+(?:just\s+)?(?:did|made|changed))?$|^(?:what|whatever|everything|anything)\s+(?:you|i)\s+(?:just\s+)?(?:did|made|changed)$/;
 // "revert that and the one before it as well", "undo the last two changes": two steps back.
@@ -74,6 +75,7 @@ export function readLedgerAsk(message: string): LedgerAsk | null {
   const text = clean(message);
   if (!text || text.length > 160) return null;
   if (UNDO_ALL.test(text)) return { verb: "undo", strong: true, kinds: ["block"], targets: [], pointing: true, bare: true, all: true };
+  if (TAKE_BACK.test(text)) return { verb: "undo", strong: true, kinds: [], targets: [], pointing: true, bare: true };
   if (UNDO_BARE.test(text)) {
     const blockish = /\b(?:move|change|edit)\b/.test(text);
     return { verb: "undo", strong: true, kinds: blockish ? ["block"] : [], targets: [], pointing: true, bare: true };
@@ -100,13 +102,14 @@ export function readLedgerAsk(message: string): LedgerAsk | null {
   const verb = UNDO_OBJECT.test(stripped) && !REMOVE_AT_START.test(stripped) ? "undo" : "remove";
   const everyOne = EVERY.test(object);
   const pointing = POINTING.test(object);
+  const both = pointing && /^(?:both|those two|these two|the last two)\b/.test(object);
   const kinds = kindsOf(object);
   if (tail && !kinds.includes("food")) kinds.push("food");
   const targets = groupsOf(object).filter((g) => !(pointing && g.length === 0));
   // "delete that" / "cancel it" with nothing to say what: pointing only.
   if (!targets.length && !pointing && !kinds.length) return null;
   const strong = pointing || kinds.some((k) => k !== "block") || (verb === "undo" && !noNeed);
-  return { verb, strong: strong || (everyOne && groupsOf(object.replace(EVERY, "")).length > 0), kinds, targets: everyOne ? groupsOf(object.replace(EVERY, "")) : targets, pointing, bare: false, ...(noNeed ? { soft: true } : {}), ...(everyOne ? { every: true } : {}) };
+  return { verb, strong: strong || (everyOne && groupsOf(object.replace(EVERY, "")).length > 0), kinds, targets: everyOne ? groupsOf(object.replace(EVERY, "")) : targets, pointing, bare: false, ...(noNeed ? { soft: true } : {}), ...(everyOne ? { every: true } : {}), ...(both ? { count: 2 } : {}) };
 }
 
 /** "and the dentist one too": a new target for the removal he just made. Null when it is not that shape. */

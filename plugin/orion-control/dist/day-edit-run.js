@@ -59,6 +59,12 @@ const unreadable = (ctx, ref, what) => {
     return true;
 };
 const blockNamed = (name, day, now) => {
+    // "the 11:20 thing": the block that starts at that clock.
+    const clock = /^(\d{1,2}:\d{2})\b/.exec(name.trim())?.[1];
+    if (clock) {
+        const at = (day?.blocks ?? []).filter((b) => b.kind !== "commute" && toMin(b.start) === toMin(clock));
+        return at.length === 1 ? at[0] : undefined;
+    }
     const found = blocksNamedBy(name, (day?.blocks ?? []).filter((b) => b.kind !== "commute"));
     if (found.length)
         return pickByTime(found, now);
@@ -166,10 +172,31 @@ async function addPart(ctx, p) {
     }
     const out = await exec(ctx, "orion-reschedule", ["add", title, String(to - from), "--at", hhmm(from), "--length-explicit", ...DAY_ARGS[p.day]]);
     if (settle(ctx, out, title, `add ${p.name}`, from)) {
-        ctx.done.push(`put ${title.toLowerCase()} at ${spanText(from, to)}${p.day === "tomorrow" ? " tomorrow" : ""}`);
+        claim(ctx, p.day, title, from, to, (span) => `put ${title.toLowerCase()} at ${span}${p.day === "tomorrow" ? " tomorrow" : ""}`);
         if (p.day === "today")
             ctx.placed.push({ title, end: to });
     }
+}
+/** A line the reply will say about where a block went: kept with how to say it again, so the end can say what the calendar shows instead. */
+function claim(ctx, day, title, start, end, say) {
+    ctx.done.push(say(spanText(start, end)));
+    ctx.claims.push({ day, title, start, end, idx: ctx.done.length - 1, say });
+}
+/** Every time the reply states is read back from the calendar: where the scheduler really put a block (it may have kept it elsewhere) is what is said. */
+async function verifyClaims(ctx) {
+    const days = new Map();
+    for (const c of ctx.claims) {
+        if (!days.has(c.day))
+            days.set(c.day, c.day === "yesterday" ? undefined : await dayOf(ctx, c.day).catch(() => undefined));
+        const blocks = (days.get(c.day)?.blocks ?? []).filter((b) => norm(b.title) === norm(c.title));
+        if (!blocks.length)
+            continue; // not seen on the read-back (an unreadable day, or the scheduler's own note says why): the line stands
+        const b = blocks.reduce((best, x) => (Math.abs(toMin(x.start) - c.start) < Math.abs(toMin(best.start) - c.start) ? x : best));
+        if (toMin(b.start) === c.start && toMin(b.end) === c.end)
+            continue;
+        ctx.done[c.idx] = `${c.say(spanText(toMin(b.start), toMin(b.end)))} (the scheduler couldn't keep it at ${ampm(c.start)})`;
+    }
+    ctx.done = ctx.done.filter(Boolean);
 }
 /** The block he named is already on that day: it goes to the time he said (and the length, when he said one). */
 async function moveExisting(ctx, p, block, from, to) {
@@ -183,7 +210,7 @@ async function moveExisting(ctx, p, block, from, to) {
     const length = p.minutes !== undefined || p.span ? ["--until", hhmm(to)] : [];
     const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(from), ...length, ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
     if (settle(ctx, out, block.title, `move ${short}`, from))
-        ctx.done.push(`moved ${short} to ${spanText(from, p.minutes !== undefined || p.span ? to : from + len)}${p.day === "tomorrow" ? " tomorrow" : ""}`);
+        claim(ctx, p.day, block.title, from, p.minutes !== undefined || p.span ? to : from + len, (span) => `moved ${short} to ${span}${p.day === "tomorrow" ? " tomorrow" : ""}`);
 }
 /** "make the mum call 45 mins": the block's new total length, same start. */
 async function resizePart(ctx, p) {
@@ -234,7 +261,7 @@ async function movePart(ctx, p) {
     }
     const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
     if (settle(ctx, out, block.title, `move ${short}`))
-        ctx.done.push(`moved ${short} to ${ampm(to)}`);
+        claim(ctx, p.day, block.title, to, to + len, (span) => `moved ${short} to ${span.split("–")[0]}`);
 }
 /** "shove the plan after that": it goes where the other block ends (read from the day after the other one moved), `gap` minutes later. */
 async function moveAfterPart(ctx, p) {
@@ -259,7 +286,7 @@ async function moveAfterPart(ctx, p) {
     }
     const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
     if (settle(ctx, out, block.title, `move ${short}`, to))
-        ctx.done.push(`moved ${short} to ${ampm(to)}, ${p.gap ? `${p.gap} minutes` : "right"} after ${anchor.title.replace(/\s+[—–-].*$/, "")}`);
+        claim(ctx, p.day, block.title, to, to + (toMin(block.end) - toMin(block.start)), (span) => `moved ${short} to ${span.split("–")[0]}, ${p.gap ? `${p.gap} minutes` : "right"} after ${anchor.title.replace(/\s+[—–-].*$/, "")}`);
 }
 /** "push the learning plan back an hour": one block, by an amount. Only what has not started; what already happened is moved with a clock. */
 async function shiftPart(ctx, p) {
@@ -284,7 +311,7 @@ async function shiftPart(ctx, p) {
     }
     const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
     if (settle(ctx, out, block.title, `move ${short}`, to))
-        ctx.done.push(`moved ${short} ${p.minutes > 0 ? "back" : "earlier"} to ${ampm(to)}`);
+        claim(ctx, p.day, block.title, to, to + (toMin(block.end) - start), (span) => `moved ${short} ${p.minutes > 0 ? "back" : "earlier"} to ${span.split("–")[0]}`);
 }
 /** Two or more moves of blocks still to come on one day: planned together. Reordered so none lands where another still sits; refused when two land on each other. */
 async function planMoves(ctx, parts) {
@@ -518,7 +545,7 @@ function bedtimeOf(deps) {
     }
 }
 export async function runDayEdit(edit, deps) {
-    const ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set(), extra: [], facts: [], placed: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps) } : {}) };
+    const ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set(), extra: [], facts: [], placed: [], claims: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps) } : {}) };
     const notes = [];
     const refused = [];
     const runPart = async (p) => {
@@ -590,6 +617,8 @@ export async function runDayEdit(edit, deps) {
         if (ctx.failed.length > failedBefore)
             refused.push(p);
     }
+    if (ctx.claims.length)
+        await verifyClaims(ctx);
     // "anyway" later re-runs only what was refused, never what already worked
     if (refused.length)
         rememberEdit({ parts: refused }, deps.now);

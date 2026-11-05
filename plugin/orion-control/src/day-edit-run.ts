@@ -94,6 +94,8 @@ const clockFor = (s: EditPart extends never ? never : import("./intent-time.js")
 /** Writes what really happened. `instead` is only passed for a block his time overlaps or that already started (the scheduler asks otherwise). */
 async function logIt(ctx: Ctx, ref: DayRef, title: string, from: number, to: number, instead?: DayBlock, underway = false): Promise<boolean> {
   const cap = ref === "today" ? Math.min(to, ctx.nowMin + LOG_AHEAD) : to;
+  // Never a record that ends before it starts, or that has not begun: that is a day or a time he did not mean, so he is asked (live run 3 #102: 2:00 PM–8:24 AM).
+  if (cap <= from) { ctx.failed.push(`log ${title.toLowerCase()} (${ampm(from)} hasn't happened yet ${ref === "today" ? "today" : ref}, so tell me which day it was)`); return false; }
   const usable = instead && (ref !== "today" || (toMin(instead.start) < cap && from < toMin(instead.end)) || toMin(instead.start) <= ctx.nowMin) && !instead.fixed;
   const out = await exec(ctx, "orion-reschedule", ["log", title, "--from", hhmm(from), "--to", hhmm(cap), ...(usable ? ["--instead", instead!.title] : []), ...DAY_ARGS[ref]]);
   const ok = settle(ctx, out, title, `log ${title}`, from);
@@ -188,6 +190,20 @@ async function movePart(ctx: Ctx, p: Extract<EditPart, { op: "move" }>): Promise
   if (settle(ctx, out, block.title, `move ${short}`)) ctx.done.push(`moved ${short} to ${ampm(to)}`);
 }
 
+/** "shove the plan after that": it goes where the other block ends (read from the day after the other one moved), `gap` minutes later. */
+async function moveAfterPart(ctx: Ctx, p: Extract<EditPart, { op: "moveafter" }>): Promise<void> {
+  const day = await dayOf(ctx, p.day);
+  const block = blockNamed(p.name, day, ctx.nowMin); const anchor = p.after ? blockNamed(p.after, day, ctx.nowMin) : undefined;
+  if ((!block || !anchor) && unreadable(ctx, p.day, `move ${p.name}`)) return;
+  if (!block) { ctx.failed.push(`move ${p.name} (I can't see it on ${p.day === "today" ? "today's" : "that day's"} plan)`); return; }
+  if (!anchor) { ctx.failed.push(`put ${block.title.replace(/\s+[—–-].*$/, "")} after ${p.after ?? "that"} (I can't see ${p.after ?? "that"} on the plan)`); return; }
+  const short = block.title.replace(/\s+[—–-].*$/, "");
+  const to = toMin(anchor.end) + p.gap;
+  if (to + (toMin(block.end) - toMin(block.start)) > 1440) { ctx.failed.push(`move ${short} (that would push it past the day)`); return; }
+  const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
+  if (settle(ctx, out, block.title, `move ${short}`, to)) ctx.done.push(`moved ${short} to ${ampm(to)}, ${p.gap ? `${p.gap} minutes` : "right"} after ${anchor.title.replace(/\s+[—–-].*$/, "")}`);
+}
+
 /** "push the learning plan back an hour": one block, by an amount. Only what has not started; what already happened is moved with a clock. */
 async function shiftPart(ctx: Ctx, p: Extract<EditPart, { op: "shift" }>): Promise<void> {
   const day = await dayOf(ctx, p.day);
@@ -268,9 +284,9 @@ async function dropAfterPart(ctx: Ctx, p: Extract<EditPart, { op: "dropafter" }>
   if (settle(ctx, out, "the rest", "clear the rest of your day")) ctx.done.push(`took ${list(after.map((b) => b.title.replace(/\s+[—–-].*$/, "")))} off ${when}`);
 }
 
-/** In the small hours a time he says he did something "today" that is still ahead cannot have happened: it was yesterday. */
+/** A time he says he did something "today" that is still ahead ("2 till 4" at 8:24 AM) cannot have happened yet: it was yesterday. */
 function pastDayRef(ctx: Ctx, ref: DayRef, span?: Span): DayRef {
-  if (ref !== "today" || ctx.nowMin >= 300 || !span) return ref;
+  if (ref !== "today" || !span) return ref;
   const r = pickRange(span.a, span.b, ctx.nowMin, "past");
   return r && r.from > ctx.nowMin + 10 ? "yesterday" : ref;
 }
@@ -382,6 +398,7 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
     else if (p.op === "correct") await movePart(ctx, { op: "move", name: p.name, day: p.evening && p.day === "today" ? "yesterday" : p.day, to: p.at });
     else if (p.op === "shift") await shiftPart(ctx, p);
     else if (p.op === "resize") await resizePart(ctx, p);
+    else if (p.op === "moveafter") await moveAfterPart(ctx, p);
     else if (p.op === "move") await movePart(ctx, p);
     else if (p.op === "drop") await dropPart(ctx, p);
     else if (p.op === "dropafter") await dropAfterPart(ctx, p);

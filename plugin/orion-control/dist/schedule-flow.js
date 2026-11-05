@@ -329,7 +329,8 @@ export function compile(input, day, message, opts = {}) {
         return { error: "the block to place cannot be one of its own anchors" };
     // A class or plan with people moves only when his own words name it as the thing he moves (own-event-writes.ts, gate
     // sch-move-fixed-named, REV5); only then does the move carry --named, without which orion-reschedule refuses his events.
-    const named = step.do === "move" && !!what && !!message && movesThisOne(message, what, day.blocks);
+    // A plan with people that ORION booked itself is his to move by naming it (the call with jess it just added).
+    const named = step.do === "move" && !!what && ((!!message && movesThisOne(message, what, day.blocks)) || !!what.made);
     const own = what?.fixed && named ? ["--named"] : [];
     if (what?.fixed && !named && ["fill_between", "move", "resize", "drop", "swap"].includes(step.do))
         return { error: `${what.title} is a class or a plan with people — it does not move` };
@@ -1008,7 +1009,8 @@ async function runEdit(edit, { exec, undoTop }) {
     const when = target.dateArgs.includes("tomorrow") ? "tomorrow" : undefined;
     if (!b)
         return { outcome: "say", kind: "plain", text: `I can't find ${target.title} on your day any more, so I haven't changed anything.` };
-    if (b.fixed)
+    // A plan with people that ORION booked itself ("call with jess") is his to change by naming it; only a class or a plan he made himself stays put.
+    if (b.fixed && !b.made)
         return { outcome: "say", kind: "plain", text: `${b.title} is a class or a plan with people, so its length doesn't change. I haven't changed anything.` };
     const current = toMin(b.end) - toMin(b.start);
     const len = editLength(req, current);
@@ -1018,5 +1020,7 @@ async function runEdit(edit, { exec, undoTop }) {
         return { outcome: "say", kind: "plain", text: `${b.title} is already ${current} minutes (${ampm(b.start)}–${ampm(b.end)}), so nothing changed.` };
     if (len.minutes < 5 || len.minutes > 720)
         return { outcome: "say", kind: "cannot", text: `${len.minutes} minutes isn't a length I can give ${b.title}, so I haven't changed anything.` };
-    return execute([["resize", b.title, String(len.minutes), ...target.dateArgs]], { exec, undoTop, ...(when ? { when } : {}), undone: 0, before: day, reread: read });
+    const argv = b.fixed ? ["move", b.title, "--to", b.start, "--until", hhmmOf(toMin(b.start) + len.minutes), "--named", ...target.dateArgs] : ["resize", b.title, String(len.minutes), ...target.dateArgs];
+    return execute([argv], { exec, undoTop, ...(when ? { when } : {}), undone: 0, before: day, reread: read });
 }
+const hhmmOf = (n) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;

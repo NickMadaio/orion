@@ -23,7 +23,7 @@ const label = (b: DayBlock): string => b.title.replace(/\s+—.*$/, "");
 const onWhat = (intent: CalendarIntent): string => (intent.day === "tomorrow" ? "your day tomorrow" : "your day");
 const isFixed = (b: DayBlock): boolean => b.fixed || b.kind === "class";
 /** For a command he gives by name (move, extend, remove): his own events count, unless a class or a plan with people (review of 6fc2b13). */
-const namedFixed = (b: DayBlock): boolean => isFixed(b) && !(b.nameable && b.kind !== "class");
+const namedFixed = (b: DayBlock): boolean => isFixed(b) && !b.made && !(b.nameable && b.kind !== "class");
 const nowOf = (day: Day): number | null => (day.now ? toMin(day.now) : null);
 
 /** The block on the day his name means: one still to come first, else the latest. Two different blocks by that name: "ambiguous" (never a guess). */
@@ -126,7 +126,7 @@ function planMove(intent: CalendarIntent, day: Day): IntentPlan | undefined {
   if (to + (toMin(b.end) - toMin(b.start)) > 1440) return { kind: "say", say: "cannot", text: `${cap(label(b))} would run past midnight from ${ampm(to)}, so I haven't moved it.` };
   const clash = clashWith(to, toMin(b.end) - toMin(b.start), day, b);   // his own named block is never in its own way
   if (clash) return { kind: "say", say: "cannot", text: `${cap(label(clash))} is ${span(toMin(clash.start), toMin(clash.end))}${intent.day === "tomorrow" ? " tomorrow" : ""}, so ${label(b)} can't go at ${ampm(to)}. I haven't moved it. Tell me another time.` };
-  return { kind: "run", argv: ["move", b.title, "--to", hhmm(to)], title: b.title };
+  return { kind: "run", argv: ["move", b.title, "--to", hhmm(to), ...(isFixed(b) && b.made ? ["--named"] : [])], title: b.title };
 }
 
 function planExtend(intent: CalendarIntent, day: Day): IntentPlan | undefined {

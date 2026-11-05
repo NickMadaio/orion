@@ -22,6 +22,8 @@ export type LedgerAsk = {
   bare: boolean;
   /** His "yes" to a candidate ORION asked about: carry it out. */
   confirmed?: boolean;
+  /** "put it all back", "undo everything": every calendar change of this chat, newest first. */
+  all?: boolean;
   /** "i dont need the stretch reminder": a remark, not an order, so a reminder found only in the store is asked about first. */
   soft?: boolean;
 };
@@ -30,6 +32,7 @@ const FILLER = String.raw`(?:(?:actually|ok|okay|hey|orion|pls|please|wait|no|na
 const REMOVE = String.raw`(?:cancel|scrap|delete|remove|drop|ditch|nuke|forget|erase|bin|scratch|zap|kill|get rid of|take off|clear)`;
 const UNDO_BARE = new RegExp(String.raw`^${FILLER}(?:undo|revert)(?:\s+(?:that|it|this|all of that|the last (?:one|change|thing|move|edit)|my last (?:change|move)|that last (?:one|change|thing|move|edit)))?(?:\s+(?:please|pls|thanks))?$`);
 const PUT_BACK = new RegExp(String.raw`^${FILLER}(?:put|set|move|change)\s+(.+?)\s+back\s+(?:to\s+|in\s+|at\s+)?(?:where it was|where they were|where it (?:normally |usually )?(?:goes|is|belongs|lives)|how it was|how they were|as it was|like it was|to normal|normal|to how it (?:was|is supposed to be)|(?:to |in |at )?its (?:old|original|normal|usual|regular|proper|default|right|own|previous|earlier) (?:time|spot|place|slot|position))(?:\s+(?:before|please|pls))?$`);
+const UNDO_ALL = new RegExp(String.raw`^${FILLER}(?:(?:put|set|move|change|get)\s+(?:it all|it|everything|all of it|all of that|all that|them all|the lot|all)(?:\s+all)?\s+back(?:\s+(?:to\s+)?(?:how|like|as|where)\s+(?:it|they)\s+(?:was|were|is supposed to be))?|(?:undo|revert|reverse|take back)\s+(?:it all|everything|all of (?:it|that|this)|all (?:of )?(?:that|this)|the lot|all|all (?:my|the) changes|every ?thing you (?:just )?(?:did|changed|moved))|(?:go|put things) back to (?:how|the way) (?:it|things|everything) (?:was|were))(?:\s+(?:please|pls|thanks))?$`);
 const REMOVE_AT_START = new RegExp(String.raw`^${FILLER}${REMOVE}\s+(.+)$`);
 const UNDO_OBJECT = new RegExp(String.raw`^${FILLER}(?:undo|revert)\s+(?:the\s+)?(.+)$`);
 const TAKE_OFF = new RegExp(String.raw`^${FILLER}take\s+(.+?)\s+(?:back\s+)?off(?:\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today|food log))?$`);
@@ -60,6 +63,7 @@ function kindsOf(object: string): MadeKind[] {
 export function readLedgerAsk(message: string): LedgerAsk | null {
   const text = clean(message);
   if (!text || text.length > 160) return null;
+  if (UNDO_ALL.test(text)) return { verb: "undo", strong: true, kinds: ["block"], targets: [], pointing: true, bare: true, all: true };
   if (UNDO_BARE.test(text)) {
     const blockish = /\b(?:move|change|edit)\b/.test(text);
     return { verb: "undo", strong: true, kinds: blockish ? ["block"] : [], targets: [], pointing: true, bare: true };

@@ -12,6 +12,8 @@ export type LedgerAsk = {
     bare: boolean;
     /** His "yes" to a candidate ORION asked about: carry it out. */
     confirmed?: boolean;
+    /** "put it all back", "undo everything": every calendar change of this chat, newest first. */
+    all?: boolean;
     /** "i dont need the stretch reminder": a remark, not an order, so a reminder found only in the store is asked about first. */
     soft?: boolean;
 };

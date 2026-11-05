@@ -176,6 +176,8 @@ describe("through reality: the same reply from both surfaces", () => {
 });
 
 type Handler = (event: Record<string, unknown>, ctx: Record<string, unknown>) => unknown;
+// A static day with no Gym on it: the reply's times are read back from the calendar, and a fake that never changes would show the old Gym.
+const ROUTE_DAY = day(DAY.blocks.filter((b) => b.title !== "Gym"));
 describe("chat route: scheduling words never reach the workout logger", () => {
   function route() {
     const handlers = new Map<string, Handler[]>();
@@ -186,7 +188,7 @@ describe("chat route: scheduling words never reach the workout logger", () => {
     const calls: string[][] = []; const workouts: string[][] = [];
     registerLocalRouting(api as never, { warm: false, mode: "on", logPath: join(dir, "r.jsonl"), progressDir: join(dir, "tp"), stateDir: dir, clock: () => "Wed 20:02", now: () => NOW,
       decideImpl: async () => ({ move: "escalate" }) as never, brainSearch: async () => "",
-      scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), readDayJson: async () => DAY, readDay: async () => JSON.stringify(DAY),
+      scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), readDayJson: async () => ROUTE_DAY, readDay: async () => JSON.stringify(ROUTE_DAY),
       realityRun: async (s: string, a: string[]) => { calls.push([s, ...a]); return { stdout: "Changed Wednesday\nWritten to his calendar.", code: 0 }; },
       workoutRun: async (a: string[]) => { workouts.push(a); return { stdout: "{}", code: 0 }; } } as never);
     let n = 0;

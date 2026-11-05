@@ -32,7 +32,7 @@ const tidy = (raw) => raw.trim().replace(NAME_STOP, "").replace(/\b(?:to|in|on) 
     .replace(/\s+/g, " ").trim().replace(PREP, "").replace(/^(?:me|that|it)\s+/, "").replace(/[.,!?]+$/g, "").replace(/\s+(?:then|though|tho|instead)$/, "").replace(/\s+/g, " ").trim();
 const nameOf = (raw) => { const t = tidy(raw); return t && t.split(" ").length <= 5 && /[a-z]/.test(t) && !/^(?:everything|all|anything|something|it|that|this|day|my day)\b/.test(t) ? t : null; };
 const dayOf = (c, dflt) => (/\b(?:yesterday|last night)\b/.test(c) ? "yesterday" : /\b(?:tomorrow|tmrw)\b/.test(c) ? "tomorrow" : /\b(?:today|tonight|earlier|this (?:morning|afternoon|evening))\b/.test(c) ? "today" : dflt);
-const SPLIT = /[.;!|]+\s*(?=\S)|\s+(?=(?:add|put|schedule) (?:it|that|them|this)\b)|\s+(?:and then|then|also|plus)\s+|\s*,\s*(?=(?:and |also |then )?(?:add|ass|put|move|push|shift|bump|nudge|reschedule|drop|clear|delete|remove|cancel|schedule|book|log|set)\b)|\s+and\s+(?=(?:add|put|pop|stick|throw|move|push|shift|shove|slide|bump|nudge|reschedule|drop|clear|delete|remove|cancel|schedule|book|log)\b)|\s*,\s*(?=(?:and |also |then )?(?:my )?(?:bed\s?time|sleep(?:\s?time)?|wake|alarm|(?:i )?(?:ate|eaten|drank))\b)|\s+and\s+(?=(?:my\s+)?(?:bed\s?time|sleep(?:\s?time)?|wake\s+(?:me|up)|alarm|set (?:an? )?alarm|(?:i )?(?:ate|eaten|drank|did|went to)\b))/;
+const SPLIT = /[.;!|]+\s*(?=\S)|\s+(?=(?:add|put|schedule) (?:it|that|them|this)\b)|\s+(?:and then|then|also|plus)\s+|\s*,\s*(?=(?:and |also |then )?(?:add|ass|put|move|push|shift|bump|nudge|reschedule|drop|clear|delete|remove|cancel|schedule|book|log|set)\b)|\s+and\s+(?=(?:the\s+|my\s+)?(?:[a-z]+\s+){1,4}(?:(?:an?|one|half an?|\d+)\s*(?:hours?|hrs?|minutes?|mins?)\s+)?(?:right\s+)?after\s+(?:that|it|this)\b)|\s+and\s+(?=(?:add|put|pop|stick|throw|move|push|shift|shove|slide|bump|nudge|reschedule|drop|clear|delete|remove|cancel|schedule|book|log)\b)|\s*,\s*(?=(?:and |also |then )?(?:my )?(?:bed\s?time|sleep(?:\s?time)?|wake|alarm|(?:i )?(?:ate|eaten|drank))\b)|\s+and\s+(?=(?:my\s+)?(?:bed\s?time|sleep(?:\s?time)?|wake\s+(?:me|up)|alarm|set (?:an? )?alarm|(?:i )?(?:ate|eaten|drank|did|went to)\b))/;
 const BEDTIME = /(?:\b(?:push|move|shift|set|change|make|put)\s+|^(?:and |also |then )?)(?:my\s+)?(?:sleep(?:\s?time)?|bed\s?time|bed)\s+(?:back\s+|earlier\s+|later\s+|up\s+)?(?:to|until|till|at|for)\s+(\S+(?:\s*[ap]\.?m\.?)?)\b/;
 const SLEEP_HOURS = /\b(?:plan|aim|give me|get|want|need)\b.*\b(\d{1,2})\s*(?:hours?|hrs?)\s+(?:of\s+)?sleep\b/;
 const SLEPT_SAY = /^(?:(?:i|ive|i've)\s+)?(?:just\s+)?(?:went to bed|got to bed|got into bed|fell asleep|slept|got to sleep|crashed)\b/;
@@ -46,7 +46,9 @@ function didnt(c0, dflt = "today") {
     const m = /\b(?:didn'?t|did not|never)\s+(?:do|go to|go|make it to|make it|have|get to|end up doing|bother with|attend)\s+(?:the |my |that |any )?(.+?)(?:\s+(?:block|session|slot))?\s*(?:,|;|-|\band\b|\bbecause\b|\bcause\b|\bcoz\b|\binstead\b|\bi\b|$)(.*)$/.exec(c);
     if (!m)
         return null;
-    const name = nameOf(m[1]);
+    // "the 11:20" is the block that starts at 11:20 (a clock alone has no letters for nameOf).
+    const clockName = /^(?:the |my )?(\d{1,2}:\d{2})$/.exec(tidy(m[1]))?.[1];
+    const name = nameOf(m[1]) ?? clockName ?? null;
     if (!name)
         return null;
     const tail = (m[2] ?? "").trim();
@@ -144,14 +146,14 @@ function droppedAfter(c, dflt) {
 const AFTER_THAT = /^(?:that|it|then|this|the first one|the one before)$/;
 // "shove the orion plan an hour after that", "put dinner right after the gym", "slide study after it": a block placed after another.
 function movedAfter(c, dflt, prev) {
-    const m = /^(?:move|push|shift|shove|slide|bump)\s+(?:my\s+|the\s+)?(.+?)\s+(?:(?<gap>(?:an?|one|half an?|\d+)\s*(?:hours?|hrs?|h|minutes?|mins?))\s+)?(?:right\s+|straight\s+|just\s+|directly\s+)?after\s+(?:my\s+|the\s+)?(?<anchor>[a-z][a-z' ]{0,30})$/.exec(c);
+    const m = /^(?:(?:move|push|shift|shove|slide|bump)\s+)?(?:my\s+|the\s+)?(.+?)\s+(?:(?<gap>(?:an?|one|half an?|\d+)\s*(?:hours?|hrs?|h|minutes?|mins?))\s+)?(?:right\s+|straight\s+|just\s+|directly\s+)?after\s+(?:my\s+|the\s+)?(?<anchor>[a-z][a-z' ]{0,30})$/.exec(c);
     if (!m?.groups)
         return null;
     const name = nameOf(m[1]);
     const anchorSaid = m.groups.anchor.trim();
     // Only "after that / after it": a block named by name ("move gym after dinner") is the calendar layer's own `--after`.
     const after = AFTER_THAT.test(anchorSaid) ? prev : undefined;
-    if (!name || !after)
+    if (!name || !after || /^(?:add|put|schedule|book|log|drop|clear)\b/.test(name))
         return null;
     const gap = m.groups.gap ? takeLength(m.groups.gap).minutes ?? 0 : 0;
     return { op: "moveafter", name, day: dayOf(c, dflt), after, gap };

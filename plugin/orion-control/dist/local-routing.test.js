@@ -553,7 +553,7 @@ describe("local routing — review of the 2026-10-16 sweep fixes", () => {
         const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
         const f = fakeApi();
         const flows = [];
-        registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Fri 10:00",
+        registerLocalRouting(f.api, { warm: false, mode: "on", logPath, now: () => new Date(2030, 9, 4, 10, 0), decideImpl: async () => decision, clock: () => "Fri 10:00",
             brainSearch: opts.brainSearch ?? (async () => ""), readDay: opts.readDay ?? (async () => "1. Gym 17:00"),
             scheduleFlow: async (m) => { flows.push(m); return { outcome: "fallback", reason: "test" }; } });
         return { f, flows, ctx: { runId: "rv1", sessionKey: "agent:main:orion-chat-rv" } };

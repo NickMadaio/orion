@@ -11,11 +11,16 @@ export const NO_RETRY_LINE = "Ask me again and I'll retry.";
 const RETRY_WORD = /^(?:(?:yeah|yes|yep|yup|ok|okay|sure|please)[\s,]+)?(?:go(?: ahead| again| on| for it)?|do it(?: again)?|try(?: it)? again|retry(?: it)?|have another go)[\s.!]*$/i;
 /** A bare go-ahead for a retry ("go", "yeah go", "do it", "try again", "retry"), not a sentence that starts with one. */
 export const isRetryWord = (text) => RETRY_WORD.test(text.trim());
-/** The slot after a reply: set when it offers a retry for `message` (never for a retry word itself), else empty. */
+/** A reply that says a change did not happen ("I couldn't add the call: ... Want me to try it a different way?"): his "try again" runs that message again (gate #54). */
+export const FAILED_CHANGE = /^\s*(?:i\s+)?(?:couldn'?t|could not|can'?t|wasn'?t able|was not able|didn'?t manage)\b|\bnothing (?:was )?(?:changed|booked|moved|added)\b|\bso nothing is unchanged\b|\b(?:so|and) (?:it'?s|that part is) unchanged\b/i;
+const NOT_A_CHANGE_ASK = /\?\s*$|^(?:what|when|why|how|who|where|is|are|do|does|did|can|could|which|whats|what's)\b/i;
+/** The slot after a reply: set when it offers a retry, or says a change he asked for failed, for `message` (never for a retry word itself), else empty. */
 export function afterReply(reply, message, now) {
-    if (!RETRY_OFFER.test(reply) || !message.trim() || isRetryWord(message))
+    if (!message.trim() || isRetryWord(message))
         return undefined;
-    return { message, at: now };
+    if (RETRY_OFFER.test(reply) || (FAILED_CHANGE.test(reply) && !NOT_A_CHANGE_ASK.test(message.trim())))
+        return { message, at: now };
+    return undefined;
 }
 /** The message to run for this turn: the stored one when this is a fresh retry word, else what he typed. */
 export function replayOf(slot, typed, now) {

@@ -83,6 +83,8 @@ export type RealityDeps = {
     stateDir?: string;
     /** His deadlines, for what freed class time is spent on (freed-class-time.ts). */
     readDeadlines?: () => Promise<DeadlineRead | null | undefined>;
+    /** What the calendar held on a day that is over (agenda-day.ts): the scheduler refuses to read a past day. */
+    agendaDay?: (date: string) => Promise<import("./agenda-day.js").AgendaDay | undefined>;
 };
 /** What a reality turn did: the reply, the declared fact ids and how many calendar writes (each is one orion-reschedule undo). */
 export type RealityOutcome = {

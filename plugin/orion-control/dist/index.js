@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
 import { liveCheckinRun, liveExtractReminder, liveModelWarm, liveReadDay, liveReadDayJson, liveRealityRun, liveReplay, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
+import { liveAgendaDay } from "./agenda-day.js";
 import { probeOllama } from "./model-outage.js";
 import { createMacBridge } from "./computer-bridge.js";
 import { createComputerWorker } from "./computer-worker.js";
@@ -1406,6 +1407,7 @@ export function installProvenanceHooks(api) {
             scheduleFlow: liveScheduleFlow,
             readDay: liveReadDay,
             readDayJson: liveReadDayJson,
+            agendaDay: liveAgendaDay,
             readDeadlines: liveReadDeadlines,
             connectorStatus: liveConnectorStatus,
             extractReminder: liveExtractReminder,

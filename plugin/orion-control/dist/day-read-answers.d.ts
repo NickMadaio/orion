@@ -3,6 +3,15 @@ import { type Day } from "./schedule-flow.js";
 export declare function dayRead(day: Day & {
     allDay?: string[];
 }): string;
+export type Row = {
+    hour: number;
+    minute: number;
+    endHour: number;
+    endMinute: number;
+    title: string;
+    over: boolean;
+};
+export declare function rows(day: string): Row[];
 export declare const spokenTime: (hour: number, minute: number) => string;
 export declare function noBlockReply(message: string, day: string, tomorrow: boolean): string | null;
 /** "in about 8 h 17 min" / "in about 25 min" / "in about 2 h". */

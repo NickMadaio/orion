@@ -103,7 +103,7 @@ export function readReality(message, now = pluginNow()) {
         return again ? { reality: { kind: "edit", edit: again, undoFirst: true }, rest: false } : null;
     }
     const edit = readOverride(message, now) ?? readDayEdit(message, now);
-    if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op !== "add" && p.op !== "move" && p.op !== "drop" && p.op !== "note")))
+    if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op !== "add" && p.op !== "move" && p.op !== "drop" && p.op !== "note" && p.op !== "shift")))
         return { reality: { kind: "edit", edit }, rest: false };
     const request = readDayRequest(message, now);
     if (request)

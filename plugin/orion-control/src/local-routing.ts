@@ -1373,7 +1373,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       : codeFirst || whyAsked || own || kmove ? Promise.resolve<Decision>({ move: "escalate", fallback: "code-first", ms: 0 })
       : Promise.resolve(deskHealth.begin()).then((call) => Promise.resolve()
         .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs, ...(outreach ? { history: outreachHistory(outreach) } : {}), ...(deskContext ? { context: deskContext } : {}) }))
-        .then((d) => { deskHealth.record(d, call); return d; })
+        .then((d) => { deskHealth.record(d, call); if ("say" in d && d.say) progress.say(sessionKey, d.say); return d; })
         .catch((error: unknown) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
     const askContext = parseAskContext(raw);
     // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).

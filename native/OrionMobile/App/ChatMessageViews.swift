@@ -51,7 +51,7 @@ struct ChatExchange: View {
 
     /// The small line under his bubble: Sending…, Delivered, or what to do about a failure.
     @ViewBuilder private var statusLine: some View {
-        if let caption = delivery.caption(macOnline: macOnline) {
+        if let caption = delivery.caption(macOnline: macOnline, received: message.received) {
             let failed = delivery.canRetry
             HStack(spacing: 6) {
                 if failed { Image(systemName: "exclamationmark.circle").font(.system(size: 11)) }
@@ -89,7 +89,7 @@ struct ChatExchange: View {
             case .waiting, .thinking:
                 HStack(spacing: 10) {
                     PhoneThinkingDots()
-                    PhoneShimmerText(text: delivery == .waiting ? waitingText : "Thinking")
+                    PhoneShimmerText(text: delivery == .waiting ? waitingText : (message.progress ?? "Thinking"))
                 }
                 .transition(.opacity)
             case .sending, .notSent, .stalled:

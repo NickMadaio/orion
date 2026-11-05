@@ -33,6 +33,11 @@ final class CloudLink: ObservableObject {
         /// Whether iCloud has this message yet (a message the phone sent; a message from the feed is always saved).
         var upload: ChatUpload = .saved
 
+        /// What ORION is doing right now, while status is `running` (the Mac's progress line); nil otherwise.
+        var progress: String? = nil
+        /// The Mac has acknowledged this message (delivered, not yet answered).
+        var received: Bool { status == .received }
+
         /// Where this message is in its life: sending, delivered, thinking, answered, or stuck.
         func delivery(now: Date) -> ChatDelivery {
             ChatDelivery.state(status: status, upload: upload, sentAt: sentAt, now: now)
@@ -71,7 +76,9 @@ final class CloudLink: ObservableObject {
                 // keep trying until the zone is ready, then fetch.
                 if self?.iCloudReady == false { await self?.prepare() }
                 await self?.refresh()
-                try? await Task.sleep(for: .seconds(4))
+                // Quicker while a message is out (the Mac's acknowledgement and progress lines arrive as changes).
+                let busy = self?.messages.contains { [.pending, .received, .running].contains($0.status) && $0.kind == .chat && $0.sentAt > Date().addingTimeInterval(-900) } ?? false
+                try? await Task.sleep(for: .seconds(busy ? 2 : 4))
             }
         }
     }
@@ -200,16 +207,20 @@ final class CloudLink: ObservableObject {
             }
         case LinkSchema.commandType:
             let kind = (record[LinkSchema.commandKind] as? String).flatMap(LinkCommandKind.init(rawValue:)) ?? .control
+            let status = (record[LinkSchema.commandStatus] as? String).flatMap(LinkCommandStatus.init(rawValue:)) ?? .pending
+            // While the Mac works, its reply field carries a progress line ("Rebuilding your evening"), not an answer.
+            let line = record[LinkSchema.commandReply] as? String
             byID[record.recordID.recordName] = Message(
                 id: record.recordID.recordName,
                 text: record[LinkSchema.commandText] as? String ?? "",
                 sentAt: record[LinkSchema.commandSentAt] as? Date ?? record.creationDate ?? .distantPast,
                 kind: kind,
-                status: (record[LinkSchema.commandStatus] as? String).flatMap(LinkCommandStatus.init(rawValue:)) ?? .pending,
-                reply: record[LinkSchema.commandReply] as? String,
+                status: status,
+                reply: status == .running ? nil : line,
                 repliedAt: record[LinkSchema.commandRepliedAt] as? Date, thinking: record[LinkSchema.commandThinking] as? String, conversationID: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String,
                 askID: record[LinkSchema.commandAskID] as? String,
-                replyTo: record[LinkSchema.commandReplyTo] as? String)
+                replyTo: record[LinkSchema.commandReplyTo] as? String,
+                progress: status == .running ? line : nil)
         default:
             break
         }

@@ -39,7 +39,12 @@ export type ProgressDoc = {
   readonly updatedAt: string;
   readonly stages: readonly ProgressEntry[];
   readonly done: boolean;
+  /** The front desk's one-line "on it" for this turn (w20): carried to the phone; never a stage, because the app speaks stages. */
+  readonly say?: string;
 };
+
+/** Longest "say" kept: one short line. */
+export const MAX_SAY = 140;
 
 /** Progress files older than this are deleted when a new turn begins (one file per session otherwise lingers forever). */
 export const PRUNE_AFTER_MS = 24 * 60 * 60_000;
@@ -139,6 +144,14 @@ export class TurnProgress {
         try { if (statSync(file).mtimeMs < cutoff) unlinkSync(file); } catch { /* raced with a writer: leave it */ }
       }
     } catch { /* no directory yet */ }
+  }
+
+  /** The front desk's progress line for the running turn. Ignored when the turn has not begun or the line is empty. */
+  say(sessionKey: string | undefined, text: string): void {
+    const doc = sessionKey ? this.docs.get(sessionKey) : undefined;
+    const line = text.replace(/\s+/g, " ").trim().slice(0, MAX_SAY);
+    if (!doc || !line || doc.say === line) return;
+    this.put({ ...doc, say: line, updatedAt: this.now().toISOString() });
   }
 
   stage(sessionKey: string | undefined, stage: StageId, detail?: string): void {

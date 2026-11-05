@@ -61,7 +61,9 @@ public enum LinkSchema {
 }
 
 public enum LinkCommandStatus: String, Codable, Sendable {
-    case pending, running, done, failed
+    /// `received` (w20): the Mac has the command (queued behind another, or about to start). An older phone build reads the
+    /// unknown word as `pending`, which is what it showed before.
+    case pending, received, running, done, failed
 }
 
 public enum LinkCommandKind: String, Codable, Sendable {

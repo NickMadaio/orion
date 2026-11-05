@@ -1,7 +1,8 @@
 import { Type, type Static } from "typebox";
 import { registerAccountHealth } from "./account-health.js";
 import { guardToolCall, ToolBudget } from "./tool-guards.js";
-import { liveCheckinRun, liveExtractReminder, liveModelWarm, liveReadDay, liveReadDayJson, liveRealityRun, liveReplay, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
+import { liveCheckinRun, liveExtractReminder, liveModelWarm, liveReadDay, liveLedgerRun, liveReadDayJson, liveRealityRun, liveReplay, liveScheduleFlow, registerLocalRouting, undoJournalTop, userText } from "./local-routing.js";
+import { liveAgendaDay } from "./agenda-day.js";
 import { probeOllama } from "./model-outage.js";
 import { createMacBridge } from "./computer-bridge.js";
 import { createComputerWorker } from "./computer-worker.js";
@@ -21,11 +22,13 @@ import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
 import { liveConnectorStatus } from "./code-answers.js";
 import { readReminders, remindersPath } from "./ambient.js";
+import { updateReminders } from "./reminder-store.js";
 import { liveResolveApp, liveSessionExec, liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { liveFocusProfile, liveFocusSites, livePending, liveTasksRun } from "./focus-ready.js";
 import { liveWakeFlow } from "./wake-flow.js";
 import { liveTodoDoneFlow } from "./todo-done-flow.js";
 import { liveNoteFlow } from "./note-flow.js";
+import { liveChatDeps } from "./chat-asks-live.js";   // w20 r3
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import {
@@ -1732,8 +1735,11 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       stateDir: process.env.ORION_CONTROLLED_DIR || path.join(os.homedir(), ".openclaw", "orion-controlled"),
       userMdPath: path.join(os.homedir(), ".openclaw", "workspace", "USER.md"),
       scheduleFlow: liveScheduleFlow,
+      ledgerRun: liveLedgerRun,   // w20 r3: undo / remove what ORION made (ledger-run.ts)
+      removeReminders: (ids) => updateReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined), (list) => list.filter((r) => !ids.includes(r.id))).then(() => undefined),
       readDay: liveReadDay,
       readDayJson: liveReadDayJson,
+      agendaDay: liveAgendaDay,
       readDeadlines: liveReadDeadlines,
       connectorStatus: liveConnectorStatus,
       extractReminder: liveExtractReminder,
@@ -1760,6 +1766,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       messagesRead: liveMessagesRead,
       todoDoneFlow: liveTodoDoneFlow,
       noteFlow: liveNoteFlow,
+      chatRun: liveChatDeps(),   // w20 r3: open / list add / list read by code (chat-asks.ts)
       checkinRun: liveCheckinRun,
       realityRun: liveRealityRun,
       // 2026-10-31: the screen loop (computer-loop.ts) on the same two tiers the catalog gates; one bridge factory, relay first.

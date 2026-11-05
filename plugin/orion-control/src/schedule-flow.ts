@@ -11,10 +11,13 @@
  Nick: "you go okay, the start time is a because the class ends at b, and the end time is x because
  the lab starts at y" — that decomposition is compile() below.
 */
+import type { ScheduleFailure } from "./schedule-failure.js";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js";
-import { eveningTime, spokenTimesToDigits } from "./direct-add.js";
+import { isTimerRequest } from "./tool-moves.js";
+import { SOCIAL_TITLE, mealEnd } from "./meal-anchors.js";
+import { eveningTime, spokenTimesToDigits, trulyAmbiguous } from "./direct-add.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
 import { blocksNamed, replanReply, type ReplanAsk } from "./day-replan.js";
 import { dayPlanReply } from "./day-plan.js";
@@ -33,7 +36,7 @@ import { asksToShiftAfter, movesThisOne, overrunIsMove } from "./own-event-write
 export { nothingWritten, spokenFailure, spokenReply, summarize };
 
 /** nameable: one of his own events (not a class or a plan with people): fixed for automatic changes, but he may move it by naming it. */
-export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string; nameable?: boolean };
+export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string; nameable?: boolean; /** ORION booked it itself (w20 r3: it may come off his day when he says so). */ made?: boolean; /** The calendar id of a block ORION made (for an exact drop). */ id?: string };
 /** plan: what `show --json` says about how the scheduler lays this day out (the trip home, the gap between blocks, the daily anchors). */
 export type Day = { date: string; now: string | null; blocks: DayBlock[]; plan?: { commuteMinutes: number; bufferMinutes: number; anchors: Array<{ title: string; minutes: number }> } };
 export type Intent = {
@@ -314,7 +317,9 @@ export function compile(input: Intent, day: Day, message?: string, opts: { singl
   // A clock he said with no am/pm, in the evening, is the evening ("until 10:30" at 21:55 is 22:30, not this morning).
   if (day.now && message && ["add", "move", "extend"].includes(step.do)) {
     const n = toMin(day.now);
-    step = { ...step, ...(step.to ? { to: eveningTime(step.to, n, message) } : {}), ...(step.until ? { until: eveningTime(step.until, n, message) } : {}) };
+    const close = step.do === "add" || step.do === "move" ? trulyAmbiguous(step.to, n, message) : undefined;
+    if (close) return { say: "ask", text: `Do you mean ${ampm(close[0])} or ${ampm(close[1])} for ${cleanAddTitle(String(step.what ?? "it"))}?` };
+    step = { ...step, ...(step.to ? { to: eveningTime(step.to, n, message) } : {}), ...(step.until ? { until: eveningTime(step.until, n, message, false) } : {}) };
   }
   const byId = (id?: string) => (id && /^B\d+$/.test(id) ? day.blocks[Number(id.slice(1)) - 1] : undefined);
   const now = day.now ? toMin(day.now) : 0;
@@ -436,7 +441,15 @@ export function compile(input: Intent, day: Day, message?: string, opts: { singl
       if (!Number.isFinite(minutes)) return { error: "add needs minutes, or a start (to) and an end (until)" };
       // A block with no length is not a block: a to-do became add "email prof…" 0 (sweep q043, 2026-10-15).
       if (minutes! < 5) return { error: "add needs at least 5 minutes" };
-      const at = stated ? ["--at", time(step.to)!] : anchor?.after ? ["--after", anchor.after.title] : [];
+      // A plan with someone is booked at an exact time only. "after lunch" with no lunch on the day is the usual end of lunch (meal-anchors.ts);
+      // with no clue at all, he is asked, never told "a fixed plan needs --at".
+      let social: string[] | undefined;
+      if (!stated && !anchor?.after && !anchor?.before && SOCIAL_TITLE.test(step.what)) {
+        const end = message ? mealEnd(message) : undefined;
+        if (end !== undefined && end >= now) social = ["--at", hhmm(Math.ceil(end / 5) * 5)];
+        else return { say: "ask", text: `What time should I put ${step.what} at?` };
+      }
+      const at = social ?? (stated ? ["--at", time(step.to)!] : anchor?.after ? ["--after", anchor.after.title] : []);
       const end = !stated && anchor?.before ? ["--before", hhmm(anchor.before.minute)] : [];
       return { args: ["add", step.what, String(Math.round(minutes!)), ...at, ...end, ...(again ? ["--again"] : [])] };
     }
@@ -552,11 +565,15 @@ export const TOOK_BACK = "Okay, you took that back, so I've left your day as it 
 export type FlowResult =
   /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
   /** reply: a flow that builds its own reply (session-flow.ts) — used as-is instead of spokenReply(outputs). */
-  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string; /** a later call failed after an earlier one wrote */ partial?: true; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */ uncertain?: true; /** the reschedule request this change carried out, remembered for a follow-up reorder */ replan?: ReplanAsk }
+  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string; /** a later call failed after an earlier one wrote */ partial?: true; /** why each refused step refused, as data for the wording layer (schedule-failure.ts) */ failures?: ScheduleFailure[]; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */ uncertain?: true; /** the reschedule request this change carried out, remembered for a follow-up reorder */ replan?: ReplanAsk }
   /** plain: said exactly as written (no "That doesn't fit" framing). calls/outputs: a scheduler run that changed nothing. */
-  | { outcome: "say"; text: string; kind: "cannot" | "ask" | "plain"; calls?: string[]; outputs?: string[]; pending?: PendingAdd; /** a reschedule request that was read but not carried out, remembered for a follow-up */ replan?: ReplanAsk;
+  | { outcome: "say"; text: string; kind: "cannot" | "ask" | "plain"; calls?: string[]; outputs?: string[]; failures?: ScheduleFailure[]; pending?: PendingAdd; /** a reschedule request that was read but not carried out, remembered for a follow-up */ replan?: ReplanAsk;
     /** the writes the time backstop refused, as they were (logged) */ blocked?: string[][] }
   | { outcome: "fallback"; reason: string };
+
+const SEPARATE_VERBS = new Set(["add", "drop", "move", "resize", "rename", "log"]);
+/** Several steps that each name their own block: a failure in one says nothing about the others. */
+const separateSteps = (argvs: string[][]): boolean => argvs.length > 1 && argvs.every((a) => SEPARATE_VERBS.has(a[0] ?? "") && !a.includes("--after")) && new Set(argvs.map((a) => (a[1] ?? "").toLowerCase())).size === argvs.length;
 
 /** Runs argv lists in order, recording what ran and the undo stamp of each change (shared by a fresh request and a confirmed pending one). */
 async function execute(argvs: string[][], { exec, undoTop, when, undone, before, reread }: {
@@ -574,7 +591,9 @@ async function execute(argvs: string[][], { exec, undoTop, when, undone, before,
     if (after && after !== top) marks.push(after);
     // A crash, a kill or an exit that is not one of its own refusals: nobody knows what was written (review 2026-10-21).
     if (stdout.startsWith(UNKNOWN_OUTCOME) || (code !== 0 && !FAILED.test(stdout) && !nothingWritten(stdout))) { unknown = true; break; }
-    if (FAILED.test(stdout)) break; // the rest depended on this one
+    // The rest depended on this one, unless the steps are separate things on the day (add A, add B, move C): one that failed
+    // never stops the others (2026-11-04: "7pm to 9:30pm. Then gym from 10pm" ran the first add and stopped).
+    if (FAILED.test(stdout) && !separateSteps(argvs)) break;
   }
   if (unknown) {
     // Never "nothing changed" and never a "Done" without proof: the day is read back and compared with how it was.
@@ -652,6 +671,8 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
   const tooSlow: FlowResult = { outcome: "fallback", reason: "too slow" };
   /** The day a stored argv was for (its --date), read again: only after an unknown outcome. */
   const readDayAgain = (argv: string[]): Promise<Day | undefined> => { const i = argv.indexOf("--date"); return exec(["show", "--json", ...(i >= 0 && argv[i + 1] ? ["--date", argv[i + 1]!] : [])]).then((r) => JSON.parse(r.stdout) as Day, () => undefined); };
+  // A countdown is the timer tool's, never a block on the calendar (gate #69).
+  if (isTimerRequest(message)) return { outcome: "fallback", reason: "a timer, not the calendar" };
   if (edit) return runEdit(edit, { exec, undoTop });
   if (pending?.kind === "push") return execute(pending.argvs, { exec, undoTop, when: pending.when, undone: 0, reread: () => readDayAgain(pending.argvs[0] ?? []) });
   // Spoken times ("until ten thirty") are read as digits before anything else looks at them (2026-10-19).

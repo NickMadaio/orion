@@ -33,7 +33,7 @@ const namedAs = (k) => new RegExp(`\\b(?:my|the|a|an)\\s+(?:\\w+\\s+)?(?:${k.ask
 // "do i have time for a nap", "can i fit a workout in": a question about whether it would fit, not whether it is scheduled.
 const FITTING = /\b(?:time for|room for|squeeze|fit)\b/i;
 const BLOCK = /^B\d+ (\d{2}):(\d{2})–(\d{2}):(\d{2}) (.*?)(?: \(FIXED\))?(?: \(already happened\))?$/;
-function rows(day) {
+export function rows(day) {
     return day.split("\n").flatMap((line) => {
         const m = BLOCK.exec(line.trim());
         return m ? [{ hour: Number(m[1]), minute: Number(m[2]), endHour: Number(m[3]), endMinute: Number(m[4]), title: m[5], over: /\(already happened\)\s*$/.test(line.trim()) }] : [];

@@ -13,6 +13,7 @@ import { acknowledgement, acknowledgesFailure, failedTools, wroteSomething } fro
 import { outcomeOf } from "./work-check.js";
 import { fahrenheitWords } from "./weather-words.js";
 import { firstPerson } from "./self-voice.js";
+import { OVERFLOW, OVERFLOW_LINE } from "./history-trim.js";
 const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
 const GMAIL_OTHER = "I couldn't read your Gmail just now.";
@@ -221,6 +222,9 @@ export function finalizeReply(reply, tools, ctx = {}) {
     return firstPerson(fahrenheitWords(finalizeCore(reply, tools, ctx))); // w18 voiceself: ORION speaks as "I"
 }
 function finalizeCore(reply, tools, ctx) {
+    // The host's raw "Context overflow: prompt too large ... Try /reset" is never shown (gate #57).
+    if (OVERFLOW.test(reply))
+        return OVERFLOW_LINE;
     const failed = ctx.codeAuthored ? [] : failedTools(tools);
     if (!ctx.codeAuthored && restatesMoveWithoutWrite(reply, tools, ctx.askedChange === true))
         return NOTHING_MOVED;

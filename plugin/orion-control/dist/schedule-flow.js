@@ -1,19 +1,8 @@
-/*
- Scheduling as a fixed sequence, not an open-ended tool loop (2026-10-12; research ideas #3/#4,
- docs/evals/v3/RESEARCH_IDEAS.md — TinyAgent, Apple's on-device model, SMCalFlow).
-
-   1. code reads the whole day (orion-reschedule show --json, past blocks included) and numbers it
-   2. the worker fills ONE small form; every block reference must be one of today's real ids (B1…)
-   3. code compiles the form into exact orion-reschedule arguments (no shell, no paths, no "&"
-      problem, no time arithmetic for the model — "between A and B" = from A's end to B's start)
-   4. the scheduler runs it; the worker only phrases what the scheduler printed
-
- Nick: "you go okay, the start time is a because the class ends at b, and the end time is x because
- the lab starts at y" — that decomposition is compile() below.
-*/
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { eveningTime, spokenTimesToDigits } from "./direct-add.js";
+import { isTimerRequest } from "./tool-moves.js";
+import { SOCIAL_TITLE, mealEnd } from "./meal-anchors.js";
+import { eveningTime, spokenTimesToDigits, trulyAmbiguous } from "./direct-add.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
 import { blocksNamed, replanReply } from "./day-replan.js";
 import { dayPlanReply } from "./day-plan.js";
@@ -309,7 +298,10 @@ export function compile(input, day, message, opts = {}) {
     // A clock he said with no am/pm, in the evening, is the evening ("until 10:30" at 21:55 is 22:30, not this morning).
     if (day.now && message && ["add", "move", "extend"].includes(step.do)) {
         const n = toMin(day.now);
-        step = { ...step, ...(step.to ? { to: eveningTime(step.to, n, message) } : {}), ...(step.until ? { until: eveningTime(step.until, n, message) } : {}) };
+        const close = step.do === "add" || step.do === "move" ? trulyAmbiguous(step.to, n, message) : undefined;
+        if (close)
+            return { say: "ask", text: `Do you mean ${ampm(close[0])} or ${ampm(close[1])} for ${cleanAddTitle(String(step.what ?? "it"))}?` };
+        step = { ...step, ...(step.to ? { to: eveningTime(step.to, n, message) } : {}), ...(step.until ? { until: eveningTime(step.until, n, message, false) } : {}) };
     }
     const byId = (id) => (id && /^B\d+$/.test(id) ? day.blocks[Number(id.slice(1)) - 1] : undefined);
     const now = day.now ? toMin(day.now) : 0;
@@ -463,7 +455,17 @@ export function compile(input, day, message, opts = {}) {
             // A block with no length is not a block: a to-do became add "email prof…" 0 (sweep q043, 2026-10-15).
             if (minutes < 5)
                 return { error: "add needs at least 5 minutes" };
-            const at = stated ? ["--at", time(step.to)] : anchor?.after ? ["--after", anchor.after.title] : [];
+            // A plan with someone is booked at an exact time only. "after lunch" with no lunch on the day is the usual end of lunch (meal-anchors.ts);
+            // with no clue at all, he is asked, never told "a fixed plan needs --at".
+            let social;
+            if (!stated && !anchor?.after && !anchor?.before && SOCIAL_TITLE.test(step.what)) {
+                const end = message ? mealEnd(message) : undefined;
+                if (end !== undefined && end >= now)
+                    social = ["--at", hhmm(Math.ceil(end / 5) * 5)];
+                else
+                    return { say: "ask", text: `What time should I put ${step.what} at?` };
+            }
+            const at = social ?? (stated ? ["--at", time(step.to)] : anchor?.after ? ["--after", anchor.after.title] : []);
             const end = !stated && anchor?.before ? ["--before", hhmm(anchor.before.minute)] : [];
             return { args: ["add", step.what, String(Math.round(minutes)), ...at, ...end, ...(again ? ["--again"] : [])] };
         }
@@ -580,6 +582,9 @@ export function dayArgsFor(message, now = pluginNow()) {
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
 /** A request he took back at the end ("…, nvm"): said back, nothing guessed from it. */
 export const TOOK_BACK = "Okay, you took that back, so I've left your day as it is.";
+const SEPARATE_VERBS = new Set(["add", "drop", "move", "resize", "rename", "log"]);
+/** Several steps that each name their own block: a failure in one says nothing about the others. */
+const separateSteps = (argvs) => argvs.length > 1 && argvs.every((a) => SEPARATE_VERBS.has(a[0] ?? "") && !a.includes("--after")) && new Set(argvs.map((a) => (a[1] ?? "").toLowerCase())).size === argvs.length;
 /** Runs argv lists in order, recording what ran and the undo stamp of each change (shared by a fresh request and a confirmed pending one). */
 async function execute(argvs, { exec, undoTop, when, undone, before, reread }) {
     const calls = [];
@@ -599,8 +604,10 @@ async function execute(argvs, { exec, undoTop, when, undone, before, reread }) {
             unknown = true;
             break;
         }
-        if (FAILED.test(stdout))
-            break; // the rest depended on this one
+        // The rest depended on this one, unless the steps are separate things on the day (add A, add B, move C): one that failed
+        // never stops the others (2026-11-04: "7pm to 9:30pm. Then gym from 10pm" ran the first add and stopped).
+        if (FAILED.test(stdout) && !separateSteps(argvs))
+            break;
     }
     if (unknown) {
         // Never "nothing changed" and never a "Done" without proof: the day is read back and compared with how it was.
@@ -657,6 +664,9 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     const tooSlow = { outcome: "fallback", reason: "too slow" };
     /** The day a stored argv was for (its --date), read again: only after an unknown outcome. */
     const readDayAgain = (argv) => { const i = argv.indexOf("--date"); return exec(["show", "--json", ...(i >= 0 && argv[i + 1] ? ["--date", argv[i + 1]] : [])]).then((r) => JSON.parse(r.stdout), () => undefined); };
+    // A countdown is the timer tool's, never a block on the calendar (gate #69).
+    if (isTimerRequest(message))
+        return { outcome: "fallback", reason: "a timer, not the calendar" };
     if (edit)
         return runEdit(edit, { exec, undoTop });
     if (pending?.kind === "push")

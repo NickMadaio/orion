@@ -1,14 +1,45 @@
+/*
+ A plain "put X until T" is code's, not the 9B form's (2026-10-19 incident, docs/audits/2026-10-19-cslab-incident.md).
+
+ Tonight "yes, put cs lab until 10:30" (an answer to ORION's own "I could put CS Lab there") and "put CS lab from now until
+ ten thirty" were handed to the form. The form picked the lab CLASS (fixed) and the flow gave up, or read 10:30 as the
+ morning. Here code reads the whole request itself, from the words and the day, with nothing left to a model:
+   - what: the thing he names, or the thing ORION itself offered (a bare yes accepts it)
+   - from: now (rounded up to 5 minutes), the only start this reads
+   - until: a clock time said without am/pm is the NEXT time that clock shows ("10:30" at 21:55 is 22:30)
+   - spelled-out times ("ten thirty") are read as digits first
+ Anything that is not this exact shape returns undefined and the form handles it as before.
+*/
+import { EARLY_CUE, LATE_CUE, WAKING_FROM } from "./waking-hours.js";
 import { isYes } from "./schedule-pending.js";
 import { clockAfter, parseClock, resolveEnd, spokenTimesToDigits } from "./intent-time.js";
 export { clockAfter, spokenTimesToDigits };
 const toMin = (t) => { const [h, m] = t.split(":").map(Number); return (h ?? 0) * 60 + (m ?? 0); };
 const hhmm = (n) => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 /** The time he states in the evening that a form would write as the morning: "10:30" at 21:55 is 22:30, but only with no am/pm in his words. */
-export function eveningTime(t, nowMinute, message) {
+export function eveningTime(t, nowMinute, message, start = true) {
     if (!t || !/^\d{1,2}:\d{2}$/.test(t) || /\b(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message))
         return t;
     const m = toMin(t);
+    // w20 r3 (waking-hours.ts): a small hour (1:00-6:59) he did not call morning is the afternoon or evening one, at any hour of the night:
+    // "add gym at half 5" at 1 AM is 17:30. A 24-hour way of writing it ("05:30") is exact and stays.
+    // His words name the part of the day (dinner, tonight, this arvo: evening; breakfast, first thing: morning): that decides it.
+    if (start && m >= 60 && m < 720 && !/\b0\d:\d{2}\b/.test(message)) {
+        if (EARLY_CUE.test(message) && !LATE_CUE.test(message))
+            return t;
+        if (LATE_CUE.test(message) && !EARLY_CUE.test(message))
+            return hhmm(m + 720);
+    }
+    if (start && m >= 60 && m < WAKING_FROM && !EARLY_CUE.test(message) && !/\b0\d:\d{2}\b/.test(message))
+        return hhmm(m + 720);
     return m < nowMinute && m + 720 > nowMinute && m + 720 < 1440 && m >= 60 && m < 720 ? hhmm(m + 720) : t;
+}
+/** Up in the small hours, a small bare hour only a few hours off ("a walk at 5" at 3 AM) could be this morning or the afternoon: asked, never guessed. */
+export function trulyAmbiguous(t, nowMinute, message) {
+    if (!t || !/^\d{1,2}:\d{2}$/.test(t) || /\b(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message) || EARLY_CUE.test(message) || /\b0\d:\d{2}\b/.test(message))
+        return undefined;
+    const m = toMin(t);
+    return nowMinute < 300 && m >= 60 && m < WAKING_FROM && m > nowMinute && m - nowMinute <= 180 ? [t.padStart(5, "0"), hhmm(m + 720)] : undefined;
 }
 const LEAD = /^(?:(?:yes|yeah|yea|yep|yup|ok(?:ay)?|sure|alright|please|pls|orion|hey|and|so|then|um+|uh+|actually|can you|could you|would you|will you|can u|just|i'?m fine|i'?m ok(?:ay)?)[,.…\s]*)*/i;
 const VERB = String.raw `(?:put|add|schedule|book|block(?:\s+(?:off|out))?|set(?:\s+up)?|pencil in|slot in)`;

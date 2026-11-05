@@ -23,7 +23,7 @@ public enum ChatDelivery: Equatable, Sendable {
         switch status {
         case .done: return .answered
         case .failed: return .failed
-        case .pending:
+        case .pending, .received:
             if upload == .uploading { return .sending }
             return age > waitLimit ? .stalled : .waiting
         case .running:
@@ -37,12 +37,15 @@ public enum ChatDelivery: Equatable, Sendable {
     /// A send that threw may have reached iCloud: the same id is idempotent. A Mac refusal needs a new id (orion-remote's replay guard).
     public var retriesSameID: Bool { self == .notSent }
 
-    /// The small line under his message, or nil once answered.
-    public func caption(macOnline: Bool) -> String? {
+    /// The small line under his message, or nil once answered. `received`: the Mac has acknowledged the command (w20), so it is
+    /// delivered to the Mac and not just saved in iCloud; it stays so while ORION works, until the reply lands.
+    public func caption(macOnline: Bool, received: Bool = false) -> String? {
         switch self {
         case .sending: return "Sending…"
-        case .waiting: return macOnline ? "Delivered" : "Delivered · waiting for your Mac"
-        case .thinking, .answered: return nil
+        case .waiting where received: return "Delivered to your Mac"
+        case .waiting: return macOnline ? "Sent · your Mac will pick it up" : "Sent · waiting for your Mac"
+        case .thinking: return "Delivered to your Mac"
+        case .answered: return nil
         case .notSent: return "Didn’t send — tap to retry"
         case .failed: return "Didn’t go through — tap to retry"
         case .stalled: return "No answer yet — tap to retry"

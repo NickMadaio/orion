@@ -1,5 +1,6 @@
 import type { FlowResult } from "./schedule-flow.js";
 import { type WaterGoalRead } from "./water-goal.js";
+import { type IntakeRead } from "./intake-chat.js";
 export type MealRead = {
     kind: "meal";
     meal: string;
@@ -15,9 +16,10 @@ export type BedtimeRead = {
     kind: "bedtime";
     read: boolean;
     time?: string;
-    week: boolean;
+    week: boolean; /** every night only when he said set/make/change on "bedtime" or "this week"; else tonight (as bedtime-read.ts) */
+    scope?: "tonight" | "always";
 };
-export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead;
+export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead | IntakeRead;
 export declare function readMeal(message: string, now: Date): MealRead | null;
 export declare function readGym(message: string): GymRead | null;
 export declare function readBedtime(message: string): BedtimeRead | null;

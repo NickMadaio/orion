@@ -80,6 +80,18 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 
 ## Log
 
+### 2026-11-05: wave 20, tube issue list (Claude, orchestrator)
+
+- **Audit** (.builds/w20/tube-audit.md, local only): 41 bad turns on 11-04; every turn ran on local qwen3.5:9b + 4B front desk (localRouting on; Haiku never called). Nick re-confirmed: local models only, never cloud.
+- **Failure wording:** failure-reason.ts + honest-reply.ts carry the real reason (bedtime, already started, not found) and a fix offer; no "say it again"; RepeatGuard keyed on his message, never a bare "…" to typed/phone; "want me to build that?" hands off to selffix. retry-slot.ts makes "go"/"try again" rerun the failed message.
+- **Route gate:** route-gate.ts (all-or-nothing slots), spoken-numbers.ts, not-scheduling.ts, multi-ask.ts; workout needs past tense; desk side-effect moves need an aimed verb; "ignore" never silences typed/phone or a direct question; selffix WHY regexes broadened.
+- **Scheduling:** day-edit*.ts: multi-part edits, past edits logged (incl. yesterday), natural times, "anyway" replays only refused parts, undo-then-correct, schedule-failure.ts structured reasons.
+- **Bedtime/wake:** one writer (orion-sleepplan, locked), effective-bed.mjs read by reach/watch/quiet/night-hush/now/inbound/life-window; tonight-only by default, standing only with standing words; "reset my bedtime"; wake = earliest upcoming alarm, stale requests ignored.
+- **WHOOP:** naps + workouts ingested; naps count toward sleep and slide a computed bedtime (never a named one).
+- **Phone:** snapshot cache + "Synced X ago"/Retry on Health; chat redesign + Dynamic Type; received/working states, progress lines, dedupe (>3 words, nothing answered between), late commands ask; one session key per chat, Home composer joins the open chat.
+- **Review:** independent code review found 0 critical, 6 high, 7 medium; all fixed and re-reviewed.
+- **Live gate run 1** (73 turns as Nick): 22 pass / 49 fail. Round 3 fixed: bedtime "({" (pretty JSON parsed by last line), undo runs in code and reads back, remove-what-ORION-made ledger (blocks/notes/reminders/food/water), skip never deletes his events, stale outreach never binds or glues, blank-reply guard, open sites directly, list adds, waking-hours am/pm (waking-hours.ts), planned multi-moves, "X at A not B" corrections, agenda for yesterday, focus end, history trim instead of raw context overflow. Bridge Swift fields (location/notes on restore) need a bridge rebuild with Nick present.
+
 ### 2026-11-04 afternoon: wave 19 (Claude, orchestrator)
 
 - **Schedule:** todo-rank.mjs (priority + deadline + coursework; days overdue ignored) and day-breaks.mjs (meals, a 15-min break after 60 min, never more than 120 min unbroken). plan-reasons.json answers "why is X first". Root cause: `day --todos` never read priority.

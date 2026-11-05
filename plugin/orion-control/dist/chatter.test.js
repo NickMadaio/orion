@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { QUIET_REPLY, QuietWindow, RepeatGuard, STILL_FAILING, addressed, quietAck, quietRequest } from "./chatter.js";
+import { QUIET_REPLY, QuietWindow, RepeatGuard, addressed, quietAck, quietRequest } from "./chatter.js";
 import { tellsFactAloud } from "./memory-facts.js";
 import { SPOKEN_DESK_NOTE, registerLocalRouting } from "./local-routing.js";
 describe("the pieces", () => {
@@ -48,17 +48,28 @@ describe("the pieces", () => {
         expect(w.until(1_000_000 + 3 * 60_000)).toBeNull();
         expect(JSON.parse(readFileSync(join(dir, "chat-quiet.json"), "utf8")).reason).toBe("ended");
     });
-    it("the same failure twice in ten minutes: typed gets one 'same problem' line then nothing, spoken gets nothing", () => {
+    it("the same ask failing twice: typed and phone get a different, useful reply keyed on his message, never a bare ellipsis; spoken goes quiet after one", () => {
         const g = new RepeatGuard();
-        const nd = "Not done: 6:00 AM–6:00 AM is shorter than 5 minutes.";
-        expect(g.guard("s", nd, false, 0)).toBe(nd);
-        expect(g.guard("s", nd, false, 60_000)).toBe(STILL_FAILING);
-        expect(g.guard("s", nd, false, 120_000)).toBe(QUIET_REPLY);
-        expect(g.guard("s", nd, false, 11 * 60_000 + 1)).toBe(nd); // after ten minutes it may be said again
+        const nd = "I couldn't do that: gym at 10:00 PM is after your 9:50 PM bedtime. Want me to move your bedtime for it, or book it anyway?";
+        const ask = "add gym 10 to 11pm i'm going when i get back";
+        expect(g.guard("s", nd, false, 0, ask)).toBe(nd);
+        const second = g.guard("s", nd, false, 60_000, ask);
+        expect(second).not.toBe(nd);
+        expect(second).not.toBe(QUIET_REPLY);
+        expect(second).toMatch(/bedtime/i);
+        expect(second).not.toMatch(/same problem|rephrase|say it again/i);
+        const third = g.guard("s", nd, false, 120_000, ask);
+        expect(third).not.toBe(QUIET_REPLY);
+        expect(third).not.toBe(second);
+        expect(g.guard("s", nd, false, 13 * 60_000, ask)).toBe(nd); // after ten minutes it may be said again
+        // the same failure for a different ask is a new thing to say, not a repeat
+        expect(g.guard("t", nd, false, 0, "put gym at 10")).toBe(nd);
+        expect(g.guard("t", nd, false, 5, "book gym tonight after 10")).toBe(nd);
         const v = new RepeatGuard();
         expect(v.guard("v", nd, true, 0)).toBe(nd);
-        expect(v.guard("v", nd, true, 1)).toBe(QUIET_REPLY);
-        expect(v.guard("v", "Done: moved Gym to 7 PM.", true, 2)).toBe("Done: moved Gym to 7 PM."); // only failures
+        expect(v.guard("v", nd, true, 1)).not.toBe(nd);
+        expect(v.guard("v", nd, true, 2)).toBe(QUIET_REPLY);
+        expect(v.guard("v", "Done: moved Gym to 7 PM.", true, 3)).toBe("Done: moved Gym to 7 PM."); // only failures
         expect(v.guard("other", nd, true, 3)).toBe(nd); // per session
     });
 });
@@ -136,7 +147,10 @@ describe("chatter on the live route", () => {
     it("the same failure line is not repeated within ten minutes: typed gets 'same problem' once", async () => {
         const r = route(() => ({ move: "escalate" }), { scheduleFlow: async () => ({ outcome: "say", kind: "plain", text: "That doesn't fit: there's no gym on that day's calendar" }) });
         expect((await r.turn("move gym to 9pm")).exact).toMatch(/^That doesn't fit/);
-        expect((await r.turn("move gym to 9pm")).exact).toBe(STILL_FAILING);
+        const again = (await r.turn("move gym to 9pm")).exact;
+        expect(again).not.toMatch(/^That doesn't fit/);
+        expect(again).not.toBe(QUIET_REPLY);
+        expect(again).not.toMatch(/same problem|say it again/i);
     });
     it("memory guard: spoken and not 'remember …', a brain learn is blocked; 'orion remember …' is allowed", async () => {
         const r = route(() => ({ move: "escalate" }));

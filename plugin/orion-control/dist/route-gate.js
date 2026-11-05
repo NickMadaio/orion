@@ -1,0 +1,86 @@
+import { isTimerRequest } from "./tool-moves.js";
+import { notScheduling } from "./not-scheduling.js";
+const flat = (s) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
+/** Every slot present, else null. Empty strings and undefined are missing. */
+export function allSlots(slots) {
+    for (const v of Object.values(slots))
+        if (v === undefined || v === null || (typeof v === "string" && !v.trim()))
+            return null;
+    return slots;
+}
+/** Whether a value the front desk (or any reader) produced appears in his words: every word of it of 3+ letters, or every number. */
+export function inHisWords(message, value) {
+    const said = flat(message);
+    const v = flat(String(value ?? ""));
+    if (!v)
+        return false;
+    if (said.includes(v))
+        return true;
+    const words = v.split(/[^a-z0-9]+/).filter((w) => w.length >= 3 || /^\d+$/.test(w));
+    if (!words.length)
+        return false;
+    return words.every((w) => said.includes(w.length > 5 ? w.slice(0, 5) : w));
+}
+const CLOCK = String.raw `(?:\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}:\d{2}|noon|midnight)`;
+const RANGE = new RegExp(String.raw `\b(?:from\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to|until|till)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b`, "i");
+const AT_TIME = new RegExp(String.raw `\b(?:at|around|by|from|until|till)\s+(?:${CLOCK}|\d{1,2}\b)(?!\s*(?:min|mins|minutes|hours?|hrs?|%|times))|\b${CLOCK}`, "i");
+const PLACE_VERB = /\b(?:add|put|place|pencil|schedule|book|block|set up|set|plan|stick|throw|fit|push|move|slot|reserve)\b/i;
+const FOR_AN_HOUR = /\bfor (?:an? hour|\d+ ?(?:min|mins|minutes|hours?|hrs?))\b/i;
+/** A past-tense or "I did" signal: he is telling ORION what happened, not what to put on the calendar. */
+export const PAST_TENSE = /\b(?:i|ive|i've|just|already|finally|today i)\s+(?:just\s+|already\s+|finally\s+)?(?:did|done|finished|completed|went|ran|jogged|swam|lifted|hit|worked out|trained|played|got back|came back|had|was at|been to|crushed|smashed)\b|\b(?:did|finished|completed|crushed|smashed|ran|lifted|worked out|went)\b.{0,30}\b(?:today|earlier|this (?:morning|afternoon|evening)|last night|yesterday|just now)\b|\bjust (?:did|finished|got back|came back|left)\b|\b(?:got|came|was) back from\b/i;
+/**
+ * A calendar ask: a placing verb and a clock time, range or length ("put gym at 10-11", "add marketing from 7-9:30pm", "schedule a run for an hour at 6").
+ * The workout, food, apps, shutdown and mouse routes never take one, whatever nouns it contains.
+ */
+export function schedulingAsk(message) {
+    const m = flat(message);
+    if (PAST_TENSE.test(m) || /\btimer\b/.test(m) || notScheduling(m))
+        return false; // "put the heating on at 6", "add chicken at 7pm to my meals": not a block
+    return PLACE_VERB.test(m) && (RANGE.test(m) || AT_TIME.test(m) || FOR_AN_HOUR.test(m));
+}
+const QUESTION_START = /^(?:please |pls |hey |ok |okay |so |and |but )*(?:can|could|would|will|do|does|did|are|is|am|was|were|have|has|what|whats|what's|why|how|when|where|who|which|should|shall)\b/i;
+const AIMED_AT_ORION = /\b(?:you|u|ya|yourself|urself|your|ur|orion)\b/;
+/** A direct question: ends in "?" or opens like one. */
+export const isDirectQuestion = (message) => { const m = flat(message); return /\?\s*$/.test(m) || QUESTION_START.test(m); };
+// Side-effect desk moves need his verb aimed at that thing in his words. One entry per tool; a tool not listed here is a read or is gated elsewhere.
+const OPEN = /\b(?:re-?open|open|launch|start|pull up|bring up|bring|go to|switch to|load|run|fire up|show me)\b/i;
+const FOCUS_THING = /\b(?:focus|session|pomodoro|deep work|work(?:ing)? on|study(?:ing)?|grind|lock in|block)\b/i;
+const BROWSER_VERB = /\b(?:open|go to|search|google|look up|pull up|visit|navigate|load|bring up|browse|youtube)\b|\.(?:com|org|net|io|edu|co)\b|\bhttps?:/i;
+const SIDE_EFFECT_TOOLS = new Set(["session", "app_open", "browser"]);
+function toolUnderstood(tool, args, message) {
+    const m = flat(message);
+    switch (tool) {
+        case "session": {
+            const doing = String(args.do ?? "");
+            if (doing && doing !== "start")
+                return true; // status / stop / extend act on a session that exists
+            if (isTimerRequest(message))
+                return true; // tool-moves.ts turns a timer into timer_set whatever the desk picked
+            // A start needs the focus thing in his words (or the task he named): narration like "now that we have that set, I will ask Orion" has neither.
+            return FOCUS_THING.test(m) || (typeof args.task === "string" && args.task.trim() !== "" && inHisWords(m, args.task));
+        }
+        case "app_open": return OPEN.test(m) && args.application !== undefined && inHisWords(m, args.application);
+        case "browser": return BROWSER_VERB.test(m);
+        default: return true; // wake/alarm are parsed from his words by their own flows; the rest are read or logged only with his phrasing elsewhere
+    }
+}
+/**
+ * The front desk's move, gated:
+ *  - a side-effect tool move whose verb is not aimed at that thing in his words becomes an escalation (the worker reads his words, with tools);
+ *  - "ignore" never silences a direct question, spoken or typed (typed and phone turns are never silenced anyway: local-routing answers them
+ *    or has the worker ask what he needs; only spoken room talk with no question in it stays quiet).
+ */
+export function gateDecision(decision, message, spoken = false) {
+    if (decision.move === "tool" && SIDE_EFFECT_TOOLS.has(decision.tool ?? "")) {
+        if (!toolUnderstood(decision.tool ?? "", (decision.args ?? {}), message)) {
+            const { tool: _t, args: _a, say: _s, ...rest } = decision;
+            return { ...rest, move: "escalate", tier: "standard", fallback: "gate: tool move not aimed at a thing in his words" };
+        }
+    }
+    // Spoken: only a question aimed at ORION ("can you ...", "your ..."); a general question into the room (TV, a call) stays quiet.
+    if (decision.move === "ignore" && isDirectQuestion(message) && (!spoken || AIMED_AT_ORION.test(flat(message)))) {
+        const { say: _s, ...rest } = decision;
+        return { ...rest, move: "escalate", tier: "standard", fallback: "gate: ignore never silences a typed turn or a question" };
+    }
+    return decision;
+}

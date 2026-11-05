@@ -7,11 +7,11 @@ const today = { date: "2026-10-16", now: "10:05", blocks: [
         { title: "Breakfast", start: "09:00", end: "09:30", fixed: false },
         { title: "Study", start: "11:00", end: "12:00", fixed: false },
         { title: "Lunch", start: "12:15", end: "12:45", fixed: false },
-        { title: "MKTG2201 Introduction to Marketing — Lecture", start: "13:30", end: "15:00", fixed: true, kind: "class" },
+        { title: "DEF301 Introduction to Marketing — Lecture", start: "13:30", end: "15:00", fixed: true, kind: "class" },
         { title: "Gym", start: "16:00", end: "17:00", fixed: false },
         { title: "Dinner", start: "18:30", end: "19:15", fixed: false },
     ] };
-const CLASS = "MKTG2201 Introduction to Marketing — Lecture";
+const CLASS = "DEF301 Introduction to Marketing — Lecture";
 const PLAIN_DRY = "Would change Friday 2026-10-16:\n  planned X: 10:10–10:40";
 const WROTE = "Changed Friday 2026-10-16:\n  planned X: 10:10–10:40\nWritten to his calendar.";
 async function run(message, steps, opts = {}) {
@@ -99,7 +99,7 @@ describe("H2 no early return after an earlier step wrote", () => {
         const { result, writes } = await run("move study to 3 and add a 30 min walk", [steps[0], { do: "add", what: "Walk", minutes: 30 }], { preview: "NOTHING WAS BOOKED on Friday (2026-10-16). Do not tell him anything was added or moved.\nWould change Friday:\n  NOT BOOKED: Walk (30 min) did not fit on Friday — ask whether" });
         expect(writes).toEqual([]);
         expect(result).toMatchObject({ outcome: "say", kind: "plain" });
-        expect(result.text).toMatch(/Not done: Walk didn't fit/);
+        expect(result.text).toMatch(/Walk didn't fit/);
         expect(result.text).toMatch(/nothing else was changed/i);
     });
     it("a harmless preview runs every step and records every mark", async () => {

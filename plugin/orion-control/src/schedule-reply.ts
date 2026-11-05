@@ -3,6 +3,7 @@
  A run headed "NOTHING WAS CHANGED/BOOKED" wrote nothing: the plan it lists is never said as done.
 */
 import type { Day, DayBlock } from "./schedule-flow.js";
+import { parseReason, reasonClause, reasonOffer, fromStructured } from "./failure-reason.js";
 import { clearedNotReplanned, partialReply, shiftReasons } from "./partial-reply.js";
 
 /** What the exec wrapper hands back when the scheduler died without a word. */
@@ -13,7 +14,11 @@ export const FAILED = /NOT BOOKED|NOTHING WAS|did not fit|usage:|not a real bloc
 
 /** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
  *  2026-10-16): usage text, "Blocks today: … 09:00–10:30", "Do not tell him anything was added". */
-export function spokenFailure(line: string): string {
+export function spokenFailure(line: string | Record<string, unknown>): string {
+  // A structured reason (orion-reschedule's `reason` field) is worded from its data; a text line is read as it is today.
+  if (typeof line !== "string") { const r = fromStructured(line); return r ? reasonClause(r) : "I couldn't make that change"; }
+  const raw = parseReason(line);
+  if (raw.kind !== "unknown" && /"(?:reason|code)"|\breason[=:]/.test(line)) return reasonClause(raw);
   const l = line.trim().replace(/^orion-reschedule:\s*/, "")
     .replace(/^(?:MUST-HAVE )?(?:NOTHING WAS|NOT) (?:CHANGED|BOOKED|DROPPED)\b(?: on \w+day)?(?: \(\d{4}-\d{2}-\d{2}\))?[:.]?\s*/i, "")
     // Notes to the operator, and lists of his whole day, are not for Nick.
@@ -21,6 +26,8 @@ export function spokenFailure(line: string): string {
     .replace(/ \((?:\w+day )?\d{4}-\d{2}-\d{2}\)/g, "").trim();
   if (/^usage:|^Error\b|has no .* option|one command per call|does not take/i.test(l)) return "I couldn't make that change";
   if (!l) return "nothing could be booked";
+  const parsed = parseReason(l);
+  if (parsed.kind !== "unknown") return reasonClause(parsed).replace(/\b(\d{2}:\d{2})\b/g, (t) => ampm(t));
   const rules: Array<[RegExp, (...m: string[]) => string]> = [
     [/^(.+?) (is|are) already over today/i, (_, what, verb) => `${what} ${verb === "is" ? "has" : "have"} already ended today`],
     [/^no block called "?(.+?)"? on /i, (_, what) => `there's no block called ${what}`],
@@ -36,6 +43,14 @@ export function spokenFailure(line: string): string {
   const hit = rules.map(([re, say]) => { const m = l.match(re); return m ? say(...m) : null; }).find((t) => t !== null);
   const said = hit ?? l;
   return said.replace(/\b(\d{2}:\d{2})\b/g, (t) => ampm(t)).replace(/\.$/, "");
+}
+
+/** The whole spoken answer to a refused run: what went wrong in first person, then the concrete next step. */
+export function failureReply(line: string | Record<string, unknown>): string {
+  const clause = spokenFailure(line);
+  const r = parseReason(typeof line === "string" ? line.replace(/^orion-reschedule:\s*/, "") : line);
+  const sentence = /^I couldn't/.test(clause) ? clause : r.kind === "no_room" ? `I couldn't do that: ${r.what ?? "it"} didn't fit around your classes and bedtime` : `I couldn't do that: ${clause}`;
+  return r.kind === "no_room" ? `${sentence.replace(/[.]$/, "")}.` : `${sentence.replace(/[.]$/, "")}. ${reasonOffer(r)}`;
 }
 
 /** What to tell Nick, from the scheduler's own output only. */
@@ -76,6 +91,11 @@ export function spokenReply(outputs: string[], when?: string, kept?: string): st
     if (m) { said.push(`${m[1]} now ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
     m = l.match(/^(.+?) is now (\d+) min: (\d{2}:\d{2})–(\d{2}:\d{2})/);
     if (m) { said.push(`${m[1]} is now ${m[2]} minutes, ${ampm(m[3]!)}–${ampm(m[4]!)}`); continue; }
+    // w20 r3 (#64): a class or event he did not make is only marked skipped in ORION's day record; it stays on his calendar. First person, no "his".
+    m = l.match(/^skipped (.+?) \d{2}:\d{2}–\d{2}:\d{2} — marked skipped/i);
+    if (m) { said.push(`I've marked ${m[1]} as skipped in my day record (it stays on your calendar, and nobody is emailed)`); continue; }
+    m = l.match(/^removed (.+?) \d{2}:\d{2}–\d{2}:\d{2} \(a block I booked\)/i);
+    if (m) { said.push(`took ${m[1]} off your day`); continue; }
     m = l.match(/^cleared \d+ prior schedule blocks?: (.+)$/i) ?? l.match(/^removed (.+)$/i);
     if (m) { said.push(`cleared ${m[1]}`); continue; }
     if (/^Logged .+/.test(l)) { logged = l; continue; }
@@ -96,6 +116,7 @@ export function spokenReply(outputs: string[], when?: string, kept?: string): st
     const heard = [...new Set(failures.map(spokenFailure).filter((t) => t !== "nothing could be booked"))];
     return partialReply({ did: [...all.filter((t) => !/^cleared /.test(t)), ...gone].slice(0, 6), failures: heard.length ? heard : [spokenFailure(failed)], ...(kept ? { kept } : {}), ...(when ? { when } : {}) });
   }
+  if (failed && !all.length && !logged) return failureReply(failed);
   const parts = [all.length ? `Done${when ? ` for ${when}` : ""}: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean);
   // A log carries its own one-line summary (what was logged, what moved, what is off today).
   if (logged) return [logged, failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean).join(" ");

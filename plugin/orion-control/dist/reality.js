@@ -1,6 +1,10 @@
 import { noteOf } from "./scheduler-out.js";
+import { readDayEdit, touchesPast } from "./day-edit.js";
+import { runDayEdit } from "./day-edit-run.js";
+import { isUndoThen, readOverride, recallAsk, recallRun } from "./day-edit-memory.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf } from "./day-requests.js";
 import { pluginNow } from "./plugin-clock.js";
+import { readIntent } from "./calendar-intent.js";
 import { intentOf, namesTitle, pickByTime, resolveBlockName, whichOne } from "./block-names.js";
 import { napWindow } from "./nap-window.js";
 import { asksToShiftAfter, namesOwnEvent, nothingToMove } from "./own-event-writes.js";
@@ -91,6 +95,16 @@ export function readReality(message, now = pluginNow()) {
         return null;
     // A calendar request code carries out itself comes first (day-requests.ts): its own reader rules out questions and conditions
     // ("can we do gym later, like after dinner" is a request, not a question).
+    // w20 sched: what he says about time that is already gone is a record of his day (logged, not refused), and several edits in one
+    // message are all done. The older readers keep every single future edit they already read.
+    if (isUndoThen(message)) { // E11: "Undo. I meant add those to the schedule": the ask before it, written as the schedule, once the last edit is off
+        const before = recallAsk(now);
+        const again = before ? readDayEdit(before, now) : null;
+        return again ? { reality: { kind: "edit", edit: again, undoFirst: true }, rest: false } : null;
+    }
+    const edit = readOverride(message, now) ?? readDayEdit(message, now);
+    if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op !== "add" && p.op !== "move" && p.op !== "drop" && p.op !== "note" && p.op !== "shift")))
+        return { reality: { kind: "edit", edit }, rest: false };
     const request = readDayRequest(message, now);
     if (request)
         return { reality: { kind: "request", request }, rest: false };
@@ -143,6 +157,9 @@ export function readReality(message, now = pluginNow()) {
     const place = PLACE.exec(m);
     if (place)
         return { reality: { kind: "place", place: place[1] }, rest };
+    // natural times, typo'd ranges and filler the older readers leave to the model: one edit read here, when the intent layer would not
+    if (edit && !("intent" in (readIntent(message, { now }) ?? {})))
+        return { reality: { kind: "edit", edit }, rest: false };
     return null;
 }
 // ---- matching his words against the day (block-names.ts: "macro" is ECON1115 by its course, "marketing" is MKTG2201) ----
@@ -171,7 +188,7 @@ const ampm = (t) => { const v = minuteOf(t); const h = Math.floor(v / 60); retur
 const listed = (items) => items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 const ORD = ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"];
 const UNDO = "Say \"undo\" to put it back.";
-export const REALITY_SAVE_FAILED = "I couldn't save that just now, so nothing changed. Say it again in a moment.";
+export const REALITY_SAVE_FAILED = "I couldn't save that just now, so nothing changed. Say go and I'll retry it.";
 async function declare(deps, kind, extra = []) {
     const out = await deps.run("orion-declare", ["add", "--kind", kind, "--text", deps.text.slice(0, 200), "--source", deps.source, ...extra]).catch(() => ({ stdout: "", code: 1 }));
     try {
@@ -269,7 +286,7 @@ async function missed(r, deps) {
 async function instead(r, deps) {
     const day = await deps.readDay().catch(() => undefined);
     if (!day)
-        return { flow: say("I couldn't read your calendar just now, so nothing changed. Tell me again in a moment."), facts: [], writes: 0 };
+        return { flow: say("I couldn't read your calendar just now, so nothing changed. Say go and I'll retry it."), facts: [], writes: 0 };
     const now = deps.now.getHours() * 60 + deps.now.getMinutes();
     const current = day.blocks.filter((b) => b.kind !== "commute" && minuteOf(b.start) <= now && now < minuteOf(b.end))[0];
     const planned = r.planned ? matchBlock(r.planned, day.blocks) : current;
@@ -369,7 +386,7 @@ async function doneIt(r, deps) {
     const now = deps.now.getHours() * 60 + deps.now.getMinutes();
     const day = await deps.readDay().catch(() => undefined);
     if (!day)
-        return { flow: say("I couldn't read your calendar just now, so nothing changed. Tell me again in a moment."), facts: [], writes: 0 };
+        return { flow: say("I couldn't read your calendar just now, so nothing changed. Say go and I'll retry it."), facts: [], writes: 0 };
     const nap = r.what === "nap";
     const blocks = day.blocks.filter((b) => b.kind !== "commute");
     const block = nap ? blocks.find((b) => /\b(?:nap|sleep|rest)\b/i.test(b.title) && minuteOf(b.start) <= now) : matchBlock(r.what, blocks);
@@ -498,7 +515,25 @@ export async function runReality(read, deps) {
         return attendedIt(r, deps);
     if (r.kind === "request")
         return runDayRequest(r.request, deps);
+    if (r.kind === "edit")
+        return r.undoFirst ? undoThenEdit(r.edit, deps) : runDayEdit(r.edit, deps);
     return noted(r, deps, deps.next);
+}
+/** E11: the last day edit comes off, then the corrected ask runs; one reply says both. Nothing to undo, or the undo failing, stops here. */
+async function undoThenEdit(edit, deps) {
+    const last = recallRun(deps.now);
+    if (!last)
+        return { flow: say("I don't have a change of mine to undo, so nothing was changed. Tell me what to put on the schedule."), facts: [], writes: 0 };
+    const undone = await undoReality(last, deps.run);
+    if (undone.outcome !== "done")
+        return { flow: undone, facts: [], writes: 0 };
+    const out = await runDayEdit(edit, deps);
+    const f = out.flow;
+    const lead = (undone.reply ?? "Undone.").replace(/, and I've forgotten what you told me about it\.$/, ".");
+    const calls = [...(undone.calls ?? []), ...("calls" in f && f.calls ? f.calls : [])];
+    const outputs = [...(undone.outputs ?? []), ...("outputs" in f && f.outputs ? f.outputs : [])];
+    const flow = f.outcome === "done" ? { ...f, calls, outputs, reply: `${lead} ${f.reply}` } : f.outcome === "say" ? { ...f, calls, outputs, text: `${lead} ${f.text}` } : f;
+    return { ...out, flow };
 }
 /** Only the fact, for a statement that also asks for another change ("i skipped marketing, put catch-up tomorrow"): the change goes on as usual. */
 export async function declareOnly(read, deps) {

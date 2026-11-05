@@ -134,10 +134,23 @@ final class RemoteStore: ObservableObject {
             .init(id: "m3", text: "", sentAt: now.addingTimeInterval(-20), kind: .chat, status: .done,
                   reply: "The seminar starts in 20 minutes. Do you want me to move the Hale reply to this evening?", repliedAt: now.addingTimeInterval(-20), askID: "ask-2"),
         ]
+        if arguments.contains("--chat-stress") { conversation += Self.stressMessages(now) }
     }
     #endif
 
     #if targetEnvironment(simulator)
+    /// `--chat-stress`: long words, a URL, a failed send and a long reply, to check that nothing clips or overflows.
+    private static func stressMessages(_ now: Date) -> [CloudLink.Message] {
+        let url = "https://www.example-university.edu/portal/students/assessments/marketing-2201/assessment-1/brief-final-v3.pdf?session=abcdef0123456789"
+        return [
+            .init(id: "s1", text: "ok so i have the marketing brief due friday and also the gym thing and i keep forgetting to reply to hale can you just sort the whole week out for me and tell me what to drop " + url, sentAt: now.addingTimeInterval(-15 * 60), kind: .chat, status: .done,
+                  reply: "Here is the week. **Monday** is for the brief outline, Tuesday the research, Wednesday the draft. I would drop the optional reading and the second gym session. Everything is on your plan now, and the link you sent is the right brief: " + url + "\n\nSupercalifragilisticexpialidocious_pneumonoultramicroscopicsilicovolcanoconiosis_identifier_that_never_breaks_anywhere is a long unbroken word.", repliedAt: now.addingTimeInterval(-14 * 60)),
+            .init(id: "s2", text: "Short one", sentAt: now.addingTimeInterval(-5 * 60), kind: .chat, status: .failed, reply: "The Mac refused that one.", repliedAt: now.addingTimeInterval(-5 * 60 + 5)),
+            .init(id: "s3", text: "this one never left the phone because icloud was off", sentAt: now.addingTimeInterval(-2 * 60), kind: .chat, status: .pending, upload: .failed),
+            .init(id: "s4", text: "and this is still going out", sentAt: now.addingTimeInterval(-5), kind: .chat, status: .pending, upload: .uploading),
+        ]
+    }
+
     private static func fixturePlan(_ now: Date) -> TodayPlan? {
         let day = Calendar.current.startOfDay(for: now)
         let at = { (hour: Double) in day.addingTimeInterval(hour * 3600) }
@@ -162,6 +175,11 @@ final class RemoteStore: ObservableObject {
             notice = reply
         }
     }
+
+    /// What the link says about its data right now, for the "last synced" line on Mac-backed screens.
+    var syncLine: LinkSyncStatus.Line { LinkSyncStatus.line(snapshotAt: snapshot?.generatedAt, problem: problem, now: now) }
+    /// The Retry button: set iCloud up again if needed and fetch now.
+    func retryLink() { Task { await link.retryNow() } }
 
     var presence: MacPresence { snapshot?.presence(at: now) ?? .unknown }
 

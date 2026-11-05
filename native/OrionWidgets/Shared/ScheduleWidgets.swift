@@ -59,8 +59,8 @@ struct NowNextView: View {
                     Text("in \(W.duration(block.start.timeIntervalSince(entry.date)))").font(W.mono(10, .medium)).foregroundStyle(W.soft)
                 }
                 Spacer(minLength: 0)
-                if let now, let next { Text("then \(next.title)").font(.system(size: 11)).foregroundStyle(W.dim).lineLimit(1) }
-                if let place = block.location { Label(place, systemImage: "mappin").font(.system(size: 10)).foregroundStyle(W.dim).lineLimit(1) }
+                if let now, let next { Text("then \(next.title)").font(.system(size: 11)).foregroundStyle(W.dim).lineLimit(1).minimumScaleFactor(0.7) }
+                if let place = block.location { Label(place, systemImage: "mappin").font(.system(size: 10)).foregroundStyle(W.dim).lineLimit(1).minimumScaleFactor(0.7) }
             } else {
                 Spacer(minLength: 0)
                 Text(entry.line).font(W.display(14, .semibold)).foregroundStyle(W.text).lineLimit(4)
@@ -90,7 +90,7 @@ struct NowNextView: View {
                 if next.isEmpty { Text("Nothing else today.").font(.system(size: 12)).foregroundStyle(W.soft) }
                 ForEach(next) { block in
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(block.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(W.text).lineLimit(1)
+                        Text(block.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(W.text).lineLimit(1).minimumScaleFactor(0.7)
                         Text("\(W.clock(block.start)) · in \(W.duration(block.start.timeIntervalSince(entry.date)))")
                             .font(W.mono(10, .medium)).foregroundStyle(W.tint(block.kind))
                     }
@@ -121,7 +121,7 @@ struct NowNextView: View {
             } else if let next {
                 VStack(spacing: 0) {
                     Text(W.clock(next.start)).font(.system(size: 13, weight: .bold, design: .rounded)).minimumScaleFactor(0.6)
-                    Text(String(next.title.prefix(6))).font(.system(size: 8, weight: .medium)).lineLimit(1)
+                    Text(String(next.title.prefix(6))).font(.system(size: 8, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7)
                 }
             } else {
                 Image(systemName: "sparkle").font(.system(size: 18, weight: .semibold))
@@ -136,11 +136,11 @@ struct NowNextView: View {
                 Text("ORION").font(.system(size: 11, weight: .bold)).widgetAccentable()
                 Text("Time for \(checkin.what)").font(.system(size: 13, weight: .semibold)).lineLimit(2)
             } else if let now {
-                Text(now.title).font(.system(size: 13, weight: .bold)).lineLimit(1).widgetAccentable()
+                Text(now.title).font(.system(size: 13, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7).widgetAccentable()
                 Text(timerInterval: entry.date...max(entry.date, now.end), countsDown: true).font(.system(size: 12, design: .monospaced))
-                if let next { Text("then \(next.title)").font(.system(size: 11)).lineLimit(1).foregroundStyle(.secondary) }
+                if let next { Text("then \(next.title)").font(.system(size: 11)).lineLimit(1).minimumScaleFactor(0.7).foregroundStyle(.secondary) }
             } else if let next {
-                Text(next.title).font(.system(size: 13, weight: .bold)).lineLimit(1).widgetAccentable()
+                Text(next.title).font(.system(size: 13, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7).widgetAccentable()
                 Text("\(W.clock(next.start)) · in \(W.duration(next.start.timeIntervalSince(entry.date)))").font(.system(size: 12))
             } else {
                 Text("ORION").font(.system(size: 11, weight: .bold)).widgetAccentable()
@@ -269,7 +269,7 @@ struct TonightView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Eyebrow(pastBed ? "Past bedtime" : "Bed by", tint: pastBed ? W.red : W.violet)
                     Text(W.clock(night.bed)).font(W.mono(30, .bold)).foregroundStyle(W.text)
-                    if let reason = night.reason { Text("for \(reason)").font(.system(size: 11)).foregroundStyle(W.soft).lineLimit(1) }
+                    if let reason = night.reason { Text("for \(reason)").font(.system(size: 11)).foregroundStyle(W.soft).lineLimit(1).minimumScaleFactor(0.7) }
                     Spacer(minLength: 0)
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -313,7 +313,7 @@ struct DeadlineLine: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(DeadlineView.days(until: deadline.at, from: now)).font(W.mono(13, .bold)).foregroundStyle(DeadlineView.tint(deadline.at, now))
                 .frame(width: 34, alignment: .leading)
-            Text(deadline.title).font(.system(size: 12, weight: .medium)).foregroundStyle(W.text).lineLimit(1)
+            Text(deadline.title).font(.system(size: 12, weight: .medium)).foregroundStyle(W.text).lineLimit(1).minimumScaleFactor(0.7)
             Spacer(minLength: 0)
             Text(deadline.at.formatted(.dateTime.day().month(.abbreviated))).font(W.mono(9)).foregroundStyle(W.dim)
         }

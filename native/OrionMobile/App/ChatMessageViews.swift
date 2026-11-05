@@ -3,10 +3,15 @@ import MobileCore
 
 /// The chat's type scale and rhythm, one place (the Claude / ChatGPT cadence).
 enum PhoneChat {
-    static let body = Font.system(size: 16)
+    static let body = Font.system(.callout)
     static let bodyLineSpacing: CGFloat = 5
-    static let meta = Font.system(size: 12)
-    static let action = Font.system(size: 14, weight: .medium)
+    static let meta = Font.system(.caption)
+    /// Mono letter-spaced kicker, the Home language.
+    static let kicker = Font.system(.caption2, design: .monospaced, weight: .medium)
+    static let bubbleRadius: CGFloat = 20
+    /// The gutter on the side a bubble does not occupy: keeps bubbles at about 80% of the width.
+    static let gutter: CGFloat = 48
+    static let action = Font.system(.subheadline, weight: .medium)
     /// Between exchanges, and between the lines inside one.
     static let exchangeGap: CGFloat = 28
     static let lineGap: CGFloat = 12
@@ -49,38 +54,62 @@ struct ChatExchange: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The small line under his bubble: Sending…, Delivered, or what to do about a failure.
+    /// The small line under his bubble: Sending…, Delivered, or a retry pill after a failure.
     @ViewBuilder private var statusLine: some View {
-        if let caption = delivery.caption(macOnline: macOnline) {
-            let failed = delivery.canRetry
-            HStack(spacing: 6) {
-                if failed { Image(systemName: "exclamationmark.circle").font(.system(size: 11)) }
-                Text(caption).font(PhoneChat.meta)
+        if let caption = delivery.caption(macOnline: macOnline, received: message.received) {
+            if delivery.canRetry {
+                Button(action: onRetry) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 10, weight: .bold))
+                        Text(caption).font(PhoneChat.kicker).tracking(0.6).multilineTextAlignment(.leading)
+                    }
+                    .foregroundStyle(Phone.orange).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .overlay(Capsule().stroke(Phone.orange.opacity(0.6), lineWidth: 1))
+                    .shadow(color: Phone.orange.opacity(0.25), radius: 5)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .buttonStyle(PhonePressStyle()).accessibilityIdentifier("retryMessage")
+                .transition(.opacity)
+            } else {
+                HStack(spacing: 6) {
+                    if delivery == .sending { ProgressView().controlSize(.mini).tint(Phone.dim) }
+                    Text(caption.uppercased()).font(PhoneChat.kicker).tracking(0.8)
+                }
+                .foregroundStyle(Phone.dim).multilineTextAlignment(.trailing).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                .transition(.opacity).accessibilityIdentifier("messageStatus")
             }
-            .foregroundStyle(failed ? Phone.orange : Phone.dim)
-            .transition(.opacity)
-            .accessibilityIdentifier(failed ? "retryMessage" : "messageStatus")
         }
     }
 
+    /// His bubble: a thin accent rim with a soft glow, the near-bottom corner tightened. Failed ones go orange.
+    private var userBubbleShape: UnevenRoundedRectangle {
+        let r = PhoneChat.bubbleRadius
+        return UnevenRoundedRectangle(topLeadingRadius: r, bottomLeadingRadius: r, bottomTrailingRadius: 6, topTrailingRadius: r, style: .continuous)
+    }
+
     private var userLine: some View {
-        VStack(alignment: .trailing, spacing: 5) {
-            HStack {
-                Spacer(minLength: 56)
-                Text(message.text)
-                    .font(PhoneChat.body).lineSpacing(4).foregroundStyle(Phone.text)
+        let failed = delivery.canRetry
+        let tint = failed ? Phone.orange : Phone.accent
+        return VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 0) {
+                Spacer(minLength: PhoneChat.gutter)
+                Text(PhoneLinks.linked(message.text))
+                    .font(PhoneChat.body).lineSpacing(3).foregroundStyle(Phone.text)
+                    .tint(Phone.accent)
                     .multilineTextAlignment(.leading).textSelection(.enabled)
-                    .padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(Phone.wash(delivery.canRetry ? 0.04 : 0.08), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Phone.orange.opacity(delivery.canRetry ? 0.55 : 0), lineWidth: 1))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(tint.opacity(failed ? 0.05 : 0.12), in: userBubbleShape)
+                    .overlay(userBubbleShape.stroke(tint.opacity(failed ? 0.6 : 0.42), lineWidth: 1))
+                    .shadow(color: tint.opacity(failed ? 0.12 : 0.2), radius: 8)
             }
             statusLine.padding(.trailing, 4)
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .contentShape(Rectangle())
-        .onTapGesture { if delivery.canRetry { onRetry() } }
         .animation(PhoneMotion.enter, value: delivery)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(delivery.canRetry ? "Double tap to send again" : "")
+        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder private var orionLine: some View {
@@ -89,7 +118,7 @@ struct ChatExchange: View {
             case .waiting, .thinking:
                 HStack(spacing: 10) {
                     PhoneThinkingDots()
-                    PhoneShimmerText(text: delivery == .waiting ? waitingText : "Thinking")
+                    PhoneShimmerText(text: delivery == .waiting ? waitingText : (message.progress ?? "Thinking"))
                 }
                 .transition(.opacity)
             case .sending, .notSent, .stalled:
@@ -104,22 +133,34 @@ struct ChatExchange: View {
         .animation(PhoneMotion.enter, value: delivery)
     }
 
+    private var replyShape: UnevenRoundedRectangle {
+        let r = PhoneChat.bubbleRadius
+        return UnevenRoundedRectangle(topLeadingRadius: r, bottomLeadingRadius: 6, bottomTrailingRadius: r, topTrailingRadius: r, style: .continuous)
+    }
+
     private var reply: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let note = originNote { caption(note) }
-            if let thinking = message.thinking, !thinking.isEmpty {
-                DisclosureGroup("Thinking") { Text(thinking).font(.system(size: 13)).textSelection(.enabled) }
-                    .font(.system(size: 13)).foregroundStyle(Phone.dim)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let note = originNote { caption(note) }
+                if let thinking = message.thinking, !thinking.isEmpty {
+                    DisclosureGroup("Thinking") { Text(thinking).font(.system(size: 13)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                        .font(.system(size: 13)).foregroundStyle(Phone.dim)
+                }
+                Text(PhoneLinks.linked(ConversationView.rendered(shownReply)))
+                    .font(PhoneChat.body).lineSpacing(PhoneChat.bodyLineSpacing - 1)
+                    .foregroundStyle(delivery == .failed ? Phone.orange : Phone.text)
+                    .tint(Phone.accent)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let ask = message.askID, awaitingReplyTo == ask { askActions(ask) }
             }
-            Text(ConversationView.rendered(shownReply))
-                .font(PhoneChat.body).lineSpacing(PhoneChat.bodyLineSpacing)
-                .foregroundStyle(delivery == .failed ? Phone.orange : Phone.text)
-                .textSelection(.enabled)
-            if let ask = message.askID, awaitingReplyTo == ask { askActions(ask) }
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            .background(Phone.wash(0.045), in: replyShape)
+            .overlay(replyShape.stroke(proactive ? Phone.accent.opacity(0.35) : Phone.hairline, lineWidth: 1))
+            .shadow(color: Phone.accent.opacity(proactive ? 0.12 : 0), radius: 8)
+            Spacer(minLength: PhoneChat.gutter)
         }
-        .padding(.trailing, 24)
-        .padding(.leading, proactive ? 14 : 0)
-        .overlay(alignment: .leading) { if proactive { proactiveRule } }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// ORION's words as Nick should read them: no job tags or notify headers, 12-hour times (also for history written before that fix).
@@ -128,31 +169,24 @@ struct ChatExchange: View {
         return ChatSanitizer.display(raw) ?? (message.text.isEmpty ? "" : raw)
     }
 
-    /// A short rule that fades out along its length: marks ORION speaking first, quietly.
-    private var proactiveRule: some View {
-        LinearGradient(colors: [Phone.accent.opacity(0.55), Phone.accent.opacity(0)], startPoint: .top, endPoint: .bottom)
-            .frame(width: 1.5).frame(maxHeight: .infinity).accessibilityHidden(true)
-    }
-
     private func caption(_ text: String) -> some View {
         HStack(spacing: 6) {
             if proactive { Circle().fill(Phone.accent).frame(width: 4, height: 4) }
-            Text(text).font(PhoneChat.meta).foregroundStyle(Phone.dim)
+            Text(text).font(PhoneChat.kicker).tracking(1.2).foregroundStyle(Phone.dim).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         }
     }
 
     /// A small line above ORION's words when it did not come from a question.
     private var originNote: String? {
-        let time = message.sentAt.formatted(date: .omitted, time: .shortened)
-        if message.id.hasPrefix("local-") { return "Answered on your iPhone" }
+        if message.id.hasPrefix("local-") { return "ANSWERED ON YOUR IPHONE" }
         if grouped { return nil }
-        if PhoneMirror.isMirrorID(message.askID) { return "ORION · notification · " + time }
-        if message.askID != nil { return "ORION · " + time }
+        if PhoneMirror.isMirrorID(message.askID) { return "ORION · NOTIFICATION" }
+        if message.askID != nil { return "ORION · FIRST" }
         return nil
     }
 
     private func askActions(_ ask: String) -> some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 18) {
             Button { onReply(ask) } label: {
                 Label("Reply", systemImage: "arrowshape.turn.up.left").font(PhoneChat.action)
             }
@@ -164,14 +198,48 @@ struct ChatExchange: View {
     }
 }
 
-/// A quiet time marker between messages that are far apart.
+/// One time label per run of messages, as a mono kicker between two fading hairlines.
 struct ChatTimeMarker: View {
     let date: Date
+    private var text: String {
+        let cal = Calendar.current
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if cal.isDateInToday(date) { return "TODAY " + time }
+        if cal.isDateInYesterday(date) { return "YESTERDAY " + time }
+        return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()).uppercased() + " " + time
+    }
     var body: some View {
-        Text(Calendar.current.isDateInToday(date) ? date.formatted(date: .omitted, time: .shortened)
-             : date.formatted(.dateTime.weekday(.abbreviated).hour().minute()))
-            .font(PhoneChat.meta).foregroundStyle(Phone.dim)
-            .frame(maxWidth: .infinity).padding(.top, 6)
+        HStack(spacing: 10) {
+            line(.leading)
+            Text(text.uppercased()).font(PhoneChat.kicker).tracking(1.4).foregroundStyle(Phone.dim)
+                .lineLimit(1).minimumScaleFactor(0.7).layoutPriority(1).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            line(.trailing)
+        }
+        .frame(maxWidth: .infinity).padding(.top, 6)
+        .accessibilityElement(children: .ignore).accessibilityLabel(text.capitalized)
+    }
+    private func line(_ edge: HorizontalEdge) -> some View {
+        LinearGradient(colors: edge == .leading ? [.clear, Phone.wash(0.14)] : [Phone.wash(0.14), .clear], startPoint: .leading, endPoint: .trailing)
+            .frame(height: 0.5)
+    }
+}
+
+/// Makes web addresses in plain text tappable (long ones wrap, they do not run off the edge).
+enum PhoneLinks {
+    static func linked(_ text: String) -> AttributedString { linked(AttributedString(text)) }
+
+    static func linked(_ text: AttributedString) -> AttributedString {
+        let plain = String(text.characters)
+        guard plain.contains("."), let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return text }
+        var result = text
+        for match in detector.matches(in: plain, range: NSRange(plain.startIndex..., in: plain)) {
+            guard let url = match.url, let range = Range(match.range, in: plain),
+                  let lower = AttributedString.Index(range.lowerBound, within: result),
+                  let upper = AttributedString.Index(range.upperBound, within: result),
+                  result[lower..<upper].link == nil else { continue }
+            result[lower..<upper].link = url
+        }
+        return result
     }
 }
 

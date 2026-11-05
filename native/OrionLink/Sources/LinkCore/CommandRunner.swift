@@ -60,6 +60,16 @@ public struct CommandRunner {
         return process.terminationStatus == 0
     }
 
+    /// The gateway session a command runs in (also the name of its progress file).
+    /// One phone conversation, one key (w20): a chat with no conversation id belongs to the phone thread, not to the Mac app's
+    /// session (the tube evening ran under orion-chat-<uuid>, orion-app-v2 and orion-chat-phone-history: three memories).
+    /// The id is trimmed and lowercased, so a case difference never opens a second session.
+    public static func session(conversation: String?, chat: Bool = true) -> String {
+        let id = conversation?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if !id.isEmpty { return "orion-chat-" + id }
+        return chat ? "orion-chat-" + LinkSchema.threadID : "orion-app-v2"
+    }
+
     static func safeReplyTo(_ id: String?) -> String? {
         guard let id, (1...80).contains(id.count),
               id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._:-".contains($0)) }) else { return nil }
@@ -82,7 +92,7 @@ public struct CommandRunner {
         process.executableURL = node
         process.arguments = arguments(text: command, id: id, sentAt: sentAt, chat: chat, replyTo: replyTo)
         var env = environment()
-        let session = conversation.map { "orion-chat-" + $0 } ?? "orion-app-v2"
+        let session = Self.session(conversation: conversation, chat: chat)
         if chat { env["ORION_BRAIN_SESSION"] = session }
         if let model { env["ORION_BRAIN_MODEL"] = model; env["ORION_BRAIN_THINKING"] = model.hasPrefix("ollama/") ? "off" : "low" }
         process.environment = env

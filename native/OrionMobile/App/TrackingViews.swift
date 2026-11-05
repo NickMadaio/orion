@@ -204,7 +204,7 @@ struct FoodSheet: View {
                                         dismiss()
                                     } label: {
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(food.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                                            Text(food.title).font(.system(size: 13, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
                                             Text("\(food.calories) kcal").font(.system(size: 11)).foregroundStyle(.secondary)
                                         }
                                         .padding(.horizontal, 12).padding(.vertical, 8)

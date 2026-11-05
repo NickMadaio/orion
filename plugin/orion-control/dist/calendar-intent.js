@@ -11,6 +11,7 @@
  negation or second thoughts is refused, on the raw and the typo-fixed text. Anything that is not one of the shapes below, or names
  another day, returns a refusal and goes the normal way: this layer never guesses.
 */
+import { EARLY_CUE, LATE_CUE } from "./waking-hours.js";
 import { parseDayPlan } from "./day-plan.js";
 import { parseReorder, parseReplanRequest } from "./day-replan.js";
 import { readUntilShape } from "./direct-add.js";
@@ -21,7 +22,7 @@ import { readCompound } from "./compound-intent.js";
 const WEEKDAY = /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tues?|wed|weds|thu|thur|thurs|fri|sat|sun|mondays?|weekends?|week|month|year|days|fortnight|the day after|tmrw night after)\b|\b\d{1,2}(?:st|nd|rd|th)\b|\b\d{1,2}\/\d{1,2}\b|\b(?:january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/i;
 const TOMORROW = /\b(?:tomorrow|tmrw|tmr|tmrow|tomoz|2moro|2morrow)\b/i;
 const LATE_NIGHT_UNTIL = 5;
-export const PART = (t) => (/\b(?:tonight|this evening|evening|night|this afternoon|afternoon)\b/i.test(t) ? "evening" : /\bmorning\b/i.test(t) ? "morning" : undefined);
+export const PART = (t) => (LATE_CUE.test(t) && !EARLY_CUE.test(t) ? "evening" : EARLY_CUE.test(t) && !LATE_CUE.test(t) ? "morning" : undefined);
 const norm = (t) => t.toLowerCase().replace(/[’']/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 /** The day his words are for: today, tomorrow, or another day (not this layer's). Before 5 AM "tomorrow" is asked about by the normal path. */
 function dayOf(text, now) {

@@ -39,6 +39,10 @@ import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-r
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
 import { openRequest } from "./open-request.js";
+import { answersWebOffer, readChatAsks, runChatAsks } from "./chat-asks.js"; // w20 r3
+import { outreachStale, staleOutreachNote, stripOutreachEcho } from "./outreach-stale.js";
+import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
+import { failedTools, failureReason } from "./tool-failure.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
@@ -53,7 +57,7 @@ import { maybeRunComputerTask } from "./computer-loop.js";
 import { detectComputerIntent } from "./computer-intent.js";
 import { stepsAsToolResults } from "./computer-evidence.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
-import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
+import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, gentleCheckIn, isBanterOnly, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
 import { NOTE_ASK, NOTE_WINDOW_MS, isBareNoteRequest, isOtherCommand, parseNote } from "./note-flow.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -69,13 +73,22 @@ import { runFocusReady } from "./focus-ready.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes } from "./schedule-pending.js";
 import { whyAnswer } from "./why-answer.js";
-import { kindOf, parseOutreach, asksWhy, asksYourQuestion, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
+import { kindOf, parseOutreach as parseOutreachRaw, asksWhy, asksYourQuestion, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, readLastOutreach, stateCard } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
+import { readDayEdit } from "./day-edit.js";
+import { rememberAsk } from "./day-edit-memory.js";
+import { gateDecision, isDirectQuestion, schedulingAsk } from "./route-gate.js"; // w20 routegate: the shared "did I understand" gate
+import { multiAskPrompt, splitAsks } from "./multi-ask.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { casualStartTask, workStartTask } from "./work-start.js";
+import { pastDayReply, readPastDayAsk } from "./agenda-day.js";
+import { dateLabel, isLateTomorrow, lateTomorrowAnswer } from "./late-tomorrow.js";
+import { OVERFLOW, OVERFLOW_LINE, historyBudget, trimHistory } from "./history-trim.js";
+import { afterReply as retryAfterReply, isRetryWord, replayOf as retryReplay, withoutRetryOffer, RETRY_OFFER } from "./retry-slot.js";
+import { honestReply, offersBuild, refusalRewrite, truthfulDenial } from "./honest-reply.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, requestShaped, roomQuiet, roomTalk } from "./chatter.js";
 import { planLighten, readLighten, runLighten, saysYes } from "./day-lighten.js";
 import { readFocusMove, runFocusMove } from "./focus-moves.js";
@@ -101,7 +114,7 @@ import { runSleepTurn, SleepPlanPending } from "./sleep-plan-flow.js";
 import { readDayDefault, runDayDefault } from "./day-defaults.js";
 import { KnowledgePending, readKnowledgeMove } from "./knowledge-moves.js"; // wave 6: forget / links / profile / trash
 import { runKnowledgeMove } from "./knowledge-run.js";
-import { liveSelffixRun, readSelffixMove, runSelffixMove } from "./selffix-flow.js"; // w19 selffix
+import { asksWhy as asksWhySelf, liveSelffixRun, readSelffixMove, runSelffixMove } from "./selffix-flow.js"; // w19 selffix
 import { liveQuestionsRun, readQuestionsMove, runQuestionsMove } from "./questions-flow.js"; // wave 12 L1
 import { readFoodTurn } from "./food-read.js"; // w14 g-food
 import { FoodMemory, readFoodPending, runFoodTurn } from "./food-chat.js"; // w14 g-food
@@ -115,6 +128,9 @@ import { WorkoutMemory, readWorkoutPending, runWorkoutTurn } from "./workout-cha
 import { readMouseTurn } from "./mouse-read.js"; // w18 mousechat
 import { MouseMemory, runMouseTurn } from "./mouse-chat.js"; // w18 mousechat
 import { answeredCardLine } from "./questions-store.js";
+import { MadeLedger, contentWords } from "./made-ledger.js"; // w20 r3: one "recent things I made" ledger per chat
+import { readLedgerAsk } from "./ledger-ask.js";
+import { runLedgerAsk } from "./ledger-run.js";
 import { liveMailPrefsRun, readMailMove, runMailMove } from "./mail-flow.js"; // wave 14 f-mail
 import { approvalAsk } from "./approval-reply.js"; // run-1101020721: a held send is said as a draft and a question
 import { FORM_OPTIONS, NOTHING_REPLY, RESCHEDULE, LATE_NIGHT_UNTIL, meansTomorrow, runScheduleFlow, spokenReply, parseAskContext } from "./schedule-flow.js";
@@ -409,6 +425,22 @@ export function undoJournalTop(home = homedir(), now = Date.now()) {
         return null;
     }
 }
+/** The whole undo journal, oldest first (the file `orion-reschedule undo` pops from); empty when it cannot be read. */
+export function undoJournalEntries(home = homedir(), now = Date.now()) {
+    const dir = join(home, ".openclaw", "orion-controlled");
+    let evalRun = false;
+    try {
+        evalRun = now - statSync(join(dir, "eval-mode")).mtimeMs < 2 * 3600_000 && existsSync(join(dir, "eval-calendar.json"));
+    }
+    catch { /* not an evaluation */ }
+    try {
+        const list = JSON.parse(readFileSync(join(dir, `${evalRun ? "eval-" : ""}reschedule-undo.json`), "utf8"));
+        return Array.isArray(list) ? list : [];
+    }
+    catch {
+        return [];
+    }
+}
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export const liveScheduleFlow = (message, clock, opts = {}) => runScheduleFlow({
     message, clock, undo: opts.undo ?? [], ...(opts.askContext ? { askContext: opts.askContext } : {}), undoTop: () => undoJournalTop(), ...(opts.pending ? { pending: opts.pending } : {}),
@@ -449,6 +481,10 @@ export const liveCheckinRun = (args) => new Promise((resolve) => execFile(RESCHE
 /** orion-declare / orion-reschedule with fixed arguments (no shell), for reality statements (2026-10-30). Wired in by index.ts only. */
 // ORION_SCRIPTS_DIR: a checkout's own scripts for a replay against a state copy (the live plugin runs the repo's).
 export const liveRealityRun = (script, args) => new Promise((resolve) => execFile(join(process.env.ORION_SCRIPTS_DIR || dirname(RESCHEDULE), script), args, { timeout: 30000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
+/** The scripts the ledger removes things with, fixed arguments and no shell. Wired in by index.ts only. */
+export const liveLedgerRun = (script, args) => script !== "orion-reschedule" && script !== "orion-log" && script !== "orion-brain" && script !== "orion-food-estimate"
+    ? Promise.resolve({ stdout: `${script} is not a ledger script`, code: 1 })
+    : new Promise((resolve) => execFile(join(process.env.ORION_SCRIPTS_DIR || dirname(RESCHEDULE), script), args, { timeout: 30000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? (typeof e.code === "number" ? e.code : 1) : 0 })));
 /** Loads both local models at the context each is called with (2026-10-30: the outage gate's one warm-and-retry). Wired in by index.ts only. */
 export const liveModelWarm = () => keepWarm([{ model: FRONT_DESK_MODEL, numCtx: FRONT_DESK_CTX }, { model: WORKER_MODEL, numCtx: FORM_OPTIONS.num_ctx }]);
 /** Replays a message queued while the model was down (model-outage.ts): one agent turn in its own session, and the reply is
@@ -527,24 +563,24 @@ const HONEST_STOP = "The check still finds a problem. Undo any change you made i
  *  so the reply_payload_sending swap never runs there. Left to HONEST_STOP alone, the 9B repeated
  *  "I've started the focus session" verbatim (2026-10-15). */
 /** 2026-11-03 phone audit: "I'll get home and see, I need to meal prep" (a plan he was telling ORION, not asking for) got
- *  "I didn't actually do that — nothing was started or changed. Can you say it again?" twice, as if he had asked and it broke. */
+ *  "I didn't actually do that — nothing was started or changed. Want me to try it again?" twice, as if he had asked and it broke. */
 const OWN_PLAN = /\b(?:i'?ll|i will|ill|i'?m (?:gonna|going to)|im (?:gonna|going to)|i (?:do )?need to|i have to|we'?ll see|gonna)\b/i;
 export const isPlanStatement = (message) => OWN_PLAN.test(message) && !isQuestion(message) && !CHANGE_REQUEST.test(message) && !requestShaped(message);
 export const STATEMENT_LINE = "Got it. I haven't changed or noted anything. Tell me if you want me to add it to your day.";
-export const honestLine = (calendar, message) => message && isPlanStatement(message)
+/** w20 wording: never "say it again". From the tool results when there are any (what ran, what failed and why, the next step);
+ *  else what really happened (nothing ran) and an offer to do it now. `rotate` avoids the same variant twice in a row (live replies only). */
+export const honestLine = (calendar, message, tools, rotate = false) => message && isPlanStatement(message)
     ? STATEMENT_LINE
-    : calendar
-        ? "I couldn't make that change — nothing on your calendar changed. Can you say it again?"
-        : "I didn't actually do that — nothing was started or changed. Can you say it again?";
+    : honestReply({ calendar, ...(message ? { message } : {}), ...(tools ? { tools } : {}), rotate });
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
 const LOOKUP_CLAIM = /claims a lookup/;
 const LOOKUP_UNCHECKED = "I didn't actually check that.";
 export const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
-export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
+export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you yet. Want me to look it up now?";
 const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
 /** Spoken turns get one revise round (turn-budget.ts). What HONEST_STOP would have had the model say, said by code instead. */
 export const SPOKEN_STOP_WROTE = "Something went wrong partway through that, so I won't say it's done. Check your calendar, and say \"undo\" if it looks wrong.";
-export const SPOKEN_STOP = "I couldn't finish that properly, so I won't say it's done. Can you say it again?";
+export const SPOKEN_STOP = "That didn't finish properly, so I won't say it's done. Want me to run it again?";
 /**
  * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
  * never the model's reply, never a clean success line over a failed command.
@@ -561,14 +597,14 @@ export function spokenFinalLine(allFindings, ctx) {
     if (!findings.length)
         return undefined;
     if (findings.some((f) => FALSE_CLAIM.test(f)))
-        return honestLine(ctx.calendar);
+        return honestLine(ctx.calendar, ctx.message, ctx.tools, !!ctx.tools);
     if (findings.some((f) => LOOKUP_CLAIM.test(f)))
         return LOOKUP_HONEST;
     if (findings.includes("denies messages it shows"))
         return MESSAGES_UNSURE;
     if (ctx.wrote)
         return SPOKEN_STOP_WROTE;
-    return ctx.calendar ? honestLine(true) : SPOKEN_STOP;
+    return ctx.calendar ? honestLine(true, ctx.message, ctx.tools, !!ctx.tools) : SPOKEN_STOP;
 }
 /** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
 const wroteThisTurn = (tools) => tools.some((t) => /orion-reschedule|orion-tasks|orion_task_run|orion-session|orion-remember/.test(t.canonical) && !/\b(show|day|list|status)\b/.test(t.canonical));
@@ -675,8 +711,16 @@ export function registerLocalRouting(api, options) {
     const marked = (f) => f && ((...a) => startWrite(building.getStore(), () => { forgetReplan(building.getStore()?.sessionKey); forgetMade(building.getStore()?.sessionKey); return f(...a); }, { outcome: "fallback", reason: "too slow" }));
     /** Per session: the last thing ORION created or changed (a block, or a focus session it started), for "make it an hour" (edit-followup.ts). */
     const lastMade = new Map();
+    /** w20 H3: per chat, the message whose reply offered "Say go and I'll retry it.". A bare go replays it; any other turn clears it. */
+    const retrySlots = new Map();
+    /** Chats whose last turn hit the context limit: their history is trimmed to half the usual budget until it fits again (history-trim.ts). */
+    const overflowed = new Set();
     const knowledgePending = new KnowledgePending(); // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
     const sleepPending = new SleepPlanPending(); // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
+    /** w20 r3: per chat, the web page ORION just offered ("want the web player?") and the last reply that came back blank. */
+    const webOffers = new Map();
+    const seenOutreach = new Map();
+    const lastEmpty = new Map();
     const pendingMemory = new PendingMemory(); // 2026-10-31 (pending-reply.ts): what a nudge's reply agreed, for the next short reply
     const mouseMemory = new MouseMemory(); // w18 mousechat (mouse-chat.ts): the button/action question ORION is waiting on
     const workoutMemory = new WorkoutMemory(); // w17 g-workout (workout-chat.ts): whether a reply still answers the follow-up, and the last workout log for "undo"
@@ -740,17 +784,25 @@ export function registerLocalRouting(api, options) {
     const lastTurn = new Map();
     // w19 selffix: the chats whose last message from ORION was the fix offer ("now or later?"). Any other turn in that chat clears it.
     const fixOfferChats = new Map();
+    // w20 wording: the chats whose last reply was "I can't do that yet ... Want me to build that?": the request, so a yes starts the fix project for it.
+    const buildOffers = new Map();
     /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
     const sessionChanges = new Map();
+    const ledgerHeld = new Map();
+    const journalTopAt = () => [...(options.undoJournal ? options.undoJournal() : undoJournalEntries())].reverse().find((e) => (e.steps ?? []).length)?.at;
+    const madeLedger = new MadeLedger(); // w20 r3 (made-ledger.ts)
+    const ledgerSeen = new WeakSet();
     /** Per session: what the last reality statement did (declared facts, calendar writes), for its "undo" (reality.ts). Any later change forgets it. */
     const lastReality = new Map();
-    const recordChange = (sessionKey, marks) => {
+    const recordChange = (sessionKey, marks, stamp = true) => {
         forgetMade(sessionKey); // any write: "make it an hour" no longer means the older block (review of 45b3383)
         if (!sessionKey)
             return;
         lastReality.delete(sessionKey);
         forgetReplan(sessionKey);
-        sessionChanges.set(sessionKey, { at: Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
+        const top = stamp ? journalTopAt() : undefined;
+        const prior = sessionChanges.get(sessionKey);
+        sessionChanges.set(sessionKey, { at: Date.now(), first: prior?.first ?? Date.now(), marks: [...(prior?.marks ?? []), ...marks], stamps: [...(prior?.stamps ?? []), ...(top ? [top] : [])] });
     };
     /** r8b2 (2026-10-16): per session, the block the last code day answer named (what "and after that?" means), short window. */
     const dayMemory = new Map();
@@ -882,7 +934,7 @@ export function registerLocalRouting(api, options) {
                     settleSchedule(run);
             }
             else
-                say(`I haven't changed your calendar: I couldn't move ${skip.name} to ${ampm12(skip.at)} just now. Say it again and I'll retry.`);
+                say(`I haven't changed your calendar: I couldn't move ${skip.name} to ${ampm12(skip.at)} just now. Say go and I'll retry it.`);
             return;
         }
         if (skip.kind === "excuse") {
@@ -1186,6 +1238,15 @@ export function registerLocalRouting(api, options) {
             return undefined;
         if (sessionKey)
             progress.begin(sessionKey, runId ?? null);
+        // w20 r3 (outreach-stale.ts): an outreach binds only until ORION has replied in this chat; after that it is history, not this turn's context.
+        const outreachNowMs = (options.now ?? pluginNow)().getTime();
+        const staleOutreachOf = parseOutreachRaw(raw);
+        // Stale = the same outreach this chat already saw on an earlier turn AND ORION has replied since. A new outreach (new text) always binds.
+        const seenHere = sessionKey ? (seenOutreach.get(sessionKey) ?? []) : [];
+        const outreachIsStale = !!staleOutreachOf && seenHere.includes(staleOutreachOf.text) && outreachStale(staleOutreachOf, sessionKey ? pendingMemory.lastReplyAt(sessionKey) : undefined, outreachNowMs);
+        if (sessionKey && staleOutreachOf && !seenHere.includes(staleOutreachOf.text))
+            seenOutreach.set(sessionKey, [...seenHere, staleOutreachOf.text].slice(-20));
+        const parseOutreach = (prompt) => (outreachIsStale ? undefined : parseOutreachRaw(prompt));
         // The rest of a cut-off spoken request is read together with its first half, as one request.
         const heard = userText(raw);
         // 2026-10-30: a message replayed after a model outage reads as he said it (the marker is for the transcript and the worker).
@@ -1198,7 +1259,17 @@ export function registerLocalRouting(api, options) {
         // 2026-10-19: the rest of a message whose first half got the crisis reply. Still joined to it (so more distress, even without the
         // listed words, keeps CRISIS_REPLY); only a concrete request that code then runs gets its own reply (see crisisRest below).
         const crisisRest = stitch && isCrisis(stitch.text) && !isCrisis(continuation ?? "") ? continuation : undefined;
-        const message = cont?.full ?? (stitch ? `${stitch.text} ${continuation}` : cont?.rest || said);
+        const typed = cont?.full ?? (stitch ? `${stitch.text} ${continuation}` : cont?.rest || said);
+        // w20 H3: a bare go / retry after a reply that offered one runs the failed message again. The slot answers one turn, the latest offer's.
+        // The phone sends one conversation under several session keys, so a retry word with no offer of its own takes the most recent offer under any key (RETRY_WINDOW_MS still applies).
+        const ownSlot = sessionKey ? retrySlots.get(sessionKey) : undefined;
+        const phoneKey = (k) => !!k && /orion-(?:app-v2|chat)/.test(k); // other chats stay separate
+        const recentKey = !ownSlot && isRetryWord(typed) && phoneKey(sessionKey) ? [...retrySlots.entries()].filter(([k]) => phoneKey(k)).sort((x, y) => y[1].at - x[1].at)[0]?.[0] : undefined;
+        const message = retryReplay(ownSlot ?? (recentKey ? retrySlots.get(recentKey) : undefined), typed, nowMs());
+        if (sessionKey)
+            retrySlots.delete(sessionKey);
+        if (recentKey)
+            retrySlots.delete(recentKey);
         const spokenTurn = SPOKEN.test(raw);
         // 2026-10-30 (chatter.ts): "shush" / "don't reply unless I say orion" starts a quiet window; inside it, spoken turns without
         // "orion" are dropped before anything else reads them (no desk, no flow, no memory). Saying "orion" ends it.
@@ -1210,7 +1281,7 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (chatter.ts roomTalk): out loud and without "orion", one side of someone else's conversation, or a line in a run of them.
         if (addressed(message))
             rooms.clear(sessionKey);
-        const room = on && !cont && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()), trailing: trailsOff(message) }) ?? undefined : undefined;
+        const room = on && !cont && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()) && !isDirectQuestion(message), trailing: trailsOff(message) }) ?? undefined : undefined;
         const hushed = !cont && ((!!quietUntil && spokenTurn && !addressed(message) && quietStart === undefined) || room === "room");
         const cutOff = !hushed && spokenTurn && trailsOff(message);
         if (sessionKey)
@@ -1230,20 +1301,35 @@ export function registerLocalRouting(api, options) {
         };
         // w19 selffix (selffix-flow.ts): "why did you do that" / "that was wrong" (he reads his own last turns and answers), or his now / later / no to a fix offer.
         // A "why is X first" plan question belongs to plan-why.ts, not to self-diagnosis.
-        const smove = on && !cutOff && !quietTurn && !isCrisis(message) && !whyFirstAsk(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()) }) : undefined;
-        const qmove = on && !cutOff && !quietTurn && !smove && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
+        // w20 r3 (ledger-ask.ts): "undo", "scrap the gym block i just added", "delete that note i just made", "cancel the stretch one": the ledger's.
+        const heldAsk = sessionKey ? ledgerHeld.get(sessionKey) : undefined;
+        if (sessionKey)
+            ledgerHeld.delete(sessionKey); // any next turn answers or drops the question
+        const ledgerAsk = on && !cutOff && !quietTurn && !isCrisis(message) && options.ledgerRun
+            ? (heldAsk && nowMs() - heldAsk.at < STITCH_WINDOW_MS && (isYes(message.replace(/[.!?…]+$/, "")) || saysYes(message))
+                ? { verb: "remove", strong: true, kinds: [heldAsk.kind], targets: [contentWords(heldAsk.label)], pointing: false, bare: false, confirmed: true }
+                : readLedgerAsk(message) ?? undefined) : undefined;
+        const ledgerOwns = !!ledgerAsk?.strong;
+        const smove = on && !cutOff && !quietTurn && !ledgerOwns && !isCrisis(message) && !whyFirstAsk(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()),
+            ...(sessionKey && buildOffers.has(sessionKey) && nowMs() - buildOffers.get(sessionKey).at < 3 * 3600_000 ? { build: { request: buildOffers.get(sessionKey).request } } : {}) }) : undefined;
+        const qmove = on && !cutOff && !quietTurn && !ledgerOwns && !smove && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
         // Wave 14 (mail-flow.ts): "not important" / "this matters" to a mail alert, or "stop telling me about X emails", owns the whole turn.
-        const mmove = on && !cutOff && !quietTurn && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
+        const mmove = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw).text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
         // w14 g-food (food-read.ts): a calorie question, "log this: …", a meal with a food in it, a chat photo, or his reply to "Log it?".
         const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
-        const food = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
+        const calendarAsk = schedulingAsk(message); // "put gym at 10-11", "add marketing from 7-9:30pm": the calendar's, never a meal, app, mouse or shutdown turn
+        // w20 fix-dayedit: a message the day-edit reader owns whole ("i did gym 2-3 and ate at 4") is never read again by the food or workout route; the clause
+        // for them goes to them from inside the edit (day-edit-run.ts). A pending "Log it?" answer or workout question is still theirs.
+        const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
+        const dayEditTurn = !workoutPending && !foodPending && !!readDayEdit(message, (options.now ?? pluginNow)());
+        const food = on && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !dayEditTurn && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
             ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : {}), attachments: Array.isArray(event.attachments) ? event.attachments : [],
             ...(foodMemory.lastLogged(sessionKey) ? { lastLogged: foodMemory.lastLogged(sessionKey) } : {}) }) ?? undefined : undefined;
         if (!food && !quietTurn)
             foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
         // w17 g-workout (workout-read.ts): "just did legs, squats 4x6 at 185", "log my workout: …", "went for a 3 mile run", or his answer to the follow-up question.
-        const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
-        const workout = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
+        // w20 sched: "add gym at 10-11pm" / "i did gym from 2 to 3" is his calendar (day-edit.ts), not a workout to describe; an answer to the workout question is still the workout's.
+        const workout = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !mmove && !food && !dayEditTurn && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
             ...(workoutPending ? { pending: workoutPending, bound: workoutMemory.bound(sessionKey, workoutPending, parseOutreach(raw)?.text) } : {}), outreach: !!parseOutreach(raw),
             ...(workoutMemory.lastLogged(sessionKey) ? { lastLogged: workoutMemory.lastLogged(sessionKey) } : {}) }) ?? undefined : undefined;
         if (!workout && !quietTurn)
@@ -1252,9 +1338,9 @@ export function registerLocalRouting(api, options) {
         // w18 bedtime (bedtime-shutdown-read.ts): a yes to "want me to shut things down?", "put my computer to bed", "i need 20 more minutes": code runs it.
         const shutdownAt = (options.now ?? pluginNow)();
         const shutdownCtx = options.shutdownRun && options.stateDir ? shutdownContext(options.stateDir, shutdownAt, parseOutreach(raw)?.text, sessionKey ?? "") : undefined;
-        const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !isCrisis(message)
+        const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !isCrisis(message)
             ? readShutdownTurn(message, shutdownCtx) ?? undefined : undefined;
-        const appsTurn = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
+        const appsTurn = on && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
         // w18 mousechat (mouse-read.ts): "make my side button do stage manager", "dont do anything in minecraft", "what are my mouse buttons set to", or a yes to a new-mouse outreach.
         const mouseAt = (options.now ?? pluginNow)();
         const mouseWaiting = on && options.mouseRun ? mouseMemory.get(sessionKey, mouseAt.getTime()) : undefined;
@@ -1262,14 +1348,16 @@ export function registerLocalRouting(api, options) {
         // 15 minutes and nothing else was said in this chat since.
         const push = options.stateDir ? readLastOutreach(options.stateDir, mouseAt) : null;
         const mouseOutreach = parseOutreach(raw)?.text ?? (push && mouseAt.getTime() - Date.parse(push.at) <= 15 * 60_000 && Date.parse(push.at) > mouseMemory.lastOther(sessionKey) ? push.text : undefined);
-        const mouse = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
+        const mouse = on && !cutOff && !quietTurn && !ledgerOwns && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
             ? readMouseTurn(message, { ...(mouseWaiting ?? {}), outreachAbout: !!mouseOutreach && /\bmouse\b/i.test(mouseOutreach) }) ?? undefined : undefined;
         if (!mouse && !quietTurn) {
             mouseMemory.clear(sessionKey);
             mouseMemory.otherTurn(sessionKey, mouseAt.getTime());
         }
-        const reality = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
-        const realityWhole = (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
+        if (on && !quietTurn)
+            rememberAsk(message, (options.now ?? pluginNow)()); // day-edit-memory.ts: "those" in "undo, i meant add those"
+        const reality = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        const realityWhole = ledgerOwns || (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
         // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
         const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
         const wipe = on && !cutOff && !quietTurn && !realityWhole && isWipe(message);
@@ -1284,10 +1372,15 @@ export function registerLocalRouting(api, options) {
         // A stall ("in 10") answering ORION's own line is that line's loop (outreach-reply.ts); a bare time after "What time?" is the reminder's.
         const move = free && !pendingYes && !lighten && !phoneBlock ? readFocusMove(message) ?? undefined : undefined;
         const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
-        const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        const healthRead = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+        // A bedtime the health reader caught goes through orion-sleepplan like every other bedtime (scope, bedFixed and read-back identical on both routes);
+        // health-log.ts runBedtime writes the file itself only when there is no sleep-plan runner (no state-dir-only callers).
+        const healthBed = healthRead?.kind === "bedtime" && !healthRead.read && healthRead.time && options.sleepPlanRun ? healthRead : undefined;
+        const health = healthBed ? undefined : healthRead;
         const sheld = sessionKey ? sleepPending.take(sessionKey, Date.now()) : undefined; // W10-B: before preference-remember can keep it as a "preference"
         const alarmCtx = { now: (options.now ?? pluginNow)(), ...(sessionKey && sleepPending.recentAlarm(sessionKey, Date.now()) ? { recentAlarm: true } : {}) }; // W18 (alarm-read.ts)
-        const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message, alarmCtx)) ? readSleepTurn(message, { held: sheld, ...alarmCtx }) : undefined;
+        const sleepTurnRead = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message, alarmCtx)) ? readSleepTurn(message, { held: sheld, ...alarmCtx }) : undefined;
+        const sleepTurn = sleepTurnRead ?? (healthBed && free && !phoneBlock && !isCrisis(message) ? { kind: "bedset", change: { time: healthBed.time, scope: healthBed.scope ?? "tonight" } } : undefined);
         const preference = !sleepTurn && !phoneBlock && free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
         // Wave 12 (correction-learn.ts): a correction meant to last becomes a standing rule in USER.md (never in an evaluation); the turn goes on as usual.
         // Fixer: what ORION just proposed (its label, last push, held offer or memo), so "no dont move my study block" stays one-off.
@@ -1296,7 +1389,7 @@ export function registerLocalRouting(api, options) {
             void learnCorrection(message, { run: options.rememberRun, ...(options.stateDir ? { stateDir: options.stateDir } : {}), ...(options.userMdPath ? { userMdPath: options.userMdPath } : {}), ...(offered ? { offered } : {}), sessionKey });
         }
         const kheld = sessionKey ? knowledgePending.take(sessionKey, Date.now()) : undefined;
-        const kmove = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
+        const kmove = on && !cutOff && !quietTurn && !ledgerOwns && !realityWhole && !pendingYes && !preference && !isCrisis(message) && options.knowledgeRun ? readKnowledgeMove(message, { ...(kheld ? { held: kheld } : {}), spoken: spokenTurn }) : undefined;
         const knowledge = on && !quietTurn && !kmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && isKnowledgeAsk(message);
         const own = on && !cutOff && !quietTurn && !realityWhole && !pendingYes && !lighten && !isCrisis(message) ? askKind(message) ?? undefined : undefined;
         const pendingAt = (options.now ?? pluginNow)();
@@ -1315,7 +1408,13 @@ export function registerLocalRouting(api, options) {
         const editing = on && !cutOff && !quietTurn && !guarded && isEdit(message) && (made ? made.at > reminderAt : Date.now() - reminderAt > CORRECTION_WINDOW_MS);
         // 2026-10-31: a screen task is code's (computer-loop.ts), so the desk is not asked.
         const computerFirst = on && !cutOff && !quietTurn && !!options.computer && !!detectComputerIntent(message);
-        const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst;
+        // w20 r3 (chat-asks.ts): open this, add that to his list, what is on it, or his yes to "want the web player?": code's, the desk is not asked.
+        const webOffer = sessionKey ? webOffers.get(sessionKey) : undefined;
+        const chatAsks = on && !cutOff && !quietTurn && options.chatRun && !isCrisis(message) && !appsTurn && !mouse && !food && !workout && !shutdownTurn && !qmove && !smove && !mmove
+            ? (webOffer && outreachNowMs - webOffer.at < 15 * 60_000 && answersWebOffer(message) ? [{ kind: "open", req: { kind: "url", url: webOffer.url } }] : readChatAsks(message) ?? undefined) : undefined;
+        if (sessionKey)
+            webOffers.delete(sessionKey); // the offer answers one turn
+        const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst || !!chatAsks;
         // "why" to something ORION sent is about THAT message: the front desk (which saw only a one-line history) must not answer it as chat.
         const whyAsked = on && !cutOff && !quietTurn && (asksWhy(message) || asksYourQuestion(message)) && !!parseOutreach(raw);
         // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
@@ -1328,13 +1427,14 @@ export function registerLocalRouting(api, options) {
             : codeFirst || whyAsked || own || kmove ? Promise.resolve({ move: "escalate", fallback: "code-first", ms: 0 })
                 : Promise.resolve(deskHealth.begin()).then((call) => Promise.resolve()
                     .then(() => decideImpl({ message, clock: clock(), timeoutMs: call.timeoutMs, ...(outreach ? { history: outreachHistory(outreach) } : {}), ...(deskContext ? { context: deskContext } : {}) }))
-                    .then((d) => { deskHealth.record(d, call); return d; })
+                    .then((d) => { deskHealth.record(d, call); if ("say" in d && d.say)
+                    progress.say(sessionKey, d.say); return d; })
                     .catch((error) => { deskHealth.record({ error: "threw" }, call); return { error: error instanceof Error ? error.message : String(error) }; }));
         const askContext = parseAskContext(raw);
         // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
         // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
         // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-        const pending = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+        const pending = on && !cutOff && !quietTurn && !ledgerOwns && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey) && !chatAsks
             ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
                 chatSurface: CHAT_SURFACE.test(sessionKey) })
@@ -1342,8 +1442,10 @@ export function registerLocalRouting(api, options) {
                 ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
+        if (ledgerAsk)
+            run.ledger = ledgerAsk;
         if (runId)
             runs.set(runId, run);
         if (sessionKey)
@@ -1366,6 +1468,17 @@ export function registerLocalRouting(api, options) {
                 ...(options.connectorStatus ? { connectorStatus: options.connectorStatus } : {}) }).catch(() => undefined), 6000);
             if (text)
                 run.ownText = text;
+        }
+        if (chatAsks && options.chatRun) { // w20 r3: code does it and says what happened to each ask
+            const out = await withTimeout(runChatAsks(chatAsks, options.chatRun).catch(() => undefined), 40000);
+            if (out) {
+                run.ownText = out.text;
+                out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+                if (out.offer && sessionKey)
+                    webOffers.set(sessionKey, { ...out.offer, at: outreachNowMs });
+            }
+            else
+                run.ownText = emptyReplyLine("that took too long and I can't say whether it happened");
         }
         if (kmove && options.knowledgeRun) { // wave 6 (knowledge-run.ts): the reply is built from the scripts' JSON
             const out = await withTimeout(runKnowledgeMove(kmove, options.knowledgeRun).catch(() => undefined), 12000);
@@ -1394,6 +1507,12 @@ export function registerLocalRouting(api, options) {
         }
         else if (sessionKey && on && !quietTurn)
             fixOfferChats.delete(sessionKey); // any other turn ends the offer
+        // w20 r3 (empty-reply.ts): "why did you do that" is about ORION's immediately previous reply; when that one came back blank, that is the answer.
+        const blank = sessionKey ? lastEmpty.get(sessionKey) : undefined;
+        if (blank && outreachNowMs - blank.at < 20 * 60_000 && (asksWhySelf(message) || asksWhy(message)))
+            run.ownText = whyEmptyLine(blank.reason);
+        if (sessionKey && !(blank && run.ownText?.startsWith("My last reply came back blank")))
+            lastEmpty.delete(sessionKey);
         if (qmove && options.stateDir) { // wave 12 L1: the reply is built from orion-questions' JSON
             const out = await withTimeout(runQuestionsMove(qmove, options.questionsRun ?? liveQuestionsRun(options.stateDir)).catch(() => undefined), 12000);
             if (out) {
@@ -1410,7 +1529,7 @@ export function registerLocalRouting(api, options) {
         }
         if (food && options.foodRun && options.stateDir) { // w14 g-food: the reply is built from orion-food-estimate's JSON
             const out = await withTimeout(runFoodTurn(food, { run: options.foodRun, stateDir: options.stateDir, now: (options.now ?? pluginNow)() }).catch(() => undefined), 55000);
-            run.ownText = out?.text ?? "I couldn't estimate that just now, so nothing was logged. Tell me again in a bit.";
+            run.ownText = out?.text ?? "I couldn't estimate that just now, so nothing was logged. Say go and I'll retry it.";
             out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
             if (out?.logged)
                 foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime(), out.logged.ids ?? [out.logged.id]);
@@ -1421,7 +1540,7 @@ export function registerLocalRouting(api, options) {
         }
         if (workout && options.workoutRun && options.stateDir) { // w17 g-workout: the reply is orion-workout-log's own sentence
             const out = await withTimeout(runWorkoutTurn(workout, { run: options.workoutRun, stateDir: options.stateDir, now: (options.now ?? pluginNow)() }).catch(() => undefined), 55000);
-            run.ownText = out?.text ?? "I couldn't log that workout just now, so nothing was logged. Tell me again in a bit.";
+            run.ownText = out?.text ?? "I couldn't log that workout just now, so nothing was logged. Say go and I'll retry it.";
             out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
             if (out?.logged) {
                 workoutMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime());
@@ -1432,17 +1551,17 @@ export function registerLocalRouting(api, options) {
         }
         if (shutdownTurn && options.shutdownRun) { // w18 bedtime: the reply is orion-bedtime-shutdown's own sentence
             const out = await withTimeout(runShutdownTurn(shutdownTurn, { run: options.shutdownRun }).catch(() => undefined), 100000);
-            run.ownText = out?.text ?? "I couldn't shut the Mac down just now, so nothing was closed or locked. Tell me again in a bit.";
+            run.ownText = out?.text ?? "I couldn't shut the Mac down just now, so nothing was closed or locked. Say go and I'll retry it.";
             out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
         }
         else if (appsTurn && options.appsRun) { // w18 apps: the reply is orion-apps' own sentence
             const out = await withTimeout(runAppsTurn(appsTurn, { run: options.appsRun }).catch(() => undefined), 70000);
-            run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Try again in a bit.";
+            run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Say go and I'll retry it.";
             out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
         }
         else if (mouse && options.mouseRun) { // w18 mousechat: the reply is orion-mouse's own sentence
             const out = await withTimeout(runMouseTurn(mouse, { run: options.mouseRun }).catch(() => undefined), 20000);
-            run.ownText = out?.text ?? "I couldn't change the mouse settings just now, so nothing was changed. Tell me again in a bit.";
+            run.ownText = out?.text ?? "I couldn't change the mouse settings just now, so nothing was changed. Say go and I'll retry it.";
             out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
             if (out && (out.pending || out.confirm))
                 mouseMemory.wait(sessionKey, mouseAt.getTime(), { ...(out.pending ? { pending: out.pending } : {}), ...(out.confirm ? { confirm: true } : {}) });
@@ -1478,7 +1597,8 @@ export function registerLocalRouting(api, options) {
             run.settled = { move: "escalate", fallback: d.error };
             return { providerOverride: workerProvider, modelOverride: workerModel };
         }
-        run.settled = d;
+        // w20 routegate: a side-effect tool move must have his verb aimed at that thing; "ignore" never silences a typed turn or a question.
+        run.settled = gateDecision(d, message, !!run.spoken);
         // r8 review 4 HIGH-1 (2026-10-16): the front desk read his reply as a device or lookup request ("turn off the lights"),
         // so it is not the title the add question asked for: nothing is booked and the turn routes normally.
         if (run.addAnswer?.kind === "run" && "title" in run.addAnswer.run && d.move === "tool")
@@ -1499,8 +1619,14 @@ export function registerLocalRouting(api, options) {
             // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
             if (run && isCrisis(run.message) && !run.afterCrisis)
                 return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
+            if (run && !run.afterCrisis && !run.hushed && isBanterOnly(run.message))
+                return { handled: true, reply: { text: gentleCheckIn(run.message) }, reason: "distress: slang tease only" }; // w20 R3 #52
             if (run && (run.room || run.hushed || run.pending || run.preference || run.sleepTurn || run.phoneBlock || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge))
                 return undefined; // 2026-10-31: code's, or the worker's textbook answer
+            if (run && !ledgerSeen.has(run)) {
+                ledgerSeen.add(run);
+                madeLedger.ingest(run.sessionKey, run.tools, Date.now());
+            }
             if (run?.ownText)
                 return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
             if (run && openRequest(run.message))
@@ -1527,6 +1653,16 @@ export function registerLocalRouting(api, options) {
         });
         api.on("before_prompt_build", guardedPrompt(async (event, ctx) => {
             const run = runFor(event, ctx);
+            // gate #57: a long chat keeps working on the local model: the oldest turns are dropped, in place, before the prompt is built (history-trim.ts).
+            if (run && !run.cloud && Array.isArray(event.messages)) {
+                const tight = run.sessionKey ? overflowed.has(run.sessionKey) : false;
+                const budget = Math.floor(historyBudget(ctx.contextTokenBudget) / (tight ? 2 : 1));
+                const dropped = trimHistory(event.messages, budget);
+                if (dropped)
+                    traceLine("history_trimmed", event, ctx, { dropped, budget });
+                if (tight && run.sessionKey)
+                    overflowed.delete(run.sessionKey);
+            }
             if (!run?.settled || run.cloud)
                 return undefined;
             // The workspace prompt written for Claude is ~17k tokens; on the 9B that cost 60-100 s a turn
@@ -1702,6 +1838,30 @@ export function registerLocalRouting(api, options) {
                     }
                 }
             }
+            // w20 r3 (ledger-run.ts): undo / remove anything ORION made in THIS chat (blocks, notes, reminders, food, water), by description, read back.
+            const undoOfReality = !!run.sessionKey && !!lastReality.get(run.sessionKey) && Date.now() - lastReality.get(run.sessionKey).at < SESSION_CHANGE_WINDOW_MS && isBareUndo(run.message);
+            if (!run.flow && !run.cutOff && run.ledger && options.ledgerRun && !undoOfReality) {
+                const key = run.sessionKey;
+                const changes = key ? sessionChanges.get(key) : undefined;
+                const out = await withTimeout(runLedgerAsk(run.ledger, { run: options.ledgerRun, now: Date.now(), nothingText: UNDO_NOTHING_TO_UNDO,
+                    readDay: (a) => (options.readDayJson ? options.readDayJson(a) : Promise.resolve(undefined)),
+                    owned: (at) => !!changes?.stamps.includes(at), items: madeLedger.recent(key, Date.now()), ...(changes ? { calendar: { since: changes.first, last: changes.at } } : {}),
+                    journal: options.undoJournal ?? (() => undoJournalEntries()),
+                    ...(options.listReminders && options.removeReminders ? { reminders: { list: options.listReminders, remove: options.removeReminders } } : {}) }).catch(() => undefined), 90000);
+                if (out) {
+                    run.provided = true;
+                    run.flow = { outcome: "say", kind: "plain", text: out.text };
+                    out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+                    out.removed.forEach((item) => madeLedger.forget(key, madeLedger.recent(key, Date.now()).find((i) => i.kind === item.kind && i.label === item.label) ?? item));
+                    if (out.held && key)
+                        ledgerHeld.set(key, { ...out.held, at: Date.now() });
+                    if (out.wroteCalendar) {
+                        recordChange(key, [], !out.calls.some((c) => /orion-reschedule undo$/.test(c)));
+                        forgetReplan(key);
+                    }
+                    markRead(run, "day");
+                }
+            }
             // 2026-10-30: "undo" right after a reality statement takes back its calendar writes AND the facts it declared.
             const realityDone = run.sessionKey ? lastReality.get(run.sessionKey) : undefined;
             if (!run.flow && !run.cutOff && options.realityRun && realityDone && Date.now() - realityDone.at < SESSION_CHANGE_WINDOW_MS && isBareUndo(run.message)) {
@@ -1728,8 +1888,18 @@ export function registerLocalRouting(api, options) {
                     source: run.spoken ? "voice" : /phone/.test(key ?? "") ? "phone" : "chat",
                     readDay: () => (options.readDayJson ? options.readDayJson(read.reality.kind === "no-classes" && read.reality.tomorrow ? ["--date", "tomorrow"] : []) : Promise.resolve(undefined)),
                     readDayOn: (dateArgs) => (options.readDayJson ? options.readDayJson(dateArgs) : Promise.resolve(undefined)),
+                    ...(options.agendaDay ? { agendaDay: options.agendaDay } : {}),
                     slipsOf: (what) => slips.filter((s) => s.planned?.kind === what || (s.planned?.title ?? "").toLowerCase().includes(what.toLowerCase())).length,
                     ...(options.stateDir ? { stateDir: options.stateDir } : {}), // Wave 6: slip-history.ts
+                    // w20 fix-dayedit: the wake and meal clauses of a day edit run through their own routes (day-edit-run.ts)
+                    ...(options.wakeExec ? { wake: options.wakeExec } : {}),
+                    ...(options.foodRun && options.stateDir ? { food: async (text) => {
+                            const at = (options.now ?? pluginNow)();
+                            const turn = readFoodTurn(/^i\b/.test(text) ? text : `i ${text}`, { now: at, mealsOn: true });
+                            if (!turn || (turn.kind !== "meal" && turn.kind !== "log"))
+                                return undefined;
+                            return (await withTimeout(runFoodTurn(turn, { run: options.foodRun, stateDir: options.stateDir, now: at }).catch(() => undefined), 55000))?.text;
+                        } } : {}),
                     ...(options.readDeadlines ? { readDeadlines: options.readDeadlines } : {}),
                     ...(next ? { next } : {}) };
                 if (read.rest)
@@ -1771,7 +1941,7 @@ export function registerLocalRouting(api, options) {
                     run.flow = { outcome: "say", kind: "plain", text: SESSION_EDIT(target.task) };
                 else if (options.scheduleFlow) {
                     const flow = await options.scheduleFlow(run.message, clock(), { edit: { target, req }, deadlineAt: flowDeadline(run.started) }).catch((e) => ({ outcome: "fallback", reason: String(e) }));
-                    run.flow = flow.outcome === "fallback" ? { outcome: "say", kind: "plain", text: `I couldn't change ${target.title} just now, so nothing changed. Tell me again in a moment.` } : flow;
+                    run.flow = flow.outcome === "fallback" ? { outcome: "say", kind: "plain", text: `I couldn't change ${target.title} just now, so nothing changed. Say go and I'll retry it.` } : flow;
                     markRead(run, target.dateArgs.length ? "day-tomorrow" : "day");
                     settleSchedule(run);
                 }
@@ -1825,6 +1995,17 @@ export function registerLocalRouting(api, options) {
                 run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
             if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken) && !answersOutreach && !run.stitched)
                 run.flow = { outcome: "say", kind: "plain", text: NOT_CAUGHT };
+            // w20 routegate: several plain requests in one message ("open safari and set a timer and add milk to my list"). Code splits the asks (a
+            // clause about the calendar, a reminder, bed or the alarm keeps the whole message for the scheduling flow); the worker runs each with its
+            // tools and the reply says what happened to each. Before the readers below, which would each take only the first ask.
+            if (!run.flow && !run.cutOff && !run.hushed && !chatter && !run.codeFirst && !run.reminder && !run.outreach && !run.pending) {
+                const asks = splitAsks(run.message);
+                if (asks) {
+                    const hints = asks.map((a) => { const d = toolDirective({ move: "answer" }, a); return d?.kind === "call" ? `use ${taskRunCall(d.args)}` : undefined; });
+                    run.multiAsk = asks;
+                    return { systemPrompt: `${LOCAL_IDENTITY}\n\n${multiAskPrompt(asks, hints)}\n\n${PRODUCTION_NOTES}\n\n${now}` };
+                }
+            }
             // "im ready to work" / "done" / "i need youtube for this" (focus-ready.ts): code starts the session from the plan with the task's
             // apps, ends it early with one break-or-next question, or allows one site. Typed or addressed to ORION only starts anything.
             if (!run.flow && !run.cutOff && options.focusReady) {
@@ -2098,7 +2279,7 @@ export function registerLocalRouting(api, options) {
             // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
             // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
             const openAsk = run.ask && answersAsk(run.message, run.ask) ? run.ask : undefined;
-            if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !asksDayRead(run.message) && !asksHabit(run.message) && !run.flow && !run.scheduleTried && isCalendarTurn(run.message, run.settled, !!openAsk)) {
+            if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !isTimerRequest(run.message) && !asksDayRead(run.message) && !asksHabit(run.message) && !run.flow && !run.scheduleTried && isCalendarTurn(run.message, run.settled, !!openAsk)) {
                 // No built-in default: only the plugin entry point wires the real scheduler in (a test that
                 // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
                 // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
@@ -2126,6 +2307,28 @@ export function registerLocalRouting(api, options) {
                     markRead(run, tomorrow ? "day-tomorrow" : "day");
                     run.flow = { outcome: "say", kind: "plain", text: after.text };
                     dayMemory.set(run.sessionKey, { at: Date.now(), memory: after.memory });
+                }
+            }
+            // gate #63: "what did i have on yesterday evening": the agenda for that date, said by code (the scheduler cannot read a past day).
+            if (!run.flow && !run.cutOff && options.agendaDay) {
+                const past = readPastDayAsk(run.message);
+                if (past) {
+                    const at = (options.now ?? pluginNow)();
+                    const y = new Date(at.getFullYear(), at.getMonth(), at.getDate() - 1, 12);
+                    const date = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+                    const agenda = await options.agendaDay(date).catch(() => undefined);
+                    run.provided = true;
+                    run.tools.push({ canonical: `exec orion-agenda day ${date}`, stdout: agenda ? `${agenda.events.length} events` : "unreadable", exit: agenda ? 0 : 1 });
+                    run.flow = { outcome: "say", kind: "plain", text: pastDayReply(agenda, past, dateLabel(y)) };
+                }
+            }
+            // gate #66: "whats tomorrow looking like" in the small hours is the day coming up (today's date), said with its weekday and date by code.
+            if (!run.flow && !run.cutOff && options.readDay && (SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && (isQuestion(run.message) || asksDayRead(run.message)) && isLateTomorrow(run.message, (options.now ?? pluginNow)())) {
+                const day = await options.readDay(false).catch(() => "");
+                if (day !== "") {
+                    run.provided = true;
+                    markRead(run, "day");
+                    run.flow = { outcome: "say", kind: "plain", text: lateTomorrowAnswer(day, (options.now ?? pluginNow)()) };
                 }
             }
             // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
@@ -2166,7 +2369,7 @@ export function registerLocalRouting(api, options) {
                     rooms.mark(run.sessionKey, nowMs());
                 // 2026-10-30: the same failure line never twice in ten minutes in a session (R2: thirty "Not done: 6:00 AM–6:00 AM").
                 const said = exactFor(run);
-                const guarded = repeats.guard(run.sessionKey, said, !!run.spoken, nowMs());
+                const guarded = repeats.guard(run.sessionKey, said, !!run.spoken, nowMs(), run.message);
                 if (guarded !== said)
                     run.flow = { outcome: "say", kind: "plain", text: guarded };
                 const exact = exactFor(run);
@@ -2210,7 +2413,7 @@ export function registerLocalRouting(api, options) {
             // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
             const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
             return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${pushNote}${brainFetched}${askNote}\n\n${card}${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
-                ...(run.outreach ? { prependContext: outreachNote(run.outreach, run.message) } : {}) };
+                ...(run.outreach ? { prependContext: outreachNote(run.outreach, run.message) } : run.staleOutreachNote ? { prependContext: run.staleOutreachNote } : {}) };
         }), { timeoutMs: HOOK_TIMEOUT_MS });
     }
     // 2026-10-30 (model-outage.ts): before the model is called, is it there? Down after one warm-and-retry: an honest line by code, and his
@@ -2263,8 +2466,10 @@ export function registerLocalRouting(api, options) {
             const keys = [str(event.runId) ?? "", `session:${str(event.sessionKey) ?? ""}`];
             const hit = keys.map((k) => finalText.get(k)).find((v) => v && Date.now() - v.at < 120000);
             if (!hit) {
-                // The host's raw "Exec failed" line is never spoken (q059, 2026-10-16).
+                // The host's raw "Exec failed" line is never spoken (q059, 2026-10-16); nor is its raw context-overflow error (gate #57).
                 const raw = str((event.payload ?? {}).text);
+                if (raw && OVERFLOW.test(raw))
+                    return { payload: { ...event.payload, text: OVERFLOW_LINE }, reason: "orion-control: no raw context overflow" };
                 return raw && stripExecFailed(raw) !== raw ? { payload: { ...event.payload, text: stripExecFailed(raw) }, reason: "orion-control: no raw exec failure" } : undefined;
             }
             keys.forEach((k) => finalText.delete(k));
@@ -2478,6 +2683,20 @@ export function registerLocalRouting(api, options) {
         const hostDrops = event.hadDeterministicSideEffect === true;
         try {
             const reply = str(event.lastAssistantMessage) ?? "";
+            // gate #57: the host's raw context-overflow error is never his reply: one honest line is put in place, the chat's history is trimmed
+            // harder next turn, and his message is kept for "go" (history-trim.ts). Nothing else about this run is checked.
+            if (on && OVERFLOW.test(reply)) {
+                putReplyInPlace(event.messages, OVERFLOW_LINE);
+                remember([runId, `session:${pick(event, ctx, "sessionKey") ?? ""}`], OVERFLOW_LINE);
+                if (run.sessionKey) {
+                    overflowed.add(run.sessionKey);
+                    const slot = retryAfterReply(OVERFLOW_LINE, run.message, nowMs());
+                    if (slot)
+                        retrySlots.set(run.sessionKey, slot);
+                }
+                done();
+                return undefined;
+            }
             const allFindings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" || run.noTools === true, provided: run.provided ?? false });
             // H4 (r8 review 1, 2026-10-16): when only CODE read (gmail/messages/deadlines/focus) and handed the worker the data, a summary
             // that says "found/confirmed/booked" is the data talking, not a claimed write: no done-claim finding, no replaced reply.
@@ -2486,10 +2705,17 @@ export function registerLocalRouting(api, options) {
             // got "I couldn't make that change": a write-failure line for a turn with no write. A question with no write keeps its answer.
             const questionOnly = isQuestion(run.message) && !wroteThisTurn(run.tools) && !run.directive && !run.reminder;
             // 2026-10-31 (cha-thinking-aloud-c): a textbook answer with no tool is never replaced by the claims check.
-            const findings = run.knowledge && !run.hostTools ? [] : codeReadOnly || questionOnly ? allFindings.filter((f) => !FALSE_CLAIM.test(f)) : allFindings;
+            // w20 wording (audit E14, E16): a reply that plainly says nothing changed ("Nothing changed. 7:00 is already running.") was true; the
+            // check read "already running" as a claim. It is kept, not replaced by a canned line.
+            const keepsTruth = truthfulDenial(reply, run.tools);
+            const findings = run.knowledge && !run.hostTools ? [] : codeReadOnly || questionOnly || keepsTruth ? allFindings.filter((f) => !FALSE_CLAIM.test(f)) : allFindings;
             run.findings.push(findings);
             // A revise returns before the end of this hook; it is logged first so no turn goes unrecorded (those 16 had routing null).
             const record = async (extra = {}) => {
+                if (!ledgerSeen.has(run)) {
+                    ledgerSeen.add(run);
+                    madeLedger.ingest(run.sessionKey, run.tools, Date.now());
+                }
                 const decision = run.settled ?? (await settle(run));
                 log({ runId, message: run.message, decision, flow: run.flow ? { outcome: run.flow.outcome, ...("calls" in run.flow ? { calls: run.flow.calls } : {}), ...("reason" in run.flow ? { reason: run.flow.reason } : {}), ...("undone" in run.flow && run.flow.undone ? { undone: run.flow.undone } : {}), ...("blocked" in run.flow && run.flow.blocked ? { blocked: run.flow.blocked } : {}) } : null,
                     ...(run.cutOff ? { heldCutOff: true } : {}), provided: run.provided ?? false, reads: run.reads ?? [], cloud: run.cloud ?? false, model: str(event.model) ?? null, tools: run.tools.length, findings: run.findings, passes: run.passes,
@@ -2509,10 +2735,10 @@ export function registerLocalRouting(api, options) {
                     return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
                 }
                 if (!called) {
-                    owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?"
-                        : action === "reminder_snooze" ? "I didn't manage to snooze that — nothing was changed. Say it again?"
-                            : action === "reminder_done" ? "I didn't manage to mark that done — nothing was changed. Say it again?"
-                                : "I didn't manage to set that reminder — nothing was set. Can you say it again?";
+                    owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Want me to try it again?"
+                        : action === "reminder_snooze" ? "I didn't manage to snooze that — nothing was changed. Want me to try it again?"
+                            : action === "reminder_done" ? "I didn't manage to mark that done — nothing was changed. Want me to try it again?"
+                                : "I didn't manage to set that reminder — nothing was set. Want me to try it again?";
                     remember([runId, sessionKeyNow], owed);
                 }
                 // Wave 6 B (foc-pomodoro-break-v): once it is set, the reply is code's line (worded on pluginNow), never the worker's paraphrase of the tool result.
@@ -2560,7 +2786,7 @@ export function registerLocalRouting(api, options) {
             // line goes in place NOW, from the scheduler's own words when it says nothing was booked/changed.
             const honestNow = on && !flowActed && !run.reminder && ((run.hostTools ?? 0) > 0 || hostDrops) && findings.some((f) => FALSE_CLAIM.test(f))
                 ? nothingMovedReply(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).slice(-1).map((t) => t.stdout), /\b(late|move|push)\b/.test(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).at(-1)?.canonical ?? "") ? "I couldn't move anything, so nothing was moved" : "I couldn't make that change, so nothing on your calendar was changed")
-                    ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message)
+                    ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message, run.tools, true)
                 : undefined;
             if (honestNow) {
                 owed = honestNow;
@@ -2576,14 +2802,14 @@ export function registerLocalRouting(api, options) {
                 // back an earlier turn's change from the journal (review, 2026-10-16).
                 const stop = wroteThisTurn(run.tools) ? HONEST_STOP : HONEST_STOP_NO_WRITE;
                 const instruction = run.passes === 1 ? retryInstruction(findings)
-                    : claimed ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar, run.message)}`
+                    : claimed ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar, run.message, run.tools)}`
                         : lookedUp ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${LOOKUP_HONEST}`
                             : stop;
                 return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
             }
             // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
             if (on && !flowActed && !run.reminder && !honestNow && findings.some((f) => FALSE_CLAIM.test(f))) {
-                owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message);
+                owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message, run.tools, true);
                 remember([runId, sessionKeyNow], owed);
             }
             else if (on && !flowActed && !run.reminder && findings.some((f) => LOOKUP_CLAIM.test(f))) {
@@ -2600,7 +2826,7 @@ export function registerLocalRouting(api, options) {
             // Never over the scheduler's own honest line (honestNow), and only for a finding that makes the reply false (spokenBlocking):
             // a real move with a mismatched time keeps its reply (re-review HIGH). This path never has calendar data (checkWork gets none).
             if (on && run.spoken && !honestNow && !flowActed && !run.reminder && (run.passes >= revisePasses(true) || hostDrops) && spokenBlocking(findings, false).length > 0) {
-                const line = spokenFinalLine(findings, { calendar: SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), wrote: wroteThisTurn(run.tools) });
+                const line = spokenFinalLine(findings, { calendar: SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), wrote: wroteThisTurn(run.tools), tools: run.tools, message: run.message });
                 if (line) {
                     owed = line;
                     remember([runId, sessionKeyNow], owed);
@@ -2633,6 +2859,42 @@ export function registerLocalRouting(api, options) {
             // here can it be fixed on the Mac chat / phone route (reply_payload_sending never runs there).
             // Wave 4: code-authored lines (owed) are cleaned too (the scheduler's "orion-reschedule extend … --until HH:MM" hint rode in one); a failed
             // host tool must be owned in the reply, or the host appends its raw "Exec failed" payload (finalizeReply, tool-failure.ts).
+            // w20 wording: a model refusal that neither tried nor explained ("I can't do that with the tools I have, try it yourself") becomes what is
+            // really missing, in plain words, with the offer that hands the request to the self-fix flow.
+            if (on && !owed && !flowActed && !run.reminder && !run.approvalHeld && !run.directive) {
+                const cap = refusalRewrite(reply, run.message, run.tools, `cap:${run.sessionKey ?? ""}`);
+                if (cap) {
+                    owed = cap;
+                    remember([runId, sessionKeyNow], owed);
+                }
+            }
+            if (run.sessionKey && on) {
+                if (offersBuild(owed ?? reply))
+                    buildOffers.set(run.sessionKey, { request: run.message, at: nowMs() });
+                else
+                    buildOffers.delete(run.sessionKey);
+            }
+            // w20 r3 (outreach-stale.ts, empty-reply.ts): an outreach he never engaged with is never glued onto a reply about something else, and
+            // a blank reply never goes out: it becomes a short honest line with the reason (live 11-05 turn 43: 68 s, then nothing).
+            if (on) {
+                const text = owed ?? reply;
+                const lastPushText = !run.outreach && !run.pending ? run.card?.lastOutreach?.text : undefined;
+                const echoed = [...(run.staleOutreach ?? []), ...(lastPushText ? [lastPushText] : [])];
+                if (text.trim() && echoed.length) {
+                    const cut = stripOutreachEcho(text, echoed);
+                    if (cut !== text)
+                        owed = cut || "Sorry, I lost track of what you meant by that. What should I do?";
+                }
+                if (isBlank(owed ?? reply)) {
+                    const failed = failedTools(run.tools)[0];
+                    const reason = failed ? failureReason(failed.stdout ?? "") || "a step I ran failed" : undefined;
+                    owed = emptyReplyLine(reason);
+                    if (run.sessionKey)
+                        lastEmpty.set(run.sessionKey, { at: (options.now ?? pluginNow)().getTime(), ...(reason ? { reason } : {}) });
+                }
+                if (owed !== undefined && owed !== text)
+                    remember([runId, sessionKeyNow], owed);
+            }
             if (on && (owed ?? reply).trim()) {
                 const before = owed ?? reply;
                 const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), askedChange: !isQuestion(run.message) && (CHANGE_REQUEST.test(run.message) || readStatedMove(run.message) !== null), codeAuthored: owed !== undefined });
@@ -2658,6 +2920,29 @@ export function registerLocalRouting(api, options) {
                     owed = gentle;
                     remember([runId, sessionKeyNow], owed);
                 }
+            }
+            // gate #57: the host's raw context-overflow error is never shown; the next turn trims this chat's history harder.
+            if (on && OVERFLOW.test(owed ?? reply)) {
+                owed = OVERFLOW_LINE;
+                remember([runId, sessionKeyNow], owed);
+                if (run.sessionKey)
+                    overflowed.add(run.sessionKey);
+            }
+            // w20 H3: a reply that offers a retry stores what to retry; with nothing to store, it stops promising one.
+            if (on && RETRY_OFFER.test(owed ?? reply)) {
+                const slot = run.sessionKey ? retryAfterReply(owed ?? reply, run.message, nowMs()) : undefined;
+                if (slot && run.sessionKey)
+                    retrySlots.set(run.sessionKey, slot);
+                else {
+                    owed = withoutRetryOffer(owed ?? reply);
+                    remember([runId, sessionKeyNow], owed);
+                }
+            }
+            else if (on && run.sessionKey) {
+                // gate #54: a change that failed ("I couldn't add the call ...") is kept, so "try again" runs it again instead of guessing what to retry.
+                const slot = retryAfterReply(owed ?? reply, run.message, nowMs());
+                if (slot)
+                    retrySlots.set(run.sessionKey, slot);
             }
             if (on && owed)
                 putReplyInPlace(event.messages, owed);

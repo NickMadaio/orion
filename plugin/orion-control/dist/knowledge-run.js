@@ -25,7 +25,7 @@ async function call(run, script, args, log) {
 }
 const quote = (s) => `"${s.replace(/[.\s]+$/, "")}"`;
 const list = (xs) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
-const UNREACHABLE = "I couldn't reach your saved memory just now, so nothing was removed. Ask me again in a moment.";
+const UNREACHABLE = "I couldn't reach your saved memory just now, so nothing was removed. Say go and I'll retry it.";
 async function archive(ids, run, log) {
     if (!ids.length)
         return [];
@@ -77,7 +77,7 @@ async function forgetPick(move, run, log) {
 async function forgetUndo(move, run, log) {
     const out = await call(run, "orion-brain", ["forget", "--restore", ...move.held.ids], log);
     if (!out)
-        return { ...log, text: "I couldn't put that back just now; it's still archived, so nothing is lost. Ask me again in a moment." };
+        return { ...log, text: "I couldn't put that back just now; it's still archived, so nothing is lost. Say go and I'll retry it." };
     return { ...log, text: out.restored.length ? `Put back ${list(out.restored.map((r) => quote(r.text)))}.` : "That was already back." };
 }
 // ---- links ---------------------------------------------------------------------------------------------------------------
@@ -222,12 +222,12 @@ export async function runKnowledgeMove(move, run) {
         case "forget-undo": return forgetUndo(move, run, log);
         case "links": {
             const out = await call(run, "orion-brain", ["links", move.subject], log);
-            return { ...log, text: out ? linksReply(out) : "I couldn't read your knowledge graph just now. Ask me again in a moment." };
+            return { ...log, text: out ? linksReply(out) : "I couldn't read your knowledge graph just now. Say go and I'll retry it." };
         }
         case "profile": {
             const out = await call(run, "orion-brain", ["profile"], log);
             if (!out)
-                return { ...log, text: "I couldn't read what I have on you just now. Ask me again in a moment." };
+                return { ...log, text: "I couldn't read what I have on you just now. Say go and I'll retry it." };
             return move.brief ? { ...log, text: briefProfile(out), held: { kind: "profile-more" } } : { ...log, text: profileReply(out) };
         }
         case "trash": return trash(move, run, log);

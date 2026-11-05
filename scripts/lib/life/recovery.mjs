@@ -2,6 +2,8 @@
 // gets lighter study blocks and a shorter, easier gym instead of the full load he cannot carry.
 // Pure: a day record in, a level out. Unknown data is "unknown", never "low" and never "fine".
 
+import { totalSleepHours } from "./naps.mjs";
+
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const DEBT_DAYS = 3, NEED_HOURS = 8;
 
@@ -13,8 +15,8 @@ const DEBT_DAYS = 3, NEED_HOURS = 8;
  */
 export function recoveryLevel(record = {}, history = [], extra = {}) {
   const recovery = num(record?.recovery);
-  const slept = num(extra.sleptHours) ?? num(record?.sleepHours);
-  const debtHours = Math.round(history.slice(0, DEBT_DAYS).reduce((a, d) => a + Math.max(0, NEED_HOURS - (num(d?.sleepHours) ?? NEED_HOURS)), 0) * 10) / 10;
+  const slept = num(extra.sleptHours) ?? totalSleepHours(record);   // night plus naps (W20)
+  const debtHours = Math.round(history.slice(0, DEBT_DAYS).reduce((a, d) => a + Math.max(0, NEED_HOURS - (totalSleepHours(d) ?? NEED_HOURS)), 0) * 10) / 10;
   if (recovery === null && slept === null) return { level: "unknown", studyScale: 1, gymMinutes: null, debtHours, reasons: [] };
   const reasons = [];
   if (recovery !== null && recovery < 34) reasons.push(`recovery ${recovery}%`);

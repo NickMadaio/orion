@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sandboxNowMs } from "./plugin-clock.js";
 import { readWaterGoal, runWaterGoal } from "./water-goal.js";
+import { readIntakeQuestion, readWaterLog, runIntake } from "./intake-chat.js"; // w20 R3
 import { mutate, readHealthLog, today as dayOf } from "./health.js";
 const pad = (n) => String(n).padStart(2, "0");
 const clock12 = (d) => `${(d.getHours() + 11) % 12 + 1}:${pad(d.getMinutes())} ${d.getHours() < 12 ? "AM" : "PM"}`;
@@ -134,14 +135,14 @@ export function readBedtime(message) {
         return null;
     const time = set ? bedTime(set, 1) : undefined;
     if (time)
-        return { kind: "bedtime", read: false, time, week };
+        return { kind: "bedtime", read: false, time, week, scope: week || (BED_SET_VERB.test(m) && /\bbed\s?times?\b/i.test(m)) ? "always" : "tonight" };
     if (BED_EARLIER.test(m))
         return { kind: "bedtime", read: false, week };
     return null;
 }
 /** The first health phrase in his message, or null. Pure. */
 export function readHealthIntent(message, now) {
-    return readWaterGoal(message) ?? readBedtime(message) ?? readGym(message) ?? readMeal(message, now);
+    return readWaterGoal(message) ?? readWaterLog(message) ?? readIntakeQuestion(message) ?? readBedtime(message) ?? readGym(message) ?? readMeal(message, now);
 }
 // ---- meals ----
 /** The same meal at (nearly) the same time within this window is one meal said twice. */
@@ -297,5 +298,5 @@ export async function sleepLine(stateDir, now) {
 }
 /** Runs one health read. */
 export async function runHealthIntent(read, deps) {
-    return read.kind === "water" ? runWaterGoal(read, deps) : read.kind === "meal" ? runMeal(read, deps) : read.kind === "gym" ? runGym(read, deps) : runBedtime(read, deps);
+    return read.kind === "waterlog" || read.kind === "intake" ? runIntake(read, deps) : read.kind === "water" ? runWaterGoal(read, deps) : read.kind === "meal" ? runMeal(read, deps) : read.kind === "gym" ? runGym(read, deps) : runBedtime(read, deps);
 }

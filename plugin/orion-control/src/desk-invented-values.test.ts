@@ -20,8 +20,8 @@ describe("wake alarm: a time must be his", () => {
     expect(parseWake("going to bed now", DESK_0700, NIGHT)).toEqual({ kind: "bedtime" });
     const s = stub(CURRENT);
     const flow = await runWakeFlow({ message: "going to bed now", decision: DESK_0700, now: NIGHT, exec: s.exec });
-    expect(s.calls).toEqual([[]]); // a read of the real alarm, never a set
-    expect(flow).toMatchObject({ outcome: "say", text: "Goodnight. Your wake alarm is still set for Mon, 07:45." });
+    expect(s.calls).toEqual([]); // never a set; and the alarm is only mentioned when verified against wake-plan.json (wake-state.ts), not read from a stale file
+    expect(flow).toMatchObject({ outcome: "say", text: "Goodnight." });
   });
   it("goodnight with no alarm state read still changes nothing", async () => {
     const bad: WakeExec = async () => ({ stdout: "boom", code: 1 });
@@ -86,7 +86,7 @@ describe("other flows: a desk- or extractor-invented value writes nothing", () =
   });
 
   it("schedule: a course code is not a time; a desk add length is dropped for the default", async () => {
-    const { r, writes } = await schedule("move CS1800 review later", "07:00");
+    const { r, writes } = await schedule("move ABC100 review later", "07:00");
     expect(writes).toEqual([]);
     expect(r).toMatchObject({ outcome: "say", kind: "ask" });
     const add = async (message: string) => {

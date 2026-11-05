@@ -18,11 +18,13 @@ export declare class QuietWindow {
     end(now: number): void;
     private write;
 }
-export declare const STILL_FAILING = "Same problem as a moment ago, so still nothing changed. Tell me differently and I'll try again.";
-/** Per session, the failure lines sent and when. `guard` returns what to send instead of a repeat. */
+/** Per session, the failure lines sent and when. `guard` returns what to send instead of a repeat.
+ *  Typed and phone turns key a repeat on what he SAID (the same ask failing again), and get a different, more useful reply
+ *  (the reason plus a concrete alternative), never a bare "…". Spoken turns also key on the failure line itself (R2's thirty
+ *  rehearsal lines) and stay silent from the second repeat on. */
 export declare class RepeatGuard {
     private readonly sent;
-    guard(sessionKey: string | undefined, text: string, spoken: boolean, now?: number): string;
+    guard(sessionKey: string | undefined, text: string, spoken: boolean, now?: number, message?: string): string;
 }
 export declare const ROOM_STREAK_MS: number;
 /** A line that reads as said to a person in the room or on the phone. Only meaningful for a spoken line without "orion". */

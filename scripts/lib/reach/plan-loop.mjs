@@ -13,7 +13,7 @@
 // waits out a grace, an END that never got through leaves a "what changed" line for his next open moment (fx.queue), and a
 // block he started gets one gentle "still going?" at its planned end.
 import { rungText, endText, noteText, comebackText, voiceText, smallerVersion, strictnessFor, avoidanceLine, capVerdict, restrictionFor,
-  recordSays, replanFrom, nextGap, rungName, legitSkip, GAPS, END_RUNG } from "./plan-ladder.mjs";
+  recordSays, replanFrom, nextGap, lateEngaged, LATE_STRETCH, rungName, legitSkip, GAPS, END_RUNG } from "./plan-ladder.mjs";
 import { gymEvidence } from "../life/attendance.mjs";
 import { cancels } from "../awareness/declared-facts.mjs";
 import { classify } from "../life/live-day.mjs";
@@ -149,7 +149,7 @@ function afterReached(c, ctx, step, msg, delivery) {
   const level = step.rung + 1;
   // a reprise (the block a replan re-entered) is L0 and then the closing question, nothing between
   const reprise = !!c.reprise && !step.comeback;
-  const gap = step.comeback ? COMEBACK_GAP : reprise ? REPRISE_GAP : nextGap(step.rung);
+  const gap = step.comeback ? COMEBACK_GAP : reprise ? REPRISE_GAP : nextGap(step.rung, lateEngaged(ctx) ? LATE_STRETCH : 1);
   const loop = { ...c.loop, phase: step.rung === 0 && !step.comeback ? "reminded" : "intervening", level, nextCheckAt: nowMin(ctx.nowMs) + gap,
     history: historyRow(c.loop, ctx.nowMs, step.comeback ? "comeback" : rungName(step.rung), "reminded") };
   const alerts = reprise ? END_RUNG : step.comeback ? (c.alerts ?? 0) : (c.alerts ?? 0) + 1;

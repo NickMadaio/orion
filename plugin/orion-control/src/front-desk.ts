@@ -22,6 +22,7 @@ export const FRONT_DESK_CTX = 16384;
 
 export const MOVES = ["answer", "tool", "escalate", "ask", "ignore"] as const;
 export type Move = (typeof MOVES)[number];
+import { guardIntake } from "./desk-intake-guard.js";
 export const MENU_TOOLS = ["weather", "lights", "alarm", "wake", "session", "phone_time", "agenda", "tasks", "reschedule", "show", "app_open", "browser", "media", "log_intake", "supplements", "brain", "repair_note"] as const;
 
 export type Decision = {
@@ -87,14 +88,14 @@ export async function decide(input: FrontDeskInput, { fetchImpl = fetch, baseUrl
     if (!MOVES.includes(move)) return fallback("invalid move", started);
     if (move === "tool" && !MENU_TOOLS.includes(out.tool as (typeof MENU_TOOLS)[number])) return fallback("unknown tool", started);
     if ((move === "answer" || move === "ask") && !String(out.answer ?? "").trim()) return fallback("empty answer", started);
-    return {
+    return guardIntake({
       move,
       ...(move === "tool" ? { tool: String(out.tool), args: (out.args as Record<string, unknown>) ?? {} } : {}),
       ...(move === "escalate" ? { tier: (out.tier as Decision["tier"]) ?? "standard" } : {}),
       ...(String(out.say ?? "").trim() ? { say: String(out.say) } : {}),
       ...(String(out.answer ?? "").trim() ? { answer: String(out.answer) } : {}),
       ms: Date.now() - started,
-    };
+    }, input.message);
   } catch (error) {
     return fallback(controller.signal.aborted ? "timeout" : `error: ${error instanceof Error ? error.message : String(error)}`, started);
   } finally {

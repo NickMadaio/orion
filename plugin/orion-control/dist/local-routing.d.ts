@@ -1,5 +1,7 @@
 import { type Decision } from "./front-desk.js";
+import { type ToolResult } from "./work-check.js";
 import { type SessionExec, type SessionHint } from "./session-flow.js";
+import { type ChatDeps } from "./chat-asks.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { parseEdit, type EditTarget } from "./edit-followup.js";
 import { type ComputerDeps } from "./computer-loop.js";
@@ -10,6 +12,7 @@ import { type ReadyDeps } from "./focus-ready.js";
 import { type FocusRow } from "./focus-status.js";
 import { type PendingRun } from "./schedule-pending.js";
 import { type Probe, type QueuedMessage } from "./model-outage.js";
+import { type AgendaRun } from "./agenda-day.js";
 import { type ConnectorRow, type HealthLog } from "./code-answers.js";
 import { type ScriptRun } from "./reality.js";
 import { type PhoneTimeRun } from "./phone-block-flow.js";
@@ -22,6 +25,7 @@ import { type AppsRun } from "./apps-chat.js";
 import { type ShutdownRun } from "./bedtime-shutdown-chat.js";
 import { type WorkoutRun } from "./workout-chat.js";
 import { type MouseRun } from "./mouse-chat.js";
+import { type JournalEntry, type LedgerRun } from "./ledger-run.js";
 import { type MailPrefsRun } from "./mail-flow.js";
 import { type AskContext, type Day, type FlowResult } from "./schedule-flow.js";
 export type LocalRoutingMode = "off" | "shadow" | "on";
@@ -128,6 +132,8 @@ export type LocalRoutingOptions = {
     todoDoneFlow?: (message: string) => Promise<FlowResult>;
     /** w18 note: saves a note's whole text (note-flow.ts); tests pass a stub, never his real vault. */
     noteFlow?: (message: string, bound?: boolean) => Promise<FlowResult>;
+    /** w20 r3 (chat-asks.ts): open an app or site, add to his list, read his list; tests pass stubs, index.ts wires the real ones. */
+    chatRun?: ChatDeps;
     /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
     sessionExec?: SessionExec;
     /** "im ready to work", finishing a session early, one-time site allow (focus-ready.ts). Tests pass stubs; wired from index.ts. */
@@ -143,6 +149,12 @@ export type LocalRoutingOptions = {
     } | null>;
     /** Reads the live reminder store, to list and to find what to cancel (tests pass a stub; wired from index.ts). */
     listReminders?: () => Promise<StoredReminder[]>;
+    /** w20 r3 (ledger-run.ts): scripts the ledger removes things with (orion-reschedule, orion-log, orion-brain, orion-food-estimate); unset: the ledger stays off. */
+    ledgerRun?: LedgerRun;
+    /** Takes reminders out of the store by id (under the store's lock); with listReminders it is how "cancel the stretch one" works. */
+    removeReminders?: (ids: string[]) => Promise<void>;
+    /** The scheduler's undo journal, oldest first (default: the file the scheduler writes). */
+    undoJournal?: () => JournalEntry[];
     /** Reminders ORION offers (a thing he says he has to do, a deadline) and his "yes" to them (reminder-offers.ts). */
     offerPort?: OfferPort;
     /** The current time for reminder arithmetic (tests pin it). */
@@ -151,6 +163,8 @@ export type LocalRoutingOptions = {
     readDay?: (tomorrow: boolean) => Promise<string>;
     /** Reads a day as `show --json` gives it (--date args), for the time backstop on the worker's own writes (tests pass a stub; wired from index.ts). */
     readDayJson?: (dateArgs: string[]) => Promise<Day | undefined>;
+    /** What the calendar held on a day that is over (agenda-day.ts): yesterday cannot be read by the scheduler. */
+    agendaDay?: AgendaRun;
     /** How long that read may take before the write is refused as unreadable (default DAY_READ_MS; tests shorten it). */
     dayReadMs?: number;
     /** Reads the calendar's deadlines and dated to-dos for "whats due this week"; null when it fails (tests pass a stub; wired from index.ts) (q041, 2026-10-16 r8). */
@@ -231,6 +245,8 @@ export declare const liveReadDay: (tomorrow: boolean) => Promise<string>;
 /** The stamp of the newest change in the scheduler's undo journal (the entry "orion-reschedule undo"
  *  reverts; same file and same skipping of empty entries as scripts/lib/life/calendar-write.mjs). */
 export declare function undoJournalTop(home?: string, now?: number): string | null;
+/** The whole undo journal, oldest first (the file `orion-reschedule undo` pops from); empty when it cannot be read. */
+export declare function undoJournalEntries(home?: string, now?: number): JournalEntry[];
 /** The real scheduling flow (scheduler + worker via Ollama). Wired in by index.ts only. */
 export declare const liveScheduleFlow: (message: string, clock: string, opts?: {
     lengthDefaulted?: boolean;
@@ -261,6 +277,8 @@ export declare const liveCheckinRun: (args: string[]) => Promise<{
 }>;
 /** orion-declare / orion-reschedule with fixed arguments (no shell), for reality statements (2026-10-30). Wired in by index.ts only. */
 export declare const liveRealityRun: ScriptRun;
+/** The scripts the ledger removes things with, fixed arguments and no shell. Wired in by index.ts only. */
+export declare const liveLedgerRun: LedgerRun;
 /** Loads both local models at the context each is called with (2026-10-30: the outage gate's one warm-and-retry). Wired in by index.ts only. */
 export declare const liveModelWarm: () => Promise<string[]>;
 /** Replays a message queued while the model was down (model-outage.ts): one agent turn in its own session, and the reply is
@@ -282,12 +300,14 @@ export declare function dateLine(now?: Date): string;
 export declare const PRODUCTION_NOTES: string;
 export declare const isPlanStatement: (message: string) => boolean;
 export declare const STATEMENT_LINE = "Got it. I haven't changed or noted anything. Tell me if you want me to add it to your day.";
-export declare const honestLine: (calendar: boolean, message?: string) => string;
+/** w20 wording: never "say it again". From the tool results when there are any (what ran, what failed and why, the next step);
+ *  else what really happened (nothing ran) and an offer to do it now. `rotate` avoids the same variant twice in a row (live replies only). */
+export declare const honestLine: (calendar: boolean, message?: string, tools?: ReadonlyArray<ToolResult>, rotate?: boolean) => string;
 export declare const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
-export declare const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
+export declare const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you yet. Want me to look it up now?";
 /** Spoken turns get one revise round (turn-budget.ts). What HONEST_STOP would have had the model say, said by code instead. */
 export declare const SPOKEN_STOP_WROTE = "Something went wrong partway through that, so I won't say it's done. Check your calendar, and say \"undo\" if it looks wrong.";
-export declare const SPOKEN_STOP = "I couldn't finish that properly, so I won't say it's done. Can you say it again?";
+export declare const SPOKEN_STOP = "That didn't finish properly, so I won't say it's done. Want me to run it again?";
 /**
  * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
  * never the model's reply, never a clean success line over a failed command.
@@ -301,6 +321,8 @@ export declare function spokenFinalLine(allFindings: readonly string[], ctx: {
     calendar: boolean;
     wrote: boolean;
     calendarChecked?: boolean;
+    tools?: ReadonlyArray<ToolResult>;
+    message?: string;
 }): string | undefined;
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —

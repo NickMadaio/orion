@@ -50,6 +50,8 @@ import { clearDeclared } from "./lib/awareness/declared.mjs";
 import { gate, resolveAwareness, audienceOf } from "./lib/reach/gate.mjs";
 import { recordNudge } from "./lib/reach/activity-gate.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
+import { withEffectiveBed } from "./lib/life/effective-bed.mjs";
+import { eveningOf } from "./lib/life/sleep-plan.mjs";
 import { bedtimeVerdict, readBedtimeEvidence, isBedtimeWhy, phoneInHand, bedtimeText, rewritesBedtime } from "./lib/reach/bedtime-guard.mjs";
 import { localDate } from "./lib/life/live-day.mjs";
 import { presence } from "./lib/reach/presence.mjs";
@@ -148,7 +150,7 @@ const genuinelyUrgent = isUrgentNotification({ urgent, urgentKind });
 const bypass = bypassesQuiet({ urgentKind });
 // Priority, not a flat ceiling: protected messages (a reminder he set, a class nudge, a must block, the review) always go;
 // the rest draw on budgets, with the ceiling as a spam backstop. A drop is logged with a cooldown and given up after a few.
-const config = loadConfig();
+const config = withEffectiveBed(loadConfig(), eveningOf(now));   // a bedtime he named for tonight only counts too
 const reason = flag("--why") ?? "";
 const tier = tierOf({ why: reason, urgentKind, bypass, tier: flag("--tier"), askType: ask?.type ?? null, kind });
 const today = localDate(now);

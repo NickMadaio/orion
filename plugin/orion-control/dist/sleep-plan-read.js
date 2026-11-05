@@ -17,6 +17,8 @@
 import { isNo, isYes } from "./schedule-pending.js";
 import { saysYes } from "./day-lighten.js";
 import { readAlarm } from "./alarm-read.js";
+import { normalizeSpoken } from "./spoken-numbers.js";
+import { readBedtimeChange, readBedtimeWithAlarm } from "./bedtime-read.js";
 import { AMOUNT, clean, LEAD, leadMinutes, slotsOf, wakeTime } from "./sleep-plan-slots.js";
 export { slotsOf } from "./sleep-plan-slots.js";
 const pad = (n) => String(n).padStart(2, "0");
@@ -91,7 +93,7 @@ export function readBedShift(message) {
     return { time: `${pad(hour)}:${pad(min)}` };
 }
 /** Whether the sleep plan owns this statement before the health reader can (a wake statement, or a sleep-only bedtime shift). */
-export const ownsSleepStatement = (message, ctx = {}) => !!readHabit(message) || !!readBedShift(message) || !!readAlarm(message, alarmCtx(ctx));
+export const ownsSleepStatement = (message, ctx = {}) => !!readHabit(message) || !!readBedtimeChange(message) || !!readBedShift(message) || !!readAlarm(message, alarmCtx(ctx));
 const alarmCtx = ({ now, recentAlarm }) => ({ ...(now ? { hour: now.getHours() } : {}), ...(recentAlarm ? { recentAlarm } : {}) });
 // ── exceptions by talk ─────────────────────────────────────────────────────────────────────────────────────────────────
 const PARTY = /\b(?:party|partying|pregame|pregaming|club|clubbing|rave|frat|function)\b/;
@@ -202,10 +204,19 @@ export function readAnswer(message, held) {
     return SHORT(m) && !held.reasked && !REQUEST.test(m) ? { kind: "interview", draft: held.draft, reask: held.step } : undefined;
 }
 /** This turn's part in the sleep plan, or undefined. A held interview reads the answer first; a new statement starts over. */
-export function readSleepTurn(message, { held, now, recentAlarm }) {
+export function readSleepTurn(raw, { held, now, recentAlarm }) {
+    const message = normalizeSpoken(raw); // the shared spoken-number normaliser, ahead of every reader below
     const fresh = readHabit(message);
     if (fresh)
         return { kind: "interview", draft: held && held.step !== "confirm" ? merge(held.draft, fresh) : fresh };
+    const both = readBedtimeWithAlarm(message);
+    if (both) {
+        const alarm = readAlarm(both.alarmText, alarmCtx({ now, ...(recentAlarm ? { recentAlarm } : {}) }));
+        return alarm?.kind === "set" ? { kind: "bedset", change: both.change, alarm } : undefined; // an alarm half that cannot be read: nothing is guessed, the model asks
+    }
+    const bedset = readBedtimeChange(message);
+    if (bedset)
+        return { kind: "bedset", change: bedset };
     const bed = readBedShift(message);
     if (bed)
         return { kind: "bedtime", ...bed };

@@ -139,6 +139,13 @@ export function gentleCheckIn(message) {
     const pick = OPENERS[h % OPENERS.length];
     return pick(cause);
 }
+// w20 R3 (live gate #52): "hate my life lol wifi is dead" got the tease, then the model's own "I'm sorry... want me to try again in a bit?" (an invented
+// offer and a sorry check-in). A GENTLE message that asks for nothing is answered by the tease alone.
+const ASKS_SOMETHING = /\?|\b(?:can|could|would|will) (?:you|u)\b|\b(?:please|pls|plz|help|remind|move|set|add|cancel|play|open|turn|text|call|log|book|schedule|tell|show|find|check|start|stop|put|push|skip|what|whats|when|how|why|where|who|which|do i|did i|am i|is there|need|want|wanna|should)\b/i;
+/** A GENTLE slang line with no request in it: the dry tease is the whole reply. */
+export function isBanterOnly(message) {
+    return crisisTier(message) === "gentle" && message.trim().length <= 140 && !ASKS_SOMETHING.test(message.replace(new RegExp(SOFTENABLE.source, "gi"), " "));
+}
 /** The reply with the gentle check-in in front, once (a text that already opens with it is left as it is). */
 export function withGentleCheckIn(message, text) {
     if (crisisTier(message) !== "gentle" || !text.trim())

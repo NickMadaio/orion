@@ -28,6 +28,8 @@ struct WhoopDayPoint: Identifiable, Equatable {
     var hrv: Int?
     var restingHeartRate: Int?
     var strain: Double?
+    var naps: [WhoopNap] = []
+    var workouts: [WhoopWorkoutRecord] = []
 
     var id: Date { date }
 }
@@ -113,6 +115,11 @@ extension WhoopWeek {
         return WhoopWeek(points: byDay.values.sorted { $0.date < $1.date })
     }
 
+    /// The naps that ended on `day` (a civil day), oldest first.
+    func naps(on day: Date, calendar: Calendar = .current) -> [WhoopNap] {
+        points.filter { calendar.isDate($0.date, inSameDayAs: day) }.flatMap(\.naps)
+    }
+
     /// The week as the health log wants it: one reading per day key.
     ///
     /// Keyed by the CIVIL day of each reading, not by Orion's logical day. The
@@ -128,7 +135,9 @@ extension WhoopWeek {
                 sleepHours: point.sleepHours,
                 hrv: point.hrv,
                 restingHeartRate: point.restingHeartRate,
-                strain: point.strain
+                strain: point.strain,
+                naps: point.naps,
+                workouts: point.workouts
             )
         }
         return readings

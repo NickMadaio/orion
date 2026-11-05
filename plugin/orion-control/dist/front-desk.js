@@ -19,6 +19,7 @@ import { FRONT_DESK_MODEL, FRONT_DESK_SYSTEM, FRONT_DESK_TEMPERATURE } from "./f
 /** One context size for every call and the warm-up: a different num_ctx makes Ollama reload the model. */
 export const FRONT_DESK_CTX = 16384;
 export const MOVES = ["answer", "tool", "escalate", "ask", "ignore"];
+import { guardIntake } from "./desk-intake-guard.js";
 export const MENU_TOOLS = ["weather", "lights", "alarm", "wake", "session", "phone_time", "agenda", "tasks", "reschedule", "show", "app_open", "browser", "media", "log_intake", "supplements", "brain", "repair_note"];
 const SCHEMA = {
     type: "object",
@@ -72,14 +73,14 @@ export async function decide(input, { fetchImpl = fetch, baseUrl = "http://127.0
             return fallback("unknown tool", started);
         if ((move === "answer" || move === "ask") && !String(out.answer ?? "").trim())
             return fallback("empty answer", started);
-        return {
+        return guardIntake({
             move,
             ...(move === "tool" ? { tool: String(out.tool), args: out.args ?? {} } : {}),
             ...(move === "escalate" ? { tier: out.tier ?? "standard" } : {}),
             ...(String(out.say ?? "").trim() ? { say: String(out.say) } : {}),
             ...(String(out.answer ?? "").trim() ? { answer: String(out.answer) } : {}),
             ms: Date.now() - started,
-        };
+        }, input.message);
     }
     catch (error) {
         return fallback(controller.signal.aborted ? "timeout" : `error: ${error instanceof Error ? error.message : String(error)}`, started);

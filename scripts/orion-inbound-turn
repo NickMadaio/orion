@@ -26,6 +26,8 @@ import { readLedger } from "./lib/curiosity/ledger.mjs";
 import { noteInboundText } from "./lib/awareness/declared.mjs";
 import { reviewNowOnGoodnight } from "./lib/reach/review-time.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
+import { effectiveBedtime } from "./lib/life/effective-bed.mjs";
+import { eveningOf } from "./lib/life/sleep-plan.mjs";
 import { readFileSync } from "node:fs";
 import { readDelivered, pickOutreach, injectArgs, sessionLive } from "./lib/reach/reply-context.mjs";
 import { ackBedtime, isBedtimeRow } from "./lib/reach/bedtime-guard.mjs";
@@ -50,7 +52,7 @@ function sendReviewFirst() {
   const bin = process.env.ORION_DAY_REVIEW_BIN || join(import.meta.dirname, "orion-day-review");
   spawn(process.execPath, [bin, "--send", "--date", key, "--gate-exempt", "--mark-sent", "--source", source], { detached: true, stdio: "ignore", env: process.env }).on("error", () => {}).unref();
 }
-try { noteInboundText({ dir: DIR, text: flag("--text"), now, bedtime: loadConfig().bedtime, afterDeclare: sendReviewFirst }); } catch { /* best effort */ }
+try { noteInboundText({ dir: DIR, text: flag("--text"), now, bedtime: effectiveBedtime(loadConfig(), eveningOf(now)), afterDeclare: sendReviewFirst }); } catch { /* best effort */ }
 const sessionKey = /^[A-Za-z0-9._:-]{1,200}$/.test(flag("--session") ?? "") ? flag("--session") : null;
 const INJECTED = "outreach-injected.json";
 // The caller's deadline (epoch ms): it waits for this process until just after it, so an inject never lands after its turn has

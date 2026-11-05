@@ -9,8 +9,8 @@ import { runScheduleFlow, TOOK_BACK } from "./schedule-flow.js";
 const plan = { commuteMinutes: 45, bufferMinutes: 5, anchors: [{ title: "Gym", minutes: 90 }] };
 // Tomorrow (10-21): two classes, nothing else.
 const tomorrow = (extra = []) => ({ date: "2030-10-04", now: null, plan, blocks: [
-        { title: "CS1802 Seminar — Lecture", start: "09:00", end: "10:30", fixed: true, kind: "class" },
-        { title: "CS2100 Program Design — Lecture", start: "11:00", end: "12:30", fixed: true, kind: "class" }, ...extra
+        { title: "ABC101 Seminar — Lecture", start: "09:00", end: "10:30", fixed: true, kind: "class" },
+        { title: "ABC200 Program Design — Lecture", start: "11:00", end: "12:30", fixed: true, kind: "class" }, ...extra
     ] });
 // Today at 22:42: everything is over; his kept Gym ran 21:05-22:35.
 const today = (now = "22:42") => ({ date: "2030-10-03", now, plan, blocks: [
@@ -57,7 +57,7 @@ describe("re-run #2a/#2b: gym first then resume, tomorrow, with no resume on tom
         const after = tomorrow([{ title: "Gym", start: "13:20", end: "14:50", fixed: false, kind: "gym" }, { title: "resume", start: "14:55", end: "15:55", fixed: false }]);
         const { result, writes } = await flow("can u redo tomorrow after my first class, gym first then resume for an hour", { days: { after }, out: "Changed:\n  planned Gym: 13:20–14:50\n  planned resume: 14:55–15:55" });
         expect(writes).toEqual([["day", "--plan", "Gym, 90, 13:20", "--plan", "resume, 60, 14:55", "--date", "tomorrow"]]);
-        expect(result).toMatchObject({ outcome: "done", reply: expect.stringMatching(/^Done for tomorrow, but not as asked, after your first class: Gym 1:20–2:50 PM, then resume 2:55–3:55 PM\. Gym couldn't go first at 10:35 AM because CS2100 Program Design is in the way/) });
+        expect(result).toMatchObject({ outcome: "done", reply: expect.stringMatching(/^Done for tomorrow, but not as asked, after your first class: Gym 1:20–2:50 PM, then resume 2:55–3:55 PM\. Gym couldn't go first at 10:35 AM because ABC200 Program Design is in the way/) });
     });
 });
 describe("re-run #5: 'put cs lab from now until ten thirty' at 22:42", () => {
@@ -74,7 +74,7 @@ describe("re-run #5: 'put cs lab from now until ten thirty' at 22:42", () => {
     it("a run the scheduler refused is never 'Done', even when it lists the plan it tried (NOTHING WAS CHANGED … planned CS Lab …)", async () => {
         const refused = "NOTHING WAS CHANGED: must-haves could not fit: Gym.\n  rebuilt the remaining day from fixed commitments and must-haves first\n  cleared 1 prior schedule block: Gym\n  planned CS Lab: 21:55–22:30\n  MUST-HAVE NOT BOOKED: Gym (90 min) did not fit on Thursday\n";
         const { result } = await flow("put cs lab from now until ten thirty", { days: { today: today("21:55") }, now: new Date(2030, 9, 3, 21, 55), out: refused });
-        expect(result).toMatchObject({ outcome: "say", text: "Not done: Gym didn't fit. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait." });
+        expect(result).toMatchObject({ outcome: "say", text: "I couldn't do that: Gym didn't fit around your classes and bedtime. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait." });
     });
     it("'from now' tomorrow is refused with the reason", async () => {
         const { result, writes } = await flow("put cs lab from now until ten thirty tomorrow");
@@ -100,7 +100,7 @@ describe("re-run #9: 'dinner then gym' right after 'reschedule tomorrow after my
     });
     it("the sentence it suggests is one code carries out", async () => {
         const { writes } = await flow("reschedule tomorrow after my first class, do dinner for 30 min then gym", { days: { tomorrow: booked } });
-        // dinner (30) would end inside CS2100 at 11:00, so both go after it and the trip home: dinner 1:20 PM, then the Gym at its 90 minutes
+        // dinner (30) would end inside ABC200 at 11:00, so both go after it and the trip home: dinner 1:20 PM, then the Gym at its 90 minutes
         expect(writes).toEqual([["day", "--plan", "dinner, 30, 13:20", "--plan", "Gym, 90, 13:55", "--date", "tomorrow"]]);
     });
 });
@@ -110,10 +110,10 @@ describe("re-run #10 (the wrong write): 'can u put a 45 min walk tomorrow at 5'"
         expect(writes).toEqual([["add", "walk", "45", "--at", "17:00", "--date", "tomorrow", "--length-explicit"]]);
         expect(result).toMatchObject({ outcome: "done", reply: "Done for tomorrow: walk 5:00 PM–5:45 PM." });
     });
-    it("at 11 tomorrow morning it would sit on CS2100: said, not booked", async () => {
+    it("at 11 tomorrow morning it would sit on ABC200: said, not booked", async () => {
         const { result, writes } = await flow("can u put a 45 min walk tomorrow at 11am");
         expect(writes).toEqual([]);
-        expect(result).toMatchObject({ outcome: "say", text: "CS2100 Program Design is 11:00 AM–12:30 PM tomorrow, so walk can't go at 11:00 AM. I haven't booked it. Tell me another time." });
+        expect(result).toMatchObject({ outcome: "say", text: "ABC200 Program Design is 11:00 AM–12:30 PM tomorrow, so walk can't go at 11:00 AM. I haven't booked it. Tell me another time." });
     });
     it("at 9 tomorrow is asked about, never guessed", async () => {
         const { result, writes } = await flow("put a walk at 9 tomorrow");

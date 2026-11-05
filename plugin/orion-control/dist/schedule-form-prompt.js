@@ -29,7 +29,7 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "DS got moved to 11:30 today" → {"steps":[{"do":"move","what":"B1","to":"11:30"}]}   (a FIXED block moves only when it is the thing he is moving, by name, with its new time; that is not an overrun. A FIXED block he only mentions beside another move stays put, and homework or study for a class is not the class)
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}
 - "push cert courses back 20 min" → {"steps":[{"do":"move","what":"B3","by":20}]}
-- "running 15 min behind, push everything" → {"steps":[{"do":"late","minutes":15}]}   ("I'm running late" with no number → ask how late)
+- "running <N> min behind, push everything" → {"steps":[{"do":"late","minutes":<N>}]}   (<N> is the number he said, never a number from this line; "I'm running late" with no number → ask how late; a story with clock times — "meeting at 7:15, showing up at 8, back around 10" — is not a number of minutes: leave it to busy)
 - "DS is going 20 over" → {"steps":[{"do":"overrun","what":"B1","minutes":20}]}
 - "add a 15 minute stretch block tomorrow at 7:30 am" → {"steps":[{"do":"add","what":"stretch","minutes":15,"to":"07:30"}]}   (a time he says goes in "to", 24-hour — never leave it out; "tomorrow" is the day shown, not part of the step)
 - "what time is my lab?" → {"steps":[{"do":"answer","text":"Your lab is <its start>–<its end>."}]}   (read the times from his day, never from these examples)

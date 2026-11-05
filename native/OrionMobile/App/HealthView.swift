@@ -14,6 +14,7 @@ struct HealthView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 PhoneHeader(eyebrow: latest.map { label($0.date) } ?? "Recovery · sleep · strain", title: "Health", tint: Phone.green)
+                SyncLine(remote: remote)
                 if let day = latest {
                     vitals(day).softReveal(true)
                     TrackingSection(remote: remote).softReveal(true)

@@ -266,7 +266,7 @@ export function endMismatch(message, argvs, day, opts = {}) {
         const said = want.options.length === 1 ? ampm(want.options[0]) : want.options.map(ampm).join(" or ");
         if (w.end === undefined)
             return opts.dayUnread
-                ? `I couldn't read your calendar just now, so I couldn't check that ${w.title} would end at ${said}, and I haven't changed anything. Try again in a moment.`
+                ? `I couldn't read your calendar just now, so I couldn't check that ${w.title} would end at ${said}, and I haven't changed anything. Say go and I'll retry it.`
                 : `You said ${w.title} until ${said}, but I couldn't work out when the change would end it, so I haven't changed anything. Say it again with the time.`;
         if (!mine.some((s) => s.options.includes(w.end))) {
             return `You said ${w.title} until ${said}, but the change I worked out would have ended it at ${ampm(w.end)}, so I haven't changed anything. Say it again and I'll end it at ${said}.`;

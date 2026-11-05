@@ -17,8 +17,13 @@ const WRITE_CANONICAL = /\b(?:add|move|drop|late|early|extend|resize|swap|day|cl
 
 /** Tool results this turn that failed or wrote nothing (a flow's own outputs are code-authored and filtered by the caller). */
 export function failedTools(tools: ReadonlyArray<ToolResult>): ToolResult[] {
-  return tools.filter((t) => { const o = outcomeOf(t); return o === "failed" || o === "nothing"; });
+  const bad = tools.filter((t) => { const o = outcomeOf(t); return o === "failed" || o === "nothing"; });
+  // w20 R3 (gate #41): a guessed tool id ("openclaw:weather") the host answered "Unknown tool id" is the worker finding its way, not a part of
+  // the job that failed; when it then reached a real tool that worked, the reply must not say "One part didn't work".
+  const worked = tools.some((t) => !UNKNOWN_ID.test(String(t.stdout)) && ["success", "partial", "read"].includes(outcomeOf(t)) && /^(?:tool_call|orion_task_run|exec)\b/.test(t.canonical));
+  return worked ? bad.filter((t) => !(/^tool_call\b/.test(t.canonical) && UNKNOWN_ID.test(String(t.stdout)))) : bad;
 }
+const UNKNOWN_ID = /Unknown tool id|unknown tool\b/i;
 
 /** True when any tool this turn really changed something. */
 export const wroteSomething = (tools: ReadonlyArray<ToolResult>): boolean => tools.some((t) => { const o = outcomeOf(t); return o === "success" || o === "partial"; });
@@ -43,10 +48,13 @@ export function acknowledgement(failed: ReadonlyArray<ToolResult>, changeRequest
   const reason = withReason ? failed.map((t) => failureReason(t.stdout)).find(Boolean) ?? "" : "";
   if (!wrote) {
     // Said for what was asked: an open or a quit is not a lookup (11-04 11:20 "I couldn't run that lookup just now" over a failed open).
+    // The real reason goes first and the next step follows ("I couldn't run that: Safari isn't installed here. Want me to open it another way?").
     const names = failed.map((t) => t.canonical).join(" ");
-    if (/\b(?:app_open|browser_open_url|folder_open)\b/.test(names)) return "I couldn't run that — nothing opened.";
-    if (/\bapp_quit\b/.test(names)) return "I couldn't run that — nothing was closed.";
-    return "I couldn't run that lookup just now.";
+    const why = withReason ? failed.map((t) => failureReason(t.stdout)).find(Boolean) ?? "" : "";
+    const tail = (alt: string) => (why ? `${why.replace(/\.$/, "")}. ${alt}` : alt);
+    if (/\b(?:app_open|browser_open_url|folder_open)\b/.test(names)) return `I couldn't run that — nothing opened. ${tail("Tell me the exact app or site and I'll go straight to it.")}`;
+    if (/\bapp_quit\b/.test(names)) return `I couldn't run that — nothing was closed. ${tail("Tell me which app is still open and I'll go again.")}`;
+    return `I couldn't run that lookup. ${tail("Want me to try a different source for it?")}`;
   }
-  return reason ? `I couldn't make that change — ${/^I\b/.test(reason) ? reason : reason.charAt(0).toLowerCase() + reason.slice(1)}.` : "I couldn't make that change, so nothing was changed.";
+  return reason ? `I couldn't make that change — ${/^I\b/.test(reason) ? reason : reason.charAt(0).toLowerCase() + reason.slice(1)}. Nothing was changed; tell me what to adjust and I'll redo it.` : "I couldn't make that change, so nothing was changed. Tell me what to adjust and I'll redo it, or say what you wanted done and I'll try another way.";
 }

@@ -10,6 +10,7 @@ import { controlledDir, clockNow } from "../clock.mjs";
 import { nowRecord, NOW_SCHEMA_VERSION } from "./now-record.mjs";
 import { liveDayWithLogged, liveDay, localDate } from "./live-day.mjs";
 import { loadConfig } from "./config.mjs";
+import { planBedtime } from "./effective-bed.mjs";
 
 export const NOW_FILE = "now.json";
 const hhmm = (m) => `${String(Math.floor((((m % 1440) + 1440) % 1440) / 60)).padStart(2, "0")}:${String(((m % 60) + 60) % 60).padStart(2, "0")}`;
@@ -67,7 +68,11 @@ export async function buildNow({ dir = controlledDir(), now = clockNow(), aw = n
   let tomorrow = tomorrowDay;
   if (!Array.isArray(tomorrow)) { try { tomorrow = await liveDay(minute < 360 ? localDate(now) : localDate(new Date(now.getTime() + 86400000))); } catch { tomorrow = []; } }
   const s = stateInputs(dir);
-  return nowRecord({ now, aw: awareness, day: blocks, dayOk: ok !== false, config: config ?? loadConfig(), sleepPlan: sleepPlanFor({ minute, tomorrow }),
+  const cfg = config ?? loadConfig();
+  // The bedtime shown goes through effective-bed: a night he named, or a standing bedtime he fixed, beats the computed one.
+  const computed = sleepPlanFor({ minute, tomorrow });
+  const sleepPlan = { ...computed, bedtime: planBedtime(cfg, planDate, computed.bedtime) };
+  return nowRecord({ now, aw: awareness, day: blocks, dayOk: ok !== false, config: cfg, sleepPlan,
     slips: s.slips, declared: s.declared, checkins: s.checkins, patterns: s.patterns, sensors: sensorsFrom({ aw: awareness, healthLog: s.healthLog, nights: s.nights }) });
 }
 

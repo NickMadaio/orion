@@ -5,6 +5,7 @@
  Not requests to open anything: his tabs, the day, a door, "open source", or a sentence that merely contains "open".
 */
 import { OPENABLE_FOLDERS } from "./catalog.js";
+import { APPS } from "./computer-intent.js";
 
 export type OpenRequest =
   | { kind: "app"; name: string }
@@ -52,6 +53,9 @@ export function openRequest(message: string): OpenRequest | null {
   const said = message.trim().replace(/\s+/g, " ");
   if (!said || said.length > 120) return null;
   // A correction before the ask ("amazon is a website, i asked you to open it. open amazon UK on my browser"): the last sentence is the request.
+  // w20 r3: "put spotify on" / "put youtube on" is "open it" (computer-intent no longer reads a bare "put" as typing). Only a name it knows: "put the kettle on" is not.
+  const putOn = new RegExp(String.raw`^${LEAD}put\s+(.+?)\s+on[\s.!?]*$`, "i").exec(said)?.[1]?.trim().toLowerCase();
+  if (putOn && (SITES[putOn] || APPS[putOn])) return openRequest(`open ${putOn}`);
   const sentences = said.split(/(?<=[.!?])\s+/);
   const ask = OPEN_RE.test(said) || sentences.length < 2 ? said : sentences[sentences.length - 1]!;
   const rest = OPEN_RE.exec(ask)?.[1]?.replace(FILLER, "").trim().replace(/[.!?]+$/, "");

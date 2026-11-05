@@ -103,7 +103,7 @@ export function readDayDefault(message: string, outreach?: string, now: Date = n
 
 // ---- the day ----
 const UNDO = "Say \"undo\" to put it back.";
-const NO_DAY = "I couldn't read your calendar just now, so I haven't changed anything. Ask me again in a moment.";
+const NO_DAY = "I couldn't read your calendar just now, so I haven't changed anything. Say go and I'll retry it.";
 const say = (text: string, kind: "plain" | "ask" = "plain", calls: string[] = [], outputs: string[] = []): FlowResult => ({ outcome: "say", kind, text, ...(calls.length ? { calls, outputs } : {}) });
 const canon = (args: string[]) => `exec orion-reschedule ${args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`;
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();

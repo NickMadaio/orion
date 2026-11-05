@@ -19,12 +19,13 @@ import { join } from "node:path";
 import type { FlowResult } from "./schedule-flow.js";
 import { sandboxNowMs } from "./plugin-clock.js";
 import { readWaterGoal, runWaterGoal, type WaterGoalRead } from "./water-goal.js";
+import { readIntakeQuestion, readWaterLog, runIntake, type IntakeRead } from "./intake-chat.js";   // w20 R3
 import { mutate, readHealthLog, today as dayOf, type HealthLogFile } from "./health.js";
 
 export type MealRead = { kind: "meal"; meal: string; title: string; notes: string; at: Date };
 export type GymRead = { kind: "gym"; scope: "week" | "last7" | "recent" };
-export type BedtimeRead = { kind: "bedtime"; read: boolean; time?: string; week: boolean };
-export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead;
+export type BedtimeRead = { kind: "bedtime"; read: boolean; time?: string; week: boolean; /** every night only when he said set/make/change on "bedtime" or "this week"; else tonight (as bedtime-read.ts) */ scope?: "tonight" | "always" };
+export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead | IntakeRead;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const clock12 = (d: Date) => `${(d.getHours() + 11) % 12 + 1}:${pad(d.getMinutes())} ${d.getHours() < 12 ? "AM" : "PM"}`;
@@ -134,14 +135,14 @@ export function readBedtime(message: string): BedtimeRead | null {
   const explicit = !!set && BED_SET_VERB.test(m) && !BED_PAST_NIGHT.test(m);
   if (BED_PAST.test(m) && !explicit) return null;
   const time = set ? bedTime(set, 1) : undefined;
-  if (time) return { kind: "bedtime", read: false, time, week };
+  if (time) return { kind: "bedtime", read: false, time, week, scope: week || (BED_SET_VERB.test(m) && /\bbed\s?times?\b/i.test(m)) ? "always" : "tonight" };
   if (BED_EARLIER.test(m)) return { kind: "bedtime", read: false, week };
   return null;
 }
 
 /** The first health phrase in his message, or null. Pure. */
 export function readHealthIntent(message: string, now: Date): HealthRead | null {
-  return readWaterGoal(message) ?? readBedtime(message) ?? readGym(message) ?? readMeal(message, now);
+  return readWaterGoal(message) ?? readWaterLog(message) ?? readIntakeQuestion(message) ?? readBedtime(message) ?? readGym(message) ?? readMeal(message, now);
 }
 
 // ---- meals ----
@@ -275,5 +276,5 @@ export async function sleepLine(stateDir: string, now: Date): Promise<string> {
 
 /** Runs one health read. */
 export async function runHealthIntent(read: HealthRead, deps: { stateDir: string; now: Date }): Promise<FlowResult> {
-  return read.kind === "water" ? runWaterGoal(read, deps) : read.kind === "meal" ? runMeal(read, deps) : read.kind === "gym" ? runGym(read, deps) : runBedtime(read, deps);
+  return read.kind === "waterlog" || read.kind === "intake" ? runIntake(read, deps) : read.kind === "water" ? runWaterGoal(read, deps) : read.kind === "meal" ? runMeal(read, deps) : read.kind === "gym" ? runGym(read, deps) : runBedtime(read, deps);
 }

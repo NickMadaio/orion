@@ -74,6 +74,9 @@ const NOT_OURS = [
   /\b(?:folder|directory|\.txt|\.pdf|\.docx?|files?\b(?!\s*(?:>|→|->)))/i,
 ];
 
+/** w20 r3 (#5, #55): a sentence about WHEN something is or where it goes back to is his schedule, never text for the Mac's keyboard. */
+const SCHEDULE_SHAPE = /\b(?:at|by|around|@)\s*(?:\d|half\b|quarter\b|noon\b|midnight\b)|\bback\s+(?:where|how|to|as|like)\b|\b(?:where|how)\s+(?:it|they)\s+(?:was|were)\b|\b(?:before|after)\s+(?:lunch|dinner|class|my|the)\b|\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i;
+
 const READ_RE = /\b(?:what(?:'|’)?s|what is)\s+on\s+(?:my|the)\s+screen\b|\b(?:look|glance)\s+at\s+(?:my|the)\s+screen\b|\bread\s+(?:me\s+)?(?:this|the|my)\s+(?:slide|page|screen|window|doc(?:ument)?|article)\b|\bwhat\s+am\s+i\s+looking\s+at\b|\bsummari[sz]e\s+(?:this|the|my)\s+(?:slide|page|screen|window)\b|\bwhat(?:'|’)?s\s+(?:this|on\s+this)\s+(?:slide|page|window)\b/i;
 const SUMMARY_RE = /\bsummari[sz]e|\bbullets?\b|\btl;?dr\b|\bgist\b|\bexplain\b/i;
 
@@ -122,7 +125,7 @@ function tabFilter(clause: string): TabFilter {
   return { mode: "all" };
 }
 
-function parseClause(raw: string): Clause | "title" | null {
+function parseClause(raw: string, appNamed = false): Clause | "title" | null {
   const clause = raw.trim().replace(/[.!?]+$/, "");
   const text = clause.replace(/^(?:please|pls|can you|could you|now)\s+/i, "");
   let m: RegExpMatchArray | null;
@@ -135,7 +138,8 @@ function parseClause(raw: string): Clause | "title" | null {
     && (/\bnew\b|\bone\b|called|titled|named/i.test(text) || /^(?:make|create|start)\b/i.test(text))) {
     return m[1] ? { kind: "new_doc", title: stripQuotes(m[1]) } : { kind: "new_doc" };
   }
-  if ((m = text.match(/^(?:type|write|enter|put)\s+(?:in\s+)?(["“].+?["”]|.+?)(?:\s+(?:in|into)\s+(.+))?$/i)) && !/^up\b/i.test(m[1]!)) {
+  // "put" types only into a named place ("put hello in the box"): bare, it is "put the gym at 7", his schedule.
+  if ((m = text.match(/^(?:type|write|enter|put)\s+(?:in\s+)?(["“].+?["”]|.+?)(?:\s+(?:in|into)\s+(.+))?$/i)) && !/^up\b/i.test(m[1]!) && (!/^put\b/i.test(text) || m[2] || appNamed)) {
     const into = m[2] ? targetRef(m[2], "editable") : undefined;
     return into ? { kind: "type", text: stripQuotes(m[1]!), into } : { kind: "type", text: stripQuotes(m[1]!) };
   }
@@ -178,13 +182,14 @@ export function detectComputerIntent(message: string): ComputerIntent | null {
   if (!text) return null;
   if (READ_RE.test(text)) return { kind: "read", question: text, wantsSummary: SUMMARY_RE.test(text) };
   if (NOT_OURS.some((re) => re.test(text))) return null;
+  if (SCHEDULE_SHAPE.test(text.replace(/["“][^"”]*["”]/g, " "))) return null;
   const app = appIn(text);
   // Quoted text is typed verbatim: shield it from the clause split (its commas are not step boundaries).
   const quotes: string[] = [];
   const shielded = text.replace(/["“][^"”]*["”]/g, (q) => `\u0000${quotes.push(q) - 1}\u0000`);
   const unshield = (s: string) => s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => quotes[Number(i)] ?? "");
   const pieces = shielded.replace(/^in\s+[a-z ]+?,\s*/i, (lead) => (appIn(lead) ? "" : lead)).split(SPLIT_RE).filter(Boolean);
-  const parsed = pieces.map((piece) => parseClause(stripAppContext(unshield(piece))));
+  const parsed = pieces.map((piece) => parseClause(stripAppContext(unshield(piece)), !!app && new RegExp(`\\bin\\s+(?:the\\s+)?(?:${APP_WORDS})\\b`, "i").test(unshield(piece))));
   if (parsed.length === 0 || parsed.some((c) => c === null)) return null;
   const clauses = mergeTitles(parsed as (Clause | "title")[]);
   if (clauses.length === 0) return null;

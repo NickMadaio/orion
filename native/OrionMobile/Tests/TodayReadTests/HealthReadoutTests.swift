@@ -30,6 +30,15 @@ final class HealthReadoutTests: XCTestCase {
         XCTAssertEqual(HealthReadout.lines(day()), [])
     }
 
+    func testNapIsASentenceWithTheTotal() {
+        let napped = LinkSnapshot.HealthDay(date: "2026-11-03", sleepHours: 6.6, napMinutes: 70, napStart: "2026-11-03T15:00:00Z")
+        let utc = TimeZone(identifier: "UTC")!
+        XCTAssertEqual(HealthReadout.napLine(napped, timeZone: utc), "You napped 1h10 at 15:00, 7.8 hours of sleep in all.")
+        XCTAssertEqual(HealthReadout.napLine(.init(date: "d", napMinutes: 25), timeZone: utc), "You napped 25 min.")
+        XCTAssertNil(HealthReadout.napLine(day(sleep: 7)))
+        XCTAssertTrue(HealthReadout.lines(napped).contains { $0.hasPrefix("You napped") })
+    }
+
     func testNoSourceOrCoverageWording() {
         let all = HealthReadout.lines(day(recovery: 1, hrv: 1, rhr: 1, sleep: 1, perf: 1, strain: 1)) + [HealthReadout.empty]
         for line in all {

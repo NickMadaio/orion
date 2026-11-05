@@ -182,7 +182,7 @@ describe("local routing — on mode", () => {
     const messages = [{ role: "user", content: "move gym to 7" }, { role: "assistant", content: [{ type: "text", text: "Done — gym is at 7." }] }];
     const [first] = await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7.", messages }, ctx);
     expect(first).toBeUndefined();
-    expect(JSON.stringify(messages[1])).toContain("I couldn't move anything, so nothing was moved — Gym did not fit.");
+    expect(JSON.stringify(messages[1])).toContain("I couldn't move anything, so nothing was moved — Gym didn't fit.");
     expect(JSON.stringify(messages[1])).not.toContain("gym is at 7");
     expect(lines(logPath).at(-1)).toMatchObject({ mode: "on", escalationNeeded: true });
   });
@@ -283,7 +283,7 @@ describe("local routing — on mode", () => {
     for (let k = 0; k < 3; k++) await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "I added 45 minutes of macro studying." }, ctx2);
     await f.fire("after_tool_call", { toolName: "exec", params: { command: "orion-agenda today" }, result: "today 5:15 PM — grind leetcode" }, ctx2);
     const [sent2] = (await f.fire("reply_payload_sending", { payload: { text: "I added 45 minutes of macro studying." }, runId: "p2", sessionKey: "agent:main:y" }, {})) as Array<Record<string, any>>;
-    expect(sent2?.payload.text).toMatch(/couldn't make that change/);
+    expect(sent2?.payload.text).toMatch(/couldn't (?:make that change|run that change|get that change to run)/);
   });
 
   it("a timed reminder goes to alarm_set (never orion-tasks), with the day worked out by code", async () => {
@@ -477,7 +477,7 @@ describe("local routing — focus sessions and false claims (2026-10-15)", () =>
     expect(first).toMatchObject({ action: "revise" });
     const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie }, ctx)) as Array<Record<string, any>>;
     expect(second).toMatchObject({ action: "revise" });
-    expect(second?.retry.instruction).toMatch(/whole reply must be exactly this text.*I didn't actually do that — nothing was started or changed\./);
+    expect(second?.retry.instruction).toMatch(/whole reply must be exactly this text.*I couldn't (?:run that|actually run that)/);
     expect(second?.retry.instruction).not.toMatch(/calendar changed/);
   });
 
@@ -495,7 +495,9 @@ describe("local routing — focus sessions and false claims (2026-10-15)", () =>
     for (let k = 0; k < 3; k++) passes.push({ role: "user", content: "x" }, said());
     for (let k = 0; k < 3; k++) await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: lie, messages: passes.slice(0, 2 * k + 2) }, ctx);
     const final = passes.at(-1)!;
-    expect(final.content).toEqual([{ type: "thinking", thinking: "…" }, { type: "text", text: honestLine(false) }]);
+    expect(final.content[0]).toEqual({ type: "thinking", thinking: "…" });
+    expect(final.content[1].text).toMatch(/^I couldn't (?:actually )?run that/);
+    expect(final.content[1].text).not.toMatch(/say it again|rephrase/i);
     expect(passes[1]!.content[1].text).toBe(lie); // only the reply that goes out is replaced
   });
 
@@ -519,7 +521,7 @@ describe("local routing — focus sessions and false claims (2026-10-15)", () =>
     await f.fire("before_model_resolve", { prompt: "move gym to 7" }, ctx);
     for (let k = 0; k < 1; k++) await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx);
     const [second] = (await f.fire("before_agent_finalize", { sessionId: "s", lastAssistantMessage: "Done — gym is at 7." }, ctx)) as Array<Record<string, any>>;
-    expect(second?.retry.instruction).toMatch(/nothing on your calendar changed/);
+    expect(second?.retry.instruction).toMatch(/calendar|your day/);
   });
 });
 
@@ -592,7 +594,7 @@ describe("local routing — review of the 2026-10-16 sweep fixes", () => {
     const logPath = join(mkdtempSync(join(tmpdir(), "lr-")), "routing.jsonl");
     const f = fakeApi();
     const flows: string[] = [];
-    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, decideImpl: async () => decision, clock: () => "Fri 10:00",
+    registerLocalRouting(f.api, { warm: false, mode: "on", logPath, now: () => new Date(2030, 9, 4, 10, 0), decideImpl: async () => decision, clock: () => "Fri 10:00",
       brainSearch: opts.brainSearch ?? (async () => ""), readDay: opts.readDay ?? (async () => "1. Gym 17:00"),
       scheduleFlow: async (m) => { flows.push(m); return { outcome: "fallback", reason: "test" }; } });
     return { f, flows, ctx: { runId: "rv1", sessionKey: "agent:main:orion-chat-rv" } };

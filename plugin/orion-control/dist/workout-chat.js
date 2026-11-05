@@ -48,7 +48,7 @@ const parse = (stdout) => { try {
 catch {
     return { ok: false, error: "orion-workout-log gave no answer" };
 } };
-const failed = (error) => `I couldn't log that workout just now${error ? ` (${error})` : ""}, so nothing was logged. Tell me again in a bit.`;
+const failed = (error) => `I couldn't log that workout just now${error ? ` (${error})` : ""}, so nothing was logged. Say go and I'll retry it.`;
 const argsFor = (turn) => {
     switch (turn.kind) {
         case "describe": return ["--text", turn.text, "--chat", "--json"];

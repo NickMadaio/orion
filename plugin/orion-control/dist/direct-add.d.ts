@@ -2,7 +2,9 @@ import type { AskContext, Day } from "./schedule-flow.js";
 import { clockAfter, spokenTimesToDigits } from "./intent-time.js";
 export { clockAfter, spokenTimesToDigits };
 /** The time he states in the evening that a form would write as the morning: "10:30" at 21:55 is 22:30, but only with no am/pm in his words. */
-export declare function eveningTime(t: string | undefined, nowMinute: number, message: string): string | undefined;
+export declare function eveningTime(t: string | undefined, nowMinute: number, message: string, start?: boolean): string | undefined;
+/** Up in the small hours, a small bare hour only a few hours off ("a walk at 5" at 3 AM) could be this morning or the afternoon: asked, never guessed. */
+export declare function trulyAmbiguous(t: string | undefined, nowMinute: number, message: string): [string, string] | undefined;
 export type DirectAdd = {
     args: string[];
     title: string;

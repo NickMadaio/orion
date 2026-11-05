@@ -19,13 +19,13 @@ const hm = (iso) => { const d = new Date(iso); return `${String(d.getHours()).pa
 // His config: commute 45, buffer 5, the Gym an every-day must of 90 minutes.
 const CONFIG = { readyMinutes: 105, bufferMinutes: 5, commuteMinutes: 45, minimums: { nap: 75 }, homeGapMinutes: 150, ranks: { gym: "must" },
   anchors: [{ title: "Gym", kind: "gym", minutes: 90, days: [1, 2, 3, 4, 5, 6, 7], rank: "must" }] };
-// Thursday 10-03 (today): his day is over; Friday 10-04 (tomorrow): CS1802 9:00-10:30 and CS2100 11:00-12:30, nothing else (the re-run's 10-21).
+// Thursday 10-03 (today): his day is over; Friday 10-04 (tomorrow): ABC101 9:00-10:30 and ABC200 11:00-12:30, nothing else (the re-run's 10-21).
 const EVENTS = [
   { title: "CS Lab", start: at(3, 9), end: at(3, 11, 15), orion: "study", orionTags: "study" },
   { title: "ECON1115 Principles of Macroeconomics — Lecture", start: at(3, 13, 30), end: at(3, 15) },
   { title: "Gym", start: at(3, 21, 5), end: at(3, 22, 35), orion: "gym", orionTags: "gym" },
-  { title: "CS1802 Seminar — Lecture", start: at(4, 9), end: at(4, 10, 30) },
-  { title: "CS2100 Program Design — Lecture", start: at(4, 11), end: at(4, 12, 30) },
+  { title: "ABC101 Seminar — Lecture", start: at(4, 9), end: at(4, 10, 30) },
+  { title: "ABC200 Program Design — Lecture", start: at(4, 11), end: at(4, 12, 30) },
 ];
 
 function world(t, [h, m], events = EVENTS) {
@@ -66,7 +66,7 @@ test("re-run #9a: 'reschedule tomorrow after my first class, gym first' puts the
   assert.equal(r.outcome, "done", JSON.stringify(r));
   assert.deepEqual(w.writes, [["day", "--plan", "Gym, 90, 13:20", "--date", "tomorrow"]]);
   assert.ok(w.day().includes("Gym 4 13:20-14:50"), w.day().join("\n"));
-  assert.ok(w.day().includes("CS1802 Seminar 4 09:00-10:30") && w.day().includes("CS2100 Program Design 4 11:00-12:30"), "classes untouched");
+  assert.ok(w.day().includes("ABC101 Seminar 4 09:00-10:30") && w.day().includes("ABC200 Program Design 4 11:00-12:30"), "classes untouched");
   assert.ok(w.day().includes("Gym 3 21:05-22:35"), "today's Gym untouched");
   assert.match(r.reply, /^Done for tomorrow, but not as asked, after your first class: Gym 1:20–2:50 PM/);
   assert.deepEqual(r.replan, { order: ["gym"], anchor: "first class", home: false, explicit: true, day: "tomorrow", date: "2030-10-04" });
@@ -108,7 +108,7 @@ test("at 21:55 the same words try CS Lab from now until 22:30 as a second sessio
   assert.deepEqual(w.writes, [["add", "CS Lab", "35", "--at", "21:55", "--again", "--length-explicit"]]);
   // The scheduler refuses (the Gym, 90 minutes, would not fit after it) and lists the plan it tried: that list is never said as done.
   assert.deepEqual(r.outcome, "say", JSON.stringify(r));
-  assert.equal(r.text, "Not done: Gym didn't fit. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait.");
+  assert.equal(r.text, "I couldn't do that: Gym didn't fit around your classes and bedtime. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait.");
   assert.deepEqual(w.day(), before);
 });
 
@@ -119,7 +119,7 @@ test("today's clock: 'put a walk at 5' at 22:42 has passed; 'put a walk at 9 tom
   const b = await w.say("put a walk at 9 tomorrow");
   assert.equal(b.text, "Do you mean 9:00 AM or 9:00 PM tomorrow? I haven't booked walk yet.");
   const c = await w.say("can u put a 45 min walk tomorrow at 11am");
-  assert.match(c.text, /^CS2100 Program Design is 11:00 AM–12:30 PM tomorrow, so walk can't go at 11:00 AM/);
+  assert.match(c.text, /^ABC200 Program Design is 11:00 AM–12:30 PM tomorrow, so walk can't go at 11:00 AM/);
   assert.deepEqual(w.writes, []);
 });
 
@@ -156,7 +156,7 @@ test("follow-up 3: the scheduler writes, then its output is lost (a crash): the 
   assert.equal(r.reply, "The scheduler stopped before it reported back. Your calendar for tomorrow now differs from before: walk added at 5:00 PM–5:45 PM. Say \"undo\" to put it back.");
 });
 
-test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (nothing booked); a walk at 5 at 2 AM is 5 AM", async (t) => {
+test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (nothing booked); a walk at 5 at 2 AM is read in waking hours (5 PM) or asked, never 5 AM", async (t) => {
   const late = world(t, [23, 0]);
   const before = late.day();
   const a = await late.say("put cs lab from now until 2am");
@@ -164,8 +164,9 @@ test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (noth
   assert.deepEqual(late.day(), before);
   const early = world(t, [2, 0]);
   const b = await early.say("put a walk at 5");
-  assert.deepEqual(early.writes, [["add", "walk", "30", "--at", "05:00"]]);
-  assert.equal(b.outcome, "done", JSON.stringify(b));
+  // w20 round 3 (waking-hours.ts): a bare small hour at 2 AM is a time he is awake for, or asked; never the small hours.
+  assert.ok(!early.writes.some((w) => w.includes("05:00")), JSON.stringify(early.writes));
+  assert.ok(early.writes.some((w) => w.includes("17:00")) || /\?/.test(b.text ?? ""), JSON.stringify(b));
 });
 
 test("live run 3 #8: 'can u block 2 hrs for econ homework tonight at 7' books 7:00-9:00 PM, not 1:20 PM", async (t) => {

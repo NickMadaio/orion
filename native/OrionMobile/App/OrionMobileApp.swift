@@ -168,6 +168,13 @@ enum ThreadTarget {
 }
 
 struct PhoneRootView: View {
+    /// Home's messages join the open chat, else the most recent one, else a new one; the chat tab then continues the same conversation.
+    private func homeConversation() -> String {
+        let id = ChatTarget.resolve(current: conversationID, recent: remote.conversation.map { ($0.conversationID, $0.sentAt) })
+        if conversationID != id { conversationID = id }
+        return id
+    }
+
     @StateObject private var reader = PhoneTodayReader()
     @StateObject private var identity = PhoneDeviceIdentity()
     @StateObject private var planner = PlannerStore()
@@ -274,7 +281,8 @@ struct PhoneRootView: View {
                 ZStack {
                     if screen == "home" {
                         PhoneHomeScreen(remote: remote, planner: planner, routine: routine,
-                                        onOpenChat: { show("chat") }, onOpenSection: open)
+                                        onOpenChat: { show("chat") }, onOpenSection: open,
+                                        conversation: homeConversation)
                             .transition(.opacity)
                     } else {
                         ConversationView(remote: remote, conversationID: $conversationID, onMenu: { drawerOpen = true },

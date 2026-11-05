@@ -43,7 +43,7 @@ describe("runWorkoutTurn", () => {
     it("a failure is one honest sentence and nothing is claimed logged", async () => {
         const d = { stateDir: dir(), now: NOW };
         const bad = await runWorkoutTurn({ kind: "describe", text: "x" }, { ...d, run: fakeRun({ "--text": { ok: false, error: "the local model took longer than 40 s" } }) });
-        expect(bad.text).toBe("I couldn't log that workout just now (the local model took longer than 40 s), so nothing was logged. Tell me again in a bit.");
+        expect(bad.text).toBe("I couldn't log that workout just now (the local model took longer than 40 s), so nothing was logged. Say go and I'll retry it.");
         expect(bad.logged).toBeUndefined();
         const undo = await runWorkoutTurn({ kind: "undo", id: "mine" }, { ...d, run: fakeRun({ undo: { ok: false, error: "mine isn't a workout I logged" } }) });
         expect(undo.text).toBe("I couldn't take it off: mine isn't a workout I logged.");

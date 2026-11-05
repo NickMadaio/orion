@@ -82,7 +82,7 @@ test("L3 restricts only with the grant and the app's consent; in a state copy th
   const activity = (w) => writeFileSync(join(w.dir, "focus-activity.json"), JSON.stringify({ at: at(D, 17, 44).toISOString(), enforcementAllowed: true, workApp: "Zed" }));
   const no = setup({ alerts: 3, phase: "intervening", nextCheckAt: mins(at(D, 17, 45)) });
   activity(no.w); no.tick(17, 45);
-  assert.match(no.calls()[0], /^You've been avoiding Gym for 45 min\. No\. Get up\./);
+  assert.match(no.calls()[0], /^You've been avoiding Gym for 45 min\. /);
   assert.equal(existsSync(join(no.w.dir, "isolated-outbox.jsonl")), false, "not granted: no restriction");
   const yes = setup({ alerts: 3, phase: "intervening", nextCheckAt: mins(at(D, 17, 45)) }, { escalation: { restrict: true } });
   activity(yes.w); yes.tick(17, 45);

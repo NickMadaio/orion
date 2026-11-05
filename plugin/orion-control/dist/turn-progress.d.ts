@@ -27,7 +27,11 @@ export type ProgressDoc = {
     readonly updatedAt: string;
     readonly stages: readonly ProgressEntry[];
     readonly done: boolean;
+    /** The front desk's one-line "on it" for this turn (w20): carried to the phone; never a stage, because the app speaks stages. */
+    readonly say?: string;
 };
+/** Longest "say" kept: one short line. */
+export declare const MAX_SAY = 140;
 /** Progress files older than this are deleted when a new turn begins (one file per session otherwise lingers forever). */
 export declare const PRUNE_AFTER_MS: number;
 /** Most stages a single turn keeps; a tool loop cannot grow the file without bound. */
@@ -59,6 +63,8 @@ export declare class TurnProgress {
     begin(sessionKey: string, runId: string | null): void;
     /** Deletes progress files (and stray temp files) not touched for a day. Never throws. */
     prune(): void;
+    /** The front desk's progress line for the running turn. Ignored when the turn has not begun or the line is empty. */
+    say(sessionKey: string | undefined, text: string): void;
     stage(sessionKey: string | undefined, stage: StageId, detail?: string): void;
     finish(sessionKey: string | undefined): void;
     private put;

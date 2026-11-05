@@ -42,8 +42,8 @@
 //        and it is recorded as done (not a slip). gym / other activity: ends now, recorded as done.
 //        The freed time is re-weighed (a break, a short block topped up, the day pulled forward) and the first line says
 //        what happened. Nothing under way: says so and offers the next item, exit 0. One undo reverses all of it.
-//   orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]   he is not going to it: just that occurrence comes
-//        off his calendar (no approval; undo puts it back). A class never moves unless he says so — this is him saying so.
+//   orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]   he is not going to it: that occurrence is MARKED SKIPPED in ORION's
+//        day record (an event ORION did not create is never deleted; undo unmarks it). A block ORION booked itself comes off instead.
 //   orion-reschedule classes-off ["<class>" …] [--keep "<word>"] [--date YYYY-MM-DD]   "no classes today": every class that day (or
 //        the ones named) is marked cancelled in ORION's planning, never deleted; --keep leaves one he still has; one undo restores all.
 //   orion-reschedule log "<what he did>" --from HH:MM --to HH:MM|now [--where <placeId>] [--instead "<planned title>"] [--no-replan]
@@ -68,6 +68,7 @@ import { routineWalls } from "./lib/patterns/hooks.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
 import { recoveryFromLog } from "./lib/life/recovery.mjs";
+import { napMinutesOf } from "./lib/life/naps.mjs";
 import { anchorsFrom, loadConfig, toMinute } from "./lib/life/config.mjs";
 import { applyPlan, undoLast, bridge, clean, iso, recordUndo, appendUndoSteps, UNDO_FILE } from "./lib/life/calendar-write.mjs";
 import { addSkip } from "./lib/life/skips.mjs";
@@ -109,13 +110,13 @@ import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where", "--checkin", "--keep"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--id", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where", "--checkin", "--keep"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--length-explicit", "--minutes", "--named", "--no-replan", "--notify", "--now", "--plan",
+const KNOWN = new Set(["--id", "--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--length-explicit", "--minutes", "--named", "--no-replan", "--notify", "--now", "--plan",
   "--no-breaks", "--only", "--replace", "--say", "--shift", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -136,7 +137,7 @@ if (COMMANDS.has(command) && glued) {
   process.exit(2);
 }
 const OWN_OPTIONS = {
-  drop: ["--after", "--date", "--dry-run"],
+  drop: ["--after", "--id", "--date", "--dry-run"],
   resize: ["--date", "--dry-run"],
   swap: ["--date", "--dry-run"],
   rename: ["--date", "--dry-run"],
@@ -248,6 +249,7 @@ const dayWord = (word) => {
   if (!word || /^\d{4}-\d{2}-\d{2}$/.test(word)) return word;
   if (/^today$/i.test(word)) return localDate(nowDate);
   if (/^tomorrow$/i.test(word)) return localDate(new Date(nowDate.getTime() + 86400000));
+  if (/^yesterday$/i.test(word)) return localDate(new Date(nowDate.getTime() - 86400000));
   const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   const target = days.findIndex((d) => d.startsWith(word.toLowerCase().slice(0, 3)));
   if (target < 0) fail(`orion-reschedule: --date takes YYYY-MM-DD, today, tomorrow or a weekday, not "${word}"; nothing was changed`, 2);
@@ -256,8 +258,10 @@ const dayWord = (word) => {
 };
 const date = dayWord(flag("--date")) ?? wordDate ?? said[0]?.date ?? localDate(nowDate);
 // WHOOP recovery for the day being planned: low recovery makes the fill lighter (lib/life/recovery.mjs). Unreadable is unknown, never low.
+const napMinutesToday = (day) => { try { return napMinutesOf(JSON.parse(readLock(joinPath(controlledDir(), "health-log.json"), "utf8")).days?.[day]); } catch { return 0; } };
 const recoveryToday = () => { try { return recoveryFromLog(JSON.parse(readLock(joinPath(controlledDir(), "health-log.json"), "utf8")), date); } catch { return null; } };
-if (date < localDate(nowDate)) fail(`orion-reschedule: ${date} is in the past; nothing was changed`, 1);
+// w20: `log` alone may name an earlier day ("i was at the pub yesterday 5-6"): what really happened is written, nothing is re-weighed.
+if (date < localDate(nowDate) && command !== "log") fail(`orion-reschedule: ${date} is in the past; nothing was changed`, 1);
 const otherDays = said.filter((p) => p.date !== date);
 const dayName = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" });
 // Today's share of the study each assessment still needs (deadline-ramp). Only
@@ -270,7 +274,8 @@ function studyPlanFor(deadlines) {
   return rampDay ? rampDay.items.map((it) => ({ title: it.title, minutes: it.minutes })) : [];
 }
 const today = date === localDate(nowDate);
-const nowMinute = today ? nowDate.getHours() * 60 + nowDate.getMinutes() : 0;
+const pastDay = date < localDate(nowDate);
+const nowMinute = today ? nowDate.getHours() * 60 + nowDate.getMinutes() : pastDay ? 1440 : 0;
 // day … --only clears the rest of TODAY: on any other day nothing he said is being "only" (2026-10-25 review).
 if (command === "day" && args.includes("--only") && !today) fail(`NOTHING WAS CHANGED: --only is for today only (${date} is not today); nothing was cleared.`, 2);
 // Plan from when he actually gets up, once his history says so (3+ mornings).
@@ -321,13 +326,13 @@ if (command === "show") {
     plan: { commuteMinutes: config.commuteMinutes, bufferMinutes: config.bufferMinutes, anchors: (config.anchors ?? []).map((a) => ({ title: a.title, minutes: a.minutes })) },
     blocks: [...blocks].sort((a, b) => a.start - b.start).map((b) => ({ title: b.title, start: hhmm(b.start), end: hhmm(b.end), fixed: !!b.fixed && !b.pinned, pinned: !!b.pinned, kind: b.kind,
       // nameable: one of his own events (not a class or a plan with people) that he may move or change himself by naming it
-      ...(b.fixed && !b.pinned && b.nameable ? { nameable: true } : {}) })) }));
+      ...(b.fixed && !b.pinned && b.nameable ? { nameable: true } : {}), ...(b.made ? { made: true, id: b.calendarId } : {}) })) }));
   // pinned = an ORION block at a time he stated: the planner keeps it there, but he can still move it.
   process.exit(0);
 }
 // The day ends at the "asleep by" line his phone alarm is set from (night.mjs),
 // so wind-down, the last thing planned, ends exactly on it (2026-09-30).
-const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest: await readWakeRequest() });
+const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest: await readWakeRequest(), napMinutes: napMinutesToday(date) });
 // "Plan things until around 8 PM": --until HH:MM ends the planning window there
 // (for extend, --until is the block's new end instead).
 // extend and move read --until as the END of the block they change, not the day's window.
@@ -678,25 +683,29 @@ if (command === "late") {
   if (!name) fail('usage: orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]');
   // A movable block that IS what he named means he did not mean a class.
   const nearest = closest(name, blocks.filter((b) => b.end > nowMinute));
+  // w20 r3 #60-62: a block ORION booked itself (a call with mum) is never "a class or plan with people": skipping it takes it off his day.
+  const mine = nearest.filter((b) => b.made && b.kind !== "class" && b.kind !== "deadline").sort((a, b) => a.start - b.start)[0];
+  if (mine) {
+    if (dry) { console.log(`Would remove ${mine.title} ${hhmm(mine.start)}–${hhmm(mine.end)} on ${dayName}.`); process.exit(0); }
+    await applyPlan({ date, moves: [], created: [], removed: [mine], blocksById: new Map() }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+    console.log(`Changed ${dayName} ${date}:\n  removed ${mine.title} ${hhmm(mine.start)}–${hhmm(mine.end)} (a block I booked). That time is free now.`);
+    console.log('Written to his calendar. "orion-reschedule undo" puts it back.');
+    process.exit(0);
+  }
   const loose = nearest.find((b) => !b.fixed);
   if (loose) fail(`NOTHING WAS CHANGED: "${loose.title}" is one of ORION's movable blocks, not a class — skip is only for classes and plans with people. Use move/resize/drop "${loose.title}". Classes today stay as they are.`, 1);
   const target = nearest.filter((b) => b.fixed).sort((a, b) => a.start - b.start)[0];
   if (!target) fail(`NOTHING WAS CHANGED: no class or fixed plan called "${name}" left on ${dayName}. Fixed today: ${blocks.filter((b) => b.fixed).map((b) => `${b.title} ${hhmm(b.start)}`).join(", ") || "none"}.`, 1);
-  const start = iso(date, target.start); const end = iso(date, target.end);
-  if (dry) { console.log(`Would skip ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} on ${dayName}.`); process.exit(0); }
-  let how;
-  try {
-    await bridge("delete_calendar_event", { identifier: target.calendarId, start });
-    recordUndo([{ op: "delete", title: target.title, start, end }]);
-    how = "removed from his calendar";
-  } catch (e) {
-    if (!/read-only/i.test(String(e.message))) fail(`orion-reschedule: ${e.message}`, 1);
-    addSkip(target.title, start);
-    recordUndo([{ op: "unskip", title: target.title, start }]);
-    how = "skipped in ORION's planning (that calendar is read-only, so it still shows in Apple Calendar)";
-  }
-  console.log(`Changed ${dayName} ${date}:\n  skipped ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} — ${how}. That time is free now.`);
-  console.log('Written. "orion-reschedule undo" puts it back.');
+  const start = iso(date, target.start);
+  if (dry) { console.log(`Would mark ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} skipped on ${dayName}.`); process.exit(0); }
+  // w20 r3 #64 ("skip the lecture today, im ill" deleted the real lecture): an event ORION did not create is NEVER deleted. It is marked
+  // skipped in ORION's own day record (skips.mjs: every view of his day, the nudges and the planner leave it out) and stays on his
+  // calendar untouched, so there is nothing to lose and nothing to restore but the mark. Nobody is emailed or told.
+  addSkip(target.title, start);
+  recordUndo([{ op: "unskip", title: target.title, start }]);
+  touchDirty();
+  console.log(`Changed ${dayName} ${date}:\n  skipped ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} — marked skipped in ORION's day record (the event itself stays on the calendar, untouched). That time is free in my plan now.`);
+  console.log('Written. "orion-reschedule undo" puts it back. Nobody was emailed or told.');
   process.exit(0);
 } else if (command === "classes-off") {
   /*
@@ -845,7 +854,7 @@ if (command === "late") {
   }
 
 } else if (command === "drop") {
-  if (!rest.length && !flag("--after")) fail('usage: orion-reschedule drop "<title>" ["<title>" …] | drop --after "<title>"');
+  if (!rest.length && !flag("--after") && !flag("--id")) fail('usage: orion-reschedule drop "<title>" ["<title>" …] | drop --after "<title>" | drop --id <calendar id>');
 } else if (command === "tidy") {
   // "Fix my schedule": nothing added; the day rules applied to the day as it is
   // (overlaps separated, ORION's blocks spaced out, free time kept).
@@ -1039,7 +1048,7 @@ if (command === "late") {
    `displace` takes a block that will not happen out of its slot. Both then re-weigh the rest of today by weight
    (lib/life/reality.mjs), in ONE undo step, and record the slips for the nightly review.
   */
-  if (!today) fail(`NOTHING WAS CHANGED: ${command} is only for today (${localDate(nowDate)}), not ${date}`, 1);
+  if (!today && !(pastDay && command === "log")) fail(`NOTHING WAS CHANGED: ${command} is only for today (${localDate(nowDate)}), not ${date}`, 1);
   const txn = `log-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const base = { date, now: nowMinute, window, soft: commuteWalls(blocks, config), config, buffer: config.bufferMinutes, txn, at: nowDate.toISOString() };
   const movableBlocks = blocks.filter((b) => !b.fixed || b.pinned);
@@ -1067,7 +1076,7 @@ if (command === "late") {
       instead = near[0];
     }
     const kind = ["class", "deadline"].includes(classify(title)) ? "study" : classify(title);
-    plan = planLog(blocks, { from: fromM, to: toM }, { ...base, title, kind, instead, reweighDay: !args.includes("--no-replan") });
+    plan = planLog(blocks, { from: fromM, to: toM }, { ...base, title, kind, instead, reweighDay: !args.includes("--no-replan") && !pastDay });
     head = [`logged ${title} ${hhmm(fromM)}–${hhmm(toM)}${plan.displaced?.length ? ` (replaced ${plan.displaced.map((d) => d.block.title).join(", ")})` : ""}`];
   } else {
     const name = rest[0]; const why = flag("--why") ?? "cancel";
@@ -1136,6 +1145,12 @@ if (command === "day") {
 */
 const onlyStated = command === "day" && args.includes("--only");
 const keptUnderWay = [];
+// w20: the same for any add / day plan: "gym at 10-11pm" with bedtime 21:50 is his time, not a must-have that "did not fit".
+// Only when the START he stated is itself past the day's end: a plain plan that merely RUNS past bedtime is still cut short.
+if (!onlyStated && (command === "add" || command === "day")) {
+  const statedEnd = Math.max(0, ...add.filter((a) => Number.isInteger(a.at) && a.at >= window.end).map((a) => a.at + a.minutes));
+  if (statedEnd > window.end) window = { ...window, end: Math.min(1440, statedEnd) };
+}
 if (onlyStated) {
   const statedEnd = Math.max(0, ...add.filter((a) => Number.isInteger(a.at)).map((a) => a.at + a.minutes));
   if (statedEnd > window.end) window = { ...window, end: Math.min(1440, statedEnd) };
@@ -1216,7 +1231,8 @@ if (command === "day" || command === "add") {
   });
 }
 // A drop by name is explicit: any of his own events he names that is not a class or a plan with people.
-const droppable = (list, from) => list.filter((block) => block.end > from && nameableBy(block) && block.kind !== "class" && block.kind !== "deadline"
+// w20 r3 #60-62: a block ORION booked itself (block.made, made.mjs) is droppable even when it is a plan with people ("call with mum").
+const droppable = (list, from) => list.filter((block) => block.end > from && (nameableBy(block) || block.made) && block.kind !== "class" && block.kind !== "deadline"
   && rest.some((name) => closeness(name, block.title) > 0));   // wave 5: "side project tonight", and "cs lab" is not "DS Lab 05"
 if (command === "day" || command === "add") add = sensible(add);
 // "Delete everything after finishing the resume": every planned block that
@@ -1225,10 +1241,13 @@ const afterAnchor = command === "drop" && flag("--after")
   ? (blocks.filter((b) => sameThingEarly(flag("--after"), b.title) || namesTitle(flag("--after"), b.title)).sort((a, b) => a.start - b.start)[0]
     ?? fail(`NOTHING WAS DROPPED: no block called "${flag("--after")}" on ${dayName}`, 1))
   : null;
+// w20 r3 review HIGH 1: --id names ONE block (the ledger's exact block, found by its calendar id); never a fuzzy title match, and only a block ORION made.
+const dropId = command === "drop" && flag("--id") ? blocks.filter((b) => b.calendarId === flag("--id") && b.made) : null;
+if (dropId && !dropId.length) { console.log(`NOTHING WAS DROPPED on ${dayName}: no block ORION made has that id.`); process.exit(1); }
 let dropped = command === "drop"
-  ? (afterAnchor
+  ? (dropId ?? (afterAnchor
     ? blocks.filter((b) => b.start >= afterAnchor.end && (!b.fixed || b.pinned) && b.kind !== "class" && b.kind !== "deadline")
-    : droppable(blocks, nowMinute))
+    : droppable(blocks, nowMinute)))
   : [];
 // "get rid of the resume work tomorrow" arrived twice without --date (2026-09-30
 // eval). With no date given and nothing today, look at tomorrow before refusing.

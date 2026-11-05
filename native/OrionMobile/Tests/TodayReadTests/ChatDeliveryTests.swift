@@ -15,6 +15,15 @@ final class ChatDeliveryTests: XCTestCase {
         XCTAssertEqual(state(.done, .saved, after: 40), .answered)
     }
 
+    func testTheMacsAcknowledgementIsADeliveredStateThenWorking() {
+        XCTAssertEqual(state(.received, .saved, after: 6), .waiting, "delivered to the Mac, not started: still in flight")
+        XCTAssertTrue(state(.received, .saved, after: 6).inFlight)
+        XCTAssertEqual(state(.received, .saved, after: ChatDelivery.waitLimit + 1), .stalled)
+        XCTAssertEqual(state(.running, .saved, after: 30), .thinking, "the working state holds until the reply lands")
+        XCTAssertEqual(state(.done, .saved, after: 90), .answered)
+        XCTAssertEqual(LinkCommandStatus(rawValue: "received"), .received)
+    }
+
     func testAFailedUploadIsNotSentAndRetriesWithTheSameId() {
         let s = state(.pending, .failed)
         XCTAssertEqual(s, .notSent)
@@ -50,8 +59,10 @@ final class ChatDeliveryTests: XCTestCase {
 
     func testTheCaptionsAreTheVisibleState() {
         XCTAssertEqual(ChatDelivery.sending.caption(macOnline: true), "Sending…")
-        XCTAssertEqual(ChatDelivery.waiting.caption(macOnline: true), "Delivered")
-        XCTAssertEqual(ChatDelivery.waiting.caption(macOnline: false), "Delivered · waiting for your Mac")
+        XCTAssertEqual(ChatDelivery.waiting.caption(macOnline: true), "Sent · your Mac will pick it up")
+        XCTAssertEqual(ChatDelivery.waiting.caption(macOnline: false), "Sent · waiting for your Mac")
+        XCTAssertEqual(ChatDelivery.waiting.caption(macOnline: true, received: true), "Delivered to your Mac")
+        XCTAssertEqual(ChatDelivery.thinking.caption(macOnline: true), "Delivered to your Mac", "working: still delivered, until the reply lands")
         XCTAssertNil(ChatDelivery.answered.caption(macOnline: true))
         XCTAssertEqual(ChatDelivery.notSent.caption(macOnline: true), "Didn’t send — tap to retry")
         XCTAssertEqual(ChatDelivery.failed.caption(macOnline: true), "Didn’t go through — tap to retry")
@@ -78,7 +89,7 @@ final class ChatSanitizerTests: XCTestCase {
     func testTwentyFourHourTimesBecomeTwelveHour() {
         XCTAssertEqual(ChatSanitizer.twelveHour("It's 22:18. Phone down — 8h 10m left."), "It's 10:18 PM. Phone down — 8h 10m left.")
         XCTAssertEqual(ChatSanitizer.twelveHour("Bed at 00:00."), "Bed at 12:00 AM.")
-        XCTAssertEqual(ChatSanitizer.twelveHour("CS2100 at 09:00 tomorrow"), "CS2100 at 9:00 AM tomorrow")
+        XCTAssertEqual(ChatSanitizer.twelveHour("ABC200 at 09:00 tomorrow"), "ABC200 at 9:00 AM tomorrow")
         XCTAssertEqual(ChatSanitizer.twelveHour("It's 10:08 PM, up at 5:50 AM; what was 12:30 to 3:30?"), "It's 10:08 PM, up at 5:50 AM; what was 12:30 to 3:30?")
     }
 

@@ -7,7 +7,7 @@
 */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { sandboxNowMs } from "./plugin-clock.js";
+import { pluginNow, sandboxNowMs } from "./plugin-clock.js";
 
 /** scripts/lib/life/config.mjs DEFAULTS. */
 const DEFAULT_BEDTIME = 0;
@@ -21,16 +21,24 @@ function readLifeConfig(stateDir: string | undefined): Record<string, unknown> {
   try { return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>; } catch { return {}; }
 }
 
+/** Tonight's bedtime: a night he named (sleepPlan.bedOverrides[evening], the day turns at 04:00) else the standing one (scripts/lib/life/effective-bed.mjs). */
+function effectiveBedtime(stateDir: string | undefined, config: Record<string, unknown>): unknown {
+  const evening = new Date(pluginNow(stateDir ? { dir: stateDir } : {}).getTime() - 4 * 3600_000).toLocaleDateString("en-CA");
+  const forced = (config.sleepPlan as { bedOverrides?: Record<string, unknown> } | undefined)?.bedOverrides?.[evening];
+  return validTime(forced) ? forced : config.bedtime;
+}
+
 /** His bedtime in minutes after midnight (midnight when unset or unreadable). */
 export function bedtimeMin(stateDir: string | undefined): number {
-  const bed = readLifeConfig(stateDir).bedtime;
+  const bed = effectiveBedtime(stateDir, readLifeConfig(stateDir));
   return validTime(bed) ? minutesOf(bed) : DEFAULT_BEDTIME;
 }
 
 /** The latest a planned block may end today: bedtime less wind-down, on the evening's clock (00:30 bedtime is 24:00 at most). */
 export function dayEndFor(stateDir: string | undefined): number {
   const config = readLifeConfig(stateDir);
-  const bed = validTime(config.bedtime) ? minutesOf(config.bedtime) : DEFAULT_BEDTIME;
+  const named = effectiveBedtime(stateDir, config);
+  const bed = validTime(named) ? minutesOf(named) : DEFAULT_BEDTIME;
   const wind = Number.isInteger(config.windDownMinutes) && Number(config.windDownMinutes) >= 0 ? Number(config.windDownMinutes) : DEFAULT_WIND_DOWN;
   const line = bed < 12 * 60 ? bed + 1440 : bed;
   return Math.min(1440, line - wind);

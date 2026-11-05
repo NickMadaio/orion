@@ -68,7 +68,7 @@ export class FoodMemory {
 
 type Json = Record<string, unknown> & { ok?: boolean; error?: string };
 const parse = (stdout: string): Json => { try { return JSON.parse(stdout.trim().split("\n").at(-1) ?? "") as Json; } catch { return { ok: false, error: "orion-food-estimate gave no answer" }; } };
-const failed = (error?: string) => `I couldn't estimate that just now${error ? ` (${error})` : ""}, so nothing was logged. Tell me again in a bit.`;
+const failed = (error?: string) => `I couldn't estimate that just now${error ? ` (${error})` : ""}, so nothing was logged. Say go and I'll retry it.`;
 const offerOf = (j: Json) => String((j.offer as { text?: string } | undefined)?.text ?? (j.summary ? `${String(j.summary)}. Log it?` : ""));
 const lower = (s: unknown) => String(s ?? "").toLowerCase();
 

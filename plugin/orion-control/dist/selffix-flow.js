@@ -29,6 +29,13 @@ const WHY = [
     /\b(?:you|u|orion)\s+(?:messed|screwed|mucked|fucked|f+ed)\s+(?:that\s+|it\s+|this\s+)?up\b/,
     /\b(?:you|u)\s+(?:got|did)\s+(?:that|it|this)\s+wrong\b/,
     /\bwhat\s+(?:went|was)\s+wrong\b/,
+    // w20 routegate (E7): any question about his own last reply, not only "why did you". "why was your response just three dots",
+    // "whys your answer blank", "what was that reply", "whats with the dots".
+    /\bwhy(?:'?s)?\s+(?:(?:was|is|were|are|did|does|do|would)\s+)?(?:your|ur|yer)\s+(?:(?:last|previous|latest|first|whole|whole)\s+)?(?:response|responses|reply|replies|answer|answers|message|messages|text|output|line|lines)\b/,
+    /\bwhy\s+(?:was|is|did|were)\s+(?:that|it|this)\s+(?:response|reply|answer|message)\b/,
+    /\bwhy\b[^.?!]{0,30}\b(?:three dots|3 dots|just dots|only dots|dot dot dot|an ellipsis|the ellipsis|just \.\.\.)/,
+    /\bwhat(?:'?s| is| was)\s+(?:with|up with)\s+(?:the|that|those|your|ur)\s+(?:dots|ellipsis|response|reply|answer|message|non-?answer)\b/,
+    /\bwhat\s+(?:was|is)\s+(?:that|your|ur)\s+(?:last\s+)?(?:response|reply|answer|message)\b/,
 ];
 // An answer to the offer is a BARE answer: every word is one of these, and one core word says which. Anything else ("ok set a 25 min timer",
 // "tomorrow i have a quiz", "start my focus session") is a different turn, never an answer.
@@ -41,11 +48,14 @@ const bare = (m, set) => {
     const ws = m.replace(/[.!,]+/g, " ").split(" ").filter(Boolean);
     return ws.length > 0 && ws.length <= 5 && ws.every((w) => set.all.has(w) || (set === LATER_W && CLOCK_TOKEN.test(w))) && ws.some((w) => set.core.has(w) || (set === LATER_W && CLOCK_TOKEN.test(w) && ws.includes("at")));
 };
+// His answer to "Want me to build that?": a plain yes, or "build it".
+const BUILD_YES = /^(?:(?:yes|yeah|yep|yup|ya|sure|ok|okay|please|pls)[,.!\s]+)*(?:go (?:ahead )?and )?(?:build|make|add|create) (?:that|it|this|one)\b/;
 const START_FIX = /\b(?:start|run|launch|begin|kick off|get on)\s+(?:the|that|my|ur|your)\s+(?:self[- ]?)?(?:fix|fix project|repair)\b/;
 // "go into the code and fix it", "can you fix that yourself", "fix your code", "can you modify something in your own code": a request for the fix itself.
 // A fix verb needs ORION himself or his code as the object; an edit verb needs "your (own) code". "fix my resume", "update yourself" and "fix it" alone are not.
 const FIX_VERB = /\b(?:fix|repair|patch|debug|correct)\b/;
-const EDIT_VERB = /\b(?:modify|change|edit|rewrite|improve|alter)\b/;
+const EDIT_VERB = /\b(?:modify|change|edit|rewrite|improve|alter|tweak|adjust|upgrade)\b|\bmake (?:some |a few |any )?(?:changes?|edits?|updates?|tweaks?|improvements?) to\b/;
+const EDIT_SELF = /\b(?:modify|change|edit|rewrite|improve|alter|tweak|upgrade)\s+(?:yourself|urself|ur self|your self)\b/;
 const SELF = /\b(?:yourself|urself|ur self|your self)\b/;
 const OWN_CODE = /\b(?:your|ur|yer)\s+(?:own\s+)?(?:code|source(?: code)?|programming|codebase)\b/;
 const IN_CODE = /\b(?:in|into|inside)\s+(?:to\s+)?(?:the|your|ur)\s+(?:own\s+)?(?:code|source(?: code)?|codebase)\b/;
@@ -58,7 +68,7 @@ export const asksFix = (message) => {
     const m = low(message);
     if (wordCount(m) > 24)
         return false;
-    return (FIX_VERB.test(m) && (SELF.test(m) || OWN_CODE.test(m) || IN_CODE.test(m))) || (EDIT_VERB.test(m) && OWN_CODE.test(m));
+    return (FIX_VERB.test(m) && (SELF.test(m) || OWN_CODE.test(m) || IN_CODE.test(m))) || (EDIT_VERB.test(m) && OWN_CODE.test(m)) || EDIT_SELF.test(m);
 };
 /** The time a "later" answer names ("tomorrow at 9", "tonight at 8"): an ISO instant, or undefined to take the default evening slot. */
 export function laterAt(message, now) {
@@ -110,6 +120,8 @@ export function readSelffixMove(message, ctx) {
     }
     if (!ctx.outreach && asksFix(m))
         return { kind: "fix", about: message.trim() };
+    if (!ctx.outreach && ctx.build && (BUILD_YES.test(m) || bare(m, NOW_W)))
+        return { kind: "fix", about: message.trim(), target: ctx.build.request };
     if (waiting && ctx.bound === true) {
         if ((bare(m, LATER_W) || /^not now[.!]*$/.test(m)) && !/^now$/.test(m)) {
             const at = laterAt(m, ctx.now);
@@ -179,12 +191,12 @@ async function settleFix(item, run, log, now) {
 async function fixRequest(move, run, log, now) {
     const listed = await call(run, "orion-selffix", ["list", "--json"], log);
     const items = Array.isArray(listed?.items) ? listed.items : [];
-    const reuse = reusableFix(items, now);
+    const reuse = move.target ? undefined : reusableFix(items, now);
     if (reuse)
         return settleFix(reuse, run, log, now);
-    const found = await call(run, "orion-selfcheck", ["why", "--about", "", "--exclude", move.about, "--request", "--json"], log);
+    const found = await call(run, "orion-selfcheck", ["why", "--about", move.target ?? "", "--exclude", move.about, "--request", "--json"], log);
     if (!found)
-        return { ...log, text: "I couldn't read back my own recent turns just now, so I don't know what to fix and nothing was started. Tell me what went wrong and try again in a minute." };
+        return { ...log, text: "I couldn't read back my own recent turns just now, so I don't know what to fix and nothing was started. Tell me what went wrong and I'll retry." };
     if (!found.diagnosis)
         return { ...log, text: "I have no recent turns on record to fix from, so nothing was started. Tell me what went wrong." };
     const offer = await call(run, "orion-selffix", ["propose", "--stdin", "--requested"], log, JSON.stringify(found.diagnosis));
@@ -200,7 +212,7 @@ export async function runSelffixMove(move, run, now = new Date()) {
         case "why": {
             const found = await call(run, "orion-selfcheck", ["why", "--about", move.about, "--exclude", move.about, "--json"], log);
             if (!found)
-                return { ...log, text: "I couldn't read back my own recent turns just now, so I can't tell you why yet. Try me again in a minute." };
+                return { ...log, text: "I couldn't read back my own recent turns just now, so I can't tell you why yet. Say go and I'll retry it." };
             const d = found.diagnosis;
             if (!d)
                 return { ...log, text: "I have no recent turns on record to look at, so I can't say why." };
@@ -226,7 +238,7 @@ export async function runSelffixMove(move, run, now = new Date()) {
         case "later": {
             const out = await call(run, "orion-selffix", ["accept", move.id, "--later", ...(move.at ? ["--at", move.at] : [])], log);
             if (!out)
-                return { ...log, text: "I couldn't set that up just now, so nothing was created. Tell me again in a bit." };
+                return { ...log, text: "I couldn't set that up just now, so nothing was created. Say go and I'll retry it." };
             return { ...log, text: `Okay, I made the fix project and parked it. It won't run until you say so. I'll remind you ${spokenWhen(String(out.remindAt), now)}. ${SAFE}` };
         }
         case "no": {

@@ -22,11 +22,13 @@ import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { freeGaps } from "./lib/life/gaps.mjs";
 import { adjustForShortSleep, tomorrowProposal, awakeLateFlag, goToBedMessage } from "./lib/life/after-late-night.mjs";
 import { recoveryFromLog } from "./lib/life/recovery.mjs";
+import { napMinutesFromLog, totalSleepHours } from "./lib/life/naps.mjs";
 import { sensorHealth, macExpected, macFacet, phoneFacet } from "./lib/awareness/facets.mjs";
 import { sensorNotices, noticeLine } from "./lib/life/stale-sensors.mjs";
 import { sleepPlanFor, readNowRecord } from "./lib/life/now-state.mjs";
 import { readSlips } from "./lib/life/slips.mjs";
 import { loadConfig, toMinute } from "./lib/life/config.mjs";
+import { withEffectiveBed } from "./lib/life/effective-bed.mjs";
 import { applyPlan, bridge } from "./lib/life/calendar-write.mjs";
 import { morningBrief } from "./lib/life/morning-brief.mjs";
 import { commuteBlocks } from "./lib/life/commute.mjs";
@@ -57,7 +59,7 @@ const now = clockNow();   // ORION_NOW (lib/clock.mjs); --at still pins the hour
 if (argAt && /^\d{1,2}:\d{2}$/.test(argAt)) { const [h, m] = argAt.split(":").map(Number); now.setHours(h, m, 0, 0); }
 const minute = now.getHours() * 60 + now.getMinutes();
 const today = localDate(new Date(now.getTime() - 4 * 3600000));   // the day turns at 4 AM
-const config = loadConfig();
+const config = withEffectiveBed(loadConfig(), today);   // today = the evening the night begins on; a tonight-only bedtime counts
 const state = read(STATE, {});
 const day = state[today] ?? { asked: [], adjusted: false };
 const save = () => {
@@ -93,7 +95,7 @@ const withActual = (entry) => {
     ...(woke ? { wake: woke.minute, woke: true, wakeSource: woke.source } : {}),
     ...(slept ? { asleepAt: slept.minute, asleepSource: slept.source } : {}) };
 };
-const nightOf = (date) => events ? withActual(nightMarkers(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest })) : null;
+const nightOf = (date) => events ? withActual(nightMarkers(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest, napMinutes: napMinutesFromLog(log)(date) })) : null;
 const tonight = nightOf(localDate(now));
 const bed = tonight ? Math.min(1440, tonight.bed) : toMinute(config.bedtime) <= 360 ? 1440 : toMinute(config.bedtime);
 if (!dry && events) {
@@ -157,10 +159,10 @@ if (lateFlag.awake && events) {
 }
 // The proposal waiting for today (made in the night, or one earlier tick): not stated if WHOOP says he slept after all.
 const proposalToday = [...Object.values(state), day].map((d) => d?.awakeLate).filter((a) => a?.targetDate === localDate(now)).at(-1) ?? null;
-const proposalLive = proposalToday && !(typeof record.sleepHours === "number" && record.sleepHours >= 6.5 && !lateFlag.awake) ? proposalToday : null;
+const proposalLive = proposalToday && !((totalSleepHours(record) ?? 0) >= 6.5 && !lateFlag.awake) ? proposalToday : null;
 
 // 2. A short night: reshape the morning, once, as soon as he is up.
-const slept = typeof record.sleepHours === "number" ? record.sleepHours * 60 : null;
+const slept = totalSleepHours(record) !== null ? totalSleepHours(record) * 60 : null;   // night plus naps (W20)
 const lateBed = (log.sleepLog ?? []).filter((e) => e.event === "bed").map((e) => new Date(e.at))
   .filter((d) => now - d < 16 * 3600000 && (d.getHours() >= 2 && d.getHours() < 8)).at(-1);
 const short = (slept !== null && slept < 360) || lateBed;
@@ -243,7 +245,7 @@ if (awake && minute >= 300 && minute < 780 && day.calendar === "ok" && !day.aske
   const made = morningBrief({
     now: { date: localDate(now), minute },
     blocks: blocks.map((b) => ({ title: short_(b.title), kind: b.kind, start: b.start, end: b.end, fixed: b.fixed })),
-    deadlines, sleep: { hours: record.sleepHours ?? null, recovery: record.recovery ?? null },
+    deadlines, sleep: { hours: totalSleepHours(record) ?? record.sleepHours ?? null, recovery: record.recovery ?? null },
     sideProjectLabel: config.sideProjectLabel, candidates, history,
     proposal: proposalLive?.proposal?.text ?? null,
     gym: gymBlock && !proposalLive ? { start: gymBlock.start, minutes: gymBlock.end - gymBlock.start, easy: lowRecovery } : null,   // low recovery: the full 90, an easier session (2026-10-31 policy)

@@ -79,6 +79,10 @@ export interface HealthDayRecord {
   hrv?: number;
   restingHeartRate?: number;
   strain?: number;
+  /** Naps WHOOP saw that day (W20), written by the Mac app; the plugin only carries them through. */
+  naps?: Array<{ start: string; end: string; minutes: number; performance?: number }>;
+  napMinutes?: number;
+  whoopWorkouts?: Array<{ id: string; start: string; end: string; minutes: number; strain?: number; sport?: string; averageHeartRate?: number }>;
   updatedAt: string;
 }
 

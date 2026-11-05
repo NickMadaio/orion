@@ -145,11 +145,14 @@ public struct SnapshotReader {
         func double(_ value: Any?) -> Double? { (value as? NSNumber).map { $0.doubleValue } }
         return byDay.keys.sorted().suffix(days).compactMap { key -> LinkSnapshot.HealthDay? in
             guard let day = byDay[key] else { return nil }
+            let naps = day["naps"] as? [[String: Any]]
+            let napMinutes = int(day["napMinutes"]).flatMap { $0 > 0 ? $0 : nil }
             let entry = LinkSnapshot.HealthDay(
                 date: key, recovery: int(day["recovery"]), hrv: int(day["hrv"]),
                 restingHeartRate: int(day["restingHeartRate"]), sleepHours: double(day["sleepHours"]),
-                sleepPerformance: int(day["sleepPerformance"]), strain: double(day["strain"]))
-            let empty = entry.recovery == nil && entry.hrv == nil && entry.sleepHours == nil && entry.strain == nil
+                sleepPerformance: int(day["sleepPerformance"]), strain: double(day["strain"]),
+                napMinutes: napMinutes, napStart: napMinutes == nil ? nil : naps?.compactMap { $0["start"] as? String }.min())
+            let empty = entry.recovery == nil && entry.hrv == nil && entry.sleepHours == nil && entry.strain == nil && entry.napMinutes == nil
             return empty ? nil : entry
         }
     }

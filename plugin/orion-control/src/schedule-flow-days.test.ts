@@ -5,7 +5,7 @@ import { FORM_PROMPT, compile, dayArgsFor, intentSchema, runScheduleFlow, spoken
 const thursday: Day = {
   date: "2026-10-15", now: "22:25",
   blocks: [
-    { title: "CS1800 Discrete Structures — Lecture", start: "09:00", end: "10:30", fixed: true },
+    { title: "ABC100 Discrete Structures — Lecture", start: "09:00", end: "10:30", fixed: true },
     { title: "finish resume", start: "11:20", end: "11:50", fixed: false },
     { title: "DS Lab", start: "12:55", end: "13:40", fixed: false },
     { title: "CS Lab", start: "13:45", end: "14:30", fixed: false },
@@ -36,7 +36,7 @@ describe("schedule flow — past gaps and blocks that are not there (sweep 2026-
 
   it("the scheduler's 'already ended' line is spoken plainly", () => {
     expect(spokenFailure("NOTHING WAS CHANGED: Review spending already ended at 15:30 today (Thursday 2026-10-15) — if he meant another day, run again with --date YYYY-MM-DD."))
-      .toBe("Review spending already ended at 3:30 PM today");
+      .toBe("Review spending already ended at 3:30 PM");
   });
 });
 
@@ -55,7 +55,7 @@ describe("schedule flow — a weekday he names is that day (q027)", () => {
   });
   it("the flow reads Friday and passes --date friday to the change", async () => {
     const calls: string[][] = []; let asked = "";
-    const friday: Day = { date: "2026-10-16", now: null, blocks: [{ title: "MKTG2201 Lecture", start: "13:30", end: "15:00", fixed: true }, { title: "Review spending", start: "15:10", end: "16:00", fixed: false }] };
+    const friday: Day = { date: "2026-10-16", now: null, blocks: [{ title: "DEF301 Lecture", start: "13:30", end: "15:00", fixed: true }, { title: "Review spending", start: "15:10", end: "16:00", fixed: false }] };
     const exec = async (args: string[]) => { calls.push(args); return args[0] === "show" ? { stdout: JSON.stringify(friday), code: 0 } : { stdout: "Changed Friday 2026-10-16:\n  Review spending is now 20 min: 15:10–15:30 (was 50 min)\nWritten to his calendar.", code: 0 }; };
     const result = await runScheduleFlow({ message: "i gotta leave early friday, cut the last block to 20 min", clock: "Thu 22:25", now: new Date(2026, 9, 15, 22, 25), exec,
       ask: async (_s, user) => { asked = user; return { steps: [{ do: "resize", what: "B2", minutes: 20 }] }; } });
@@ -76,7 +76,7 @@ describe("schedule flow — running late and running over (q017, q029)", () => {
   });
   it("late N loses N minutes from now; overrun N pushes what follows a class", () => {
     expect(compile({ do: "late", minutes: 15 }, morning)).toEqual({ args: ["late", "15"] });
-    expect(compile({ do: "overrun", what: "B1", minutes: 20 }, morning)).toEqual({ args: ["overrun", "20", "--what", "CS1800 Discrete Structures — Lecture"] });
+    expect(compile({ do: "overrun", what: "B1", minutes: 20 }, morning)).toEqual({ args: ["overrun", "20", "--what", "ABC100 Discrete Structures — Lecture"] });
   });
   it("his own block running over is an extend; late needs minutes and today", () => {
     expect(compile({ do: "overrun", what: "B2", minutes: 20 }, morning)).toEqual({ args: ["extend", "finish resume", "--until", "12:10"] });

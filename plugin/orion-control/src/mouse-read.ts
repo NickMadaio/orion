@@ -31,6 +31,7 @@ export type MouseTurn =
   | { kind: "shortcuts"; state: "on" | "off" }
   | { kind: "wheel"; mode: "games" | "always" | "never" }
   | { kind: "setup"; again?: true }
+  | { kind: "learn" }
   | { kind: "apply" }
   | { kind: "decline" }
   | { kind: "cancel" };
@@ -99,6 +100,10 @@ function readSwitch(said: string): MouseTurn | null {
 const OFF = /\b(?:off|disable|stop|dont|don'?t|do not|no longer|without|never)\b/i;
 const NEG = /\b(?:dont|don'?t|do not|never|stop|no|disable|ignore|leave|bypass|pass ?through|turn off)\b/i;
 const REMOVE = /\b(?:stop ignoring|stop leaving|stop disabling|re-?enable|turn (?:it|them|the \w+) back on|(?:work|working|active|on) again|should work|start working|work normally)\b/i;
+// "learn a new mouse button", "listen for a button", "my mouse has an extra button it doesnt see", "add a button to the mapper".
+const LEARN = /\b(?:learn|listen(?:ing)?|detect|find|add|register|teach (?:you|orion|me)|pick up|scan)\b[^.?!]*\b(?:new |another |extra |other |mystery |sixth |6th |top |that )?(?:mouse )?(?:button|btn|key)s?\b/i;
+const LEARN_UNSEEN = /\b(?:new|extra|another|sixth|6th|mystery) (?:mouse )?(?:button|btn)\b[^.?!]*\b(?:dont|doesnt|isnt|cant|not|never)\b[^.?!]*\b(?:see|detect|show|find|pick|know|recogni[sz]e)\w*/i;
+const LEARN_CTX = /\b(?:mouse|mous|mose|mice|mapper|mappr|maper|extra button|new button|another button|sixth|6th|f1[3-9]|f20)\b/i;
 const SETUP = /\b(?:set ?up|setup|configure|customi[sz]e)\b[^?]*\b(?:my |the |this )?(?:new )?mouse\b|\bget\b[^?]*\bmouse\b[^?]*\bset ?up\b|\bnew mouse\b[^?]*\b(?:set ?up|configure)\b/i;
 // "pull up the mouse button mapper again", "open the mouse thing", "show me the mouse setup", "bring back the button mapper": the popup, again.
 const REOPEN_VERB = /\bpull\b[^.?!]*\bup\b|\b(?:bring(?: it| that)?(?: back)? up|bring(?: it| that)? back|bring\b[^.?!]*\bback|s[ua]m+[ou]n\w*|op[en]\w{0,2}(?: up)?|re-?open\w*|show(?: me)?|launch|display|fire up|load|pop up|put (?:it )?back|get(?: it)? back)\b/;
@@ -188,6 +193,8 @@ function readOne(message: string, c: MouseContext): MouseTurn | null {
     if (NO.test(said)) return { kind: "decline" };
   }
   const mouseish = MOUSEISH.test(said);
+  if (LEARN_UNSEEN.test(said) && LEARN_CTX.test(said) && !BIND_VERB.test(said)) return { kind: "learn" };
+  if (LEARN.test(said) && LEARN_CTX.test(said) && !/^(?:what|which|how|is|are|does)\b/.test(said) && !BIND_VERB.test(said)) return { kind: "learn" };
   if (SETUP.test(said) && MOUSE.test(said) && !QUESTION.test(said)) return { kind: "setup" };
   const master = readSwitch(said);
   if (master) return master;

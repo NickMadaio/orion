@@ -39,6 +39,12 @@ final class MouseController: ObservableObject {
     /// Delivers ORION's question as the proactive bubble; the id is the outreach record's id.
     var onAsk: ((String, String) -> Void)?
     var onOrionCommand: ((String) -> Void)?
+    /// "Add a button": the line the popup shows (listening, what was caught, why nothing was) and whether the tap is listening.
+    @Published private(set) var learnLine: String?
+    @Published private(set) var isLearning = false
+    private var learner = ButtonLearner()
+    /// `orion-mouse learn` (chat): open the popup and start listening.
+    var onLearnRequested: (() -> Void)?
     /// `orion-mouse setup` (chat) or orion://mouse-setup: open the setup popup.
     var onSetupRequested: (() -> Void)?
     /// While the setup popup is open, presses are swallowed and identify rows but do not run their actions.
@@ -63,7 +69,8 @@ final class MouseController: ObservableObject {
     }
 
     func start() {
-        devices = store.loadDevices()
+        // A flag left from the last run would keep a gone mouse's keys live; the watcher re-announces what is attached.
+        devices = DeviceRegistry.harmonized(DeviceRegistry.allDisconnected(store.loadDevices()))
         pushKeyButtons()
         outreachOffset = (try? Data(contentsOf: outreachURL))?.count ?? 0   // old lines are history
         refreshNaturalScrolling()
@@ -78,6 +85,7 @@ final class MouseController: ObservableObject {
             MouseActions.run(action) { self?.onOrionCommand?($0) }
         }
         remapper.onObserved = { [weak self] button in self?.observed(button) }
+        remapper.onLearn = { [weak self] input in self?.learnt(input) }
         watcher.onAttach = { [weak self] mouse in self?.attached(mouse) }
         watcher.onDetach = { [weak self] id in self?.detached(id) }
         watcher.start()
@@ -156,12 +164,51 @@ final class MouseController: ObservableObject {
     private var setupBaseline: BindingsFile?
     func setSetupOpen(_ open: Bool) {
         setupOpen = open
-        if open { setupBaseline = bindings } else { lastPressed = nil }
+        if open { setupBaseline = bindings } else { lastPressed = nil; stopLearning(line: nil) }
+    }
+
+    // MARK: Add a button
+
+    /// Arms the listener: the next extra button or F13...F20 press within ten seconds becomes a button of this mouse.
+    func startLearning() {
+        switch learner.arm(now: Date(), gameInFront: lastGame) {
+        case .refusedGame: learnLine = LearnWords.refusedGame; setLearning(false)
+        case .listening: learnLine = LearnWords.armed; setLearning(true)
+        }
+    }
+
+    func cancelLearning() { stopLearning(line: LearnWords.cancelled) }
+
+    private func stopLearning(line: String?) {
+        learner.disarm()
+        learnLine = line
+        setLearning(false)
+    }
+
+    private func setLearning(_ on: Bool) {
+        isLearning = on
+        remapper.update { var s = $0; s.learning = on; return s }
+    }
+
+    private func learnt(_ input: LearnInput) {
+        switch learner.feed(input, now: Date(), gameInFront: lastGame) {
+        case .captured(let id):
+            update(devices: { DeviceRegistry.learned(button: id, into: $0) })
+            let count = devices.devices.first(where: \.connected)?.buttonCount ?? devices.devices.first?.buttonCount ?? 5
+            learnLine = LearnWords.captured(id, buttonCount: count)
+            lastPressed = id
+            OrionLog.write("[mouse] learned button \(id)")
+        case .cancelled: learnLine = LearnWords.cancelled
+        case .timedOut: learnLine = LearnWords.timedOut
+        case .refusedGame: learnLine = LearnWords.refusedGame
+        case .ignored: break
+        }
+        setLearning(learner.isListening)
     }
 
     /// Done: saves the suggested defaults only on a mouse with no bindings yet, marks the device configured, returns the confirmation line.
     func finishSetup() -> String {
-        let buttons = Array(Set(devices.devices.filter(\.connected).flatMap(\.extraButtons)).union(bindings.default.keys.compactMap(Int.init))).sorted()
+        let buttons = DeviceRegistry.setupModel(devices, saved: bindings.default.keys.compactMap(Int.init)).buttons
         let before = setupBaseline ?? bindings
         change { MouseSetupPlan.finalized($0, buttons: buttons) }
         markConfigured()
@@ -173,7 +220,8 @@ final class MouseController: ObservableObject {
         guard let data = try? Data(contentsOf: outreachURL) else { return }
         let (lines, next) = OutreachTail.newLines(in: data, after: outreachOffset)
         outreachOffset = next
-        if lines.contains(where: OutreachTail.isSetupOpen) { onSetupRequested?() }
+        if lines.contains(where: OutreachTail.isLearnOpen) { onLearnRequested?() }
+        else if lines.contains(where: OutreachTail.isSetupOpen) { onSetupRequested?() }
     }
 
     func requestAccessibility() {
@@ -234,6 +282,10 @@ final class MouseController: ObservableObject {
 
     private func tick() {
         checkSetupRequests()
+        if learner.isListening {
+            if learner.expire(now: Date()) { stopLearning(line: LearnWords.timedOut) }
+            else if lastGame { stopLearning(line: LearnWords.refusedGame) }
+        }
         ticks += 1
         if ticks % Self.naturalRefreshTicks == 1 { refreshNaturalScrolling() }
         let stamp = modified(store.bindingsURL)

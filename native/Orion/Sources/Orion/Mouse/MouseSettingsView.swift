@@ -7,10 +7,7 @@ struct MouseSettingsView: View {
     @State private var editingApp: [Int: String] = [:]
 
     private var device: MouseDevice? { mouse.devices.devices.first { $0.connected } ?? mouse.devices.devices.first }
-    private var buttons: [Int] {
-        let observed = Set(mouse.bindings.default.keys.compactMap(Int.init))
-        return Array(Set(device?.extraButtons ?? []).union(observed)).sorted()
-    }
+    private var buttons: [Int] { DeviceRegistry.setupModel(mouse.devices, saved: mouse.bindings.default.keys.compactMap(Int.init)).buttons }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

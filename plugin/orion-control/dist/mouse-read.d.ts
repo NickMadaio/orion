@@ -36,6 +36,8 @@ export type MouseTurn = {
     kind: "setup";
     again?: true;
 } | {
+    kind: "learn";
+} | {
     kind: "apply";
 } | {
     kind: "decline";

@@ -37,10 +37,10 @@ const validButtons = (map) => !!map && typeof map === "object" && Object.entries
  *   {"kind":"mouse","event":"setup-open","at":"<ISO>"}
  * It has no "text", so every outreach reader (reply context, the plugin's readLastOutreach) skips it. Not written during an evaluation.
  */
-export function requestSetupPopup({ env = process.env, now = clockNow(env) } = {}) {
+export function requestSetupPopup({ env = process.env, now = clockNow(env), event = "setup-open" } = {}) {
   if (evalMode()) return { written: false };
   mkdirSync(controlledDir(env), { recursive: true });
-  const row = { kind: "mouse", event: "setup-open", at: now.toISOString() };
+  const row = { kind: "mouse", event, at: now.toISOString() };
   appendFileSync(join(controlledDir(env), "outreach.jsonl"), `${JSON.stringify(row)}\n`);
   return { written: true, row };
 }

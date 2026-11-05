@@ -103,6 +103,15 @@ test("set: a missing button or action asks and writes nothing; a button this mou
   assert.throws(() => readFileSync(join(s.dir, "mouse", "bindings.json")));
 });
 
+test("learn opens the popup with a learn-open line", () => {
+  const s = sandbox();
+  const r = s.run("learn");
+  assert.equal(r.out.ok, true);
+  assert.match(r.out.say, /press the button/);
+  const rows = readFileSync(join(s.dir, "outreach.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual([rows[0].kind, rows[0].event], ["mouse", "learn-open"]);
+});
+
 test("clear, passthrough, games and setup", () => {
   const s = sandbox();
   s.run("set", "back", "mission control");

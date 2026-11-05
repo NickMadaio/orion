@@ -44,6 +44,7 @@ export const argsFor = (turn) => {
         case "shortcuts": return ["shortcuts", turn.state, "--json"];
         case "wheel": return ["wheel", turn.mode, "--json"];
         case "setup": return turn.again ? ["setup", "--again", "--json"] : ["setup", "--json"];
+        case "learn": return ["learn", "--json"];
         case "apply": return ["setup", "--apply", "--json"];
         default: return null;
     }

@@ -21,11 +21,15 @@ final class MouseRemapper {
         var gateOn = true
         /// Key buttons (F13...) that a connected mouse sends; any other key is left alone.
         var keyButtons = Set<Int>()
+        /// "Add a button" is listening: the next extra button or F13...F20 press is captured and swallowed (never while a game is in front).
+        var learning = false
     }
 
     var onAction: ((MouseAction, Int) -> Void)?
     /// Called on the main queue for every extra-button press, mapped or not (the "press it to identify" flow).
     var onObserved: ((Int) -> Void)?
+    /// Called on the main queue with the one press captured while learning (the tap stops listening at once).
+    var onLearn: ((LearnInput) -> Void)?
 
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
@@ -106,6 +110,10 @@ final class MouseRemapper {
         }
         guard type == .otherMouseDown else { return Unmanaged.passUnretained(event) }
         let snap = current()
+        if snap.learning, !snap.isGame, let input = LearnInput.fromMouse(button: button) {
+            capture(input, track: button)
+            return nil
+        }
         let action = MouseResolver.resolve(button: button, bundleId: snap.bundleId, isGame: snap.isGame, bindings: snap.bindings, gateOn: snap.gateOn)
         DispatchQueue.main.async { [weak self] in self?.onObserved?(button) }
         guard let action else { swallowed.passDown(button); return Unmanaged.passUnretained(event) }
@@ -114,10 +122,31 @@ final class MouseRemapper {
         return nil
     }
 
+    /// Stops listening at once (a second press before the main queue runs must not be captured too) and hands the press over.
+    private func capture(_ input: LearnInput, track id: Int) {
+        swallowed.swallowDown(id)
+        update { var s = $0; s.learning = false; return s }
+        DispatchQueue.main.async { [weak self] in self?.onLearn?(input) }
+    }
+
+    /// While learning, a key the learner takes (F13...F20, Esc) is swallowed with its repeats and its up. Returns nil when the key is not its business.
+    private func learnKey(_ type: CGEventType, _ event: CGEvent, _ snap: Snapshot) -> Unmanaged<CGEvent>?? {
+        let code = event.getIntegerValueField(.keyboardEventKeycode)
+        guard let track = LearnInput.trackId(forKeyCode: code) else { return nil }
+        if type == .keyUp { return swallowed.shouldSwallowUp(track) ? .some(nil) : nil }
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 { return swallowed.isSwallowed(track) ? .some(nil) : nil }
+        guard snap.learning, !snap.isGame else { return nil }
+        let modifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
+        guard let input = LearnInput.from(keyCode: code, hasModifiers: !event.flags.intersection(modifiers).isEmpty) else { return nil }
+        capture(input, track: track)
+        return .some(nil)
+    }
+
     /// F13...F20 from a mouse (its onboard memory remapped a button to a key). Same rules as a button: a mapped down is swallowed
     /// with its repeats and its up, a game, the gate or no binding leaves the key alone. Every other key costs one set lookup.
     private func handleKey(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         let snap = current()
+        if snap.learning || swallowed.hasAny, let decision = learnKey(type, event, snap) { return decision }
         guard !snap.keyButtons.isEmpty else { return Unmanaged.passUnretained(event) }
         let code = event.getIntegerValueField(.keyboardEventKeycode)
         let modifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]

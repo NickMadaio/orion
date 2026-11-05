@@ -10,6 +10,7 @@
    orion-mouse shortcuts on|off                                  turn every mouse button shortcut off or on (the Mac's ⌃⌥M does the same; the wheel is separate)
    orion-mouse wheel games|always|never                          normal (not inverted) mouse wheel: in games, always, or never (trackpad untouched)
    orion-mouse setup [--again] [--json]                                    open the Mac's mouse-setup popup (appends {"kind":"mouse","event":"setup-open","at":ISO} to outreach.jsonl)
+   orion-mouse learn [--json]                                    open the popup and listen for the next button press (outreach line event "learn-open")
    orion-mouse setup --suggest|--apply [--json]                  list the extra buttons and suggest defaults; --apply writes them
 
  <button>: "back" / "side back" -> 3, "front" / "forward" / "side front" -> 4, "button N" (counted from 1, as on the box) -> N-1, a bare
@@ -19,7 +20,7 @@
  A missing button or action answers { asking, ask } and writes nothing. Reads/writes <controlled dir>/mouse/bindings.json (the contract in
  lib/mouse/store.mjs); never devices.json. ORION_CONTROLLED_DIR redirects the state. Exit 0 ok (or asking), 1 failed, 2 usage.
 */
-import { clearBinding, games, openSetup, passthrough, setBinding, setup, shortcuts, status, wheel } from "./lib/mouse/commands.mjs";
+import { clearBinding, games, openLearn, openSetup, passthrough, setBinding, setup, shortcuts, status, wheel } from "./lib/mouse/commands.mjs";
 
 const argv = process.argv.slice(2);
 const json = argv.includes("--json");
@@ -45,6 +46,7 @@ function run() {
     case "games": if (positional.length !== 1) usage(); return games({ state: positional[0] });
     case "shortcuts": if (positional.length !== 1) usage(); return shortcuts({ state: positional[0] });
     case "wheel": if (positional.length !== 1) usage(); return wheel({ mode: positional[0] });
+    case "learn": return openLearn();
     case "setup": return argv.includes("--suggest") || argv.includes("--apply") ? setup({ apply: argv.includes("--apply") }) : openSetup({ again: argv.includes("--again") });
     default: return usage();
   }

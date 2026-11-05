@@ -8,6 +8,7 @@ import { readMouseTurn } from "./mouse-read.js";
 const COMPLETE = (t) => {
     switch (t.kind) {
         case "setup": return t.again === true;
+        case "learn": return true;
         case "status":
         case "wheel":
         case "games":

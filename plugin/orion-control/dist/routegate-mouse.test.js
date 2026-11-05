@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { readMouseTurn } from "./mouse-read.js";
 describe("mouse route: spoken numbers, and never a status dump for a request it could not parse", () => {
     it("A3: a spoken button and key is a request, not a status question", () => {
-        expect(readMouseTurn("Can you Can you set the button six part of the mouse, can you set that to be mapped to f thirteen?")).toBeNull();
+        // w20 xf-other: "button six" and "f thirteen" are ONE button (the number he knew, the key it sends): the key button, its action still to be asked.
+        expect(readMouseTurn("Can you Can you set the button six part of the mouse, can you set that to be mapped to f thirteen?")).toEqual({ kind: "set", button: "f13", action: "" });
     });
     it("A4: narration about the mapping is not a status question either", () => {
-        expect(readMouseTurn("yea, see we were looking for a mouse button six that didnt exist. i mapped that extra button to F13. can you connect the two for me?")).toBeNull();
+        expect(readMouseTurn("yea, see we were looking for a mouse button six that didnt exist. i mapped that extra button to F13. can you connect the two for me?")).toEqual({ kind: "set", button: "f13", action: "" });
     });
     it("spoken button numbers parse like digits", () => {
         expect(readMouseTurn("make button six do stage manager")).toEqual({ kind: "set", button: "button 6", action: "stage manager" });

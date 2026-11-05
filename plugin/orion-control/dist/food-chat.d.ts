@@ -33,6 +33,8 @@ export declare class FoodMemory {
     /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
     bound(key: string, pending: FoodPendingView, label?: string): boolean;
 }
+/** "protein bar, protein bar +1" (an estimate that listed one food twice) is said once: repeats go, and the "+N" that counted them. */
+export declare function tidyTitle(title: string): string;
 export type FoodDeps = {
     run: FoodRun;
     stateDir: string;

@@ -27,3 +27,4 @@ export type FinalizeContext = {
     codeAuthored?: boolean;
 };
 export declare function finalizeReply(reply: string, tools: ReadonlyArray<ToolResult>, ctx?: FinalizeContext): string;
+export declare const WRAPPER_FAILURE_LINE = "That one didn't go through on my side, so nothing changed.";

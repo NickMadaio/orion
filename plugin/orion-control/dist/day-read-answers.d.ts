@@ -28,6 +28,7 @@ export type DayMemory = {
     title: string;
     classOnly: boolean;
 };
+export declare const isFirstThingQuestion: (message: string) => boolean;
 export declare const isNextClassQuestion: (message: string) => boolean;
 export declare const isAfterThat: (message: string) => boolean;
 /** "next class" / "and after that?" from the day read. `memory` is what the last answer named (after-that only). */

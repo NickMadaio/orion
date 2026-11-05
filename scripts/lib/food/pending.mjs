@@ -31,7 +31,7 @@ export const pendingPath = (env = process.env) => join(controlledDir(env), PENDI
 
 /** "cheeseburger and fries", "a, b +2": what the offer is called when ORION names it back. */
 export function mealName(estimate) {
-  const names = (estimate?.items ?? []).map((i) => String(i.name ?? "").toLowerCase()).filter(Boolean);
+  const names = [...new Set((estimate?.items ?? []).map((i) => String(i.name ?? "").toLowerCase()).filter(Boolean))];
   return names.length > 2 ? `${names.slice(0, 2).join(", ")} +${names.length - 2}` : names.join(" and ") || "meal";
 }
 

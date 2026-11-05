@@ -14,6 +14,8 @@ const LOG = /^(?:please |pls |can you |could you )?(?:log|track)\s+(?:(?:this|th
 const ADD_TO_MEALS = /^(?:please |pls |can you |could you )?(?:add|put|log|track)\s+(.{2,80}?)\s+(?:to|in|into|on)\s+(?:my\s+|the\s+)?(?:meals?|food(?:\s+log)?|diet|calories|macros|intake)\b[.!]*$/i;
 const NOT_FOOD = /\b(?:workout|gym|lift(?:s|ed|ing)?|run|ran|water|bottles?|sleep|slept|weight|mood|hours?|minutes?|mins?|steps|study|period|expense|spent|[£$€]|meds?|medication|supplements?)\b/i;
 const YES = /^(?:y|ya|yah|yes|yeah|yea|yep|yup|sure|ok|okay|k|please|please do|pls|do it|go ahead|go for it|sounds good|perfect|correct|right|that's right|thats right|log it|log that|add it|add that|save it|yes please|yeah please|yes log it|yeah log it|yep log it|sure log it|ok log it|yes add it)(?:\s+(?:please|pls|thanks|thank you|thx|ty))?$/i;
+/** A yes with something after it: "yes actually. log three of them", "yeah but it was a small one". The rest is what he says changed. */
+const YES_LEAD = /^(?:y|ya|yah|yes|yeah|yea|yep|yup|sure|ok|okay)\b[,.!]*\s+(.+)$/i;
 const NO = /^(?:n|no|nah|nope|no thanks|no thank you|nah thanks|don'?t|dont|don'?t log it|dont log it|don'?t bother|skip it|skip|never ?mind|forget it|leave it|not now|no need)$/i;
 const CORRECTION = /\b(?:it was|was (?:a|an|just|only|more|less|about|like)|actually|only|just|half|small(?:er)?|large|big(?:ger)?|tiny|huge|didn'?t (?:have|eat|finish)|without|no (?:cheese|sauce|oil|mayo|dressing|rice|fries|chips|sugar|milk|bread|bun)|there was no|plus|also had|and (?:a|an|some)|with (?:a|an|some|extra)|extra|diet|zero|grams?|\d+\s?(?:g|ml|oz)\b|two|three|double|single)\b/i;
 const NOT_A_CORRECTION = /\b(?:remind|move|schedule|book|cancel|calendar|gym|class|alarm|timer|lights?|text|call|email|weather|focus|session|tomorrow|tonight|at \d)\b|\?$/i;
@@ -135,6 +137,9 @@ export function readFoodTurn(message, c) {
             return { kind: "yes" };
         if (THAT.test(said))
             return { kind: "that" };
+        const yesThen = YES_LEAD.exec(said)?.[1];
+        if (yesThen && count < 2 && CORRECTION.test(yesThen) && !NOT_A_CORRECTION.test(said) && said.length <= 140 && !c.pending.loggedId)
+            return { kind: "revise", correction: m, thenLog: true };
         if (CORRECTION.test(said) && !NOT_A_CORRECTION.test(said) && said.length <= 140 && !c.pending.loggedId)
             return { kind: "revise", correction: m, ...(count >= 2 && mentions(said, names) ? { which: m } : {}) };
         if (NO.test(said))

@@ -69,7 +69,9 @@ export class FoodMemory {
 type Json = Record<string, unknown> & { ok?: boolean; error?: string };
 const parse = (stdout: string): Json => { try { return JSON.parse(stdout.trim().split("\n").at(-1) ?? "") as Json; } catch { return { ok: false, error: "orion-food-estimate gave no answer" }; } };
 const failed = (error?: string) => `I couldn't estimate that just now${error ? ` (${error})` : ""}, so nothing was logged. Say go and I'll retry it.`;
-const offerOf = (j: Json) => String((j.offer as { text?: string } | undefined)?.text ?? (j.summary ? `${String(j.summary)}. Log it?` : ""));
+/** The model's note to itself ("; user corrected count to 3 bars") is not something to say aloud: only the estimate's own notes stay. */
+const cleanNotes = (text: string): string => text.replace(/;\s*(?:the )?user\b[^;)]*(?=[;)])/gi, "");
+const offerOf = (j: Json) => cleanNotes(String((j.offer as { text?: string } | undefined)?.text ?? (j.summary ? `${String(j.summary)}. Log it?` : "")));
 const lower = (s: unknown) => String(s ?? "").toLowerCase();
 
 async function call(run: FoodRun, args: string[]): Promise<{ j: Json; call: string; out: string }> {
@@ -77,11 +79,19 @@ async function call(run: FoodRun, args: string[]): Promise<{ j: Json; call: stri
   return { j: parse(r.stdout), call: `orion-food-estimate ${args.join(" ")}`, out: r.stdout.trim().slice(0, 2000) };
 }
 
+/** "protein bar, protein bar +1" (an estimate that listed one food twice) is said once: repeats go, and the "+N" that counted them. */
+export function tidyTitle(title: string): string {
+  const m = /^(.*?)(?:\s\+\d+)?$/.exec(title.trim());
+  const parts = (m?.[1] ?? title).split(/,\s*/).filter(Boolean);
+  const uniq = parts.filter((p, i) => parts.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i);
+  return uniq.length < parts.length ? uniq.join(", ") : title;
+}
+
 function loggedLine(j: Json): string {
   if (typeof j.say === "string") return `${j.say} Say "undo" to take it off.`;   // the script names what it logged
   const e = (j.entry ?? {}) as Record<string, unknown>;
   const l = (j.logged ?? {}) as Record<string, unknown>;
-  return `${l.filled ? "Updated" : "Logged"} ${lower(e.title)} as ${lower(e.meal)}: ${e.calories} kcal, ${e.protein} g protein, ${e.carbohydrates} g carbs, ${e.fat} g fat. ${l.dayCalories} kcal today. Say "undo" to take it off.`;
+  return `${l.filled ? "Updated" : "Logged"} ${tidyTitle(lower(e.title))} as ${lower(e.meal)}: ${e.calories} kcal, ${e.protein} g protein, ${e.carbohydrates} g carbs, ${e.fat} g fat. ${l.dayCalories} kcal today. Say "undo" to take it off.`;
 }
 
 export type FoodDeps = { run: FoodRun; stateDir: string; now: Date };
@@ -105,7 +115,8 @@ export async function runFoodTurn(turn: FoodTurn, deps: FoodDeps): Promise<FoodO
     case "yes": return one(["log-pending", "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
     case "pick": return one(["log-pending", "--pick", turn.which, "--json"], (j) => (j.choose ? String(j.say) : loggedLine(j)), (e) => (e ? `I couldn't log it: ${e}.` : "I couldn't log it just now."));
     case "no": return one(["discard", ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose || j.kept ? String(j.say) : "Okay, not logged."), () => "Okay, not logged.");
-    case "revise": return one(["--revise", turn.correction, ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose ? String(j.say) : offerOf(j)));
+    case "revise": if (turn.thenLog) return reviseThenLog(turn, deps);
+      return one(["--revise", turn.correction, ...(turn.which ? ["--pick", turn.which] : []), "--json"], (j) => (j.choose ? String(j.say) : offerOf(j)));
     case "undo": return undoAll(turn.ids?.length ? turn.ids : [turn.id], deps);
     case "that": {
       const pending = readFoodPending(deps.stateDir, deps.now);
@@ -119,6 +130,20 @@ export async function runFoodTurn(turn: FoodTurn, deps: FoodDeps): Promise<FoodO
     }
     case "meal": return mealThenEstimate(turn.read, deps);
   }
+}
+
+/** "yes actually, log three of them": he already said yes, so the estimate is redone with his correction and then logged, in one turn (live gate, A6). */
+async function reviseThenLog(turn: Extract<FoodTurn, { kind: "revise" }>, deps: FoodDeps): Promise<FoodOutcome> {
+  const redone = await call(deps.run, ["--revise", turn.correction, ...(turn.which ? ["--pick", turn.which] : []), "--json"]);
+  const calls = [redone.call], outputs = [redone.out];
+  if (!redone.j.ok) return { text: failed(String(redone.j.error ?? "")), calls, outputs };
+  if (redone.j.choose) return { text: String(redone.j.say), calls, outputs };
+  const done = await call(deps.run, ["log-pending", "--json"]);
+  calls.push(done.call); outputs.push(done.out);
+  if (!done.j.ok) return { text: `I sized it again but couldn't log it${done.j.error ? `: ${String(done.j.error)}` : ""}. ${offerOf(redone.j)}`, calls, outputs };
+  const row = done.j.logged as { id?: string; ids?: unknown } | undefined;
+  const ids = Array.isArray(row?.ids) ? row.ids.map(String).filter(Boolean) : [];
+  return { text: done.j.choose ? String(done.j.say) : loggedLine(done.j), calls, outputs, ...(row?.id ? { logged: { id: row.id, ...(ids.length > 1 ? { ids } : {}) } } : {}) };
 }
 
 /** "had a chicken burrito and a coke for lunch": logged at once (health-log.ts, 0 kcal), then sized; a yes fills that entry. */

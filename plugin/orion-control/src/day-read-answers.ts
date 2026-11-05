@@ -146,6 +146,12 @@ export type DayMemory = { tomorrow: boolean; startMinute: number; title: string;
 const memoryOf = (r: Row, tomorrow: boolean, classOnly: boolean): DayMemory => ({ tomorrow, startMinute: minutesOf(r.hour, r.minute), title: r.title, classOnly });
 const END_OF_DAY = 24 * 60;
 
+// "how long til my first thing", "whens my next thing": the next block of any kind. A question, never a request to change it.
+const FIRST_THING = /\b(?:my\s+)?(?:first|next)\s+(?:thing|event|block|commitment|item|plan|task)\b/i;
+const FIRST_THING_Q = /\b(?:how (?:long|many minutes|much time|soon)|when(?:'s|s| is)?|what time)\b/i;
+const CHANGE = /\b(?:move|push|shift|cancel|drop|remove|delete|remind|add|put|make|change|extend|swap|skip)\b/i;
+export const isFirstThingQuestion = (message: string): boolean => FIRST_THING.test(message) && FIRST_THING_Q.test(message) && !CHANGE.test(message);
+
 export const isNextClassQuestion = (message: string): boolean => NEXT_CLASS.test(message);
 export const isAfterThat = (message: string): boolean => AFTER_THAT.test(message.trim());
 
@@ -159,6 +165,12 @@ export function nextBlockReply(message: string, day: string, tomorrow: boolean, 
     const after = all.find((r) => minutesOf(r.hour, r.minute) > memory.startMinute && (!memory.classOnly || CLASS_TITLE.test(r.title)));
     if (!after) return { text: `Nothing after that${when}.`, memory };
     return { text: `After that: ${spokenTitle(after.title)} at ${spokenTime(after.hour, after.minute)}.`, memory: memoryOf(after, tomorrow, memory.classOnly) };
+  }
+  if (isFirstThingQuestion(message)) {
+    const first = all.find((r) => tomorrow || minutesOf(r.hour, r.minute) > nowMin);
+    if (!first) return { text: `You've got nothing left ${tomorrow ? "tomorrow" : "today"}.`, memory: { tomorrow, startMinute: END_OF_DAY, title: "", classOnly: false } };
+    const gap = !tomorrow && WANTS_SPAN.test(message) ? `, in about ${spokenSpan(minutesOf(first.hour, first.minute) - nowMin)}` : "";
+    return { text: `Your ${/\bnext\b/i.test(message) ? "next" : "first"} thing is ${spokenTitle(first.title)} at ${spokenTime(first.hour, first.minute)}${gap}.`, memory: memoryOf(first, tomorrow, false) };
   }
   if (!isNextClassQuestion(message)) return null;
   const next = all.find((r) => CLASS_TITLE.test(r.title) && (tomorrow || minutesOf(r.hour, r.minute) > nowMin));

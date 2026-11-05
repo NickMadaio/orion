@@ -67,12 +67,15 @@ export function requestedDiagnosis(t, d = diagnoseTurn(t)) {
   return build(t, "requested", true, `You asked me to fix this, and for ${quote(t.message)} the record shows no failed call, so I'll have a fix project work out the cause from that exchange${t.reply ? ` (I said ${quote(t.reply)})` : ""}.`, "reported by Nick; the record shows no clear failing call", undefined, via);
 }
 
-/** The turn he is asking about: one the words name (latest first), else the latest failure, else the latest turn. */
+// "why did you reply like that", "why'd you answer that way": about the reply he just got, never an older failure (live gate 2, #43).
+const LAST_REPLY = /\bwhy(?:'?d| did| would| do)?\s+(?:you|u|ya)\s+(?:reply|replied|respond|responded|answer|answered|say|said|word|put|write|wrote|talk|talked|sound)\b[^.?!]{0,25}\b(?:like (?:that|this)|that way|this way|so)\b/i;
+/** The turn he is asking about: one the words name (latest first), else a question about "that reply" = the newest turn, else the latest failure, else the latest turn. */
 export function pickTurn(turns, { about = "", n = 6, exclude } = {}) {
   const pool = recentTurns(turns, { n, exclude });
   if (!pool.length) return undefined;
   const want = words(about);
   const newest = [...pool].reverse();
+  if (LAST_REPLY.test(String(about))) return newest[0];
   const hits = want.length ? newest.filter((t) => { const have = new Set(words(`${t.message} ${t.reply}`)); return want.some((w) => have.has(w)); }) : [];
   const named = hits.find((t) => diagnoseTurn(t).kind !== "none") ?? hits[0];
   return named ?? newest.find((t) => diagnoseTurn(t).kind !== "none") ?? newest[0];

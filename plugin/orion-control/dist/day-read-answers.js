@@ -144,6 +144,11 @@ const NEXT_CLASS = /\b(?:next|upcoming)\s+class(?:es)?\b|\bwhen(?:'s| is)?\s+my\
 const AFTER_THAT = /^\W*(?:and\s+|so\s+|ok(?:ay)?\s+)?(?:then\s+)?(?:what(?:'s|s| is)?\s+)?(?:(?:what|how)\s+about\s+)?(?:after\s+(?:that|this|it)|then|the\s+one\s+after(?:\s+that)?)(?:\s+one)?\W*$/i;
 const memoryOf = (r, tomorrow, classOnly) => ({ tomorrow, startMinute: minutesOf(r.hour, r.minute), title: r.title, classOnly });
 const END_OF_DAY = 24 * 60;
+// "how long til my first thing", "whens my next thing": the next block of any kind. A question, never a request to change it.
+const FIRST_THING = /\b(?:my\s+)?(?:first|next)\s+(?:thing|event|block|commitment|item|plan|task)\b/i;
+const FIRST_THING_Q = /\b(?:how (?:long|many minutes|much time|soon)|when(?:'s|s| is)?|what time)\b/i;
+const CHANGE = /\b(?:move|push|shift|cancel|drop|remove|delete|remind|add|put|make|change|extend|swap|skip)\b/i;
+export const isFirstThingQuestion = (message) => FIRST_THING.test(message) && FIRST_THING_Q.test(message) && !CHANGE.test(message);
 export const isNextClassQuestion = (message) => NEXT_CLASS.test(message);
 export const isAfterThat = (message) => AFTER_THAT.test(message.trim());
 /** "next class" / "and after that?" from the day read. `memory` is what the last answer named (after-that only). */
@@ -158,6 +163,13 @@ export function nextBlockReply(message, day, tomorrow, nowMin, memory) {
         if (!after)
             return { text: `Nothing after that${when}.`, memory };
         return { text: `After that: ${spokenTitle(after.title)} at ${spokenTime(after.hour, after.minute)}.`, memory: memoryOf(after, tomorrow, memory.classOnly) };
+    }
+    if (isFirstThingQuestion(message)) {
+        const first = all.find((r) => tomorrow || minutesOf(r.hour, r.minute) > nowMin);
+        if (!first)
+            return { text: `You've got nothing left ${tomorrow ? "tomorrow" : "today"}.`, memory: { tomorrow, startMinute: END_OF_DAY, title: "", classOnly: false } };
+        const gap = !tomorrow && WANTS_SPAN.test(message) ? `, in about ${spokenSpan(minutesOf(first.hour, first.minute) - nowMin)}` : "";
+        return { text: `Your ${/\bnext\b/i.test(message) ? "next" : "first"} thing is ${spokenTitle(first.title)} at ${spokenTime(first.hour, first.minute)}${gap}.`, memory: memoryOf(first, tomorrow, false) };
     }
     if (!isNextClassQuestion(message))
         return null;

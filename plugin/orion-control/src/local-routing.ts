@@ -25,6 +25,10 @@
  phone's channel brief is stripped so the front desk reads only Nick's words.
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
+import { isBareConfirm } from "./bare-confirm.js";
+import { ventTease } from "./vent-tease.js";
+import { withoutUnverifiedAlarmClaims } from "./alarm-claims.js";
+import { asksChatSummary, chatSummary } from "./chat-summary.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -68,7 +72,7 @@ import { isBareTime, isReminderTurn, leaveAsReminder, planReminder, type OfferPo
 import { finalizeReply, mailReadFailed } from "./reply-sanitize.js";
 import { SPEAK_AS_I } from "./self-voice.js";
 import { readPlanReasons, whyFirstAnswer, whyFirstAsk } from "./plan-why.js";
-import { codeDayAnswer, dayRead, isAfterThat, noBlockReply, type DayMemory } from "./day-read-answers.js";
+import { codeDayAnswer, dayRead, isAfterThat, isFirstThingQuestion, noBlockReply, type DayMemory } from "./day-read-answers.js";
 import { asksDeadlines, deadlineReply, type DeadlineRead } from "./deadline-read.js";
 import { runFocusReady, type ReadyDeps } from "./focus-ready.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory, type FocusRow } from "./focus-status.js";
@@ -1491,7 +1495,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
     if (sessionKey && !cutOff && !pending) pendingMemory.setMemo(sessionKey, null);
     const run: Run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
-      ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
+      ...(on && !cutOff && !quietTurn && !isBareConfirm(message) ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (ledgerAsk) run.ledger = ledgerAsk;
     if (runId) runs.set(runId, run);
     if (sessionKey) runs.set(`session:${sessionKey}`, run);
@@ -1606,11 +1610,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
       if (run && isCrisis(run.message) && !run.afterCrisis) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
       if (run && !run.afterCrisis && !run.hushed && isBanterOnly(run.message)) return { handled: true, reply: { text: gentleCheckIn(run.message) }, reason: "distress: slang tease only" };   // w20 R3 #52
+      // w20 xf-other (vent-tease.ts): "i hate this uni so much lol" is slang about a place, a light tease and nothing else (no "that sounds really tough").
+      const vent = run && !run.afterCrisis && !run.hushed ? ventTease(run.message) : null;
+      if (vent) return { handled: true, reply: { text: vent }, reason: "distress: everyday venting, light tease only" };
       if (run && (run.room || run.hushed || run.pending || run.preference || run.sleepTurn || run.phoneBlock || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
       if (run && !ledgerSeen.has(run)) { ledgerSeen.add(run); madeLedger.ingest(run.sessionKey, run.tools, Date.now()); }
       if (run?.ownText) return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
       if (run && openRequest(run.message)) return undefined;   // w18 voiceself: opening an app is app_open, never a drafted "I can't pull up apps"
       if (run && isOverwhelmed(run.message)) return undefined;
+      if (run && (asksChatSummary(run.message) || isFirstThingQuestion(run.message))) return undefined;   // w20 xf-other: a summary is built from tool results (chat-summary.ts), never a drafted one
       // A fact to save or a question about one is work: the drafts said "I've noted that" and saved nothing (2026-10-15).
       if (run && (keepsFact(run.message) || asksRecall(run.message))) return undefined;
       if (run && (RUNNING_LATE.test(run.message) || run.late)) return undefined; // the calendar flow, never a drafted "no problem"
@@ -1619,7 +1627,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run?.computer || (options.computer && run && detectComputerIntent(run.message))) return undefined; // 2026-10-31: the screen loop's reply, never a drafted "I can't see your screen"
       if (run?.reality) return undefined;   // 2026-10-30: what he said happened is code's (reality.ts), never a drafted "Noted!"
       // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
-      const draftText = withoutDayClaims(d?.answer ?? "");
+      const draftText = withoutUnverifiedAlarmClaims(withoutDayClaims(d?.answer ?? ""), options.stateDir, (options.now ?? pluginNow)());
       if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "") && !casualStartTask(run?.message ?? "")) return { handled: true, reply: { text: withGentleCheckIn(run?.message ?? "", draftText) }, reason: "front desk answered" };
       return undefined;
     });
@@ -1751,6 +1759,11 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
             if (ran.code === 0) run.flow = { outcome: "say", kind: "plain", text: refused ? ran.stdout.trim().split("\n")[0]! : plan.text };
           }
         }
+      }
+      // w20 xf-other (chat-summary.ts): "what have we done in this chat" is built from the tool results the ledger holds, never from the model's memory.
+      if (!run.flow && !run.cutOff && run.sessionKey && asksChatSummary(run.message)) {
+        run.provided = true;
+        run.flow = { outcome: "say", kind: "plain", text: chatSummary(madeLedger.recent(run.sessionKey, Date.now()), sessionChanges.get(run.sessionKey)?.stamps.length ?? 0) };
       }
       // w20 r3 (ledger-run.ts): undo / remove anything ORION made in THIS chat (blocks, notes, reminders, food, water), by description, read back.
       const undoOfReality = !!run.sessionKey && !!lastReality.get(run.sessionKey) && Date.now() - lastReality.get(run.sessionKey)!.at < SESSION_CHANGE_WINDOW_MS && isBareUndo(run.message);
@@ -2149,6 +2162,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const day = await options.readDay(false).catch(() => "");
         if (day !== "") { run.provided = true; markRead(run, "day"); run.flow = { outcome: "say", kind: "plain", text: lateTomorrowAnswer(day, (options.now ?? pluginNow)()) }; }
       }
+      // w20 xf-other (day-read-answers.ts): "how long til my first thing" is arithmetic from the day by code; the desk guessed "about five hours" at 2:34 AM for 6 h 26 min.
+      if (!run.flow && !run.cutOff && options.readDay && isFirstThingQuestion(run.message)) {
+        const tomorrow = meansTomorrow(run.message);
+        const day = await options.readDay(tomorrow).catch(() => "");
+        const first = day ? codeDayAnswer(run.message, day, tomorrow, nowMinutes(options.now)) : null;
+        if (first) { run.provided = true; markRead(run, tomorrow ? "day-tomorrow" : "day"); run.flow = { outcome: "say", kind: "plain", text: first.text }; if (run.sessionKey) dayMemory.set(run.sessionKey, { at: Date.now(), memory: first.memory }); }
+      }
       // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
       if ((SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && (isQuestion(run.message) || asksDayRead(run.message)) && options.readDay && !run.flow) {
         const tomorrow = meansTomorrow(run.message);
@@ -2188,7 +2208,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // 2026-10-31: inside a run of room talk, nothing reaches the worker's free reply: only a flow that acted above may answer.
       if (run.room === "streak") { run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY }; rooms.mark(run.sessionKey, nowMs()); return fixedReply(QUIET_REPLY); }
       const lookup = needsLiveData(run.message);
-      const draft = withoutDayClaims(run.settled.answer ?? "");
+      const draft = withoutUnverifiedAlarmClaims(withoutDayClaims(run.settled.answer ?? ""), options.stateDir, (options.now ?? pluginNow)());
       if (run.settled.move === "answer" && draft && !CHANGE_REQUEST.test(run.message) && !lookup) {
         // Even a pure answer's draft can invent his day ("you've been coding for hours", q082) and the 9B
         // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named

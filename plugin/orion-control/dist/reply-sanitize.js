@@ -221,7 +221,12 @@ export function finalizeReply(reply, tools, ctx = {}) {
     // Spoken aloud: temperatures read as "55 degrees Fahrenheit", whichever path wrote the sentence.
     return firstPerson(fahrenheitWords(finalizeCore(reply, tools, ctx))); // w18 voiceself: ORION speaks as "I"
 }
+// The transport's own failure line ("ORION refused or could not run that (exit 1).", tube audit F3) is a wrapper's text, never his: first person, no exit code.
+const WRAPPER_FAILURE = /\bORION (?:refused or )?could(?: not|n'?t) (?:run|take) that(?: one)?(?: \(exit(?: code)? \d+\))?[.!]?/i;
+export const WRAPPER_FAILURE_LINE = "That one didn't go through on my side, so nothing changed.";
 function finalizeCore(reply, tools, ctx) {
+    if (WRAPPER_FAILURE.test(reply))
+        return reply.replace(WRAPPER_FAILURE, WRAPPER_FAILURE_LINE).replace(/\s+/g, " ").trim();
     // The host's raw "Context overflow: prompt too large ... Try /reset" is never shown (gate #57).
     if (OVERFLOW.test(reply))
         return OVERFLOW_LINE;

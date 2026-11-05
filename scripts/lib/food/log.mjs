@@ -72,7 +72,7 @@ function withDayTotal(log, day, entries, now) {
 export function entryFor(estimate, { meal, at, id = `FOOD-${randomUUID().toUpperCase()}`, title }) {
   const t = estimate.totals;
   const photos = estimate.input?.photos ?? [];
-  const names = estimate.items.map((i) => i.name);
+  const names = estimate.items.map((i) => i.name).filter((n, k, all) => all.findIndex((m) => String(m).toLowerCase() === String(n).toLowerCase()) === k);   // a food listed twice is named once
   const name = title || (names.length > 2 ? `${names.slice(0, 2).join(", ")} +${names.length - 2}` : names.join(" and "));
   return {
     id, title: (name.charAt(0).toUpperCase() + name.slice(1)).slice(0, 80), meal,

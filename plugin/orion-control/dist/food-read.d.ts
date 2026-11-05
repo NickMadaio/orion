@@ -25,7 +25,8 @@ export type FoodTurn = {
 } | {
     kind: "revise";
     correction: string;
-    which?: string;
+    which?: string; /** He already said yes ("yes actually, log three of them"): size it again, then log it. */
+    thenLog?: true;
 } | {
     kind: "undo";
     id: string;

@@ -53,6 +53,16 @@ test("pickTurn follows what he names, else the latest failure, else the latest t
   assert.equal(pickTurn([], { about: "why" }), undefined);
 });
 
+test("a question about 'that reply' is the newest turn, never an older failure (live gate 2, #43)", () => {
+  const ts = turns();
+  const newest = ts.at(-1).message;
+  assert.notEqual(newest, "open amazon uk");
+  for (const about of ["why did you reply like that", "whyd you answer that way", "why did you say it like that", "why would you respond like that lol", "why did you word it like that"])
+    assert.equal(pickTurn(ts, { about, n: 6, exclude: about }).message, newest, about);
+  // a named subject still wins
+  assert.equal(pickTurn(ts, { about: "why didnt you open amazon", n: 6 }).message, "open amazon uk");
+});
+
 test("findFailures lists tool errors and dropped turns, once each", () => {
   const now = Date.parse("2026-11-05T00:00:00Z");
   const f = findFailures(turns(), { now });

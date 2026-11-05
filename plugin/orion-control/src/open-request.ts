@@ -38,12 +38,32 @@ const APP_FIRST: ReadonlySet<string> = new Set(["maps", "drive"]);
 
 const tidy = (s: string): string => s.trim().replace(/^(?:the |my )/i, "").trim();
 
+// "the german ebay", "amazon germany", "french amazon": the site's own regional domain, not a web search (tube audit M4).
+const REGIONS: Readonly<Record<string, string>> = { german: "de", germany: "de", deutsch: "de", french: "fr", france: "fr", italian: "it", italy: "it", spanish: "es", spain: "es", dutch: "nl", netherlands: "nl",
+  canadian: "ca", canada: "ca", australian: "com.au", australia: "com.au", aussie: "com.au", indian: "in", india: "in", japanese: "co.jp", japan: "co.jp", british: "co.uk", britain: "co.uk", uk: "co.uk" };
+const REGIONAL: Readonly<Record<string, readonly string[]>> = {
+  amazon: ["de", "fr", "it", "es", "nl", "ca", "com.au", "in", "co.jp", "co.uk"], ebay: ["de", "fr", "it", "es", "ca", "com.au", "co.uk"],
+  google: ["de", "fr", "it", "es", "nl", "ca", "com.au", "co.in", "co.jp", "co.uk"],
+};
+function regionalSite(key: string): string | null {
+  const words = key.split(/\s+/).filter((w) => w && w !== "the" && w !== "my" && w !== "version" && w !== "site" && w !== "website");
+  if (words.length !== 2) return null;
+  const site = words.find((w) => REGIONAL[w]), region = words.find((w) => REGIONS[w]);
+  if (!site || !region || site === region) return null;
+  const tld = REGIONS[region]!;
+  const allowed = REGIONAL[site]!;
+  const hit = allowed.includes(tld) ? tld : site === "google" && tld === "in" ? "co.in" : null;
+  return hit ? `https://www.${site}.${hit}` : null;
+}
+
 function siteUrl(target: string): string | null {
   const t = target.trim().replace(/[.,!?]+$/, "");
   if (/^https?:\/\//i.test(t)) return DOMAIN.test(t) ? t : null;
   if (DOMAIN.test(t)) return `https://${t}`;
   const key = tidy(t).toLowerCase();
   if (SITES[key]) return `https://${SITES[key]}`;
+  const regional = regionalSite(key.replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim());
+  if (regional) return regional;
   const words = key.replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean).slice(0, 12);
   return words.length ? `https://www.google.com/search?q=${words.join("+")}` : null;
 }
@@ -81,6 +101,8 @@ export function openRequest(message: string): OpenRequest | null {
   if (DOMAIN.test(rest)) return { kind: "url", url: /^https?:/i.test(rest) ? rest : `https://${rest}` };
   const siteName = SITE_WORD.exec(rest)?.[1]?.trim().toLowerCase();
   if (siteName) return SITES[siteName] ? { kind: "url", url: `https://${SITES[siteName]}` } : null;
+  const regionalBare = regionalSite(tidy(rest).toLowerCase());
+  if (regionalBare) return { kind: "url", url: regionalBare };
 
   // A bare well-known site ("amazon uk") is a site: the app route said "amazon uk was not found" (11-04 11:20). "maps" is an app.
   const bare = tidy(rest).toLowerCase();

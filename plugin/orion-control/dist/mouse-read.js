@@ -96,6 +96,15 @@ const lastIn = (said) => {
 };
 const distinctButtons = (said) => new Set([...said.matchAll(new RegExp(BUTTON_PHRASE.source, "gi"))].map((m) => m[0].replace(/^(?:the |my |mouse )/, "").replace(/(?: key| button)$/, "").replace(/\s+/g, ""))).size;
 const buttonOf = (said) => (BUTTON_PHRASE.exec(said)?.[0] ?? "").replace(/^(?:the |my )/, "");
+const NUMBERED = /^(?:mouse )?button\s*#?\d{1,2}$/;
+const KEYED = /^f(?:1[3-9]|20)(?: key)?(?: button)?$/;
+const CONNECT_VERB = /\b(?:connect|link|tie|pair|join|hook|mapp?ed|mapping)\b/i;
+/** "button 6 ... mapped to f13": the number he knew and the key it now sends are ONE button (the Mac sees the key). Its name, else null. */
+const sameButtonKeyed = (said) => {
+    const names = [...new Set([...said.matchAll(new RegExp(BUTTON_PHRASE.source, "gi"))].map((m) => m[0].replace(/^(?:the |my )/, "").replace(/\s+/g, " ")))];
+    const keyed = names.filter((n) => KEYED.test(n)), numbered = names.filter((n) => NUMBERED.test(n));
+    return names.length === 2 && keyed.length === 1 && numbered.length === 1 ? keyed[0].replace(/ (?:key|button)$/, "").replace(/ (?:key|button)$/, "") : null;
+};
 /** "nothing" is an action only as a binding ("make it do nothing", "set back button to nothing") or a bare reply, never in "my mouse does nothing". */
 const actionOf = (said) => ACTION_PHRASE.exec(said)?.[0]?.trim()
     ?? (/^(?:do )?nothing$/.test(said) || (BIND_VERB.test(said) && /\b(?:do|to|be) nothing\b/.test(said)) ? "nothing" : "");
@@ -193,13 +202,15 @@ function readOne(message, c) {
         return mouseish && STATUS_WORD.test(said) || (MOUSE.test(said) && /\b(?:buttons?|settings?|bindings?)\b/.test(said)) ? { kind: "status" } : null;
     if (!mouseish)
         return null;
-    if (distinctButtons(said) > 1)
+    const same = distinctButtons(said) === 2 ? sameButtonKeyed(said) : null;
+    if (distinctButtons(said) > 1 && !same)
         return null; // two buttons named and no way to tell which is meant: the model asks, code never guesses
+    const button = same ?? buttonOf(said);
     if (CLEAR_VERB.test(said) && !actionOf(said).replace(/^nothing$/i, ""))
-        return { kind: "clear", button: buttonOf(said), ...(app ? { app } : {}) };
+        return { kind: "clear", button, ...(app ? { app } : {}) };
     const action = actionOf(said);
-    if (!action && !(BIND_VERB.test(said) && buttonOf(said)))
+    if (!action && !((BIND_VERB.test(said) || (same && CONNECT_VERB.test(said))) && button))
         return /\b(?:show|list|check|status|tell me)\b/.test(said) && /\b(?:mouse (?:settings|buttons|bindings))\b/.test(said) ? { kind: "status" } : null;
     const scoped = app && action && !action.toLowerCase().includes(app.toLowerCase()) ? app : undefined;
-    return { kind: "set", button: buttonOf(said), action, ...(scoped ? { app: scoped } : {}) };
+    return { kind: "set", button, action, ...(scoped ? { app: scoped } : {}) };
 }

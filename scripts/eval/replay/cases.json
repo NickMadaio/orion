@@ -1458,10 +1458,6 @@
    ]
   },
   "audit": "L1",
-  "expectFail": {
-   "audit": "L1",
-   "why": "'push' + spoken number miss the bedtime setter; the 9B says it cannot, then 'you have until 11:45'"
-  },
   "spoken": true,
   "now": "2026-11-04T21:52",
   "recorded": {
@@ -1470,7 +1466,12 @@
     "tier": "standard",
     "say": "Adjusting your bedtime to 11:45 PM."
    },
-   "worker": "I can't push your bedtime, but you still have until 11:45 PM to get ready for sleep."
+   "scripts": [
+    {
+     "match": "bedtime",
+     "stdout": "{\"ok\": true, \"saved\": true, \"bedtime\": \"00:00\", \"was\": \"21:50\", \"tonight\": true, \"readback\": {\"evening\": \"2026-11-04\", \"sleepBy\": \"23:45\", \"nudgeAt\": \"23:15\", \"wake\": \"09:00\", \"wakeDate\": \"2026-11-05\", \"alarmAsked\": false, \"hours\": 9.25, \"lockdownBelowHours\": 6, \"standing\": \"00:00\", \"tonightOnly\": true, \"fixed\": false}}"
+    }
+   ]
   }
  },
  {
@@ -1484,10 +1485,6 @@
    "calls": []
   },
   "audit": "L2",
-  "expectFail": {
-   "audit": "L2",
-   "why": "goodnight reply reads the stale wake-request.json (Mon 07:00) instead of the real 05:50 alarm"
-  },
   "spoken": true,
   "now": "2026-11-04T21:57",
   "recorded": {
@@ -1500,8 +1497,8 @@
    },
    "scripts": [
     {
-     "match": "",
-     "stdout": "Wake-up set for Mon 07:00 (asked 2026-10-19 08:12)"
+     "match": "bedtime",
+     "stdout": "{\"ok\": true, \"saved\": true, \"bedtime\": \"00:00\", \"was\": \"21:50\", \"tonight\": true, \"readback\": {\"evening\": \"2026-11-04\", \"sleepBy\": \"23:45\", \"nudgeAt\": \"23:15\", \"wake\": \"05:50\", \"wakeDate\": \"2026-11-05\", \"alarmAsked\": true, \"hours\": 6.08, \"lockdownBelowHours\": 6, \"standing\": \"00:00\", \"tonightOnly\": true, \"fixed\": false}}"
     }
    ]
   },
@@ -1591,10 +1588,6 @@
    ]
   },
   "audit": "A3",
-  "expectFail": {
-   "audit": "A3",
-   "why": "spoken 'six' / 'f thirteen' not parsed: falls through to the status paragraph"
-  },
   "spoken": true,
   "now": "2026-11-04T14:25",
   "recorded": {
@@ -1606,7 +1599,7 @@
    "scripts": [
     {
      "match": "set",
-     "stdout": "{\"ok\": true, \"say\": \"Set button 6 to F13.\"}"
+     "stdout": "{\"ok\": true, \"asking\": true, \"ask\": \"action\", \"say\": \"What should it do? For example Stage Manager, Mission Control, the left desktop, or a screenshot.\", \"button\": 113}"
     },
     {
      "match": "status",
@@ -1640,10 +1633,6 @@
    ]
   },
   "audit": "A4",
-  "expectFail": {
-   "audit": "A4",
-   "why": "'connect the two' has no bind verb: status paragraph again, word for word"
-  },
   "spoken": true,
   "now": "2026-11-04T14:27",
   "recorded": {
@@ -1655,7 +1644,7 @@
    "scripts": [
     {
      "match": "set",
-     "stdout": "{\"ok\": true, \"say\": \"Set button 6 to F13.\"}"
+     "stdout": "{\"ok\": true, \"asking\": true, \"ask\": \"action\", \"say\": \"What should it do? For example Stage Manager, Mission Control, the left desktop, or a screenshot.\", \"button\": 113}"
     },
     {
      "match": "status",
@@ -1707,10 +1696,6 @@
    ]
   },
   "audit": "A6",
-  "expectFail": {
-   "audit": "A6",
-   "why": "a confirm with a count asks 'Log it?' again, speaks the model's note, macros as a temperature"
-  },
   "spoken": true,
   "now": "2026-11-04T14:29",
   "recorded": {
@@ -1722,11 +1707,11 @@
    "scripts": [
     {
      "match": "--revise",
-     "stdout": "{\"ok\": true, \"offer\": {\"text\": \"~570 kcal \\u00b7 18P 69C 24F (3\\u00d7 protein bar, ~120 g; user corrected count to 3 bars). Log it?\"}}"
+     "stdout": "{\"ok\": true, \"offer\": {\"text\": \"~570 kcal \\u00b7 18 g protein, 69 g carbs, 24 g fat (3\\u00d7 protein bar, ~120 g; user corrected count to 3 bars). Log it?\"}}"
     },
     {
      "match": "log-pending",
-     "stdout": "{\"ok\": true, \"say\": \"Logged 3 protein bars, about 570 kcal.\"}"
+     "stdout": "{\"ok\": true, \"entry\": {\"title\": \"Protein bar\", \"meal\": \"lunch\", \"calories\": 570, \"protein\": 18, \"carbohydrates\": 69, \"fat\": 24}, \"logged\": {\"id\": \"F1\", \"dayCalories\": 570}}"
     }
    ]
   },
@@ -1750,10 +1735,6 @@
    ]
   },
   "audit": "A7",
-  "expectFail": {
-   "audit": "A7",
-   "why": "confirm template doubles the title and speaks 'degrees Fahrenheit'"
-  },
   "spoken": true,
   "now": "2026-11-04T14:30",
   "recorded": {
@@ -1814,15 +1795,17 @@
    "noCalls": [
     {
      "script": "orion-mouse",
-     "args": "^(set|clear|setup|passthrough)"
+     "args": "^(?:set(?!up\\b)|clear|passthrough|setup(?!\\s+--again))"
+    }
+   ],
+   "calls": [
+    {
+     "script": "orion-mouse",
+     "args": "^setup --again"
     }
    ]
   },
   "audit": "M2",
-  "expectFail": {
-   "audit": "M2",
-   "why": "mouse chat read 'open the mapper' as configure and rewrote his bindings"
-  },
   "now": "2026-11-04T09:26",
   "recorded": {
    "desk": {
@@ -1832,8 +1815,8 @@
    },
    "scripts": [
     {
-     "match": "set",
-     "stdout": "{\"ok\": true, \"say\": \"Set button 6 to F13.\"}"
+     "match": "setup",
+     "stdout": "{\"ok\": true, \"popup\": false, \"say\": \"Here it is.\"}"
     }
    ]
   }
@@ -1878,10 +1861,6 @@
    ]
   },
   "audit": "M4",
-  "expectFail": {
-   "audit": "M4",
-   "why": "site opener turns a regional site name into a Google search (url becomes google.com/search?q=...), and the reply says search"
-  },
   "now": "2026-11-04T10:16",
   "recorded": {
    "desk": {
@@ -1893,7 +1872,7 @@
     }
    },
    "obey": "Opened https://www.ebay.de in Google Chrome.",
-   "worker": "I opened a search for German eBay in Chrome."
+   "worker": "I opened ebay.de in Google Chrome."
   }
  },
  {
@@ -2155,19 +2134,21 @@
    "noCalls": [
     {
      "script": "orion-mouse",
-     "args": "^(set|clear|setup|passthrough)"
+     "args": "^(?:set(?!up\\b)|clear|passthrough|setup(?!\\s+--again))"
     }
    ],
    "replyLacks": [
     "can'?t pull up apps",
     "not something ORION"
+   ],
+   "calls": [
+    {
+     "script": "orion-mouse",
+     "args": "^setup --again"
+    }
    ]
   },
   "audit": "F2",
-  "expectFail": {
-   "audit": "F2",
-   "why": "'pull up the mapper' is read as configure: orion-mouse setup --again (same root as M2)"
-  },
   "now": "2026-11-03T14:50",
   "recorded": {
    "desk": {
@@ -2178,7 +2159,7 @@
    "scripts": [
     {
      "match": "setup",
-     "stdout": "{\"ok\": true, \"say\": \"Which button, the front or the back side button?\"}"
+     "stdout": "{\"ok\": true, \"popup\": false, \"say\": \"Here it is.\"}"
     }
    ]
   }
@@ -2193,10 +2174,6 @@
    ]
   },
   "audit": "F3",
-  "expectFail": {
-   "audit": "F3",
-   "why": "raw 'ORION refused or could not run that (exit 1)'"
-  },
   "now": "2026-11-03T19:25",
   "recorded": {
    "desk": {

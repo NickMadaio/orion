@@ -53,13 +53,33 @@ const SHIFT_BACK = String.raw`(?:back|later|out|further|off)`;
 const SHIFT_UP = String.raw`(?:up|forward|earlier|ahead|sooner)`;
 
 /** Minutes in "20 min", "half an hour", "an hour", "1h", "hour and a half"; undefined when none. */
+const HOURS_WORD: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
+const HOUR_NUM = String.raw`(\d+(?:\.\d+)?|an?|one|two|three|four|five|six)`;
+const HOUR_UNIT = String.raw`(?:hours?|hrs?|h)`;
+const MIN_UNIT = String.raw`(?:minutes?|mins?|m)`;
+const FRACTION = (w: string): number => (w === "half" ? 30 : 15);
+const hoursOf = (w: string): number => (/^[\d.]+$/.test(w) ? Number(w) : HOURS_WORD[w] ?? 0);
+/** Whole-and-part durations, longest form first: "two and a quarter hours", "1h15", "an hour and 20 mins". Minutes, or undefined. */
+function compound(m: string): number | undefined {
+  let x = new RegExp(String.raw`\b${HOUR_NUM}\s+and a (half|quarter)\s+${HOUR_UNIT}\b`).exec(m);   // two and a quarter hours, one and a half hours
+  if (x) return hoursOf(x[1]!) * 60 + FRACTION(x[2]!);
+  x = /\b(?:an? )?hour and a (half|quarter)\b/.exec(m);                                                  // an hour and a half, hour and a quarter
+  if (x) return 60 + FRACTION(x[1]!);
+  x = new RegExp(String.raw`\b${HOUR_NUM}\s*${HOUR_UNIT}\s*(?:and\s+)?(\d{1,2})\s*(?:${MIN_UNIT}\b)?(?![\d:])`).exec(m);   // 1h15, 1 hour 20 minutes, an hour 15, an hour and 20 mins
+  if (x && Number(x[2]) < 60) return Math.round(hoursOf(x[1]!) * 60 + Number(x[2]));
+  x = new RegExp(String.raw`\b(\d+\.\d+)\s*${HOUR_UNIT}\b`).exec(m);                                  // 1.5h, 2.25 hours
+  if (x) return Math.round(Number(x[1]) * 60);
+  return undefined;
+}
+
+/** Minutes in "20 min", "half an hour", "an hour", "1h", "hour and a half", "two and a quarter hours"; undefined when none. */
 export function minutesIn(m: string): number | undefined {
+  const whole = compound(m);
+  if (whole !== undefined) return whole >= 5 && whole <= 360 ? whole : undefined;
   if (/\bhalf an? hour\b|\bhalf hour\b/.test(m)) return 30;
-  if (/\bhour and a half\b|\b1\.5 ?h/.test(m)) return 90;
   // Fractions of an hour (w20 r5, gate 3 #62: "another quarter of an hour" was read as "an hour").
-  if (/\b(?:an? )?hour and a quarter\b/.test(m)) return 75;
   if (/\bthree quarters?\b|\b3\/4 (?:of )?an? hour\b/.test(m)) return 45;
-  if (/\b(?:a |an |another )?quarter(?: of)?(?: an?)?(?: hour)?\b/.test(m) && !/\bquarter (?:to|past|after)\b/.test(m)) return 15;
+  if (/\b(?:a |an |another )?quarter(?: of)?(?: an?)?(?: hour)?\b/.test(m) && !/\bquarter (?:to|past|after|of the)\b/.test(m)) return 15;
   const a = m.replace(/\banother\s+(?=\d)/g, "").replace(/\banother\b/g, "an").replace(/\ba (couple|few)\b/g, "$1").match(new RegExp(AMT));
   if (!a) return undefined;
   const raw = a[1]!;

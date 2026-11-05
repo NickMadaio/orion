@@ -15,7 +15,7 @@ export type AlarmReq = {
 };
 /** HH:MM from "6:45", "645", "7am", "at 7", "0645". 3 AM to noon only; undefined otherwise. */
 export declare function morningTime(m: string): string | undefined;
-/** Minutes in "20 min", "half an hour", "an hour", "1h", "hour and a half"; undefined when none. */
+/** Minutes in "20 min", "half an hour", "an hour", "1h", "hour and a half", "two and a quarter hours"; undefined when none. */
 export declare function minutesIn(m: string): number | undefined;
 export type AlarmCtx = {
     recentAlarm?: boolean;

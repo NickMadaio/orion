@@ -1,4 +1,4 @@
-import type { DayEdit } from "./day-edit.js";
+import { type DayEdit } from "./day-edit.js";
 export declare const rememberEdit: (edit: DayEdit, now: Date) => void;
 export declare const recallEdit: (now: Date) => DayEdit | null;
 export declare const forgetEdit: () => void;

@@ -14,6 +14,7 @@ import { noteOf, refused } from "./scheduler-out.js";
 import { whyNot, yesterdayOf } from "./day-requests.js";
 import { failureReason, type ScheduleFailure } from "./schedule-failure.js";
 import { forgetEdit, rememberEdit, rememberRun } from "./day-edit-memory.js";
+import { pastBedtimeNote, plannedBedtime } from "./bed-line.js";
 import { nextWake } from "./wake-state.js";
 import { applyBedChange } from "./bedtime-change.js";
 import { ANCHOR_END } from "./meal-anchors.js";
@@ -35,7 +36,7 @@ const DEFAULT_MIN: Array<[RegExp, number]> = [[/lunch/, 30], [/dinner|supper/, 4
 const defaultMinutes = (name: string): number => DEFAULT_MIN.find(([re]) => re.test(name.toLowerCase()))?.[1] ?? 60;
 const list = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
-type Ctx = { deps: RealityDeps; nowMin: number; calls: string[]; outputs: string[]; done: string[]; failed: string[]; sides: string[]; writes: number; failures: ScheduleFailure[]; bedtime?: string; /** days the calendar could not be read for (a failed read is never "no block by that name") */ unread: Set<DayRef>; /** sentences another route answered for a clause it took (the food log), said as they are */ extra: string[]; /** ids of facts declared (undone with the edit) */ facts: string[] };
+type Ctx = { deps: RealityDeps; nowMin: number; calls: string[]; outputs: string[]; done: string[]; failed: string[]; sides: string[]; writes: number; failures: ScheduleFailure[]; bedtime?: string; /** days the calendar could not be read for (a failed read is never "no block by that name") */ unread: Set<DayRef>; /** sentences another route answered for a clause it took (the food log), said as they are */ extra: string[]; /** ids of facts declared (undone with the edit) */ facts: string[]; /** blocks put on today by this edit, for the bedtime note */ placed: Array<{ title: string; end: number }> };
 
 /** Yesterday cannot be read by the scheduler (a past day is refused); what the calendar held comes from the agenda, as blocks of a guessed length. */
 async function yesterdayDay(ctx: Ctx): Promise<Day> {
@@ -91,12 +92,14 @@ const rangeFor = (s: Span, now: number, ref: DayRef, mode: "past" | "future") =>
 const clockFor = (s: EditPart extends never ? never : import("./intent-time.js").Said, now: number, ref: DayRef, mode: "past" | "future", near?: number) => pickClock(s, ref === "today" ? now : ref === "yesterday" ? 1440 : DAYTIME_FLOOR, ref === "tomorrow" ? "future" : mode, near);
 
 /** Writes what really happened. `instead` is only passed for a block his time overlaps or that already started (the scheduler asks otherwise). */
-async function logIt(ctx: Ctx, ref: DayRef, title: string, from: number, to: number, instead?: DayBlock): Promise<boolean> {
+async function logIt(ctx: Ctx, ref: DayRef, title: string, from: number, to: number, instead?: DayBlock, underway = false): Promise<boolean> {
   const cap = ref === "today" ? Math.min(to, ctx.nowMin + LOG_AHEAD) : to;
   const usable = instead && (ref !== "today" || (toMin(instead.start) < cap && from < toMin(instead.end)) || toMin(instead.start) <= ctx.nowMin) && !instead.fixed;
   const out = await exec(ctx, "orion-reschedule", ["log", title, "--from", hhmm(from), "--to", hhmm(cap), ...(usable ? ["--instead", instead!.title] : []), ...DAY_ARGS[ref]]);
   const ok = settle(ctx, out, title, `log ${title}`, from);
-  if (ok) ctx.done.push(`logged ${title.toLowerCase()} ${spanText(from, cap)}${ref === "yesterday" ? " yesterday" : ""}${usable ? ` instead of ${instead!.title.replace(/\s+[—–-].*$/, "")}` : ""}`);
+  // He is in it right now ("add art museum from 7pm to 9:30pm" at 7:57): it is on the day as under way, and the line says it had already started.
+  const started = underway && ref === "today" && from < ctx.nowMin && to > ctx.nowMin ? ` (it already started at ${ampm(from)}, so it's on your day as under way)` : "";
+  if (ok) ctx.done.push(`logged ${title.toLowerCase()} ${spanText(from, cap)}${ref === "yesterday" ? " yesterday" : ""}${usable ? ` instead of ${instead!.title.replace(/\s+[—–-].*$/, "")}` : ""}${started}`);
   return ok;
 }
 
@@ -132,10 +135,10 @@ async function addPart(ctx: Ctx, p: Extract<EditPart, { op: "add" }>): Promise<v
   if (p.day !== "today" ? p.day === "yesterday" : from < ctx.nowMin) {
     const seen = day ?? await dayOf(ctx, p.day);
     if (unreadable(ctx, p.day, `log ${p.name}`)) return;   // writing the past blind could double a block that is already there
-    await logIt(ctx, p.day, title, from, to, blockNamed(p.name, seen, ctx.nowMin)); return;
+    await logIt(ctx, p.day, title, from, to, blockNamed(p.name, seen, ctx.nowMin), true); return;
   }
   const out = await exec(ctx, "orion-reschedule", ["add", title, String(to - from), "--at", hhmm(from), "--length-explicit", ...DAY_ARGS[p.day]]);
-  if (settle(ctx, out, title, `add ${p.name}`, from)) ctx.done.push(`put ${title.toLowerCase()} at ${spanText(from, to)}${p.day === "tomorrow" ? " tomorrow" : ""}`);
+  if (settle(ctx, out, title, `add ${p.name}`, from)) { ctx.done.push(`put ${title.toLowerCase()} at ${spanText(from, to)}${p.day === "tomorrow" ? " tomorrow" : ""}`); if (p.day === "today") ctx.placed.push({ title, end: to }); }
 }
 
 /** The block he named is already on that day: it goes to the time he said (and the length, when he said one). */
@@ -244,6 +247,27 @@ async function dropPart(ctx: Ctx, p: Extract<EditPart, { op: "drop" }>): Promise
   if (settle(ctx, out, block.title, `clear ${short}`)) ctx.done.push(started ? `marked ${short} as skipped` : `took ${short} off ${p.day === "today" ? "today" : p.day}`);
 }
 
+/** "everything after my nap should be dropped": every movable block from there on, in one drop; an empty rest of the day is said so. */
+async function dropAfterPart(ctx: Ctx, p: Extract<EditPart, { op: "dropafter" }>): Promise<void> {
+  const day = await dayOf(ctx, p.day);
+  if (!day) { unreadable(ctx, p.day, "clear the rest of your day"); return; }
+  const now = p.day === "today" ? ctx.nowMin : -1;
+  const anchor = p.name ? blockNamed(p.name, day, now) : undefined;
+  const from = p.at ? clockFor(p.at, ctx.nowMin, p.day, "future") : anchor ? toMin(anchor.end) : now;
+  const ahead = day.blocks.filter((b) => toMin(b.end) > now && !b.fixed && b.kind !== "class" && b.kind !== "deadline" && b.kind !== "commute");
+  const after = ahead.filter((b) => toMin(b.start) >= from);
+  const when = p.day === "today" ? "today" : p.day;
+  if (!after.length) {
+    const plan = `${p.day === "today" ? "today" : p.day}'s plan`;
+    ctx.extra.push(p.name && !anchor
+      ? `There's no ${p.name} on ${plan}${ahead.length ? "" : ", and nothing else is left on it either"}, so I haven't changed anything.`
+      : `There's nothing left ${p.at ? `after ${ampm(from)}` : p.name ? `after your ${p.name}` : "to clear"} on ${plan}, so I haven't changed anything.`);
+    return;
+  }
+  const out = await exec(ctx, "orion-reschedule", ["drop", ...after.map((b) => b.title), ...DAY_ARGS[p.day]]);
+  if (settle(ctx, out, "the rest", "clear the rest of your day")) ctx.done.push(`took ${list(after.map((b) => b.title.replace(/\s+[—–-].*$/, "")))} off ${when}`);
+}
+
 /** In the small hours a time he says he did something "today" that is still ahead cannot have happened: it was yesterday. */
 function pastDayRef(ctx: Ctx, ref: DayRef, span?: Span): DayRef {
   if (ref !== "today" || ctx.nowMin >= 300 || !span) return ref;
@@ -342,10 +366,9 @@ function bedtimeOf(deps: RealityDeps): string | undefined {
 }
 
 export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<RealityOutcome> {
-  const ctx: Ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set<DayRef>(), extra: [], facts: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps)! } : {}) };
+  const ctx: Ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set<DayRef>(), extra: [], facts: [], placed: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps)! } : {}) };
   const notes: string[] = []; const refused: EditPart[] = [];
-  for (const p of await planMoves(ctx, edit.parts)) {
-    const failedBefore = ctx.failed.length;
+  const runPart = async (p: EditPart): Promise<void> => {
     if (p.op === "add") await addPart(ctx, p);
     else if (p.op === "log") {
       const ref = pastDayRef(ctx, p.day, p.span);
@@ -361,6 +384,7 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
     else if (p.op === "resize") await resizePart(ctx, p);
     else if (p.op === "move") await movePart(ctx, p);
     else if (p.op === "drop") await dropPart(ctx, p);
+    else if (p.op === "dropafter") await dropAfterPart(ctx, p);
     else if (p.op === "didnt") await didntPart(ctx, p);
     else if (p.op === "bedtime") await bedtimePart(ctx, p);
     else if (p.op === "busy") await busyPart(ctx, p);
@@ -369,6 +393,23 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
     else if (p.op === "food") await foodPart(ctx, p);
     else if (p.op === "sleephours") await sleepHoursPart(ctx, p);
     else if (p.op === "note") notes.push(p.text);
+  };
+  const queue = [...(await planMoves(ctx, edit.parts))];
+  while (queue.length) {
+    const p = queue.shift()!;
+    const failedBefore = ctx.failed.length; const failuresBefore = ctx.failures.length;
+    await runPart(p);
+    // A bedtime said later in the same message ("gym 10-11 ... push sleep to 11:45") is what makes room for an add the day's end refused:
+    // it is made first, and that add is tried once more (the scheduler's day ends at the bedtime).
+    const bed = p.op === "add" && ctx.failed.length > failedBefore ? queue.findIndex((q) => q.op === "bedtime" || q.op === "sleephours") : -1;
+    if (bed >= 0) {
+      const [first] = queue.splice(bed, 1);
+      ctx.failed.length = failedBefore; ctx.failures.length = failuresBefore;
+      const bedFailedBefore = ctx.failed.length;
+      await runPart(first!);
+      if (ctx.failed.length > bedFailedBefore) refused.push(first!);
+      await runPart(p);
+    }
     if (ctx.failed.length > failedBefore) refused.push(p);
   }
   // "anyway" later re-runs only what was refused, never what already worked
@@ -377,9 +418,14 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
   const bits: string[] = [];
   if (ctx.done.length) bits.push(`I ${list(ctx.done)}.`);
   if (ctx.failed.length) bits.push(`I couldn't ${list(ctx.failed)}, so ${ctx.done.length ? "that part is" : "nothing is"} unchanged.`);
-  const side = [...new Set(ctx.sides)].slice(0, 2);
-  if (side.length && ctx.done.length) bits.push(`That also moved ${list(side)}.`);
-  bits.push(...ctx.extra.map((x) => (/[.!]$/.test(x) ? x : `${x}.`)), ...notes.map((n) => `${n}.`));
+  // What else the scheduler did: blocks that slid are "moved"; a block that did not fit or came off is said as what it is, never as "moved".
+  const side = [...new Set(ctx.sides)];
+  const slid = side.filter((n) => /→|now ends at|shortened/.test(n)); const lost = side.filter((n) => !slid.includes(n));
+  const more = (n: number, shown: number) => (n > shown ? ` and ${n - shown} more` : "");
+  if (slid.length && ctx.done.length) bits.push(`That also moved ${list(slid.slice(0, 3))}${more(slid.length, 3)}.`);
+  if (lost.length && ctx.done.length) bits.push(`${lost.slice(0, 4).map((n) => `${CAP(n)}.`).join(" ")}${more(lost.length, 4)}`.replace(/\.( and \d+ more)$/, "$1.").replace(/\.\. /g, ". "));
+  const late = ctx.placed.length ? pastBedtimeNote(ctx.placed, plannedBedtime(deps.stateDir, deps.now)) : undefined;
+  bits.push(...ctx.extra.map((x) => (/[.!]$/.test(x) ? x : `${x}.`)), ...notes.map((n) => `${n}.`), ...(late ? [`${late[0]!.toUpperCase()}${late.slice(1)}.`] : []));
   const text = bits.join(" ");
   const flow: FlowResult = ctx.writes || ctx.done.length
     ? { outcome: "done", calls: ctx.calls, outputs: ctx.outputs, reply: text, ...(ctx.failed.length ? { partial: true as const } : {}), ...(ctx.failures.length ? { failures: ctx.failures } : {}) }

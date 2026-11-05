@@ -8,6 +8,7 @@ import { runDayEdit } from "./day-edit-run.js";
 import { forgetEdit } from "./day-edit-memory.js";
 import { readLedgerAsk } from "./ledger-ask.js";
 import { splitLeadListItem } from "./chat-asks.js";
+import { planOutreachReply } from "./outreach-reply.js";
 import { registerLocalRouting } from "./local-routing.js";
 import { runScheduleFlow, spokenReply } from "./schedule-flow.js";
 const NOW = new Date(2026, 10, 5, 10, 0); // Thu 5 Nov, 10:00 AM
@@ -200,5 +201,112 @@ describe("chat route", () => {
         expect(r.tasks).toEqual([["add", "Pick up parcel from reception"]]);
         expect(text).toMatch(/pick up parcel from reception/i);
         expect(text).toMatch(/tomorrow evening/i);
+    });
+});
+describe("a bedtime said later in the message makes room for the add the day's end refused", () => {
+    it("gym 10-11 then push sleep to 11:45: the bedtime is made, then the gym is tried again", async () => {
+        let bedSet = false;
+        const readback = { evening: "2026-11-05", sleepBy: "23:45", nudgeAt: "23:15", wake: "05:50", wakeDate: "2026-11-06", alarmAsked: true, hours: 6.1, lockdownBelowHours: 6, tonightOnly: true, standing: "00:00" };
+        const { calls, deps } = fakeRun(day([]), (s, a) => {
+            if (s === "orion-sleepplan") {
+                bedSet = true;
+                return { stdout: JSON.stringify({ ok: true, readback }), code: 0 };
+            }
+            if (a[0] === "add" && !bedSet)
+                return { stdout: "NOTHING WAS BOOKED.\nNOT BOOKED: Gym (60 min) did not fit: your day ends at 21:50 (bedtime)", code: 1 };
+            return undefined;
+        });
+        const out = await runDayEdit(readDayEdit("add gym from 10pm to 11pm. push sleep to 11:45", new Date(2026, 10, 5, 19, 44)), { ...deps, now: new Date(2026, 10, 5, 19, 44) });
+        expect(calls.map((c) => c[1])).toEqual(["add", "bedtime", "add"]);
+        const reply = "reply" in out.flow ? out.flow.reply ?? "" : "";
+        expect(reply).toMatch(/put gym at 10–11 PM/);
+        expect(reply).not.toMatch(/couldn't/);
+    });
+    it("when the gym still does not fit after the bedtime, it is said with its reason", async () => {
+        const readback = { evening: "2026-11-05", sleepBy: "21:30", nudgeAt: "21:00", wake: "05:50", wakeDate: "2026-11-06", alarmAsked: true, hours: 8, lockdownBelowHours: 6, tonightOnly: true, standing: "00:00" };
+        const { deps } = fakeRun(day([]), (s, a) => (s === "orion-sleepplan" ? { stdout: JSON.stringify({ ok: true, readback }), code: 0 } : a[0] === "add" ? { stdout: "NOTHING WAS BOOKED.\nNOT BOOKED: Gym (60 min) did not fit", code: 1 } : undefined));
+        const out = await runDayEdit(readDayEdit("add gym from 10pm to 11pm. push sleep to 9:30", new Date(2026, 10, 5, 19, 44)), { ...deps, now: new Date(2026, 10, 5, 19, 44) });
+        expect("reply" in out.flow && out.flow.reply).toMatch(/couldn't add gym/);
+    });
+});
+describe("E12 E15 mid-event: it is on the day as under way, and the line says it had started", () => {
+    it("add art museum from 7pm to 9:30pm at 7:57", async () => {
+        const now = new Date(2026, 10, 5, 19, 57);
+        const { calls, deps } = fakeRun(day([]));
+        const out = await runDayEdit(readDayEdit("add art museum from 7pm to 9:30pm", now), { ...deps, now });
+        expect(calls[0]).toEqual(["orion-reschedule", "log", "Art museum", "--from", "19:00", "--to", "21:30"]);
+        expect("reply" in out.flow && out.flow.reply).toMatch(/already started at 7 PM/);
+    });
+});
+describe("E8 E9 'everything after my nap should be dropped'", () => {
+    const at = new Date(2026, 10, 4, 19, 55);
+    const read = (m) => readDayEdit(m, at)?.parts ?? [];
+    it.each([
+        ["drop everything. everything after my 3-6:30 nap should be dropped", { op: "dropafter", name: "nap" }],
+        ["clear everything after 6:30", { op: "dropafter" }],
+        ["delete everything after my gym", { op: "dropafter", name: "gym" }],
+        ["everything after dinner can be cleared", { op: "dropafter", name: "dinner" }],
+        ["wipe everything after lunch pls", { op: "dropafter", name: "lunch" }],
+        ["scrap everything after 8pm", { op: "dropafter" }],
+    ])("%s", (say, part) => { const p = read(say); expect(p).toHaveLength(1); expect(p[0]).toMatchObject(part); });
+    it("an empty day is said to be empty, not 'no movable block'", async () => {
+        const { calls, deps } = fakeRun(day([]));
+        const out = await runDayEdit(readDayEdit("drop everything. everything after my 3-6:30 nap should be dropped", at), { ...deps, now: at });
+        expect(calls).toEqual([]);
+        const text = "text" in out.flow ? out.flow.text : "";
+        expect(text).toMatch(/nothing else is left|nothing left/);
+        expect(text).not.toMatch(/no movable block|couldn't/);
+    });
+    it("blocks after it are dropped in one call, the ones before it stay", async () => {
+        const d = day([B("Nap", "15:00", "18:30"), B("Gym", "17:00", "18:00"), B("Study", "19:00", "20:00"), B("Reading", "21:00", "22:00")]);
+        const { calls, deps } = fakeRun(d);
+        await runDayEdit(readDayEdit("clear everything after my nap", at), { ...deps, now: at });
+        expect(calls).toEqual([["orion-reschedule", "drop", "Study", "Reading"]]);
+    });
+});
+describe("E5 a stated time past bedtime is booked, and he is told it runs past his bedtime", () => {
+    it("gym 10-11pm with an asleep-by of 9:50 PM", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "r3b-bed-"));
+        writeFileSync(join(dir, "wake-plan.json"), JSON.stringify({ bedtimes: [{ date: "2026-11-05", sleepBy: "21:50" }] }));
+        const { deps } = fakeRun(day([]));
+        const out = await runDayEdit(readDayEdit("add gym to the schedule at 10-11pm, im going once i get back", NOW), { ...deps, stateDir: dir });
+        expect("reply" in out.flow && out.flow.reply).toMatch(/put gym at 10–11 PM\. Gym runs past your 9:50 PM bedtime/);
+    });
+    it("a bedtime moved in the same message is the one compared against", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "r3b-bed-"));
+        const { deps } = fakeRun(day([]), (s) => { if (s === "orion-sleepplan") {
+            writeFileSync(join(dir, "wake-plan.json"), JSON.stringify({ bedtimes: [{ date: "2026-11-05", sleepBy: "23:45" }] }));
+            return { stdout: JSON.stringify({ ok: true, readback: { evening: "2026-11-05", sleepBy: "23:45", nudgeAt: "23:15", wake: "05:50", wakeDate: "2026-11-06", alarmAsked: true, hours: 6, lockdownBelowHours: 6, tonightOnly: true, standing: "00:00" } }), code: 0 };
+        } return undefined; });
+        writeFileSync(join(dir, "wake-plan.json"), JSON.stringify({ bedtimes: [{ date: "2026-11-05", sleepBy: "21:50" }] }));
+        const out = await runDayEdit(readDayEdit("add gym from 10pm to 11pm. push sleep to 11:45", NOW), { ...deps, stateDir: dir });
+        expect("reply" in out.flow && out.flow.reply).not.toMatch(/runs past/);
+    });
+});
+describe("E18 'not now' to a question of ORION's own is a dismissal", () => {
+    const ask = { text: "Quick one for tonights review - what was 8:05 to 9?", minutes: 1, kind: "question" };
+    it.each(["not now", "nah", "later", "not yet", "stop", "nope", "not today"])("%s", (say) => {
+        const plan = planOutreachReply(ask, say);
+        expect(plan?.text).toMatch(/okay|got it/i);
+        expect(plan?.act).toBeUndefined();
+    });
+    it("a real answer is still the worker's", () => {
+        expect(planOutreachReply(ask, "i was on the tube")).toBeUndefined();
+        expect(planOutreachReply(ask, "yeah")).toBeUndefined();
+    });
+});
+describe("E16 'add it anyways, dont worry if it already passed' reads the ask before it when nothing was refused", () => {
+    it("the earlier ask is the one carried out", async () => {
+        const { readOverride, rememberAsk } = await import("./day-edit-memory.js");
+        const now = new Date(2026, 10, 4, 20, 0);
+        rememberAsk("add art museum from 7pm to 9:30pm", now);
+        rememberAsk("add art museum anyways dont worry if it already passed", now); // an override is never what the next override re-reads
+        const edit = readOverride("add art museum anyways dont worry if it already passed", now);
+        expect(edit?.parts[0]).toMatchObject({ op: "add", name: "art museum" });
+    });
+    it("with nothing earlier it is not guessed", async () => {
+        const { readOverride, resetDayEditMemory } = await import("./day-edit-memory.js");
+        resetDayEditMemory();
+        expect(readOverride("add gym anyway dont worry if it passed", new Date(2026, 10, 4, 20, 0))).toBeNull();
     });
 });

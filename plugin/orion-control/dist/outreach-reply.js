@@ -142,6 +142,11 @@ export function planOutreachReply(o, message, late = false) {
             default: return undefined;
         }
     }
+    // "not now" / "later" / "nah" to a question or note of ORION's own ("Quick one for tonight's review - what was 8:05 to 9?"): a dismissal, taken as one.
+    // Never a request to do or log anything (tube audit E18: the worker claimed a log for it and the check replaced that with "say it again").
+    if ((o.kind === "question" || o.kind === "info") && (r.kind === "stop" || r.kind === "not-yet" || r.kind === "no")) {
+        return { text: r.kind === "stop" ? "Got it, I'll leave you to it." : "Okay, no problem. I'll leave it for now." };
+    }
     return undefined;
 }
 /** argv for orion-checkin acting on loop `id`. */

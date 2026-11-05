@@ -91,7 +91,7 @@ describe("running: every part is tried, the past is logged", () => {
       ["orion-sleepplan", "bedtime", "23:45", "--tonight", "--json"],
     ]);
     expect(out.writes).toBe(2);
-    expect("reply" in out.flow && out.flow.reply).toBe("I logged pottery 7–9:30 PM, put run at 10–11 PM and set your bedtime to 11:45 PM tonight (wind-down 11:15 PM, 9.25h of sleep before your 9 AM alarm).");
+    expect("reply" in out.flow && out.flow.reply).toBe("I logged pottery 7–9:30 PM (it already started at 7 PM, so it's on your day as under way), put run at 10–11 PM and set your bedtime to 11:45 PM tonight (wind-down 11:15 PM, 9.25h of sleep before your 9 AM alarm).");
   });
   it("a refusal in one part does not stop the next, and is said with its reason", async () => {
     const { calls, deps } = fakeRun(DAY, (_s, a) => (a[1] === "Pottery" ? { stdout: "NOTHING WAS CHANGED: Pottery has already started", code: 1 } : undefined));

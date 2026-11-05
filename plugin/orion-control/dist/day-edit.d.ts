@@ -27,6 +27,13 @@ export type EditPart = {
     op: "drop";
     name: string;
     day: DayRef;
+}
+/** "everything after my nap should be dropped", "clear everything after 6:30": every movable block from that block's end (or that clock) on. */
+ | {
+    op: "dropafter";
+    day: DayRef;
+    name?: string;
+    at?: Said;
 } | {
     op: "didnt";
     name: string;

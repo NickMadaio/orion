@@ -123,6 +123,24 @@ function resized(c, dflt) {
         return null;
     return { op: "resize", name, day: dayOf(c, dflt), minutes: len.minutes };
 }
+const DROP_VERB = String.raw `(?:drop|clear|delete|remove|cancel|scrap|wipe)`;
+const EVERYTHING = String.raw `(?:everything|all|anything|the rest|all of it|whatever(?: i have)?)`;
+const AFTER_ACTIVE = new RegExp(String.raw `^${DROP_VERB}\s+${EVERYTHING}\s+(?:planned\s+|scheduled\s+)?after\s+(?:my\s+|the\s+)?(.+)$`);
+const AFTER_PASSIVE = new RegExp(String.raw `^${EVERYTHING}\s+(?:planned\s+|scheduled\s+)?after\s+(?:my\s+|the\s+)?(.+?)\s+(?:should|can|could|needs? to|has to|have to|must|gets?|is|are|to)\s+(?:be\s+)?(?:dropped|cleared|deleted|removed|cancell?ed|scrapped|wiped|gone)$`);
+/** "everything after my 3-6:30 nap should be dropped" / "clear everything after 6:30": the name of the block, or the clock, it goes after. */
+function droppedAfter(c, dflt) {
+    const m = AFTER_ACTIVE.exec(c) ?? AFTER_PASSIVE.exec(c);
+    if (!m)
+        return null;
+    const range = takeRange(m[1]);
+    const bare = takeClock(`at ${(range ? range.rest : m[1]).replace(/^at\s+/, "")}`);
+    const said = range ? range.rest : m[1];
+    const name = nameOf(said);
+    // a clock alone ("after 6:30") is a time; a name, with or without the time he gave it, is the block
+    if (!name && bare && !bare.rest.trim())
+        return { op: "dropafter", day: dayOf(c, dflt), at: bare.s };
+    return name ? { op: "dropafter", day: dayOf(c, dflt), name } : null;
+}
 function dropped(c, dflt) {
     const m = CLEAR_VERB.test(c) ? /^(?:clear|drop|delete|remove|cancel|scrap)\s+(?:the\s+|my\s+|that\s+)?(.+)$/.exec(c) : null;
     if (!m || /\b(?:after|before|everything|all)\b/.test(m[1]))
@@ -198,8 +216,11 @@ export function readDayEdit(message, now) {
             c = `${c} ${prevText.replace(/^(?:ass|add|and|at|so|then)\s+/, "")}`;
         prevText = "";
         let part = null;
+        // "drop everything. everything after my nap should be dropped": the bare first sentence only leads into the one that says what.
+        if (new RegExp(String.raw `^${DROP_VERB}\s+${EVERYTHING}$`).test(c) && clauses.some((x) => AFTER_ACTIVE.test(x) || AFTER_PASSIVE.test(x)))
+            continue;
         // "make the mum call 45 mins and move it to quarter past 6": "it" is the block the clause before named.
-        const named = [...parts].reverse().find((x) => "name" in x);
+        const named = [...parts].reverse().find((x) => "name" in x && !!x.name);
         if (named && /^(?:move|shift|push|bump|nudge|reschedule)\s+(?:it|that|this)\b/.test(c))
             c = c.replace(/^(\w+)\s+(?:it|that|this)\b/, `$1 ${named.name}`);
         if (/^(?:add|put|schedule|book) (?:it|that|them|this)\b/.test(c) && !/\d/.test(c))
@@ -231,7 +252,7 @@ export function readDayEdit(message, now) {
             part = t ? { op: "busy", until: t.s } : null;
         }
         else
-            part = didnt(c, dflt) ?? corrected(c, dflt, nowMin) ?? dropped(c, dflt) ?? shifted(c, dflt) ?? resized(c, dflt) ?? moved(c, dflt) ?? logged(c, dflt) ?? (FOOD_SAY.test(c) && /\d|\b(?:noon|midnight)\b/.test(c) ? { op: "food", text: c } : null) ?? added(c, dflt, carry);
+            part = didnt(c, dflt) ?? corrected(c, dflt, nowMin) ?? droppedAfter(c, dflt) ?? dropped(c, dflt) ?? shifted(c, dflt) ?? resized(c, dflt) ?? moved(c, dflt) ?? logged(c, dflt) ?? (FOOD_SAY.test(c) && /\d|\b(?:noon|midnight)\b/.test(c) ? { op: "food", text: c } : null) ?? added(c, dflt, carry);
         if (part) {
             parts.push(earlyRead(part, c));
             continue;

@@ -186,7 +186,7 @@ function storable(plan, saved) {
   const pruned = pruneOverrides(plan, eveningOf(now));
   const kept = Object.keys(pruned.overrides);
   const bedKept = Object.keys(pruned.bedOverrides ?? {});
-  const out = { byDay: plan.byDay, ...(kept.length ? { overrides: pruned.overrides } : {}), ...(bedKept.length ? { bedOverrides: pruned.bedOverrides } : {}), ...(plan.bedFixed ? { bedFixed: true } : {}), firstClassLeadMin: plan.firstClassLeadMin, nudgeBeforeMin: plan.nudgeBeforeMin,
+  const out = { byDay: plan.byDay, ...(kept.length ? { overrides: pruned.overrides } : {}), ...(bedKept.length ? { bedOverrides: pruned.bedOverrides } : {}), ...(plan.bedFixed ? { bedFixed: true } : {}), ...(plan.bedFixed && plan.bedWas ? { bedWas: plan.bedWas } : {}), firstClassLeadMin: plan.firstClassLeadMin, nudgeBeforeMin: plan.nudgeBeforeMin,
     lockdownBelowHours: plan.lockdownBelowHours, legitReasons: plan.legitReasons, exceptions: plan.exceptions,
     ...(Array.isArray(plan.gymDays) && plan.gymDays.length ? { gymDays: plan.gymDays } : {}) };
   const sleepHours = flag("--sleep") !== undefined ? plan.sleepHours : saved?.sleepHours;
@@ -205,7 +205,7 @@ function earlierThan(current) {
 /** The bedtime this command leaves (config.bedtime, the cap night.mjs puts on asleep-by), or undefined for other commands and tonight-only changes. */
 function nextBedtime(config) {
   if (command !== "bedtime") return undefined;
-  if (bedChange) return bedChange.tonight || bedChange.reset ? undefined : bedChange.time;   // a reset never writes the default bedtime back as an explicit one
+  if (bedChange) return bedChange.tonight ? undefined : bedChange.reset ? bedChange.restore : bedChange.time;   // a reset writes back only a bedtime he had before fixing one
   const raw = args[1];
   const t = raw === "earlier" ? earlierThan(config.bedtime) : normTime(raw);
   if (!t) throw new TypeError("bedtime takes HH:MM, earlier, later or shift N");
@@ -216,9 +216,20 @@ let bedChange = null;   // { time, tonight, evening, was } of a bedtime command,
 const mins = (hhmm_) => { const m = toMinute(hhmm_); return m < 12 * 60 ? m + 1440 : m; };
 const clockOfMin = (m) => `${String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
+/**
+ * Which evening "tonight" is (w20 r4). Between midnight and the morning the night in progress is still "tonight" while the bedtime asked for is ahead of
+ * now ("bed at 2" at 01:30); a bedtime already gone by ("quarter to 12" at 04:30) is the COMING night. The writer, the pruning and the read-back all use it.
+ */
+function eveningFor(time) {
+  const base = now.getHours() < 12 ? addDays(now.toLocaleDateString("en-CA"), -1) : now.toLocaleDateString("en-CA");
+  return instant(base, mins(time)) > now ? base : addDays(base, 1);
+}
+/** The first planned night whose bedtime is still ahead (days are the coming mornings, so at 04:30 days[0] is a night that is over). */
+const tonightDay = (days) => days.find((d) => instant(d.evening, mins(d.sleepBy)) > now) ?? days[0];
+
 /** The plan and bedtime a `bedtime` command leaves. HH:MM / later / shift are exact; "earlier" keeps its old cap rule. */
 function bedPlan(plan, blocksOf, config) {
-  const first = weekPlan({ now, config: { ...config, sleepPlan: storable(plan, config.sleepPlan) }, blocksOf, wakeRequest: null })[0];
+  const first = tonightDay(weekPlan({ now, config: { ...config, sleepPlan: storable(plan, config.sleepPlan) }, blocksOf, wakeRequest: null }));
   const evening = first?.evening ?? eveningOf(now);
   const tonightBed = first ? first.sleepBy : config.bedtime;
   const tonight = has("--tonight");
@@ -230,17 +241,23 @@ function bedPlan(plan, blocksOf, config) {
     if (!Number.isInteger(n) || n === 0 || Math.abs(n) > 360) throw new TypeError("bedtime shift takes a whole number of minutes, 1 to 360, minus for earlier");
     time = clockOfMin(mins(tonightBed) + n);
   } else if (raw === "reset") {
-    // "go back to normal bedtime": the standing bedtime stops being exact (the sleep-need cap applies again) and tonight's override goes.
-    // The standing time itself stays; it is only a cap now.
-    bedChange = { time: config.bedtime, tonight: false, evening, was: config.bedtime, reset: true };
-    return { ...plan, bedFixed: false, bedOverrides: {} };
+    // "go back to normal bedtime": the exact standing bedtime and tonight's override go, and the bedtime he had before he fixed one comes back,
+    // so the computed bedtime (alarm and sleep need) is what is in force again.
+    const back = plan.bedWas ?? config.bedtime;
+    const { bedWas, ...rest } = plan;
+    bedChange = { time: back, tonight: false, evening, was: config.bedtime, reset: true, restore: plan.bedWas };
+    return { ...rest, bedFixed: false, bedOverrides: {} };
   } else if (raw === "earlier") return plan;   // the legacy cap rule, in nextBedtime
   else time = normTime(raw);
   if (!time) throw new TypeError("bedtime takes HH:MM, earlier, later or shift N");
   const m = mins(time);
   if (m < 20 * 60 || m > 1440 + 4 * 60) throw new RangeError("a bedtime has to be between 8 PM and 4 AM");
-  bedChange = { time, tonight, evening, was: tonightBed };
-  return tonight ? withBedOverride(plan, evening, time) : { ...plan, bedFixed: true };
+  const target = raw === "later" || raw === "shift" ? evening : eveningFor(time);
+  bedChange = { time, tonight, evening: target, was: tonightBed };
+  if (tonight) return withBedOverride(plan, target, time);
+  // A standing bedtime supersedes a one-off for the night it names, so the read-back is what is in force. The bedtime he had is kept to go back to.
+  const { [target]: _gone, [evening]: _also, ...overrides } = plan.bedOverrides ?? {};
+  return { ...plan, bedFixed: true, bedOverrides: overrides, bedWas: plan.bedFixed ? plan.bedWas : config.bedtime };
 }
 
 /** An older one-off request (orion-wake) for the same morning is removed: the plan holds that alarm now. Other mornings' requests stay. */
@@ -308,7 +325,7 @@ async function main() {
   if (command === "alarms") { console.log(JSON.stringify(alarmsAnswer(days, nextConfig), null, 2)); return; }
   const plain = sleepPlanOf(nextConfig);
   const readbackOf = () => {   // what the engine and the phone will use, re-read from the files just written
-    const evening = bedChange?.evening ?? days[0]?.evening;
+    const evening = bedChange?.evening ?? tonightDay(days)?.evening;
     let doc = null; try { doc = JSON.parse(readFileSync(join(controlledDir(), wakePlanName), "utf8")); } catch { /* unreadable */ }
     const b = doc?.bedtimes?.find((x) => x.date === evening);
     const day = days.find((d) => d.evening === evening);

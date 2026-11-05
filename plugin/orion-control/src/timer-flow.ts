@@ -1,0 +1,46 @@
+/*
+ A timer, set by code and read back (w20 round 4, live gate 2: "start a 10 min timer for the pasta" -> "I didn't manage to set that timer").
+ The old route hinted the worker to make one orion_task_run call and the 9B never made it. Now code writes the timer into the reminder store
+ (the same entry orion_task_run's timer_set writes, so the app's clock fires it) and the reply is built from reading the store again:
+
+   "Timer set: 10 minutes for the pasta, it rings at 3:41 AM."
+*/
+import type { Reminder } from "./ambient.js";
+import { describeDuration } from "./ambient.js";
+import { ampm12 } from "./reminder-flow.js";
+import { normalizeSpoken } from "./spoken-numbers.js";
+import { timerSeconds } from "./tool-moves.js";
+
+export type TimerDeps = {
+  add: (seconds: number, label: string) => Promise<Reminder>;
+  list: () => Promise<Array<{ id: string; kind?: string; dueAt: number }>>;
+  now: Date;
+};
+export type TimerOutcome = { text: string; calls: string[]; outputs: string[]; ok: boolean; label: string };
+export type TimerAsk = { seconds: number; label: string };
+
+const LABEL = /\btimer\b\s*(?:for|to|called|named|:)?\s+(?:the |my |a |an |some )?([a-z][a-z' ]{1,30}?)\s*[.!]*$|\b(?:for|to)\s+(?:the |my |a |an |some )?([a-z][a-z' ]{1,30}?)\s*[.!]*$/i;
+const NOT_LABEL = /^(?:for|of|me|now|please|pls|then|min|mins|minutes?|hours?|seconds?|a while|real quick)$/i;
+
+/** "set a 10 min timer for the pasta": 600 s, "pasta". Undefined when it is not a new timer. */
+export function readTimer(message: string): TimerAsk | undefined {
+  const seconds = timerSeconds(message);
+  if (seconds === undefined) return undefined;
+  const after = normalizeSpoken(message).replace(/\b\d+\s*(?:-|\s)?\s*(?:min(?:ute)?s?|m|hours?|hrs?|h|sec(?:ond)?s?|s)\b/gi, " ").replace(/\btimer on\b/gi, "timer").replace(/\s+/g, " ").trim();
+  const m = LABEL.exec(after);
+  const raw = (m?.[1] ?? m?.[2] ?? "").trim().replace(/\s+(?:please|pls|thanks|ok|okay)$/i, "");
+  return { seconds, label: raw && !NOT_LABEL.test(raw) ? raw : "Timer" };
+}
+
+export async function runTimer(ask: TimerAsk, deps: TimerDeps): Promise<TimerOutcome> {
+  const calls = [`timer_set ${ask.seconds}s ${ask.label}`];
+  const fail = (why: string): TimerOutcome => ({ text: `I couldn't set that timer (${why}), so nothing is running. Want me to try again?`, calls, outputs: [why], ok: false, label: ask.label });
+  let made: Reminder;
+  try { made = await deps.add(ask.seconds, ask.label); } catch (error) { return fail(error instanceof Error ? error.message.slice(0, 80) : "the reminder store refused it"); }
+  const back = (await deps.list().catch(() => [])).find((r) => r.id === made.id);
+  if (!back) return fail("it wasn't in the store when I checked");
+  const at = new Date(back.dueAt);
+  const when = ampm12(`${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`);
+  const what = ask.label === "Timer" ? "" : ` for ${/^(?:the|my) /i.test(ask.label) ? "" : "the "}${ask.label}`;
+  return { text: `Timer set: ${describeDuration(ask.seconds)}${what}, it rings at ${when}.`, calls, outputs: [JSON.stringify({ id: back.id, dueAt: back.dueAt })], ok: true, label: ask.label };
+}

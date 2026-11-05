@@ -1,6 +1,7 @@
+import { normalizeSpoken } from "./spoken-numbers.js";
 import { openRequest } from "./open-request.js";
 const LOCATION = "London";
-const TIMER = /\b(?:set|start|put on|run)\s+(?:a|an|the|me a)?\s*(\d+)\s*(?:-|\s)?\s*(min(?:ute)?s?|m|hours?|hrs?|h|sec(?:ond)?s?|s)\b\s*timer\b|\btimer\s+(?:for|of)\s+(\d+)\s*(min(?:ute)?s?|m|hours?|hrs?|h|sec(?:ond)?s?|s)\b/i;
+const TIMER = /\b(?:set|start|put|run|make|get|give|gimme|do|begin|need|want|lets? do)\b[a-z' ]{0,16}?\b(\d+)\s*(?:-|\s)?\s*(min(?:ute)?s?|m|hours?|hrs?|h|sec(?:ond)?s?|s)\b\s*timer\b|\btimer\s+(?:for|of)\s+(\d+)\s*(min(?:ute)?s?|m|hours?|hrs?|h|sec(?:ond)?s?|s)\b/i;
 const WEEK = /\b(week|weekend|next few days|coming days|(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b/i;
 const TOMORROW_WORDS = /\b(tomorrow|tmrw|tmr|tmrrw)\b/i;
 // "did i take…", "have i had…", "what supplements did i take": a read of today's log, never a new dose.
@@ -28,7 +29,13 @@ export function weatherDirective(sent) {
 // "cancel the timer for 10 min", "is my timer for 20 min still running": about a timer, not a new one
 // (review, 2026-10-16).
 const NOT_A_NEW_TIMER = /\b(cancel|stop|clear|remove|delete|kill|abort|never ?mind)\b|^\s*(is|are|was|how|what|whats|when|did|does|has|have)\b/i;
-export const isTimerRequest = (message) => TIMER.test(message) && !NOT_A_NEW_TIMER.test(message);
+/** The seconds in "set a 10 min timer", or undefined (w20 r4: timer-flow.ts carries it out in code). */
+export function timerSeconds(message) {
+    const t = isTimerRequest(message) ? TIMER.exec(normalizeSpoken(message)) : null;
+    const total = t ? seconds(t[1] ?? t[3] ?? "0", t[2] ?? t[4] ?? "m") : 0;
+    return total >= 1 && total <= 86400 ? total : undefined;
+}
+export const isTimerRequest = (message) => { const m = normalizeSpoken(message); return TIMER.test(m) && !NOT_A_NEW_TIMER.test(m); };
 /** The app named in an open-an-app request, or null when it is anything else (open-request.ts reads every shape). */
 export function appOpenName(message) {
     const req = openRequest(message);
@@ -48,7 +55,7 @@ function openDirective(req) {
 /** The exact job for a front-desk tool move, when code can know it; null leaves the turn to the worker. */
 export function toolDirective(decision, message) {
     // A timer is a timer whatever the front desk picked, escalations included (gate #69: "set a 10 min timer for my pasta" escalated and became a "bed" block).
-    const timer = isTimerRequest(message) ? TIMER.exec(message) : null;
+    const timer = isTimerRequest(message) ? TIMER.exec(normalizeSpoken(message)) : null;
     if (decision?.move === "escalate" && !timer)
         return null;
     if (timer) {

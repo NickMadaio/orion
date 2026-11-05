@@ -6,6 +6,7 @@
  This is the one place that turns them into digits, conservatively: a number word only becomes a digit where the words around it make it
  a button, a key, a clock time or a count ("one more thing", "two of them", "for one" are left alone). Pure; the message is otherwise untouched.
 */
+import { relativeClock } from "./clock-relative.js";
 const UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
 const TEENS = ["ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
 const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
@@ -58,7 +59,7 @@ const COUNT = new RegExp(String.raw`\b(${NUM})\s+(min|mins|minutes?|hours?|hrs?|
 
 export function normalizeSpoken(text: string): string {
   if (!text) return text;
-  let out = text.replace(RELATIVE, (whole, kind: string, dir: string, hour: string, mer?: string) => {
+  let out = relativeClock(text).replace(RELATIVE, (whole, kind: string, dir: string, hour: string, mer?: string) => {
     const h = /^\d+$/.test(hour) ? Number(hour) : num(hour);
     if (h === undefined || h < 1 || h > 12) return whole;
     const suffix = mer ? meridiem(mer) : "";

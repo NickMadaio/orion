@@ -60,7 +60,7 @@ function sandbox(t) {
 }
 const read = (dir, f) => JSON.parse(readFileSync(join(dir, f), "utf8"));
 
-test("bedtime reset clears the exact standing bedtime and any tonight override; the time itself stays", (t) => {
+test("bedtime reset clears the exact standing bedtime and any tonight override; the bedtime he had before comes back", (t) => {
   const { dir, run } = sandbox(t);
   assert.equal(run("bedtime", "23:45", "--json").code, 0);
   assert.equal(read(dir, "eval-life-config.json").sleepPlan.bedFixed, true);
@@ -73,7 +73,7 @@ test("bedtime reset clears the exact standing bedtime and any tonight override; 
   const saved = read(dir, "eval-life-config.json");
   assert.notEqual(saved.sleepPlan.bedFixed, true);
   assert.equal(saved.sleepPlan.bedOverrides, undefined);
-  assert.equal(saved.bedtime, "23:45");
+  assert.equal(saved.bedtime, "00:00");   // w20 r4: the one before he fixed 23:45
 });
 
 test("orion-sleepplan waits for its lock and says so instead of writing over another change", (t) => {

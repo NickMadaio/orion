@@ -171,7 +171,7 @@ async function removeNamed(ask, words, deps) {
     if ((!kinds.length || kinds.includes("reminder")) && deps.reminders) {
         const live = await deps.reminders.list().catch(() => []);
         const hits = live.filter((r) => namesLabel(words, r.label));
-        if (hits.length === 1 && !ask.confirmed) {
+        if (hits.length === 1 && !ask.confirmed && (ask.soft || !kinds.includes("reminder"))) { // an order that says "reminder" outright: one match is the one he means
             const due = new Date(hits[0].dueAt);
             return { ...out, text: `Do you mean the "${hits[0].label}" reminder (${hits[0].repeat ? "repeating" : `due ${ampm(`${due.getHours()}:${due.getMinutes()}`)}`})? Say yes and I'll cancel it.`, held: { kind: "reminder", label: hits[0].label } };
         }

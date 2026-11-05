@@ -15,6 +15,7 @@
  Not a request: a question ("what's my bedtime"), a statement of going ("im going to bed at 11"), a wake time, a negation.
 */
 import { normalizeSpoken } from "./spoken-numbers.js";
+import { relativeClock } from "./clock-relative.js";
 
 export type BedChange =
   | { time: string; scope: "tonight" | "always" }
@@ -31,7 +32,16 @@ const QUESTION_START = /^(?:what|whats|when|why|how|is|are|does|do you|did|was|w
 const NEGATED = /\b(?:don'?t|dont|do not|never|stop|cancel|forget|not)\b.{0,12}\b(?:bed\s?time|sleep|bed)\b/;
 const TONIGHT = /\b(?:tonight|tn|just (?:for )?(?:tonight|today|now)|this once|for now|only tonight|today)\b/;
 const STANDING = /\b(?:from now on|every night|each night|always|usually|permanently|normally|every day|nightly|by default|standing|going forward|in general)\b/;
-const RESET = /\b(?:reset|clear|undo|remove|unfix|unlock|revert)\b.{0,20}\b(?:bed\s?times?|sleep\s?times?)\b|\b(?:back to|return to|revert to|go back to|going back to)\b.{0,16}\b(?:normal|usual|regular|default|automatic|auto|old)\b.{0,12}\b(?:bed\s?times?|sleep\s?times?)\b/;
+const BEDN = String.raw`(?:bed\s?times?|sleep\s?times?)`;
+const RESET = new RegExp([
+  String.raw`\b(?:reset|clear|undo|remove|unfix|unlock|revert|drop|ditch|scrap)\b.{0,20}\b${BEDN}\b`,
+  String.raw`\b(?:back to|return to|revert to|go back to|going back to)\b.{0,16}\b(?:normal|usual|regular|default|automatic|auto|old)\b.{0,12}\b${BEDN}\b`,
+  String.raw`\b${BEDN}\b.{0,16}\b(?:back to|to) (?:normal|usual|regular|default|automatic|auto)\b`,
+  String.raw`\b(?:stop|quit|no more|enough)\b.{0,8}\b(?:using|with|having)\b.{0,8}\b(?:a |an |the )?(?:fixed|set|exact|specific|manual)\b.{0,8}\b${BEDN}\b`,
+  String.raw`\b(?:go|going) back to the (?:computed|calculated|worked out|automatic) ${BEDN}\b`,
+  // "work it out from my alarm again": the bedtime is computed from the alarm; it never touches the alarm itself.
+  String.raw`\b(?:work|working|figure|figuring|calculate|calculating|compute|computing)\b(?: my| the)?(?: ${BEDN})?(?: it)?(?: ${BEDN})? out\b.{0,16}\b(?:from|off|based on|by) (?:my |the )?(?:alarm|wake)`,
+].join("|"));
 const NOUN = /\b(?:bed\s?times?|sleep\s?times?)\b/;
 const SET_VERB = /\b(?:set|make|change|update|adjust|switch|put)\b/;
 const MER = String.raw`(a\.?m\.?|p\.?m\.?)`;
@@ -46,7 +56,7 @@ const pad = (n: number): string => String(n).padStart(2, "0");
 function bedClock(h: number, m: number, mer?: string): string | undefined {
   if (m > 59 || h < 0 || h > 24) return undefined;
   let hour: number;
-  if (mer) { if (h < 1 || h > 12) return undefined; hour = (h % 12) + (/^p/i.test(mer) ? 12 : 0); }
+  if (mer) { if (h < 1 || h > 12) return undefined; hour = h === 12 ? 0 : h + (/^p/i.test(mer) ? 12 : 0); }   // "12" with either meridiem is midnight: nobody sleeps at noon
   else if (h >= 13) hour = h;
   else if (h >= 8 && h <= 11) hour = h + 12;
   else if (h === 12) hour = 0;
@@ -68,13 +78,23 @@ function shiftMinutes(m: string): number | undefined {
   return /^h/i.test(a[2] ?? "") ? n * 60 : n;
 }
 
+/** "ten to 12", "quarter to midnight", "11 45", "11.45", "midnight", "bedtime is eleven fifteen": every clock as H:MM digits, for a message that is about a bedtime. */
+function clockWords(text: string): string {
+  let t = text.replace(/\b(?:is|be|=)\s+(?=(?:twelve|eleven|ten|nine|midnight)\b)/g, "at ");
+  t = relativeClock(t, { digits: true });
+  t = t.replace(/\bmidnight\b/g, "12:00");
+  t = t.replace(/\b(0?\d|1\d|2[0-3])[ .]([0-5]\d)(?![\d:]|\s*(?:min|mins|minutes|hours?|hrs?|h\b|%|times))/g, "$1:$2");
+  return normalizeSpoken(t);
+}
+
 /** The bedtime change in his message, or undefined. */
 export function readBedtimeChange(message: string): BedChange | undefined {
   // Fillers and commas go first so "to, um, eleven forty five" reads as "to eleven forty five" before the numbers are normalised.
-  const m = normalizeSpoken(message.toLowerCase().replace(/[’`]/g, "'").replace(FILLER, " ").replace(/[,;]/g, " ").replace(/\s+/g, " ").trim());
+  const m = clockWords(normalizeSpoken(message.toLowerCase().replace(/[’`]/g, "'").replace(FILLER, " ").replace(/[,;]/g, " ").replace(/\s+/g, " ").trim()));
   if (!m || m.length > 200) return undefined;
-  if (QUESTION_START.test(m) || /\b(?:wake|alarm|get up)\b/.test(m)) return undefined;
+  if (QUESTION_START.test(m)) return undefined;
   if (RESET.test(m) && !/\d/.test(m)) return { reset: true, scope: "always" };
+  if (/\b(?:wake|alarm|get up)\b/.test(m)) return undefined;
   if (NEGATED.test(m)) return undefined;
   if (!new RegExp(BED).test(m) && !/\bsleep(?:ing)? at\b|\bbed at\b|\bto sleep\b|\bheading to bed\b|\boff to bed\b/.test(m)) return undefined;
   // Past tense ("went to bed at 1", "slept at 3") is a sleep log, not a change. "going to bed at 11" / "sleeping at 11:45" is tonight's bedtime.

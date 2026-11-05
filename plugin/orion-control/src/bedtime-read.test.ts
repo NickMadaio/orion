@@ -32,7 +32,7 @@ describe("readBedtimeChange, in his phrasing", () => {
     expect(r("No. I took a really long nap, so I'm going to bed at eleven forty five.")).toEqual({ time: "23:45", scope: "tonight" });
     expect(r("im going to bed at 11")).toEqual({ time: "23:00", scope: "tonight" });
     expect(r("sleeping at 11:30 tonight")).toEqual({ time: "23:30", scope: "tonight" });
-    expect(r("gonna sleep at midnight")).toBeUndefined();   // no clock digits to read; the model asks
+    expect(r("gonna sleep at midnight")).toEqual({ time: "00:00", scope: "tonight" });   // w20 r4: midnight is a clock
     expect(r("i went to bed at 1 last night")).toBeUndefined();
     expect(r("slept at 3 lol")).toBeUndefined();
     expect(r("going to bed now")).toBeUndefined();

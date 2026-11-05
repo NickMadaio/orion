@@ -61,7 +61,7 @@ export function readLedgerAsk(message) {
     const match = noNeed ?? TAKE_OFF.exec(stripped) ?? REMOVE_AT_START.exec(stripped) ?? UNDO_OBJECT.exec(stripped);
     if (!match)
         return null;
-    const object = match[match.length - 1].replace(/\s+(?:off|from)\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today)$/, "").trim();
+    const object = match[match.length - 1].replace(/\s+(?:as well|aswell|too|also|either|as well pls|please|pls)$/, "").replace(/\s+(?:off|from)\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today)$/, "").trim();
     const verb = UNDO_OBJECT.test(stripped) && !REMOVE_AT_START.test(stripped) ? "undo" : "remove";
     const pointing = POINTING.test(object);
     const kinds = kindsOf(object);
@@ -72,5 +72,5 @@ export function readLedgerAsk(message) {
     if (!targets.length && !pointing && !kinds.length)
         return null;
     const strong = pointing || kinds.some((k) => k !== "block") || (verb === "undo" && !noNeed);
-    return { verb, strong, kinds, targets, pointing, bare: false };
+    return { verb, strong, kinds, targets, pointing, bare: false, ...(noNeed ? { soft: true } : {}) };
 }

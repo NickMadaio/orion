@@ -65,7 +65,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** A whole sleepPlan, as stored (every field optional; unknown fields refused). */
 export function validSleepPlan(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions", "gymDays", "overrides", "bedOverrides", "bedFixed"];
+  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions", "gymDays", "overrides", "bedOverrides", "bedFixed", "bedWas"];
   if (Object.keys(v).some((k) => !known.includes(k))) return false;
   const byDay = v.byDay ?? {};
   if (typeof byDay !== "object" || Array.isArray(byDay)) return false;
@@ -88,7 +88,7 @@ export function validSleepPlan(v) {
   // w20 routegate: an exact bedtime for ONE night (date -> HH:MM) and "this bedtime is exact, not capped by the sleep need".
   const bo = v.bedOverrides ?? {};
   const boOk = typeof bo === "object" && !Array.isArray(bo) && Object.keys(bo).length <= 30 && Object.entries(bo).every(([d, t]) => DATE.test(d) && typeof t === "string" && HHMM.test(t));
-  const fixedOk = v.bedFixed === undefined || typeof v.bedFixed === "boolean";
+  const fixedOk = (v.bedFixed === undefined || typeof v.bedFixed === "boolean") && (v.bedWas === undefined || HHMM.test(v.bedWas));
   return boOk && fixedOk && ovOk && gymOk && daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
 }
 

@@ -13,6 +13,7 @@
 */
 import type { Decision } from "./front-desk.js";
 import { isTimerRequest } from "./tool-moves.js";
+import { notScheduling } from "./not-scheduling.js";
 
 const flat = (s: string): string => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
 
@@ -47,7 +48,7 @@ export const PAST_TENSE = /\b(?:i|ive|i've|just|already|finally|today i)\s+(?:ju
  */
 export function schedulingAsk(message: string): boolean {
   const m = flat(message);
-  if (PAST_TENSE.test(m) || /\btimer\b/.test(m)) return false;
+  if (PAST_TENSE.test(m) || /\btimer\b/.test(m) || notScheduling(m)) return false;   // "put the heating on at 6", "add chicken at 7pm to my meals": not a block
   return PLACE_VERB.test(m) && (RANGE.test(m) || AT_TIME.test(m) || FOR_AN_HOUR.test(m));
 }
 

@@ -34,9 +34,9 @@ describe("reading: several things in one message", () => {
   it("'and' between two things after a time", () => {
     expect(parts("add reading after lunch and run at 6").map((x) => x.op === "add" && x.name)).toEqual(["reading", "run"]);
   });
-  it("a reason is context, the asks are read: clear, then a bare 'gym at 10pm', sleep length noted honestly", () => {
+  it("a reason is context, the asks are read: clear, then a bare 'gym at 10pm', sleep length planned from the alarm", () => {
     const p = parts("clear the gym im at a school thing. gym at 10pm. plan 6 hours of sleep tonight");
-    expect(p.map((x) => x.op)).toEqual(["drop", "add", "note"]);
+    expect(p.map((x) => x.op)).toEqual(["drop", "add", "sleephours"]);
   });
   it("a clause it cannot read whole makes the message not its own", () => {
     expect(readDayEdit("add gym at 10pm and move everything in my calendar around somehow", NOW)).toBeNull();

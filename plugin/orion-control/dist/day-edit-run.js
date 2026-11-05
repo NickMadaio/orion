@@ -4,7 +4,8 @@ import { blocksNamedBy, pickByTime } from "./block-names.js";
 import { noteOf, refused } from "./scheduler-out.js";
 import { whyNot } from "./day-requests.js";
 import { failureReason } from "./schedule-failure.js";
-import { rememberEdit } from "./day-edit-memory.js";
+import { forgetEdit, rememberEdit, rememberRun } from "./day-edit-memory.js";
+import { nextWake } from "./wake-state.js";
 import { applyBedChange } from "./bedtime-change.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,13 +23,25 @@ const ANCHOR_END = [[/lunch/, 13 * 60 + 30], [/dinner|supper/, 19 * 60 + 30], [/
 const list = (items) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 async function dayOf(ctx, ref) {
     const { deps } = ctx;
+    let day;
     try {
-        return ref === "today" ? await deps.readDay() : deps.readDayOn ? await deps.readDayOn(DAY_ARGS[ref]) : undefined;
+        day = ref === "today" ? await deps.readDay() : deps.readDayOn ? await deps.readDayOn(DAY_ARGS[ref]) : undefined;
     }
     catch {
-        return undefined;
+        day = undefined;
     }
+    if (!day && (ref === "today" || deps.readDayOn))
+        ctx.unread.add(ref);
+    return day;
 }
+const NO_READ = "I couldn't read your calendar just now";
+/** The day could not be read: said, and nothing is changed on a guess about what is on it. */
+const unreadable = (ctx, ref, what) => {
+    if (!ctx.unread.has(ref))
+        return false;
+    ctx.failed.push(`${what} (${NO_READ})`);
+    return true;
+};
 const blockNamed = (name, day, now) => {
     const found = blocksNamedBy(name, (day?.blocks ?? []).filter((b) => b.kind !== "commute"));
     return found.length ? pickByTime(found, now) : undefined;
@@ -76,6 +89,8 @@ async function logIt(ctx, ref, title, from, to, instead) {
 async function addPart(ctx, p) {
     const title = CAP(p.name);
     const day = p.day === "today" || p.after ? await dayOf(ctx, p.day) : undefined;
+    if (p.after && unreadable(ctx, p.day, `add ${p.name} after ${p.after}`))
+        return;
     let from;
     let to;
     if (p.span) {
@@ -105,7 +120,10 @@ async function addPart(ctx, p) {
         to = from + mins;
     }
     if (p.day !== "today" ? p.day === "yesterday" : from < ctx.nowMin) {
-        await logIt(ctx, p.day, title, from, to, blockNamed(p.name, day ?? await dayOf(ctx, p.day), ctx.nowMin));
+        const seen = day ?? await dayOf(ctx, p.day);
+        if (unreadable(ctx, p.day, `log ${p.name}`))
+            return; // writing the past blind could double a block that is already there
+        await logIt(ctx, p.day, title, from, to, blockNamed(p.name, seen, ctx.nowMin));
         return;
     }
     const out = await exec(ctx, "orion-reschedule", ["add", title, String(to - from), "--at", hhmm(from), "--length-explicit", ...DAY_ARGS[p.day]]);
@@ -115,6 +133,8 @@ async function addPart(ctx, p) {
 async function movePart(ctx, p) {
     const day = await dayOf(ctx, p.day);
     const block = blockNamed(p.name, day, ctx.nowMin);
+    if (!block && unreadable(ctx, p.day, `move ${p.name}`))
+        return;
     if (!block) {
         // nothing by that name that day: his words still say when it was (or will be), so it goes on the day there
         const from = clockFor(p.to, ctx.nowMin, p.day, p.day === "today" ? "past" : "future");
@@ -146,6 +166,8 @@ async function movePart(ctx, p) {
 async function dropPart(ctx, p) {
     const day = await dayOf(ctx, p.day);
     const block = blockNamed(p.name, day, ctx.nowMin);
+    if (!block && unreadable(ctx, p.day, `clear ${p.name}`))
+        return;
     if (!block) {
         ctx.failed.push(`clear ${p.name} (I can't see it on ${p.day === "today" ? "today's" : p.day === "tomorrow" ? "tomorrow's" : "yesterday's"} plan)`);
         return;
@@ -160,6 +182,8 @@ async function didntPart(ctx, p) {
     const day = await dayOf(ctx, "today");
     const block = blockNamed(p.name, day, ctx.nowMin);
     const range = p.span ? rangeFor(p.span, ctx.nowMin, "today", "past") : null;
+    if (!block && unreadable(ctx, "today", `change ${p.name}`))
+        return;
     if (!block) {
         if (p.did && range)
             await logIt(ctx, "today", CAP(p.did), range.from, range.to);
@@ -204,6 +228,42 @@ async function busyPart(ctx, p) {
     if (settle(ctx, out, "busy", "push the day back"))
         ctx.done.push(`blocked ${spanText(from, until)} and moved the rest of today around it`);
 }
+const clock12 = (hhmmText) => ampm(toMin(hhmmText));
+/** "wake me at 6": orion-wake sets the alarm; the line is said only when it answered that it did. */
+async function wakePart(ctx, p) {
+    const wake = ctx.deps.wake;
+    if (!wake) {
+        ctx.failed.push(`set your wake alarm for ${clock12(p.time)} (I can't reach the alarm from here, so ask me for it on its own)`);
+        return;
+    }
+    const out = await wake([p.time]).catch(() => ({ stdout: "", code: 1 }));
+    ctx.calls.push(`exec orion-wake ${p.time}`);
+    ctx.outputs.push(out.stdout);
+    if (out.code === 0 && /^Sent to/.test(out.stdout.trim()))
+        ctx.done.push(`set your wake alarm for ${clock12(p.time)}`);
+    else if (out.code === 0 && /^Saved an alarm/.test(out.stdout.trim()))
+        ctx.failed.push(`reach your phone with the ${clock12(p.time)} wake alarm (saved on the Mac, but the phone link isn't running)`);
+    else
+        ctx.failed.push(`set your wake alarm for ${clock12(p.time)} (${out.stdout.trim().split("\n")[0]?.replace(/^orion-wake:\s*/, "").slice(0, 80) || "no reply from the alarm"})`);
+}
+/** "ate at 4": his food log's. Whatever it answers is said as its own; when it cannot read it, that is said plainly. */
+async function foodPart(ctx, p) {
+    const said = ctx.deps.food ? await ctx.deps.food(p.text).catch(() => undefined) : undefined;
+    if (said)
+        ctx.extra.push(said);
+    else
+        ctx.failed.push("log what you ate (tell me what it was and I'll log it)");
+}
+/** "i want six hours of sleep": the bedtime that leaves that long before his next alarm, set through the bedtime entry. */
+async function sleepHoursPart(ctx, p) {
+    const next = nextWake(ctx.deps.stateDir, ctx.deps.now);
+    if (!next) {
+        ctx.failed.push(`plan ${p.hours} hours of sleep (I can't see an alarm to count back from, so tell me the bedtime you want)`);
+        return;
+    }
+    const at = (((next.at.getHours() * 60 + next.at.getMinutes() - p.hours * 60) % 1440) + 1440) % 1440;
+    await bedtimePart(ctx, { op: "bedtime", to: { h: Math.floor(at / 60), m: at % 60, exact: true } });
+}
 /** His bedtime from life-config.json when it names one (HH:MM); the computed one is not on disk. Best effort. */
 function bedtimeOf(deps) {
     if (!deps.stateDir)
@@ -217,10 +277,11 @@ function bedtimeOf(deps) {
     }
 }
 export async function runDayEdit(edit, deps) {
-    const ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps) } : {}) };
-    rememberEdit(edit, deps.now);
+    const ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set(), extra: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps) } : {}) };
     const notes = [];
+    const refused = [];
     for (const p of edit.parts) {
+        const failedBefore = ctx.failed.length;
         if (p.op === "add")
             await addPart(ctx, p);
         else if (p.op === "log") {
@@ -245,9 +306,23 @@ export async function runDayEdit(edit, deps) {
             await bedtimePart(ctx, p);
         else if (p.op === "busy")
             await busyPart(ctx, p);
+        else if (p.op === "wake")
+            await wakePart(ctx, p);
+        else if (p.op === "food")
+            await foodPart(ctx, p);
+        else if (p.op === "sleephours")
+            await sleepHoursPart(ctx, p);
         else
             notes.push(p.text);
+        if (ctx.failed.length > failedBefore)
+            refused.push(p);
     }
+    // "anyway" later re-runs only what was refused, never what already worked
+    if (refused.length)
+        rememberEdit({ parts: refused }, deps.now);
+    else
+        forgetEdit();
+    rememberRun(ctx.writes, [], deps.now);
     const bits = [];
     if (ctx.done.length)
         bits.push(`I ${list(ctx.done)}.`);
@@ -256,7 +331,7 @@ export async function runDayEdit(edit, deps) {
     const side = [...new Set(ctx.sides)].slice(0, 2);
     if (side.length && ctx.done.length)
         bits.push(`That also moved ${list(side)}.`);
-    bits.push(...notes.map((n) => `${n}.`));
+    bits.push(...ctx.extra.map((x) => (/[.!]$/.test(x) ? x : `${x}.`)), ...notes.map((n) => `${n}.`));
     const text = bits.join(" ");
     const flow = ctx.writes || ctx.done.length
         ? { outcome: "done", calls: ctx.calls, outputs: ctx.outputs, reply: text, ...(ctx.failed.length ? { partial: true } : {}), ...(ctx.failures.length ? { failures: ctx.failures } : {}) }

@@ -1,4 +1,5 @@
 import { isTimerRequest } from "./tool-moves.js";
+import { notScheduling } from "./not-scheduling.js";
 const flat = (s) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
 /** Every slot present, else null. Empty strings and undefined are missing. */
 export function allSlots(slots) {
@@ -33,8 +34,8 @@ export const PAST_TENSE = /\b(?:i|ive|i've|just|already|finally|today i)\s+(?:ju
  */
 export function schedulingAsk(message) {
     const m = flat(message);
-    if (PAST_TENSE.test(m) || /\btimer\b/.test(m))
-        return false;
+    if (PAST_TENSE.test(m) || /\btimer\b/.test(m) || notScheduling(m))
+        return false; // "put the heating on at 6", "add chicken at 7pm to my meals": not a block
     return PLACE_VERB.test(m) && (RANGE.test(m) || AT_TIME.test(m) || FOR_AN_HOUR.test(m));
 }
 const QUESTION_START = /^(?:please |pls |hey |ok |okay |so |and |but )*(?:can|could|would|will|do|does|did|are|is|am|was|were|have|has|what|whats|what's|why|how|when|where|who|which|should|shall)\b/i;

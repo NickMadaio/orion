@@ -23,7 +23,7 @@ import type { Day, DayBlock, FlowResult } from "./schedule-flow.js";
 import { noteOf } from "./scheduler-out.js";
 import { readDayEdit, touchesPast, type DayEdit } from "./day-edit.js";
 import { runDayEdit } from "./day-edit-run.js";
-import { readOverride } from "./day-edit-memory.js";
+import { isUndoThen, readOverride, recallAsk, recallRun } from "./day-edit-memory.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf, type DayRequest } from "./day-requests.js";
 import { pluginNow } from "./plugin-clock.js";
 import { readIntent } from "./calendar-intent.js";
@@ -48,7 +48,7 @@ export type Reality =
   /** A calendar request code carries out itself (day-requests.ts): a deadline, a combination, tomorrow, "X then Y", clear my own blocks. */
   | { kind: "request"; request: DayRequest }
   /** w20 sched (day-edit.ts): one or more edits to his day, including time already gone: logged, never refused. */
-  | { kind: "edit"; edit: DayEdit };
+  | { kind: "edit"; edit: DayEdit; /** "undo, i meant add those": the last edit comes off first (E11). */ undoFirst?: boolean };
 /** A reality statement plus whether he also asked for another change in the same breath ("..., put catch-up on it tomorrow"). */
 export type RealityRead = { reality: Reality; rest: boolean };
 
@@ -56,6 +56,10 @@ export type ScriptRun = (script: "orion-declare" | "orion-reschedule" | "orion-t
 export type RealityDeps = { run: ScriptRun; readDay: () => Promise<Day | undefined>; now: Date; source: string; text: string;
   /** Another day, by orion-reschedule's --date words ("tomorrow", a weekday, YYYY-MM-DD). Unset: only today is read. */
   readDayOn?: (dateArgs: string[]) => Promise<Day | undefined>;
+  /** orion-wake with its arguments ("06:00"), for a wake clause inside a day edit (day-edit-run.ts). Unset: the alarm cannot be reached from here. */
+  wake?: (args: string[]) => Promise<{ stdout: string; code: number }>;
+  /** His food log for a meal clause inside a day edit ("ate chicken at 4"): the reply it gives, or undefined when it could not read or log it. */
+  food?: (text: string) => Promise<string | undefined>;
   /** How many times this kind or title slipped in the last 7 days (the state card), for "that's the fourth gym skip this week". */
   slipsOf?: (what: string) => number;
   /** Wave 6: ORION's state dir (day-requests.ts reads how often a deferred plan already slid). */
@@ -149,8 +153,12 @@ export function readReality(message: string, now: Date = pluginNow()): RealityRe
   // ("can we do gym later, like after dinner" is a request, not a question).
   // w20 sched: what he says about time that is already gone is a record of his day (logged, not refused), and several edits in one
   // message are all done. The older readers keep every single future edit they already read.
+  if (isUndoThen(message)) {   // E11: "Undo. I meant add those to the schedule": the ask before it, written as the schedule, once the last edit is off
+    const before = recallAsk(now); const again = before ? readDayEdit(before, now) : null;
+    return again ? { reality: { kind: "edit", edit: again, undoFirst: true }, rest: false } : null;
+  }
   const edit = readOverride(message, now) ?? readDayEdit(message, now);
-  if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op === "bedtime" || p.op === "busy"))) return { reality: { kind: "edit", edit }, rest: false };
+  if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op !== "add" && p.op !== "move" && p.op !== "drop" && p.op !== "note"))) return { reality: { kind: "edit", edit }, rest: false };
   const request = readDayRequest(message, now);
   if (request) return { reality: { kind: "request", request }, rest: false };
   if (QUESTION.test(m)) return null;
@@ -484,8 +492,21 @@ export async function runReality(read: RealityRead, deps: RealityDeps & { next?:
   if (r.kind === "done") return doneIt(r, deps);
   if (r.kind === "attended") return attendedIt(r, deps);
   if (r.kind === "request") return runDayRequest(r.request, deps);
-  if (r.kind === "edit") return runDayEdit(r.edit, deps);
+  if (r.kind === "edit") return r.undoFirst ? undoThenEdit(r.edit, deps) : runDayEdit(r.edit, deps);
   return noted(r, deps, deps.next);
+}
+
+/** E11: the last day edit comes off, then the corrected ask runs; one reply says both. Nothing to undo, or the undo failing, stops here. */
+async function undoThenEdit(edit: DayEdit, deps: RealityDeps): Promise<RealityOutcome> {
+  const last = recallRun(deps.now);
+  if (!last) return { flow: say("I don't have a change of mine to undo, so nothing was changed. Tell me what to put on the schedule."), facts: [], writes: 0 };
+  const undone = await undoReality(last, deps.run);
+  if (undone.outcome !== "done") return { flow: undone, facts: [], writes: 0 };
+  const out = await runDayEdit(edit, deps);
+  const f = out.flow; const lead = (undone.reply ?? "Undone.").replace(/, and I've forgotten what you told me about it\.$/, ".");
+  const calls = [...(undone.calls ?? []), ...("calls" in f && f.calls ? f.calls : [])]; const outputs = [...(undone.outputs ?? []), ...("outputs" in f && f.outputs ? f.outputs : [])];
+  const flow: FlowResult = f.outcome === "done" ? { ...f, calls, outputs, reply: `${lead} ${f.reply}` } : f.outcome === "say" ? { ...f, calls, outputs, text: `${lead} ${f.text}` } : f;
+  return { ...out, flow };
 }
 
 /** Only the fact, for a statement that also asks for another change ("i skipped marketing, put catch-up tomorrow"): the change goes on as usual. */

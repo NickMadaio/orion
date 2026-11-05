@@ -26,6 +26,8 @@
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 import { isBareConfirm } from "./bare-confirm.js";
+import { ackImpliesChange } from "./ack-draft.js";
+import { correctedAsk, readCorrection } from "./correction-read.js";
 import { askedForTechnical, finalSanitize } from "./final-sanitizer.js";
 import { splitLeadMouse } from "./mouse-lead.js";
 import { isBareGoAhead, latestExchange, nothingPending, pendingNote, resolvePending } from "./pending-resolver.js";
@@ -1431,7 +1433,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const ownSlot = slotOwn && slotAnswersGo(slotOwn.at, newestOfferAt, false, nowMs()) ? slotOwn : undefined;
     const phoneKey = (k: string | undefined): boolean => !!k && /orion-(?:app-v2|chat)/.test(k);   // other chats stay separate
     const recentKey = !ownSlot && isRetryWord(typed) && phoneKey(sessionKey) ? [...retrySlots.entries()].filter(([k]) => phoneKey(k) && k !== sessionKey && slotAnswersGo(retrySlots.get(k)!.at, newestOfferAt, true, nowMs())).sort((x, y) => y[1].at - x[1].at)[0]?.[0] : undefined;
-    const messageIn = retryReplay(ownSlot ?? (recentKey ? retrySlots.get(recentKey) : undefined), typed, nowMs());
+    const retried = retryReplay(ownSlot ?? (recentKey ? retrySlots.get(recentKey) : undefined), typed, nowMs());
+    // w20 r7 (correction-read.ts, tube audit T3): "yes, but not the NEW CS Lab, just CS Lab" right after a calendar change is the SAME ask again with the target fixed:
+    // his previous message goes back to the scheduling lane with the correction attached, never to a drafted acknowledgement.
+    const correction = on && retried === typed && sessionKey ? readCorrection(typed) : null;
+    const lastWrite = sessionKey ? sessionChanges.get(sessionKey) : undefined;
+    const corrects = correction && before && lastWrite && Date.now() - lastWrite.at < 10 * 60_000 && (schedulingAsk(before.text) || SCHEDULING.test(before.text)) ? correctedAsk(before.text, correction) : undefined;
+    const messageIn = corrects ?? retried;
     // w20 r4-r6 (ask-clauses.ts): clauses code can run by itself (a timer, a reminder, an open, a mouse step) are peeled off the message one after another, each run
     // and read back, then what is left goes on to the normal routes. The reply says every one: done, or why not. The 9B never called timer_set from a hint.
     const peeled: Array<{ text: string; calls: string[]; outputs: string[]; ok: boolean; offer?: WebOffer }> = [];
@@ -1592,7 +1600,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // w20 r5 #88: the chat whose last turn added to his list; a bare "and batteries" next is one more item.
     if (sessionKey && on && !quietTurn) { if (chatAsks?.some((a) => a.kind === "list-add")) listChats.set(sessionKey, outreachNowMs); else listChats.delete(sessionKey); }
     if (sessionKey) webOffers.delete(sessionKey);   // the offer answers one turn
-    const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst || !!chatAsks;
+    const codeFirst = !!corrects || intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst || !!chatAsks;
     // "why" to something ORION sent is about THAT message: the front desk (which saw only a one-line history) must not answer it as chat.
     const whyAsked = on && !cutOff && !quietTurn && (asksWhy(message) || asksYourQuestion(message)) && !!parseOutreach(raw);
     // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
@@ -1768,6 +1776,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run?.reality) return undefined;   // 2026-10-30: what he said happened is code's (reality.ts), never a drafted "Noted!"
       // 2026-10-16 r7: a draft keeps no claim about his day ("You've been coding for hours", q082).
       const draftText = withoutUnverifiedAlarmClaims(withoutAsleepClaims(withoutDayClaims(d?.answer ?? "")), options.stateDir, (options.now ?? pluginNow)());
+      // w20 r7 (ack-draft.ts): a drafted "Got it" / "Done" for a change or a correction has no write behind it, so it is never sent.
+      if (d?.move === "answer" && draftText && ackImpliesChange(draftText) && (CHANGE_REQUEST.test(run?.message ?? "") || readCorrection(run?.message ?? ""))) return undefined;
       if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "") && !casualStartTask(run?.message ?? "")) return { handled: true, reply: { text: withGentleCheckIn(run?.message ?? "", draftText) }, reason: "front desk answered" };
       return undefined;
     })(), runFor(event, ctx)?.message));
@@ -2401,7 +2411,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       if (run.room === "streak") { run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY }; rooms.mark(run.sessionKey, nowMs()); return fixedReply(QUIET_REPLY); }
       const lookup = needsLiveData(run.message);
       const draft = withoutUnverifiedAlarmClaims(withoutAsleepClaims(withoutDayClaims(run.settled.answer ?? "")), options.stateDir, (options.now ?? pluginNow)());
-      if (run.settled.move === "answer" && draft && !run.pendingRefers && !CHANGE_REQUEST.test(run.message) && !lookup) {
+      if (run.settled.move === "answer" && draft && !run.pendingRefers && !(ackImpliesChange(draft) && (CHANGE_REQUEST.test(run.message) || readCorrection(run.message))) && !CHANGE_REQUEST.test(run.message) && !lookup) {
         // Even a pure answer's draft can invent his day ("you've been coding for hours", q082) and the 9B
         // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named
         // "the front desk drafted…", and "otherwise answer him yourself" swapped a right draft for the model's

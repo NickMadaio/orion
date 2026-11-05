@@ -26,6 +26,7 @@
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 import { isBareConfirm } from "./bare-confirm.js";
+import { knownPlaceNames } from "./place-names.js";
 import { asksToSavePlace, nameInQuestion, readPlaceReply, type PlacePending } from "./place-save.js";
 import { runPlaceTurn, type PlaceRun } from "./place-save-run.js";
 import { ackImpliesChange } from "./ack-draft.js";
@@ -1555,8 +1556,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const placeAsked = !!placeOutreach && asksToSavePlace(placeOutreach);
     const placeModelAsked = !!placeLast && nowMs() - placeLast.at < 15 * 60_000 && asksToSavePlace(placeLast.reply);
     const placeOpen = placeAsked || (!!placeWaiting && nowMs() - placeWaiting.at < 15 * 60_000);
-    const placeReply = !cutOff && !quietTurn && !isCrisis(message) && (placeOpen || placeModelAsked) ? readPlaceReply(message, placeOpen ? { stage: placeWaiting?.stage ?? "name", at: nowMs() } : undefined) : null;
-    const placeTurn = placeReply ? { reply: placeReply, name: placeWaiting?.name ?? (placeModelAsked && placeLast ? nameInQuestion(placeLast.reply) : undefined) } : undefined;
+    const placeReply = !cutOff && !quietTurn && !isCrisis(message) && (placeOpen || placeModelAsked) ? readPlaceReply(message, placeOpen ? { stage: placeAsked ? "name" : placeWaiting?.stage ?? "name", ...(placeWaiting?.name ? { name: placeWaiting.name } : {}), at: nowMs() } : undefined) : null;
+    const placeTurn = placeReply ? { reply: placeReply, name: placeWaiting?.name ?? (placeModelAsked && placeLast ? nameInQuestion(placeLast.reply) : undefined), id: placeWaiting?.id } : undefined;
     const realityWhole = ledgerOwns || (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse || !!placeTurn;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
     const gymSkip = on && !cutOff && !quietTurn && !realityWhole ? readGymSkip(message) ?? readStatedMove(message) ?? undefined : undefined;
@@ -1726,7 +1727,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Say go and I'll retry it.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
     } else if (placeTurn && options.placeRun) {   // w20 (place-save-run.ts): the reply is read back from the places file
-      const out = await withTimeout(runPlaceTurn(placeTurn.reply, { ...(placeTurn.name ? { name: placeTurn.name } : {}) }, options.placeRun, nowMs()).catch(() => undefined), 20000);
+      const out = await withTimeout(runPlaceTurn(placeTurn.reply, { ...(placeTurn.name ? { name: placeTurn.name } : {}), ...(placeTurn.id ? { id: placeTurn.id } : {}) }, options.placeRun, nowMs()).catch(() => undefined), 20000);
       run.ownText = out?.text ?? "I couldn't save that place just now, so nothing was saved.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
       if (sessionKey) { if (out?.pending) placePending.set(sessionKey, out.pending); else for (const k of [...placePending.keys()]) if (k === sessionKey || placeFamily(k)) placePending.delete(k); }
@@ -2179,7 +2180,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const remTail = options.chatRun && !followUp ? splitTrailingListAdd(run.message) : null;
         const plan = await planReminder({ message: followUp ?? (remTail ? remTail.head : (leaveAsReminder(run.message) ?? run.message)), now: (options.now ?? pluginNow)(),
           extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)),
-          list: options.listReminders ?? (async () => []), ...(options.offerPort ? { offers: options.offerPort } : {}), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
+          list: options.listReminders ?? (async () => []), ...(options.offerPort ? { offers: options.offerPort } : {}), places: knownPlaceNames(options.stateDir), ...(last && Date.now() - last.set < CORRECTION_WINDOW_MS ? { last } : {}) }).catch(() => undefined);
         let listLine = "";
         if (remTail && plan && (plan.kind === "call" || plan.kind === "say")) {
           const added = await withTimeout(runChatAsks(remTail.asks, options.chatRun!).catch(() => undefined), 20000);

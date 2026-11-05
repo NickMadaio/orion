@@ -1,3 +1,4 @@
+import { isKnownPlaceName } from "./place-names.js";
 import {
   classifyConfigPath,
   classifyPluginFile,
@@ -2634,7 +2635,7 @@ export const ACTION_CATALOG: Readonly<Record<string, ActionDefinition>> = {
         }
       }
       if (arguments_.important !== undefined && typeof arguments_.important !== "boolean") return ["important must be true or false"];
-      if (arguments_.place !== undefined && arguments_.place !== "home") return ["place can only be \"home\""];
+      if (arguments_.place !== undefined && !(arguments_.place === "home" || (typeof arguments_.place === "string" && isKnownPlaceName(arguments_.place)))) return ["place must be \"home\" or the name of a place ORION knows"];
       return [];
     },
   },

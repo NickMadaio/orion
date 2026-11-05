@@ -28,7 +28,7 @@ const json = args.includes("--json");
 const out = (v) => console.log(json ? JSON.stringify(v) : v);
 const readJson = (f) => { try { return JSON.parse(readFileSync(join(DIR, f), "utf8")); } catch { return null; } };
 const hhmm = (ms) => { const d = new Date(ms); return clock12(`${d.getHours()}:${d.getMinutes()}`); };
-const when = (r) => (r.repeat ? describeRepeat(r.repeat) : r.place ? "when he gets home" : `at ${hhmm(r.dueAt)}`);
+const when = (r) => (r.repeat ? describeRepeat(r.repeat) : r.place ? (r.place === "home" ? "when he gets home" : `when he gets to ${r.place}`) : `at ${hhmm(r.dueAt)}`);
 
 if (command === "tick") {
   const aw = readAwareness({ dir: DIR, now });

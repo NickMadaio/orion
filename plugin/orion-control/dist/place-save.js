@@ -5,6 +5,10 @@ const YES = /^(?:y|ya|yes|yeah|yea|yep|yup|sure|ok|okay|please|do it|go ahead|go
 const NO = /^(?:n|no|nah|nope|not now|no thanks|nah thanks|dont|don'?t|skip|never ?mind|nvm|leave it)(?:[\s,]+(?:please|pls|mate|thanks))*[\s.!]*$/i;
 const NAME_LEAD = /^(?:(?:it'?s|its|it is|this is|that'?s|thats|that is|here is|here'?s|i call (?:it|this place|this|here)|call (?:it|this|here)|it'?s called|its called|called|the name is|name it|name is)\s+)+/i;
 const ALIAS = /\(?\s*(?:i |we )(?:just )?(?:call|know) (?:it|this|that|here)\s+["“']?([^"”',.()]{1,30})["”']?\s*\)?/i;
+const ALIAS_SHORT = /[,;]?\s*(?:or\s+)?(?:just\s+)?["“']?([A-Za-z0-9' -]{1,30}?)["”']?\s+for short\b/i;
+const ALIAS_AKA = /[,;(]?\s*(?:aka|a\.k\.a\.?|also called|also known as|or just|or simply)\s+["“']?([A-Za-z0-9' -]{1,30}?)["”']?\s*\)?(?=[.,;!]|$)/i;
+/** After a save: only an alias phrase counts. */
+const ALIAS_ONLY = /^(?:(?:and|also|oh|actually|yeah|yes|ok|okay)[,\s]+)*(?:(?:i |we )?(?:just )?(?:call|know) (?:it|this|that|here)|call it|its? (?:also )?called|(?:it'?s |its )?(?:also |just )?(?:known as|aka)|or)\s+["“']?([A-Za-z0-9' -]{1,30}?)["”']?(?:\s+for short)?[\s.!]*$/i;
 const TRAILER = /[,.;]?\s+(?:i |we )?(?:go|come|work|study|live|meet|stay|hang|usually|always|mostly|come here|its where|it'?s where)\b.*$/i;
 /** His answer to ORION's question about a place: a name, a yes, a no, or null (something else entirely). */
 export function readPlaceReply(message, pending) {
@@ -12,6 +16,10 @@ export function readPlaceReply(message, pending) {
     if (!m || m.length > 220)
         return null;
     const flat = m.toLowerCase().replace(/[’]/g, "'");
+    if (pending?.stage === "saved") {
+        const a = ALIAS_ONLY.exec(m)?.[1] ?? ALIAS_SHORT.exec(m)?.[1];
+        return a && a.trim().length >= 2 ? { kind: "alias", alias: a.trim() } : null;
+    }
     if (YES.test(flat))
         return { kind: "yes" };
     if (NO.test(flat))
@@ -24,8 +32,8 @@ export function readPlaceReply(message, pending) {
     // Even in answer to a place question, a request or a question is not a name.
     if (!NAME_LEAD.test(m) && (/\?\s*$/.test(m) || /^(?:what|whats|what's|when|how|why|who|where|can|could|would|is|are|do|does|did|tell|show|move|add|set|remind|open|play|start|put|push|cancel|turn|log|text|call|check)\b/i.test(m)))
         return null;
-    const alias = ALIAS.exec(m)?.[1]?.trim();
-    let name = m.replace(ALIAS, " ").replace(NAME_LEAD, "").replace(TRAILER, "").replace(/[()"“”]/g, " ").replace(/\s+/g, " ").trim().replace(/[.,;!]+$/, "");
+    const alias = (ALIAS.exec(m)?.[1] ?? ALIAS_SHORT.exec(m)?.[1] ?? ALIAS_AKA.exec(m)?.[1])?.trim();
+    let name = m.replace(ALIAS, " ").replace(ALIAS_SHORT, " ").replace(ALIAS_AKA, " ").replace(NAME_LEAD, "").replace(TRAILER, "").replace(/[()"“”]/g, " ").replace(/\s+/g, " ").trim().replace(/[.,;!]+$/, "");
     name = name.replace(/^(?:the )?(?:place is|place called)\s+/i, "").trim();
     if (!name || name.length > 60 || name.split(" ").length > 6 || !/[a-z0-9]/i.test(name))
         return null;
@@ -40,5 +48,6 @@ export function nameInQuestion(reply) {
 }
 export const placeAskName = "Sure. What should I call it?";
 export const placeDeclined = "Okay, I won't save it.";
-export const placeSaved = (name) => `Saved "${name}" as a place.`;
+export const placeSaved = (name, alias) => `Saved "${name}"${alias ? ` (${alias})` : ""} as a place.`;
+export const placeAliased = (name, alias) => `Okay, "${name}" is also "${alias}".`;
 export const placeFailed = (why) => `I couldn't save that place (${why.slice(0, 120)}), so nothing was saved.`;

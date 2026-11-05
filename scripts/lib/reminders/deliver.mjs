@@ -34,7 +34,7 @@ export function reminderText(reminder, reason, now) {
     : reminder.kind === "timer" ? null : `${label}.`;
   if (reminder.kind === "timer" && !generic) return `${label} is up.`;
   const line = `Reminder: ${body}`;
-  return reason === "arrived" ? `You're home. ${line}` : line;
+  return reason === "arrived" ? `${reminder.place && reminder.place !== "home" ? `You're at ${reminder.place}.` : "You're home."} ${line}` : line;
 }
 
 /**

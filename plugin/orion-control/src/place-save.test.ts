@@ -26,6 +26,21 @@ describe("his answer", () => {
   it("with a name asked for, a short phrase is the name", () => expect(readPlaceReply("Spit", { stage: "name", at: 1 })).toEqual({ kind: "name", name: "Spit" }));
 });
 
+describe("aliases in his words", () => {
+  it.each([
+    ["it's chapter spitalfields, or spit for short", "chapter spitalfields", "spit"],
+    ["chapter spitalfields (spit for short)", "chapter spitalfields", "spit"],
+    ["this is Chapter Spitalfields, aka spit", "Chapter Spitalfields", "spit"],
+    ["it's the library, also called the lib", "the library", "the lib"],
+    ['this is Chapter Spitalfields (i call it "spit")', "Chapter Spitalfields", "spit"],
+  ])("%s", (m, name, alias) => expect(readPlaceReply(m, { stage: "name", at: 1 })).toEqual({ kind: "name", name, alias }));
+  it.each([["call it spit", "spit"], ["i call it spit", "spit"], ["or spit for short", "spit"], ["its also called spit", "spit"], ["and also known as the lab", "the lab"], ["actually call it spit", "spit"]])("after the save: %s", (m, alias) =>
+    expect(readPlaceReply(m, { stage: "saved", name: "Chapter Spitalfields", id: "chapter-spitalfields", at: 1 })).toEqual({ kind: "alias", alias }));
+  it("after the save, anything else is not an alias", () => {
+    for (const m of ["whats the weather", "yes", "move gym to 5", "thanks"]) expect(readPlaceReply(m, { stage: "saved", at: 1 }), m).toBeNull();
+  });
+});
+
 describe("helpers", () => {
   it("ids", () => { expect(placeId("Chapter Spitalfields")).toBe("chapter-spitalfields"); expect(placeId("  gran's flat!! ")).toBe("gran-s-flat"); });
   it("the name a drafted question carries", () => { expect(nameInQuestion("Got it, Chapter Spitalfields. Want me to save that spot for you?")).toBe("Chapter Spitalfields"); expect(nameInQuestion("Want me to save that spot?")).toBeUndefined(); });

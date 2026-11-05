@@ -2,14 +2,20 @@ export type PlaceReply = {
     kind: "name";
     name: string;
     alias?: string;
+}
+/** After a place is saved: "call it spit", "or spit for short" adds an alias to THAT place. */
+ | {
+    kind: "alias";
+    alias: string;
 } | {
     kind: "yes";
 } | {
     kind: "no";
 };
 export type PlacePending = {
-    stage: "confirm" | "name";
+    stage: "confirm" | "name" | "saved";
     name?: string;
+    id?: string;
     at: number;
 };
 /** ORION's own question about saving where he is (the proactive one, or a follow-up). */
@@ -22,5 +28,6 @@ export declare const placeId: (name: string) => string;
 export declare function nameInQuestion(reply: string): string | undefined;
 export declare const placeAskName = "Sure. What should I call it?";
 export declare const placeDeclined = "Okay, I won't save it.";
-export declare const placeSaved: (name: string) => string;
+export declare const placeSaved: (name: string, alias?: string) => string;
+export declare const placeAliased: (name: string, alias: string) => string;
 export declare const placeFailed: (why: string) => string;

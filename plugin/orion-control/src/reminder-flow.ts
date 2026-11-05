@@ -17,7 +17,7 @@ import { meansTomorrow } from "./schedule-flow.js";
 import { pluginNow } from "./plugin-clock.js";
 import { describeDuration } from "./ambient.js";
 import { describeRepeat, nextOccurrence, type Repeat } from "./reminder-schedule.js";
-import { fixTypos, isImportantAsk, periodTime, repeatOf, wantsHome } from "./reminder-phrases.js";
+import { fixTypos, isImportantAsk, periodTime, placeArrivalOf, repeatOf, wantsHome } from "./reminder-phrases.js";
 import { commitmentOf, OFFER_WINDOW_MS, type OfferPort, type PendingOffer } from "./reminder-offers.js";
 import { latestFired } from "./reminder-store.js";
 
@@ -38,6 +38,8 @@ export type ReminderInput = {
   last?: { label: string; at: string };
   /** Offered reminders (a thing he says he has to do; a deadline ORION suggested). Without it nothing is offered or accepted. */
   offers?: OfferPort;
+  /** The names and aliases of the places ORION knows (not home): "when i get to spit" is an arrival reminder only for one of these. */
+  places?: readonly string[];
 };
 
 const SET = /\b(remind me|reminder|set an? alarm|alarm (for|at)|wake me|ping me|nudge me)\b/i;
@@ -121,7 +123,7 @@ function spokenDue(dueAt: number, now: Date): string {
 /** How a stored reminder reads in a list: its schedule, "when you get home", or its time. */
 function spokenWhen(r: StoredReminder, now: Date): string {
   if (r.repeat) return describeRepeat(r.repeat);
-  if (r.place) return "when you get home";
+  if (r.place) return r.place === "home" ? "when you get home" : `when you get to ${r.place}`;
   const at = spokenDue(r.dueAt, now);
   return /^\d/.test(at) ? `at ${at}` : at;
 }
@@ -352,11 +354,17 @@ export async function planReminder(input: ReminderInput): Promise<ReminderPlan |
   const got = await extract(message).catch(() => null);
   if (!got) return undefined;
   const important = isImportantAsk(message);
-  const label = (correcting && last ? last.label : got.label.trim().replace(WHEN_HOME_TAIL, wantsHome(message) ? "" : "$&").replace(IMPORTANT_TAIL, "")).trim();
+  const arrival = !correcting && input.places?.length ? placeArrivalOf(message, input.places) : undefined;
+  const label = (correcting && last ? last.label : got.label.trim().replace(WHEN_HOME_TAIL, wantsHome(message) || arrival ? "" : "$&").replace(IMPORTANT_TAIL, "")).trim();
   if (!label || VAGUE_LABEL.test(label)) return { kind: "say", text: "What should I remind you about, and when?", pending: true, askLabel: true };
   const flags = important ? { important: true } : {};
   const importantNote = important ? " It's marked important, so it gets through even during focus." : "";
 
+  // When I get to <a place he named or gave an alias>: fires on arrival there (scripts/lib/reminders/tick.mjs), with the same day-long expiry.
+  if (arrival) {
+    const expiry = isoOf(new Date(now.getTime() + 86_400_000));
+    return setCall({ action: "alarm_set", at: expiry, label, place: arrival, ...flags }, `I'll remind you when you get to ${arrival} ${toLabel(label)}.${importantNote}`, label, expiry);
+  }
   // When I get home: fires on arrival, with a day-long expiry as the backstop.
   if (!correcting && wantsHome(message)) {
     const expiry = isoOf(new Date(now.getTime() + 86_400_000));

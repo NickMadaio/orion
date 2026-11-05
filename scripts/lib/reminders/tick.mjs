@@ -3,6 +3,7 @@
 // unanswered one a single time; tidy up. Idempotent: the app calls it the second a reminder is due, orion-proactive
 // calls it every tick as the backstop, and both together never say anything twice (the fired mark is written back
 // under the store lock, and a claim stops two passes delivering the same reminder at once).
+import { findPlace, readKnownPlaces } from "../awareness/places.mjs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { updateReminders, readReminders, KEEP_FIRED_MS } from "./store.mjs";
@@ -30,7 +31,7 @@ export function defaultReach(args, env = process.env) {
 }
 
 /** What each reminder needs doing this pass: transitions to write now, and deliveries to make. */
-function plan(list, now, aw) {
+function plan(list, now, aw, places = []) {
   const t = now.getTime();
   const atHome = aw?.derived?.atHome ?? null;
   const fires = [];
@@ -45,6 +46,13 @@ function plan(list, now, aw) {
 
     if (cur.place && !Number.isFinite(cur.firedAt)) {
       if (t >= cur.dueAt) fires.push({ r: cur, reason: "due" });
+      else if (cur.place !== "home") {
+        // "When I get to spit": a place he named (or an alias of one). Armed once he is somewhere else, fired when awareness puts him at that place.
+        const target = findPlace(places, cur.place);
+        const here = aw?.location?.placeId ?? null;
+        if (target && here === target.id && cur.armed) fires.push({ r: cur, reason: "arrived" });
+        else if (target && here !== target.id && aw?.location?.state && aw.location.state !== "unknown" && !cur.armed) cur = { ...cur, armed: true };
+      }
       else if (atHome === true && cur.armed) fires.push({ r: cur, reason: "arrived" });
       else if (atHome === false && !cur.armed) cur = { ...cur, armed: true };
       next.push(cur);
@@ -93,7 +101,7 @@ export async function runTick({ dir, now = new Date(), aw = {}, activity = null,
   if (!readReminders(dir).length) return { fired: [] };
   let fires = [];
   updateReminders(dir, (list) => {
-    const p = plan(list, now, aw);
+    const p = plan(list, now, aw, readKnownPlaces(dir));
     fires = p.fires;
     const claimed = new Map(fires.map((f) => [f.r.id, f.r]));
     const next = p.next.map((r) => (claimed.has(r.id) ? { ...r, inflight: now.getTime() } : r));

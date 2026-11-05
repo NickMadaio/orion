@@ -2447,7 +2447,7 @@ async function manageReminder(
   // removed both (2026-10-07) — bump until it is free.
   const prefix = policy.operation === "alarm_set" ? "a" : "t";
   const repeat = policy.operation === "alarm_set" ? (step.arguments.repeat as Reminder["repeat"] | undefined) : undefined;
-  const place = policy.operation === "alarm_set" && step.arguments.place === "home" ? "home" : undefined;
+  const place = policy.operation === "alarm_set" && typeof step.arguments.place === "string" && /^[A-Za-z0-9][A-Za-z0-9' .&-]{0,39}$/.test(step.arguments.place) ? step.arguments.place.toLowerCase() : undefined;
   let reminder!: Reminder;
   await updateReminders(file, (list) => {
     let stamp = now;

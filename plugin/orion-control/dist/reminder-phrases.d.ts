@@ -10,3 +10,5 @@ export declare function repeatOf(message: string): {
 export declare function periodTime(message: string): string | undefined;
 export declare const wantsHome: (message: string) => boolean;
 export declare const isImportantAsk: (message: string) => boolean;
+/** "when i get to spit": the known place (or alias) he named, as he said it; undefined for home (that is wantsHome) or a name no known place answers to. */
+export declare function placeArrivalOf(message: string, names: readonly string[]): string | undefined;

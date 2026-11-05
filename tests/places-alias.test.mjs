@@ -55,3 +55,47 @@ test("the helpers", () => {
   assert.equal(findPlace([{ id: "a", name: "Sam", aliases: ["x"] }, { id: "b", name: "Sue", aliases: ["x"] }], "x"), null, "two places claiming it is ambiguous, never a guess");
   assert.deepEqual(cleanAliases({ id: "a", name: "Alpha" }, ["Spit", "spit", " ", "alpha", '"quoted"']), ["Spit", "quoted"]);
 });
+
+// ---- "when i get to spit": arrival reminders at a named place, matched by alias ----
+import { writeFileSync, readFileSync } from "node:fs";
+import { runTick } from "../scripts/lib/reminders/tick.mjs";
+const T = (h, m = 0, d = 5) => new Date(2026, 10, d, h, m, 0);
+const reach = () => { const calls = []; const fn = (args) => { calls.push(args); return { status: 0, stdout: "Sent.\n" }; }; fn.calls = calls; return fn; };
+const withPlaces = (t, reminder) => {
+  const d = dirFor(t);
+  writeFileSync(join(d, "known-places.json"), JSON.stringify({ schema: "orion.known-places.v1", places: [{ id: "home", name: "home", kind: "home", lat: 51.5, lon: -0.08, radiusM: 150 }, { id: "chapter-spitalfields", name: "Chapter Spitalfields", aliases: ["spit"], kind: "other", lat: 51.52, lon: -0.076, radiusM: 120 }] }));
+  writeFileSync(join(d, "reminders.json"), JSON.stringify([{ id: "a1", kind: "alarm", label: "ring avery", dueAt: T(9, 0, 6).getTime(), createdAt: T(9).getTime(), ...reminder }]));
+  return d;
+};
+const at = (placeId, state = placeId ? "known" : "elsewhere") => ({ derived: { atHome: false }, location: { state, placeId } });
+
+test("a reminder for 'spit' arms while he is elsewhere and fires when awareness puts him at Chapter Spitalfields, once", async (t) => {
+  const d = withPlaces(t, { place: "spit" }); const r = reach();
+  await runTick({ dir: d, now: T(12), aw: at("home", "home"), reach: r });
+  assert.equal(r.calls.length, 0);
+  assert.equal(JSON.parse(readFileSync(join(d, "reminders.json"), "utf8"))[0].armed, true, "armed once he is somewhere else");
+  await runTick({ dir: d, now: T(13), aw: at("chapter-spitalfields"), reach: r });
+  assert.equal(r.calls.length, 1);
+  assert.equal(r.calls[0][0], "You're at spit. Reminder: ring avery.");
+  await runTick({ dir: d, now: T(13, 5), aw: at("chapter-spitalfields"), reach: r });
+  assert.equal(r.calls.length, 1, "never twice");
+});
+
+test("the full name works the same, and being at the place when asked waits for the next arrival", async (t) => {
+  const d = withPlaces(t, { place: "chapter spitalfields" }); const r = reach();
+  await runTick({ dir: d, now: T(12), aw: at("chapter-spitalfields"), reach: r });
+  assert.equal(r.calls.length, 0, "already there when asked");
+  await runTick({ dir: d, now: T(12, 30), aw: at(null), reach: r });
+  await runTick({ dir: d, now: T(13), aw: at("chapter-spitalfields"), reach: r });
+  assert.equal(r.calls.length, 1);
+});
+
+test("a place nobody knows never fires or arms, and an unknown location never arms", async (t) => {
+  const d = withPlaces(t, { place: "narnia" }); const r = reach();
+  await runTick({ dir: d, now: T(12), aw: at(null), reach: r });
+  await runTick({ dir: d, now: T(13), aw: at("chapter-spitalfields"), reach: r });
+  assert.equal(r.calls.length, 0);
+  const d2 = withPlaces(t, { place: "spit" });
+  await runTick({ dir: d2, now: T(12), aw: { derived: { atHome: null }, location: { state: "unknown", placeId: null } }, reach: r });
+  assert.equal(JSON.parse(readFileSync(join(d2, "reminders.json"), "utf8"))[0].armed, undefined);
+});

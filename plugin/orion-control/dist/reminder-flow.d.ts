@@ -45,6 +45,8 @@ export type ReminderInput = {
     };
     /** Offered reminders (a thing he says he has to do; a deadline ORION suggested). Without it nothing is offered or accepted. */
     offers?: OfferPort;
+    /** The names and aliases of the places ORION knows (not home): "when i get to spit" is an arrival reminder only for one of these. */
+    places?: readonly string[];
 };
 /** A correction names no new subject: a message that names something else ("move gym to 6pm") is a new request (review, 2026-10-16). */
 export declare function isCorrection(message: string): boolean;

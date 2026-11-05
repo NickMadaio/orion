@@ -11,10 +11,13 @@ const withOutreach = (said: string) => `[ORION context: 1 min ago you asked "${O
 
 function world(desk: (m: string) => unknown = () => ({ move: "escalate", tier: "standard" })) {
   const handlers = new Map<string, H[]>(); const placeCalls: string[][] = []; let n = 0; let t = new Date(2026, 10, 5, 13, 6).getTime();
-  const saved = new Set<string>(["home"]);
+  const saved = new Set<string>(["home"]); const aliases = new Map<string, string[]>();
   registerLocalRouting({ on: (nm: string, fn: H) => handlers.set(nm, [...(handlers.get(nm) ?? []), fn]) } as never, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "pt-")), "r.jsonl"), stateDir: mkdtempSync(join(tmpdir(), "pt2-")), clock: () => "Thu 13:06", now: () => new Date(t), brainSearch: async () => "",
     decideImpl: async (i: { message: string }) => desk(i.message) as never, scheduleFlow: async () => ({ outcome: "fallback", reason: "t" }),
-    placeRun: async (a: string[]) => { placeCalls.push(a); if (a[1] === "set") { saved.add(a[2]!); return { stdout: `saved ${a[2]}`, code: 0 }; } return { stdout: [...saved].map((id) => `${id}\t${id}\tother\t120 m\tnick`).join("\n"), code: 0 }; } } as never);
+    placeRun: async (a: string[]) => { placeCalls.push(a);
+      if (a[1] === "set") { saved.add(a[2]!); const al = a.flatMap((x, i) => (a[i - 1] === "--alias" ? [x] : [])); if (al.length) aliases.set(a[2]!, [...(aliases.get(a[2]!) ?? []), ...al]); return { stdout: `saved ${a[2]}`, code: 0 }; }
+      if (a[1] === "alias") { aliases.set(a[2]!, [...(aliases.get(a[2]!) ?? []), a[4]!]); return { stdout: "added", code: 0 }; }
+      return { stdout: [...saved].map((id) => `${id}\t${id}\tother\t120 m\tnick\t${(aliases.get(id) ?? []).join(",")}`).join("\n"), code: 0 }; } } as never);
   const fire = async (nm: string, e: Record<string, unknown>, ctx: Record<string, unknown>) => { const out = []; for (const fn of handlers.get(nm) ?? []) out.push(await fn(e, ctx)); return out; };
   const turn = async (prompt: string, key = "agent:main:orion-app-v2", workerSays?: string, clean = prompt.replace(/^\[ORION context:[^\]]*\]\n\n/, "")) => {
     t += 12_000; const ctx = { runId: `pt-${n++}`, sessionKey: key };
@@ -32,8 +35,8 @@ describe("his exact sequence (13:05-13:06)", () => {
   it("the proactive question, his answer: the place is saved and read back, no second question", async () => {
     const w = world(() => ({ move: "answer", answer: "Got it, Chapter Spitalfields. Want me to save that spot for you?" }));
     const r = await w.turn(withOutreach('this is Chapter Spitalfields (i call it "spit"). i go here to do work and to see avery'));
-    expect(r.heard).toBe('Saved "Chapter Spitalfields" as a place.');
-    expect(w.placeCalls[0]).toEqual(["place", "set", "chapter-spitalfields", "--here", "--name", "Chapter Spitalfields", "--kind", "other", "--source", "nick-confirmed"]);
+    expect(r.heard).toBe('Saved "Chapter Spitalfields" (spit) as a place.');
+    expect(w.placeCalls[0]).toEqual(["place", "set", "chapter-spitalfields", "--here", "--name", "Chapter Spitalfields", "--kind", "other", "--source", "nick-confirmed", "--alias", "spit"]);
     expect(w.placeCalls[1]).toEqual(["place", "list"]);
   });
   it("the follow-up question the model asked is the pending item: his yes saves that place", async () => {
@@ -87,6 +90,28 @@ describe("his exact sequence (13:05-13:06)", () => {
     await fire("before_model_resolve", { prompt });
     const [direct] = (await fire("before_agent_reply", { cleanedBody: "it's the library" })) as Array<{ reply?: { text?: string } } | undefined>;
     expect(direct?.reply?.text).toMatch(/couldn't save that place \(no location sample\)/);
+  });
+});
+
+describe("aliases in the same thread", () => {
+  it("'it's chapter spitalfields, or spit for short' saves both", async () => {
+    const w = world();
+    const r = await w.turn(withOutreach("it's chapter spitalfields, or spit for short"));
+    expect(r.heard).toBe('Saved "chapter spitalfields" (spit) as a place.');
+  });
+  it("'call it spit' after the save adds the alias to that place, on any phone key", async () => {
+    const w = world();
+    expect((await w.turn(withOutreach("it's the library"), "agent:main:orion-chat-a")).heard).toBe('Saved "the library" as a place.');
+    const r = await w.turn("call it the lib", "agent:main:orion-chat-b");
+    expect(r.heard).toBe('Okay, "the library" is also "the lib".');
+    expect(w.placeCalls.some((a) => a.join(" ") === "place alias the-library add the lib")).toBe(true);
+  });
+  it("an unrelated message after the save is not taken for an alias", async () => {
+    const w = world();
+    await w.turn(withOutreach("it's the library"));
+    const r = await w.turn("whats the weather tomorrow");
+    expect(r.heard).not.toMatch(/also/);
+    expect(w.placeCalls.some((a) => a[1] === "alias")).toBe(false);
   });
 });
 

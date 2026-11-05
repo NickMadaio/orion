@@ -12,5 +12,6 @@ export type PlaceOutcome = {
 /** His reply, the name already known (from the pending item or the question), and the runner. */
 export declare function runPlaceTurn(reply: PlaceReply, known: {
     name?: string;
+    id?: string;
     stage?: PlacePending["stage"];
 }, run: PlaceRun, now: number): Promise<PlaceOutcome>;

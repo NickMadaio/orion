@@ -110,3 +110,14 @@ export const wantsHome = (message: string): boolean => HOME.test(message) || HOM
 
 const IMPORTANT = /\b(?:important|urgent|critical|asap|don'?t miss|do not miss|can'?t miss|cannot miss|no matter what|even in (?:a )?focus|really need|must not forget|mustn'?t forget)\b/i;
 export const isImportantAsk = (message: string): boolean => IMPORTANT.test(message.replace(/[‘’]/g, "'"));
+
+const flatName = (s: string): string => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, " ").trim().replace(/^(?:the|my|our) /, "");
+const ARRIVE = /\bwhen\s+(?:i|we)\s+(?:get|got|arrive|reach|come|walk|go|am|'?m|land)\s*(?:to|at|in|into|on)?\s+(?:the\s+|my\s+|our\s+)?([a-z0-9][a-z0-9' &.-]{1,40}?)(?=\s*(?:[,.!?;]|$|\s(?:remind|please|pls|then|so|and|that|to|for|because|i)\b))/i;
+/** "when i get to spit": the known place (or alias) he named, as he said it; undefined for home (that is wantsHome) or a name no known place answers to. */
+export function placeArrivalOf(message: string, names: readonly string[]): string | undefined {
+  const m = ARRIVE.exec(message.replace(/[‘’]/g, "'"));
+  const said = m?.[1]?.trim();
+  if (!said || /^(?:home|work|there|here|the place|somewhere)$/i.test(said)) return undefined;
+  const want = flatName(said);
+  return names.some((n) => flatName(n) === want) ? said.toLowerCase() : undefined;
+}

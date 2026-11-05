@@ -136,7 +136,7 @@ import { readMouseTurn } from "./mouse-read.js"; // w18 mousechat
 import { MouseMemory, runMouseTurn } from "./mouse-chat.js"; // w18 mousechat
 import { answeredCardLine } from "./questions-store.js";
 import { MadeLedger, contentWords } from "./made-ledger.js"; // w20 r3: one "recent things I made" ledger per chat
-import { readLedgerAsk } from "./ledger-ask.js";
+import { readFollowUp, readLedgerAsk } from "./ledger-ask.js";
 import { runLedgerAsk } from "./ledger-run.js";
 import { liveMailPrefsRun, readMailMove, runMailMove } from "./mail-flow.js"; // wave 14 f-mail
 import { approvalAsk } from "./approval-reply.js"; // run-1101020721: a held send is said as a draft and a question
@@ -801,6 +801,7 @@ export function registerLocalRouting(api, options) {
     const fixHolds = new Map();
     /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
     const sessionChanges = new Map();
+    const ledgerLast = new Map(); // when this chat last removed something: "and the dentist one too" continues it
     const ledgerHeld = new Map();
     const journalTopAt = () => [...(options.undoJournal ? options.undoJournal() : undoJournalEntries())].reverse().find((e) => (e.steps ?? []).length)?.at;
     const madeLedger = new MadeLedger(); // w20 r3 (made-ledger.ts)
@@ -1328,7 +1329,10 @@ export function registerLocalRouting(api, options) {
         const ledgerRead = on && !cutOff && !quietTurn && !isCrisis(message) && options.ledgerRun
             ? (heldAsk && nowMs() - heldAsk.at < STITCH_WINDOW_MS && (isYes(message.replace(/[.!?…]+$/, "")) || saysYes(message))
                 ? { verb: "remove", strong: true, kinds: [heldAsk.kind], targets: [contentWords(heldAsk.label)], pointing: false, bare: false, confirmed: true }
-                : readLedgerAsk(message) ?? undefined) : undefined;
+                : readLedgerAsk(message) ?? (() => {
+                    const more = sessionKey && nowMs() - (ledgerLast.get(sessionKey) ?? 0) < STITCH_WINDOW_MS ? readFollowUp(message) : null;
+                    return more ? { verb: "remove", strong: true, kinds: [], targets: more, pointing: false, bare: false } : undefined;
+                })()) : undefined;
         // w20 r4 food: a live "Log it?" offer is his to decline ("nah i didnt eat that, take it off"): nothing was logged, so there is nothing for the ledger to take off.
         const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
         const offerNo = !!ledgerRead?.strong && !!options.foodRun && !parseOutreach(raw) && readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: false,
@@ -1914,6 +1918,8 @@ export function registerLocalRouting(api, options) {
                     out.removed.forEach((item) => madeLedger.forget(key, madeLedger.recent(key, Date.now()).find((i) => i.kind === item.kind && i.label === item.label) ?? item));
                     if (out.held && key)
                         ledgerHeld.set(key, { ...out.held, at: Date.now() });
+                    if (key && run.ledger?.verb === "remove" && (out.removed.length || out.held))
+                        ledgerLast.set(key, Date.now());
                     if (key && out.calls.some((c) => /orion-log food-restore/.test(c)))
                         foodOffAt.delete(key);
                     else if (key && out.calls.some((c) => /orion-log food-off/.test(c)) && out.removed.some((i) => i.kind === "food"))

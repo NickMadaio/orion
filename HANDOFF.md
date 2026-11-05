@@ -90,6 +90,7 @@ Measured live on 2026-10-14 after the fixes below: **4.5–5.8 s per turn,
 - **WHOOP:** naps + workouts ingested; naps count toward sleep and slide a computed bedtime (never a named one).
 - **Phone:** snapshot cache + "Synced X ago"/Retry on Health; chat redesign + Dynamic Type; received/working states, progress lines, dedupe (>3 words, nothing answered between), late commands ask; one session key per chat, Home composer joins the open chat.
 - **Review:** independent code review found 0 critical, 6 high, 7 medium; all fixed and re-reviewed.
+- **Live gate run 1** (73 turns as Nick): 22 pass / 49 fail. Round 3 fixed: bedtime "({" (pretty JSON parsed by last line), undo runs in code and reads back, remove-what-ORION-made ledger (blocks/notes/reminders/food/water), skip never deletes his events, stale outreach never binds or glues, blank-reply guard, open sites directly, list adds, waking-hours am/pm (waking-hours.ts), planned multi-moves, "X at A not B" corrections, agenda for yesterday, focus end, history trim instead of raw context overflow. Bridge Swift fields (location/notes on restore) need a bridge rebuild with Nick present.
 
 ### 2026-11-04 afternoon: wave 19 (Claude, orchestrator)
 

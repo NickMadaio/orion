@@ -26,7 +26,11 @@ const MAC_FREE_KINDS = new Set(["gym", "meal", "rest", "other_place"]);
 
 const NAMES = ["L0", "L1", "L2", "L3", "END"];
 export const rungName = (rung) => NAMES[Math.min(END_RUNG, Math.max(0, rung))];
-export const nextGap = (rung) => GAPS[Math.min(GAPS.length - 1, Math.max(0, rung))];
+export const nextGap = (rung, stretch = 1) => GAPS[Math.min(GAPS.length - 1, Math.max(0, rung))] * (stretch > 1 ? stretch : 1);
+
+// After midnight, with the Mac in use, he is awake by choice and talking to ORION: the ladder waits twice as long between rungs.
+export const LATE_STRETCH = 2;
+export const lateEngaged = ({ nowMs, macActive }) => macActive === true && new Date(nowMs).getHours() < 5;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const cap = (t) => String(t).charAt(0).toUpperCase() + String(t).slice(1);
@@ -78,11 +82,28 @@ export function rungText({ rung, title, elapsed = 0, smaller = 30, strictness = 
     case 2: return `It's been ${n} min. ${cap(t)}, now. Phone down, ${smaller} min still counts.`;
     default: {
       const lock = restricted === "lock" ? " I've locked the Mac until you go." : restricted === "front" ? " I've put your work back in front of you." : "";
-      return n >= 60
-        ? `You've been avoiding ${t} for ${n} min. No. That's an hour. Get up.${lock}`
-        : `You've been avoiding ${t} for ${n} min. No. Get up.${lock}`;
+      return `${firmLine({ title: t, minutes: n, strictness })}${lock}`;
     }
   }
+}
+
+const BED_TITLE = /^(?:bed|bedtime|sleep|go to bed|lights out)$/i;
+const BED_LINES = (n) => [
+  `It's ${n} min past bedtime. Sleep is the best thing you can do for tomorrow. Any chance you can wind down?`,
+  `Bedtime was ${n} min ago. Whenever you're ready, I'll be right here in the morning.`,
+  `Gentle nudge: it's ${n} min past bedtime. Wrapping up soon?`,
+  `Past bedtime by ${n} min now. Five more minutes, then lights out?`,
+];
+const TAILS = {
+  flexible: ["Want to start it now, or tell me what's in the way?", "Even ten minutes counts. Can you start now?", "No judgement, but let's get it moving.", "What would make it easier to start?"],
+  firm: ["Time to start it now.", "It keeps slipping. Start with ten minutes, I'll stay on it with you.", "Let's get it going now, then it's done."],
+};
+/** The late rung, varied by the minutes count (so two rungs never read the same) and warmer than the old "No. Get up.". Bed has its own lines. */
+export function firmLine({ title, minutes, strictness = "flexible" }) {
+  const t = String(title), n = Math.max(0, Math.round(minutes));
+  const pick = (list) => list[Math.floor(n / 5) % list.length];
+  if (BED_TITLE.test(t.trim())) return pick(BED_LINES(n));
+  return `You've been avoiding ${t} for ${n} min. ${pick(TAILS[strictness === "firm" ? "firm" : "flexible"])}`;
 }
 
 /** What Mac voice says at L2: short, distinct from the phone text (orion-reach drops an identical text as a repeat). */

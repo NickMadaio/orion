@@ -108,6 +108,8 @@ export class PendingMemory {
   private crises = new Map<string, number>();
   /** Without a state dir: every answered outreach. With one: only those whose write failed (the file is the record otherwise). */
   private answered: AnsweredRow[] = [];
+  /** When ORION last replied in this chat (the start of that turn), without recording anything. */
+  lastReplyAt(key: string): number | undefined { return this.replies.get(key); }
   memo(key: string, nowMs: number): Memo | undefined { const m = this.memos.get(key); return m && nowMs - m.at < MEMO_MS ? m : undefined; }
   setMemo(key: string, memo: Memo | null): void { if (memo) this.memos.set(key, memo); else this.memos.delete(key); }
   /**

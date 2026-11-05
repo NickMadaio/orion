@@ -35,6 +35,7 @@ import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { startLoop, step } from "./lib/life/follow-through.mjs";
 import { classifyDeferral } from "./lib/life/deferral.mjs";
+import { firmLine } from "./lib/reach/plan-ladder.mjs";
 import { recordOutcome, loadPatterns, lateHabit } from "./lib/life/history.mjs";
 import { calendarEvents, toBlocks, localDate } from "./lib/life/live-day.mjs";
 import { inClass, realClasses } from "./lib/life/class-reminders.mjs";
@@ -116,7 +117,7 @@ export function message(c, now) {
     case 1: return `Time to start: ${w}.${habit ? ` ${habit}` : ""}`;
     case 2: return `${W} — still not started. Start now; just the first five minutes.`;
     case 3: return `It's been ${late} min. ${W}, now. Phone down.`;
-    default: return `You've been avoiding ${w} for ${late} min. Get up. We're doing it now.`;
+    default: return firmLine({ title: w, minutes: late, strictness: c.loop.level >= 5 ? "firm" : "flexible" });
   }
 }
 
@@ -149,6 +150,7 @@ function planContext(aw) {
   return { nowMs: NOW_MS, record, declared: readDeclaredFacts(CONTROLLED, { date: new Date(NOW_MS).toLocaleDateString("en-CA") }),
     patterns: loadPatterns(), slipsToday: record?.slipsToday ?? [], workouts: (() => { const l = read("health-log.json"); return [...(l?.workouts ?? []), ...whoopWorkoutsOf(l)]; })(),
     placeId: aw.location?.placeId ?? null, grant: loadConfig().escalation?.restrict === true, activity: read("focus-activity.json"),
+    macActive: Number(read("activity.json")?.idleSeconds ?? Infinity) < 600,
     speak: aw.sleep?.state !== "asleep" && speakOnMac({ atHome: heard.atHome, headphones: heard.macHeadphones }) };
 }
 

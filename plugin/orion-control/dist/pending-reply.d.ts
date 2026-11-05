@@ -95,6 +95,8 @@ export declare class PendingMemory {
     private crises;
     /** Without a state dir: every answered outreach. With one: only those whose write failed (the file is the record otherwise). */
     private answered;
+    /** When ORION last replied in this chat (the start of that turn), without recording anything. */
+    lastReplyAt(key: string): number | undefined;
     memo(key: string, nowMs: number): Memo | undefined;
     setMemo(key: string, memo: Memo | null): void;
     /**

@@ -26,6 +26,7 @@ import { liveFocusProfile, liveFocusSites, livePending, liveTasksRun } from "./f
 import { liveWakeFlow } from "./wake-flow.js";
 import { liveTodoDoneFlow } from "./todo-done-flow.js";
 import { liveNoteFlow } from "./note-flow.js";
+import { liveChatDeps } from "./chat-asks-live.js";   // w20 r3
 import { routeForDoomedExec } from "./exec-routing.js";
 import { readLatestUserTurn, readRecentUserTurns } from "./transcript.js";
 import {
@@ -1760,6 +1761,7 @@ export function installProvenanceHooks(api: ProvenanceHostApi): void {
       messagesRead: liveMessagesRead,
       todoDoneFlow: liveTodoDoneFlow,
       noteFlow: liveNoteFlow,
+      chatRun: liveChatDeps(),   // w20 r3: open / list add / list read by code (chat-asks.ts)
       checkinRun: liveCheckinRun,
       realityRun: liveRealityRun,
       // 2026-10-31: the screen loop (computer-loop.ts) on the same two tiers the catalog gates; one bridge factory, relay first.

@@ -110,7 +110,7 @@ const FULL_MORE = new RegExp([
 // The heavy-but-everyday phrasings that may be GENTLE when a mundane cause or joke sits beside them.
 const SOFTENABLE = new RegExp([
   // "this uni is actually killing me lol": slang for a grind, softened only with a joke or an everyday cause beside it (MUNDANE), never alone.
-  String.raw`\b(?:is|are|was|were) (?:actually |literally |honestly |so |really |just )*(?:killing|murdering|destroying|finishing|ending) me\b`,
+  String.raw`\b(?:is|are|was|were) (?:actually |literally |honestly |so |really |just )*killing me\b`,
   String.raw`\b(?:hate|hating|sick of|tired of|done with|so done with|over) (?:my |this )?life\b`,
   String.raw`\b(?:i['’]?d|id|i would|honestly i['’]?d) (?:honestly |literally |genuinely )?rather (?:die|be dead)\b`,
   String.raw`\b${TOWARD}\s+(?:sleep(?:ing)?|sleep in) forever\b`,
@@ -120,7 +120,9 @@ const MUNDANE = /\b(?:uni|university|college|school|exams?|coursework|lol+|lmao+
 // "die on this hill" / "a hill to die on": an idiom, cleared before any check.
 const IDIOM = /\b(?:die|dying|died|dies) on (?:this|that|a|the|my|which|what|every|any) (?:\w+ )?hill\b|\bhills? (?:i['’]?(?:d|ll|m)? |i would |i will |to |worth )?(?:\w+ )?(?:die|dying) on\b/gi;
 
-const KILLING_ME = /\b(?:killing|murdering|destroying|finishing|ending) me\b/i;
+const KILLING_ME = /\bkilling me\b/i;
+// Workload grumbles (homework, an essay, an exam) keep their grounded, specific reply (cha-tv-c); only place/chore slang is a plain tease.
+const WORKLOAD = /\b(?:homework|assignments?|coursework|essays?|exams?|revision|deadlines?|problem sets?|projects?)\b/i;
 const REAL_TROUBLE = /\b(?:pain|hurts?|hurting|hospital|dying|die|dead|death|sick|ill|cancer|surgery|dad|mum|mom|family|parents?|cope|coping|alone|cry|crying|panic|anxiety|depress\w*|hopeless|breathe|chest|heart)\b/i;
 
 export type CrisisTier = "full" | "gentle" | null;
@@ -132,6 +134,7 @@ export function crisisTier(message: string): CrisisTier {
   if (CRISIS.test(rest) || FULL_MORE.test(rest)) return "full";
   // "killing me" is only slang about a grind: with pain, illness, dying or family beside it, it is not softened.
   if (soft && KILLING_ME.test(text) && REAL_TROUBLE.test(text)) return "full";
+  if (soft && KILLING_ME.test(text) && WORKLOAD.test(text)) return null;
   if (soft) return MUNDANE.test(rest) ? "gentle" : "full";
   return null;
 }

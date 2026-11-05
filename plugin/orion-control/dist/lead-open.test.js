@@ -43,4 +43,33 @@ describe("through the routing", () => {
         expect(built?.systemPrompt).toContain("Opened youtube.com in Safari.");
         expect(built?.systemPrompt).toMatch(/weather/i);
     });
+    async function hear(said, decide = { move: "escalate", tier: "standard" }) {
+        const handlers = new Map();
+        const opened = [];
+        const mouse = [];
+        registerLocalRouting({ on: (n, fn) => handlers.set(n, [...(handlers.get(n) ?? []), fn]) }, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lo2-")), "r.jsonl"), clock: () => "Thu 06:23", now: () => new Date(2026, 10, 5, 6, 23), brainSearch: async () => "",
+            decideImpl: async () => decide, scheduleFlow: async () => ({ outcome: "fallback", reason: "t" }),
+            chatRun: { open: async (a) => { opened.push(a); return { stdout: "", code: 0 }; }, installed: async () => true, tasks: async () => ({ stdout: "", code: 0 }) },
+            mouseRun: async (a) => { mouse.push(a); return { stdout: JSON.stringify({ ok: true, popup: true, say: "Here it is." }), code: 0 }; } });
+        const ctx = { runId: "lo-2", sessionKey: "agent:main:orion-chat-lo2" };
+        const fire = async (n, e) => { const out = []; for (const fn of handlers.get(n) ?? [])
+            out.push(await fn(e, ctx)); return out; };
+        await fire("before_model_resolve", { prompt: said });
+        const [direct] = (await fire("before_agent_reply", { cleanedBody: said }));
+        const [built] = (await fire("before_prompt_build", { prompt: said, messages: [] }));
+        return { opened, mouse, heard: `${direct?.reply?.text ?? ""} ${built?.systemPrompt ?? ""} ${built?.appendContext ?? ""}` };
+    }
+    it("open notes and tell me the time (live gate 4 #97): both are done, and the open is said once", async () => {
+        const r = await hear("open notes and tell me the time", { move: "answer", answer: "It's 6:23 AM on Thursday." });
+        expect(r.opened).toEqual([["-a", "notes"]]);
+        expect(r.heard).toMatch(/Opened Notes\./);
+        expect(r.heard).toMatch(/6:23 AM/);
+        expect(r.heard.match(/Opened Notes\./g)?.length).toBe(1);
+    });
+    it("open the mouse mapper and whats the weather tomorrow (live gate 4 #98): the popup opens and the weather is still answered", async () => {
+        const r = await hear("open the mouse mapper and whats the weather tomorrow");
+        expect(r.mouse).toEqual([["setup", "--again", "--json"]]);
+        expect(r.heard).toMatch(/Here it is\./);
+        expect(r.heard).toMatch(/weather/i);
+    });
 });

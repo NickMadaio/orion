@@ -10,7 +10,7 @@ export type MealRead = {
 };
 export type GymRead = {
     kind: "gym";
-    scope: "week" | "last7" | "recent";
+    scope: "week" | "last7" | "recent" | "plan";
 };
 export type BedtimeRead = {
     kind: "bedtime";

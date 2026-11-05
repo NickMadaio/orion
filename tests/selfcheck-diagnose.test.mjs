@@ -79,3 +79,9 @@ test("a correction right after a reply that looked fine marks that reply as corr
   assert.deepEqual(f.map((x) => x.kind), ["corrected"]);
   assert.match(f[0].says, /You corrected me/);
 });
+
+test("a route recorded as an object never prints as [object Object] (live gate 4 #83)", () => {
+  const d = diagnoseTurn({ at: "x", message: "nah put it back to normal", reply: "run is back at 4:30.", route: { move: "escalate", flow: { outcome: "say", calls: [] }, tool: null }, tools: [] });
+  assert.doesNotMatch(d.says, /object Object/);
+  assert.match(d.says, /\(route: say\)/);
+});

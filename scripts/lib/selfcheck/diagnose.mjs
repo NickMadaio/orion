@@ -54,7 +54,7 @@ export function diagnoseTurn(t) {
     const how = t.route?.move === "ask" ? "my front desk chose to ask you a question instead of acting" : t.route?.move === "tool" ? "I picked a tool but nothing ran" : "no tool was run";
     return build(t, "no-action", true, `You said ${quote(t.message)} and I answered ${quote(reply)}, but ${how}. I gave up before trying. That's a routing gap on my side.`, how, undefined);
   }
-  return build(t, "none", false, `I looked at what I did for ${quote(t.message)}${t.route?.flow ? ` (route: ${t.route.flow})` : t.route?.move ? ` (route: ${t.route.move}${t.route.tool ? ` ${t.route.tool}` : ""})` : ""} and I can't see a clear fault in the record. Tell me what you expected and I'll note it.`, "no failure in the record", undefined);
+  return build(t, "none", false, `I looked at what I did for ${quote(t.message)}${t.route?.flow ? ` (route: ${typeof t.route.flow === "string" ? t.route.flow : String(t.route.flow.outcome ?? "code")})` : t.route?.move ? ` (route: ${t.route.move}${t.route.tool ? ` ${t.route.tool}` : ""})` : ""} and I can't see a clear fault in the record. Tell me what you expected and I'll note it.`, "no failure in the record", undefined);
 }
 
 /**

@@ -33,7 +33,7 @@ describe("a bare go-ahead", () => {
   });
   it("after a question it goes to the worker with what it refers to", async () => {
     const say = chat();
-    await say("lol this uni is actually killing me", "Okay. Want to log some water or take a quick break?");
+    await say("im feeling a bit flat today", "Okay. Want to log some water or take a quick break?");
     const r = await say("that one", "x");
     expect(r.heard).toBe("");
     expect(r.appended).toContain("Want to log some water or take a quick break?");

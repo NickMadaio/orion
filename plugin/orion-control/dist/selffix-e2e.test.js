@@ -67,7 +67,8 @@ describe("why did you do that, then now / later / no", () => {
         await w.said("open amazon uk", "I couldn't run that lookup just now. I could not do that.");
         await w.reply("why did you do that");
         expect(await w.reply("ok set a 25 min timer")).toBeUndefined();
-        expect(await w.reply("yes")).toBeUndefined();
+        // w20 r6: a bare yes with nothing pending is answered plainly (pending-resolver.ts); it still does nothing to the offer.
+        expect(await w.reply("yes")).toMatch(/nothing|anything open|pending/i);
         expect(await w.reply("no")).toBeUndefined();
         expect(w.projectCalls()).toEqual([]);
         expect(JSON.parse(readFileSync(join(w.dir, "selffix.json"), "utf8")).items[0].status).toBe("offered");

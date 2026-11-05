@@ -686,7 +686,8 @@ export const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so
 const exactFor = (run: { flow?: FlowResult; afterCrisis?: boolean; preface?: string }): string => {
   const body = run.flow ? exactReply(run.flow) : "";
   const text = body && run.preface ? `${run.preface} ${body}` : body;
-  return run.afterCrisis && text ? `${text} ${SUPPORT_LINE}` : text;
+  // w20 r6: what is said, what the worker is told to say and what finalize expects are all the same leak-free text (final-sanitizer.ts).
+  return finalSanitize(run.afterCrisis && text ? `${text} ${SUPPORT_LINE}` : text);
 };
 
 /** What Nick must hear after the scheduling flow: the scheduler's own lines, or its "can't"/question. */
@@ -1363,7 +1364,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // The phone sends one conversation under several session keys, so a retry word with no offer of its own takes the most recent offer under any key (RETRY_WINDOW_MS still applies).
     // w20 r5 (offer-binding.ts): a go answers the offer ORION made LAST in this chat (web page, build, food, retry), never an older slot, and a slot under another key only while fresh.
     const newestOfferAt = newestOffer([sessionKey ? webOffers.get(sessionKey)?.at : undefined, sessionKey ? buildOffers.get(sessionKey)?.at : undefined,
-      sessionKey ? foodMemory.chatOfferAt(sessionKey, nowMs()) : undefined, options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)())?.at : undefined]);
+      sessionKey ? foodMemory.chatOfferAt(sessionKey, nowMs()) : undefined, (() => { const fp = options.stateDir && sessionKey ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined; return fp && foodMemory.bound(sessionKey, fp) ? fp.at : undefined; })()]);
     const slotOwn = sessionKey ? retrySlots.get(sessionKey) : undefined;
     const ownSlot = slotOwn && slotAnswersGo(slotOwn.at, newestOfferAt, false, nowMs()) ? slotOwn : undefined;
     const phoneKey = (k: string | undefined): boolean => !!k && /orion-(?:app-v2|chat)/.test(k);   // other chats stay separate

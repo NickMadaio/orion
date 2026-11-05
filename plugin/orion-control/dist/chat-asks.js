@@ -56,7 +56,7 @@ export function readChatAsks(message) {
     return asks.every((a) => a !== null) ? asks.flat() : null;
 }
 const LIST_ITEM = new RegExp(String.raw `^${LEAD}(?:a |another |one more |new )?(?:list|to-?do|todo|task) item\s*[:,-]?\s*(.+)$`, "i");
-const THEN_ASK = /\s*(?:,\s*)?(?:and\s+then|then|and\s+also|also|and)\s+(?=(?:tell|show|what|whats|what's|how|when|is|are|do|any|anything|check|read|give)\b)/i;
+export const THEN_ASK = /\s*(?:,\s*)?(?:and\s+then|then|and\s+also|also|and)\s+(?=(?:tell|show|what|whats|what's|how|when|is|are|do|any|anything|check|read|give)\b)/i;
 /** "and a list item: pick up parcel from reception, then tell me whats on tomorrow evening": the list add (run by code) and the question left to answer. */
 export function splitLeadListItem(message) {
     const at = THEN_ASK.exec(message);
@@ -202,5 +202,5 @@ export async function runChatAsks(asks, deps) {
     return { ...out, text: said.join(" ") };
 }
 /** His bare yes to "want me to open the web player?". */
-const YES = /^(?:(?:yeah|yes|yep|yup|ya|ok|okay|sure|please|pls)[\s,]+)*(?:do it|go(?: ahead| for it)?|open it|that one|do that|sounds good|yes|yeah|yep|yup|sure|ok|okay|please|pls)(?:[\s,]+(?:please|pls|thanks))?[\s.!]*$/i;
+const YES = /^(?:(?:yeah|yes|yep|yup|ya|ok|okay|sure|please|pls)[\s,]+)*(?:do it|go(?: ahead| for it| on)?|open it|that one|do that|sounds good|yes|yeah|yep|yup|sure|ok|okay|please|pls)(?:[\s,]+(?:please|pls|thanks|then|mate))*[\s.!]*$/i;
 export const answersWebOffer = (message) => YES.test(message.trim());

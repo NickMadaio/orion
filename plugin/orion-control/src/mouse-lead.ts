@@ -9,6 +9,7 @@ import { readMouseTurn, type MouseTurn } from "./mouse-read.js";
 const COMPLETE = (t: MouseTurn): boolean => {
   switch (t.kind) {
     case "setup": return t.again === true;
+    case "learn": return true;
     case "status": case "wheel": case "games": case "shortcuts": case "passthrough": return true;
     case "set": return !!t.button && !!t.action;
     case "clear": return !!t.button;

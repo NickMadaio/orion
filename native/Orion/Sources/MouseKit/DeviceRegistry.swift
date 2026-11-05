@@ -34,7 +34,7 @@ public enum DeviceRegistry {
     /// already learned (a press seen beyond the descriptor, a key button) that the descriptor still does not explain.
     static func extras(for m: AttachedMouse, previous: [Int], previousCount: Int = 0) -> [Int] {
         let fromDescriptor = extraButtons(count: m.buttonCount)
-        let keys = m.keyboardInterface ? [KeyButtons.defaultId] : []
+        let keys = m.keyboardInterface || MouseFamily.hasTopButton(MouseFamily.key(name: m.name)) ? [KeyButtons.defaultId] : []
         let learned = previous.filter { $0 >= max(previousCount, m.buttonCount) && !KeyButtons.isKeyButton($0) }
         let kept = previous.filter { KeyButtons.isKeyButton($0) && $0 != KeyButtons.defaultId }
         return Array(Set(fromDescriptor + keys + learned + kept)).sorted()
@@ -62,7 +62,54 @@ public enum DeviceRegistry {
                 transport: m.transport, buttonCount: m.buttonCount, extraButtons: extras, firstSeen: now,
                 lastSeen: now, connected: true, setupState: extras.isEmpty ? .configured : .new))
         }
+        return harmonized(next)
+    }
+
+    /// Entries of one mouse (same family) share their buttons, and a family with a top button always lists it.
+    public static func harmonized(_ file: DevicesFile) -> DevicesFile {
+        var next = file
+        let families = Dictionary(grouping: next.devices.indices, by: { MouseFamily.key(name: next.devices[$0].name) })
+        for (family, indices) in families {
+            var all = Set(indices.flatMap { next.devices[$0].extraButtons })
+            if MouseFamily.hasTopButton(family) { all.insert(KeyButtons.defaultId) }
+            let merged = all.sorted()
+            for i in indices where next.devices[i].extraButtons != merged { next.devices[i].extraButtons = merged }
+        }
         return next
+    }
+
+    /// At launch no mouse is known to be connected until the watcher says so (a stale flag would keep a gone mouse's keys live).
+    public static func allDisconnected(_ file: DevicesFile) -> DevicesFile {
+        var next = file
+        for i in next.devices.indices { next.devices[i].connected = false }
+        return next
+    }
+
+    /// A button captured by "Add a button": saved on the connected mouse (or the last one seen), then shared across its family.
+    public static func learned(button: Int, into file: DevicesFile) -> DevicesFile {
+        var next = file
+        var targets = next.devices.indices.filter { next.devices[$0].connected }
+        if targets.isEmpty, !next.devices.isEmpty { targets = [next.devices.count - 1] }
+        for i in targets where !next.devices[i].extraButtons.contains(button) {
+            next.devices[i].extraButtons = (next.devices[i].extraButtons + [button]).sorted()
+        }
+        return harmonized(next)
+    }
+
+    public struct SetupModel: Equatable {
+        public var name: String?
+        public var buttons: [Int]
+    }
+
+    /// What the popup shows: one mouse (the connected one's family), its fullest name, every button of the family plus saved bindings.
+    public static func setupModel(_ file: DevicesFile, saved: [Int]) -> SetupModel {
+        guard let primary = file.devices.first(where: \.connected) ?? file.devices.first else {
+            return SetupModel(name: nil, buttons: Array(Set(saved)).sorted())
+        }
+        let family = MouseFamily.key(name: primary.name)
+        let members = file.devices.filter { MouseFamily.key(name: $0.name) == family }
+        let buttons = Set(members.flatMap(\.extraButtons)).union(saved)
+        return SetupModel(name: MouseFamily.displayName(members.map(\.name)), buttons: buttons.sorted())
     }
 
     public static func detached(id: String, into file: DevicesFile, now: String) -> DevicesFile {

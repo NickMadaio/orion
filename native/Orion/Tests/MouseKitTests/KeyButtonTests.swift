@@ -5,7 +5,7 @@ import XCTest
 final class KeyButtonTests: XCTestCase {
     private let dongle = AttachedMouse(vendorId: 5426, productId: 185, name: "Razer Basilisk V3 X HyperSpeed", transport: "USB",
                                        buttonCount: 6, keyboardInterface: true)
-    private let plain = AttachedMouse(vendorId: 5426, productId: 185, name: "Razer Basilisk V3 X HyperSpeed", transport: "USB", buttonCount: 6)
+    private let plain = AttachedMouse(vendorId: 1133, productId: 4093, name: "Logitech MX Anywhere", transport: "USB", buttonCount: 6)
 
     func testKeyCodesMapToVirtualButtonsF13ToF20() {
         let pairs: [(Int64, Int)] = [(105, 113), (107, 114), (113, 115), (106, 116), (64, 117), (79, 118), (80, 119), (90, 120)]
@@ -49,8 +49,9 @@ final class KeyButtonTests: XCTestCase {
     }
 
     func testReconnectAddsTheTopButtonToADeviceSavedBefore() {
+        var keys = plain; keys.keyboardInterface = true
         let old = DeviceRegistry.attached(plain, into: DevicesFile(), now: "t1")
-        let f = DeviceRegistry.attached(dongle, into: old, now: "t2")
+        let f = DeviceRegistry.attached(keys, into: old, now: "t2")
         XCTAssertEqual(f.devices.first?.extraButtons, [3, 4, 5, 113])
     }
 

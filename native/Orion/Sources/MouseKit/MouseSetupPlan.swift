@@ -76,6 +76,11 @@ public enum OutreachTail {
         return (lines, start + chunk.count)
     }
 
+    public static func isLearnOpen(_ line: String) -> Bool {
+        guard let row = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { return false }
+        return row["kind"] as? String == "mouse" && row["event"] as? String == "learn-open"
+    }
+
     public static func isSetupOpen(_ line: String) -> Bool {
         guard let row = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { return false }
         return row["kind"] as? String == "mouse" && row["event"] as? String == "setup-open"

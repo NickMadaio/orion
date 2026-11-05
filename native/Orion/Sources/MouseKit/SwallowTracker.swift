@@ -12,5 +12,6 @@ public struct SwallowTracker {
     public mutating func shouldSwallowUp(_ button: Int) -> Bool { swallowed.remove(button) != nil }
     /// True while this button's down is swallowed (a held key repeating).
     public func isSwallowed(_ button: Int) -> Bool { swallowed.contains(button) }
+    public var hasAny: Bool { !swallowed.isEmpty }
     public mutating func reset() { swallowed.removeAll() }
 }

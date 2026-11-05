@@ -211,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if setUp { self?.openMouseSetup() } else { self?.mouse.answerAsk(setUp: false) }
         }
         mouse.onSetupRequested = { [weak self] in self?.openMouseSetup() }
+        mouse.onLearnRequested = { [weak self] in self?.openMouseSetup(); self?.mouse.startLearning() }
         mouse.onGameStarted = { [weak self] text in self?.state.deliverGameLine(text) }
         mouse.onToggled = { [weak self] text in self?.state.deliverQuietLine(text) }
         mouse.onGameOver = { [weak self] text in self?.state.deliverGameOver(text) }

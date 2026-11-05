@@ -12,16 +12,14 @@ struct MouseSetupView: View {
     var onDone: () -> Void
     var onNotNow: () -> Void
 
-    private var device: MouseDevice? { mouse.devices.devices.first { $0.connected } ?? mouse.devices.devices.first }
-    private var buttons: [Int] {
-        let saved = Set(mouse.bindings.default.keys.compactMap(Int.init))
-        return Array(Set(device?.extraButtons ?? []).union(saved)).sorted()
-    }
+    /// One mouse: its USB and Bluetooth entries are merged (MouseFamily), so the top button is there on either.
+    private var model: DeviceRegistry.SetupModel { DeviceRegistry.setupModel(mouse.devices, saved: mouse.bindings.default.keys.compactMap(Int.init)) }
+    private var buttons: [Int] { model.buttons }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(MouseSetupPlan.kicker(deviceName: device?.name))
+                Text(MouseSetupPlan.kicker(deviceName: model.name))
                     .font(OrionTheme.mono(9, .semibold)).tracking(2.2).foregroundStyle(OrionTheme.accent).lineLimit(1)
                 Text("Your extra buttons").font(OrionTheme.serif(22)).foregroundStyle(OrionTheme.text)
                 Text("Press a button on the mouse to find its row.")
@@ -37,6 +35,7 @@ struct MouseSetupView: View {
             ForEach(Array(buttons.enumerated()), id: \.element) { index, button in
                 row(button).deal(order: index + 1, rise: 8)
             }
+            learnRow
             MouseShortcutRow(mouse: mouse, compact: true)
             HStack(alignment: .center, spacing: 12) {
                 Text("Pause when a game is in front").font(.system(size: 12.5, weight: .medium)).foregroundStyle(OrionTheme.text)
@@ -68,6 +67,21 @@ struct MouseSetupView: View {
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white.opacity(0.16), lineWidth: 0.8))
         .environment(\.colorScheme, .dark)
         .softReveal(rise: 10)
+    }
+
+    // MARK: Add a button
+
+    private var learnRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if mouse.isLearning {
+                ProjectBubble(text: "Listening… Esc cancels", symbol: "waveform", hue: OrionTheme.orange) { mouse.cancelLearning() }
+            } else {
+                ProjectBubble(text: "Add a button…", symbol: "plus") { mouse.startLearning() }
+            }
+            if let line = mouse.learnLine {
+                Text(line).font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.accent).fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     // MARK: Row

@@ -74,6 +74,14 @@ describe("readMouseTurn: held-out casual phrasings", () => {
     expect(readMouseTurn("put my back button back to normal")).toEqual({ kind: "clear", button: "back button" });
     expect(readMouseTurn("help me set up my new mouse")).toEqual({ kind: "setup" });
   });
+  it("learn a new button (held-out phrasings)", () => {
+    for (const m of ["learn a new mouse button", "listen for a button on my mouse", "can you listen for my extra mouse button", "add a button to the mouse mapper pls", "i got a new button on my mose that u dont see", "detect the sixth button on my mouse"]) {
+      expect(readMouseTurn(m), m).toEqual({ kind: "learn" });
+    }
+    for (const m of ["add a button to the website header", "what button is on my mouse", "listen to this song", "make the sixth button stage manager"]) {
+      expect(readMouseTurn(m)?.kind, m).not.toBe("learn");
+    }
+  });
   it("things that are not mouse requests", () => {
     for (const m of ["dont do anything in class tomorrow", "the submit button is broken on the site", "what time is my class", "hit the back button in safari", "i need a new mouse pad", "turn off the lights in the kitchen", "did you click the button yet?"]) {
       expect(readMouseTurn(m), m).toBeNull();

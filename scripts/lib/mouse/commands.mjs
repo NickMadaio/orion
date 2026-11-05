@@ -153,6 +153,14 @@ export function openSetup({ env = process.env, again = false } = {}) {
   return { ok: true, popup: req.written, ...(req.row ? { record: req.row } : {}), say: again ? "Here it is." : SETUP_SAY };
 }
 
+export const LEARN_SAY = "Okay, press the button you want to add. I'm listening for 10 seconds, and Esc cancels.";
+
+/** `learn`: opens the popup and arms its "Add a button" listener (one learn-open record in outreach.jsonl). */
+export function openLearn({ env = process.env } = {}) {
+  const req = requestSetupPopup({ env, event: "learn-open" });
+  return { ok: true, popup: req.written, ...(req.row ? { record: req.row } : {}), say: LEARN_SAY };
+}
+
 /** `setup --suggest [--apply]`: list the extra buttons and suggest defaults (front side: Stage Manager, back side: Mission Control); --apply writes them. */
 export function setup({ apply = false }, { env = process.env } = {}) {
   const devices = readDevices(env);

@@ -3,7 +3,7 @@
 // dead end; a 10-18 rung said "It's been 1039 min".
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GAPS, CAPS, rungName, nextGap, smallerVersion, strictnessFor, rungText, endText, comebackText, graceFor,
+import { firmLine, lateEngaged, LATE_STRETCH, GAPS, CAPS, rungName, nextGap, smallerVersion, strictnessFor, rungText, endText, comebackText, graceFor,
   capVerdict, restrictionFor, recordSays } from "../scripts/lib/reach/plan-ladder.mjs";
 
 const GYM = { date: "2026-10-30", start: 1020, end: 1110 };   // 17:00-18:30
@@ -38,8 +38,9 @@ test("rung texts climb, keep the shapes the reply reader parses, and offer the s
   assert.match(rungText({ ...base, rung: 1, elapsed: 15 }), /^Gym — still not started\. Just 30 min then/);
   assert.match(rungText({ ...base, rung: 2, elapsed: 25 }), /^It's been 25 min\. Gym, now\./);
   const l3 = rungText({ ...base, rung: 3, elapsed: 45, strictness: "firm" });
-  assert.match(l3, /^You've been avoiding Gym for 45 min\. No\. Get up\./);
-  assert.match(rungText({ ...base, rung: 3, elapsed: 62, strictness: "firm" }), /^You've been avoiding Gym for 62 min\. No\. That's an hour\. Get up\.$/);
+  assert.match(l3, /^You've been avoiding Gym for 45 min\. /);
+  assert.doesNotMatch(l3, /Get up|We're doing it now/);
+  assert.match(rungText({ ...base, rung: 3, elapsed: 62, strictness: "firm" }), /^You've been avoiding Gym for 62 min\. /);
   assert.match(rungText({ ...base, rung: 3, elapsed: 45, strictness: "firm", restricted: "lock" }), /locked the Mac/);
 });
 
@@ -108,4 +109,22 @@ test("gym evidence: a WHOOP or HealthKit workout today, the gym place, or his wo
   assert.equal(gymEvidence({ date: "2026-10-30", declared: [{ kind: "note", text: "went to the gym this morning", at, date: "2026-10-30" }], now }).source, "declared");
   assert.equal(gymEvidence({ date: "2026-10-30", declared: [{ kind: "note", text: "gym later", at, date: "2026-10-30" }], now }), null);
   assert.equal(gymEvidence({ date: "2026-10-30", now }), null);
+});
+
+test("w20 r3: the late rung is varied, warmer, and the bed lines never say Get up", () => {
+  const bed = [40, 45, 50, 55, 60, 65].map((minutes) => firmLine({ title: "bed", minutes }));
+  assert.ok(new Set(bed).size >= 4, "varied across the minutes");
+  for (const line of bed) { assert.doesNotMatch(line, /Get up|We're doing it now|avoiding/i); assert.match(line, /bedtime/i); }
+  const other = [30, 35, 40, 45].map((minutes) => firmLine({ title: "Study", minutes }));
+  assert.ok(new Set(other).size >= 3);
+  for (const line of other) assert.doesNotMatch(line, /Get up|We're doing it now/);
+});
+
+test("w20 r3: after midnight with the Mac in use the ladder waits twice as long", () => {
+  const at = (h) => new Date(2026, 10, 5, h, 30).getTime();
+  assert.equal(lateEngaged({ nowMs: at(1), macActive: true }), true);
+  assert.equal(lateEngaged({ nowMs: at(1), macActive: false }), false);
+  assert.equal(lateEngaged({ nowMs: at(19), macActive: true }), false);
+  assert.equal(nextGap(3, LATE_STRETCH), 40);
+  assert.equal(nextGap(3), 20);
 });

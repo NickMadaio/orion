@@ -39,6 +39,10 @@ import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-r
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
 import { openRequest } from "./open-request.js";
+import { answersWebOffer, readChatAsks, runChatAsks } from "./chat-asks.js"; // w20 r3
+import { outreachStale, staleOutreachNote, stripOutreachEcho } from "./outreach-stale.js";
+import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
+import { failedTools, failureReason } from "./tool-failure.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
@@ -69,7 +73,7 @@ import { runFocusReady } from "./focus-ready.js";
 import { asksFocusOn, asksFocusToday, focusTodayReply, focusTodayTotal, liveFocusSeconds, localDayKey, noSessionReply, readFocusHistory } from "./focus-status.js";
 import { answerPending, ADD_DECLINED, isYes } from "./schedule-pending.js";
 import { whyAnswer } from "./why-answer.js";
-import { kindOf, parseOutreach, asksWhy, asksYourQuestion, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
+import { kindOf, parseOutreach as parseOutreachRaw, asksWhy, asksYourQuestion, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, readLastOutreach, stateCard } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
 import { readDayEdit } from "./day-edit.js";
@@ -107,7 +111,7 @@ import { runSleepTurn, SleepPlanPending } from "./sleep-plan-flow.js";
 import { readDayDefault, runDayDefault } from "./day-defaults.js";
 import { KnowledgePending, readKnowledgeMove } from "./knowledge-moves.js"; // wave 6: forget / links / profile / trash
 import { runKnowledgeMove } from "./knowledge-run.js";
-import { liveSelffixRun, readSelffixMove, runSelffixMove } from "./selffix-flow.js"; // w19 selffix
+import { asksWhy as asksWhySelf, liveSelffixRun, readSelffixMove, runSelffixMove } from "./selffix-flow.js"; // w19 selffix
 import { liveQuestionsRun, readQuestionsMove, runQuestionsMove } from "./questions-flow.js"; // wave 12 L1
 import { readFoodTurn } from "./food-read.js"; // w14 g-food
 import { FoodMemory, readFoodPending, runFoodTurn } from "./food-chat.js"; // w14 g-food
@@ -685,6 +689,10 @@ export function registerLocalRouting(api, options) {
     const retrySlots = new Map();
     const knowledgePending = new KnowledgePending(); // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
     const sleepPending = new SleepPlanPending(); // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
+    /** w20 r3: per chat, the web page ORION just offered ("want the web player?") and the last reply that came back blank. */
+    const webOffers = new Map();
+    const seenOutreach = new Map();
+    const lastEmpty = new Map();
     const pendingMemory = new PendingMemory(); // 2026-10-31 (pending-reply.ts): what a nudge's reply agreed, for the next short reply
     const mouseMemory = new MouseMemory(); // w18 mousechat (mouse-chat.ts): the button/action question ORION is waiting on
     const workoutMemory = new WorkoutMemory(); // w17 g-workout (workout-chat.ts): whether a reply still answers the follow-up, and the last workout log for "undo"
@@ -1196,6 +1204,15 @@ export function registerLocalRouting(api, options) {
             return undefined;
         if (sessionKey)
             progress.begin(sessionKey, runId ?? null);
+        // w20 r3 (outreach-stale.ts): an outreach binds only until ORION has replied in this chat; after that it is history, not this turn's context.
+        const outreachNowMs = (options.now ?? pluginNow)().getTime();
+        const staleOutreachOf = parseOutreachRaw(raw);
+        // Stale = the same outreach this chat already saw on an earlier turn AND ORION has replied since. A new outreach (new text) always binds.
+        const seenHere = sessionKey ? (seenOutreach.get(sessionKey) ?? []) : [];
+        const outreachIsStale = !!staleOutreachOf && seenHere.includes(staleOutreachOf.text) && outreachStale(staleOutreachOf, sessionKey ? pendingMemory.lastReplyAt(sessionKey) : undefined, outreachNowMs);
+        if (sessionKey && staleOutreachOf && !seenHere.includes(staleOutreachOf.text))
+            seenOutreach.set(sessionKey, [...seenHere, staleOutreachOf.text].slice(-20));
+        const parseOutreach = (prompt) => (outreachIsStale ? undefined : parseOutreachRaw(prompt));
         // The rest of a cut-off spoken request is read together with its first half, as one request.
         const heard = userText(raw);
         // 2026-10-30: a message replayed after a model outage reads as he said it (the marker is for the transcript and the worker).
@@ -1348,7 +1365,13 @@ export function registerLocalRouting(api, options) {
         const editing = on && !cutOff && !quietTurn && !guarded && isEdit(message) && (made ? made.at > reminderAt : Date.now() - reminderAt > CORRECTION_WINDOW_MS);
         // 2026-10-31: a screen task is code's (computer-loop.ts), so the desk is not asked.
         const computerFirst = on && !cutOff && !quietTurn && !!options.computer && !!detectComputerIntent(message);
-        const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst;
+        // w20 r3 (chat-asks.ts): open this, add that to his list, what is on it, or his yes to "want the web player?": code's, the desk is not asked.
+        const webOffer = sessionKey ? webOffers.get(sessionKey) : undefined;
+        const chatAsks = on && !cutOff && !quietTurn && options.chatRun && !isCrisis(message) && !appsTurn && !mouse && !food && !workout && !shutdownTurn && !qmove && !smove && !mmove
+            ? (webOffer && outreachNowMs - webOffer.at < 15 * 60_000 && answersWebOffer(message) ? [{ kind: "open", req: { kind: "url", url: webOffer.url } }] : readChatAsks(message) ?? undefined) : undefined;
+        if (sessionKey)
+            webOffers.delete(sessionKey); // the offer answers one turn
+        const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst || !!chatAsks;
         // "why" to something ORION sent is about THAT message: the front desk (which saw only a one-line history) must not answer it as chat.
         const whyAsked = on && !cutOff && !quietTurn && (asksWhy(message) || asksYourQuestion(message)) && !!parseOutreach(raw);
         // 2026-10-23: what ORION said first goes to the front desk as ORION's last turn ("I'm meal prepping" answers "Gym, now").
@@ -1368,7 +1391,7 @@ export function registerLocalRouting(api, options) {
         // 2026-10-31 (pending-reply.ts): a short reply resolved against the nudge it answers (the label, the card's last push, or this chat's memo).
         // REV4: never within 30 min of the crisis reply; never over a question ORION asked here (his yes to a proposal, the reminder's "What
         // time?"); only an outreach newer than ORION's last reply in this chat; an outreach already answered in any chat is not answered again.
-        const pending = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey)
+        const pending = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && !kmove && !sleepTurn && !phoneBlock && !isCrisis(message) && sessionKey && !prior?.afterCrisis && !pendingYes && !reminderAsk.has(sessionKey) && !chatAsks
             ? readPendingTurn({ message, now: pendingAt, ...(outreach ? { outreach } : {}), lastPush: card?.lastOutreach ?? null, memo: pendingMemory.memo(sessionKey, pendingAt.getTime()),
                 ...(prior?.lastReplyAt !== undefined ? { lastReplyAt: prior.lastReplyAt } : {}), answered: (t, sent) => pendingMemory.wasAnswered(t, sent, pendingAt.getTime(), options.stateDir),
                 chatSurface: CHAT_SURFACE.test(sessionKey) })
@@ -1376,7 +1399,7 @@ export function registerLocalRouting(api, options) {
                 ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (runId)
             runs.set(runId, run);
@@ -1400,6 +1423,17 @@ export function registerLocalRouting(api, options) {
                 ...(options.connectorStatus ? { connectorStatus: options.connectorStatus } : {}) }).catch(() => undefined), 6000);
             if (text)
                 run.ownText = text;
+        }
+        if (chatAsks && options.chatRun) { // w20 r3: code does it and says what happened to each ask
+            const out = await withTimeout(runChatAsks(chatAsks, options.chatRun).catch(() => undefined), 40000);
+            if (out) {
+                run.ownText = out.text;
+                out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
+                if (out.offer && sessionKey)
+                    webOffers.set(sessionKey, { ...out.offer, at: outreachNowMs });
+            }
+            else
+                run.ownText = emptyReplyLine("that took too long and I can't say whether it happened");
         }
         if (kmove && options.knowledgeRun) { // wave 6 (knowledge-run.ts): the reply is built from the scripts' JSON
             const out = await withTimeout(runKnowledgeMove(kmove, options.knowledgeRun).catch(() => undefined), 12000);
@@ -1428,6 +1462,12 @@ export function registerLocalRouting(api, options) {
         }
         else if (sessionKey && on && !quietTurn)
             fixOfferChats.delete(sessionKey); // any other turn ends the offer
+        // w20 r3 (empty-reply.ts): "why did you do that" is about ORION's immediately previous reply; when that one came back blank, that is the answer.
+        const blank = sessionKey ? lastEmpty.get(sessionKey) : undefined;
+        if (blank && outreachNowMs - blank.at < 20 * 60_000 && (asksWhySelf(message) || asksWhy(message)))
+            run.ownText = whyEmptyLine(blank.reason);
+        if (sessionKey && !(blank && run.ownText?.startsWith("My last reply came back blank")))
+            lastEmpty.delete(sessionKey);
         if (qmove && options.stateDir) { // wave 12 L1: the reply is built from orion-questions' JSON
             const out = await withTimeout(runQuestionsMove(qmove, options.questionsRun ?? liveQuestionsRun(options.stateDir)).catch(() => undefined), 12000);
             if (out) {
@@ -2267,7 +2307,7 @@ export function registerLocalRouting(api, options) {
             // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
             const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
             return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${pushNote}${brainFetched}${askNote}\n\n${card}${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
-                ...(run.outreach ? { prependContext: outreachNote(run.outreach, run.message) } : {}) };
+                ...(run.outreach ? { prependContext: outreachNote(run.outreach, run.message) } : run.staleOutreachNote ? { prependContext: run.staleOutreachNote } : {}) };
         }), { timeoutMs: HOOK_TIMEOUT_MS });
     }
     // 2026-10-30 (model-outage.ts): before the model is called, is it there? Down after one warm-and-retry: an honest line by code, and his
@@ -2707,6 +2747,27 @@ export function registerLocalRouting(api, options) {
                     buildOffers.set(run.sessionKey, { request: run.message, at: nowMs() });
                 else
                     buildOffers.delete(run.sessionKey);
+            }
+            // w20 r3 (outreach-stale.ts, empty-reply.ts): an outreach he never engaged with is never glued onto a reply about something else, and
+            // a blank reply never goes out: it becomes a short honest line with the reason (live 11-05 turn 43: 68 s, then nothing).
+            if (on) {
+                const text = owed ?? reply;
+                const lastPushText = !run.outreach && !run.pending ? run.card?.lastOutreach?.text : undefined;
+                const echoed = [...(run.staleOutreach ?? []), ...(lastPushText ? [lastPushText] : [])];
+                if (text.trim() && echoed.length) {
+                    const cut = stripOutreachEcho(text, echoed);
+                    if (cut !== text)
+                        owed = cut || "Sorry, I lost track of what you meant by that. What should I do?";
+                }
+                if (isBlank(owed ?? reply)) {
+                    const failed = failedTools(run.tools)[0];
+                    const reason = failed ? failureReason(failed.stdout ?? "") || "a step I ran failed" : undefined;
+                    owed = emptyReplyLine(reason);
+                    if (run.sessionKey)
+                        lastEmpty.set(run.sessionKey, { at: (options.now ?? pluginNow)().getTime(), ...(reason ? { reason } : {}) });
+                }
+                if (owed !== undefined && owed !== text)
+                    remember([runId, sessionKeyNow], owed);
             }
             if (on && (owed ?? reply).trim()) {
                 const before = owed ?? reply;

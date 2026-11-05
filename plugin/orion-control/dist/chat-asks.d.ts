@@ -1,0 +1,39 @@
+import { type OpenRequest } from "./open-request.js";
+export type ChatAsk = {
+    kind: "open";
+    req: Extract<OpenRequest, {
+        kind: "app" | "url";
+    }>;
+} | {
+    kind: "list-add";
+    item: string;
+} | {
+    kind: "todo-list";
+};
+export type Exec = (args: string[]) => Promise<{
+    stdout: string;
+    code: number;
+}>;
+export type ChatDeps = {
+    open: Exec;
+    installed: (app: string) => Promise<boolean>;
+    tasks: Exec;
+};
+/** A question ORION asked that a bare "yeah" answers: open this address. */
+export type WebOffer = {
+    url: string;
+    label: string;
+};
+export type ChatOut = {
+    text: string;
+    calls: string[];
+    outputs: string[];
+    offer?: WebOffer;
+};
+/** What code does for this message, or null when any part of it is something else (the worker or another flow keeps it). */
+export declare function readChatAsks(message: string): ChatAsk[] | null;
+/** "You have 3 on your list: milk, email careers (due 2026-11-06), ...", from `orion-tasks list` output. */
+export declare function listReply(stdout: string): string;
+/** Runs every ask in order (one failing never stops the next) and says what happened to each. */
+export declare function runChatAsks(asks: ChatAsk[], deps: ChatDeps): Promise<ChatOut>;
+export declare const answersWebOffer: (message: string) => boolean;

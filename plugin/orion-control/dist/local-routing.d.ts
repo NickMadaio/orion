@@ -1,6 +1,7 @@
 import { type Decision } from "./front-desk.js";
 import { type ToolResult } from "./work-check.js";
 import { type SessionExec, type SessionHint } from "./session-flow.js";
+import { type ChatDeps } from "./chat-asks.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { parseEdit, type EditTarget } from "./edit-followup.js";
 import { type ComputerDeps } from "./computer-loop.js";
@@ -129,6 +130,8 @@ export type LocalRoutingOptions = {
     todoDoneFlow?: (message: string) => Promise<FlowResult>;
     /** w18 note: saves a note's whole text (note-flow.ts); tests pass a stub, never his real vault. */
     noteFlow?: (message: string, bound?: boolean) => Promise<FlowResult>;
+    /** w20 r3 (chat-asks.ts): open an app or site, add to his list, read his list; tests pass stubs, index.ts wires the real ones. */
+    chatRun?: ChatDeps;
     /** orion-session with fixed arguments, for the focus moves: break, extend, block, doomscroll (focus-moves.ts). Tests pass a stub; wired from index.ts. */
     sessionExec?: SessionExec;
     /** "im ready to work", finishing a session early, one-time site allow (focus-ready.ts). Tests pass stubs; wired from index.ts. */

@@ -329,3 +329,19 @@ describe("round 5: list follow-ups, a list item beside a calendar add, ticking t
         expect(parseTodoDone("tick off it and them")).toBeNull();
     });
 });
+describe("round 5 review: a list follow-up must look like an item", () => {
+    it.each(["and also move gym to 6", "and ok", "and lol", "and yeah", "and idk", "and nothing else", "oh and thats it", "and book a haircut", "and schedule a call", "and cancel the nap", "and thanks", "and maybe later", "oh and im tired", "and push my 3pm", "also stop", "and thats all", "and whatever", "and also remind me to call mum"])("%s falls through to normal routing", (m) => {
+        expect(readListFollowUp(m)).toBeNull();
+    });
+    it.each([["and also batteries", ["batteries"]], ["and washing up liquid", ["washing up liquid"]], ["oh and tea bags", ["tea bags"]], ["and spring onions and a lemon", ["spring onions", "lemon"]], ["also toilet paper", ["toilet paper"]], ["and walking boots", ["walking boots"]]])("%s is an item", (m, items) => {
+        expect(readListFollowUp(m)).toEqual(items);
+    });
+    it("after a list add, 'and also move gym to 6' adds no to-do", async () => {
+        const adds = [];
+        const r = rig({ chatRun: { open: async () => ({ stdout: "", code: 0 }), installed: async () => true, tasks: async (a) => { adds.push(a); return { stdout: `Added "${a[1]}"`, code: 0 }; } } });
+        await r.turn("add eggs to my list");
+        await r.turn("and also move gym to 6");
+        await r.turn("and ok");
+        expect(adds).toEqual([["add", "Eggs"]]);
+    });
+});

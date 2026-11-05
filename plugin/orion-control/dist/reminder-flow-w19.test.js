@@ -40,8 +40,8 @@ describe("setting one: the reply says exactly when and what", () => {
         expect(await plan("remind me at 530pm to eat", { time: "05:30", label: "eat" })).toMatchObject({ reply: "I'll remind you at 5:30 PM to eat." });
         expect(await plan("remind me at 5 pm to eat", { time: "17:00", label: "eat" })).toMatchObject({ reply: "I'll remind you at 5:00 PM to eat." });
     });
-    it("a label like 'my meds' reads as 'about', not 'to my meds'", async () => {
-        expect(await plan("remind me at 8pm about my meds", { time: "20:00", label: "my meds" })).toMatchObject({ reply: "I'll remind you at 8:00 PM about my meds." });
+    it("a label like 'my meds' reads as 'about your meds', not 'to my meds'", async () => {
+        expect(await plan("remind me at 8pm about my meds", { time: "20:00", label: "my meds" })).toMatchObject({ reply: "I'll remind you at 8:00 PM about your meds." });
     });
     it("important is stored and said", async () => {
         const p = await plan("remind me at 3 to send the form its important", { time: "03:00", label: "send the form" });
@@ -57,7 +57,7 @@ describe("repeating", () => {
     });
     it("weekdays at 8: the next one is tomorrow morning", async () => {
         const p = await plan("remind me every weekday at 8 to take my pills", { time: "08:00", label: "take my pills" });
-        expect(p).toMatchObject({ reply: "I'll remind you every weekday at 8:00 AM to take my pills." });
+        expect(p).toMatchObject({ reply: "I'll remind you every weekday at 8:00 AM to take your pills." });
         expect(args(p)[0]).toMatchObject({ at: "2026-11-05T08:00", repeat: { days: [1, 2, 3, 4, 5], time: "08:00" } });
     });
     it("'every morning' with no time is 9, 'every day' with no time asks", async () => {

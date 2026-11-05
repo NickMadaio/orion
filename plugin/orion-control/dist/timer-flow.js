@@ -20,26 +20,34 @@ export function readTimer(message, { hasLast = false } = {}) {
 const REST = /^(?:move|add|put|schedule|book|remind|open|set|start|push|cancel|delete|remove|text|send|play|turn|log|call|make|take|drop|skip|plan|shift|(?:a|an)\s+\d|\d)\b.*/i;
 const SEP = /\s*,\s*(?:and\s+|then\s+)?|\s+(?:and then|and also|and|then|also|plus|after that)\s+/gi;
 /**
+ * An ask joined to another ask, in either order: the clause `isHit` picks (`hit`) and the rest, when the other side passes `isRest` (a request of its own,
+ * so "... for mac and cheese" is never split). Undefined for a single ask.
+ */
+export function splitAsk(text, isHit, isRest) {
+    const t = text.trim();
+    if (!isHit(t) && !t.split(SEP).length)
+        return undefined;
+    for (const m of t.matchAll(SEP)) {
+        const left = t.slice(0, m.index).trim();
+        const right = t.slice((m.index ?? 0) + m[0].length).trim();
+        if (!left || !right)
+            continue;
+        if (isHit(left) && !isHit(right) && isRest(right))
+            return { hit: left, rest: right };
+        if (isHit(right) && !isHit(left) && isRest(left))
+            return { hit: right, rest: left };
+    }
+    return undefined;
+}
+/**
  * A timer order joined to another ask, in either order ("set a 10 min timer and move my gym to 6", "move my gym to 6 and set a 10 min timer"):
  * the timer clause and the rest. Undefined for a single ask, or when the other side is not a request ("... for mac and cheese").
  */
 export function splitTimerAsk(message) {
-    const text = message.trim();
-    if (timerSeconds(text) === undefined)
+    if (timerSeconds(message.trim()) === undefined)
         return undefined;
-    for (const m of text.matchAll(SEP)) {
-        const left = text.slice(0, m.index).trim();
-        const right = text.slice((m.index ?? 0) + m[0].length).trim();
-        if (!left || !right)
-            continue;
-        const leftTimer = timerSeconds(left) !== undefined;
-        const rightTimer = timerSeconds(right) !== undefined;
-        if (leftTimer && !rightTimer && REST.test(right))
-            return { timer: left, rest: right };
-        if (rightTimer && !leftTimer && REST.test(left) && !/\btimer\b/i.test(left))
-            return { timer: right, rest: left };
-    }
-    return undefined;
+    const s = splitAsk(message, (part) => timerSeconds(part) !== undefined, (part) => REST.test(part) && !/\btimer\b/i.test(part));
+    return s ? { timer: s.hit, rest: s.rest } : undefined;
 }
 export async function runTimer(ask, deps) {
     const calls = [`timer_set ${ask.seconds}s ${ask.label}`];

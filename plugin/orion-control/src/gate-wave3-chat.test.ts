@@ -107,7 +107,7 @@ describe("cha-phone-call-c: a bare reminder hour is the sensible one", () => {
   it("remind me to call my mom on sunday at 6 is 6 PM, said in the reply, even when the extractor says 06:00", async () => {
     const p = await plan("orion remind me to call my mom on sunday at 6", "06:00");
     expect(p).toMatchObject({ kind: "call", at: "2026-11-01T18:00" });
-    expect((p as { reply: string }).reply).toBe("I'll remind you Sunday at 6:00 PM to call my mom.");
+    expect((p as { reply: string }).reply).toBe("I'll remind you Sunday at 6:00 PM to call your mom.");
   });
   it.each([
     ["remind me tomorrow at 3 to email the prof", "03:00", "2026-11-01T15:00"],

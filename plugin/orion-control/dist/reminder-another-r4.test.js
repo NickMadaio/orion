@@ -31,3 +31,32 @@ describe("a bedtime reset never reaches orion-wake", () => {
         expect(parseWake(said, { move: "tool", tool: "wake", args: { at: "07:45" } }, NOW)).toBeNull();
     });
 });
+describe("w20 r6 #17: ping, nudge and buzz are reminders", () => {
+    it.each([
+        ["scrap the water ping", ["water"]], ["ditch the water nudge", ["water"]], ["kill the water buzz", ["water"]], ["delete the dentist ping", ["dentist"]], ["cancel the stretch nudge please", ["stretch"]], ["get rid of the oven buzzer", ["oven"]],
+    ])("%s", (said, words) => {
+        const ask = readLedgerAsk(said);
+        expect(ask?.targets).toEqual([words]);
+        expect(ask?.kinds).toContain("reminder");
+    });
+});
+describe("w20 r6 #60: the reply talks to him, so his words flip person", () => {
+    const plan = async (message, label, time = "07:00") => {
+        const p = await planReminder({ message, now: new Date(2026, 10, 5, 5, 0), extract: async () => ({ time, label }), list: async () => [] });
+        return p && "reply" in p ? p.reply : p && "text" in p ? p.text : "";
+    };
+    it.each([
+        ["remind me at 7am to pack my gym bag", "pack my gym bag", /to pack your gym bag\./],
+        ["remind me at 7am to call my mum", "call my mum", /to call your mum\./],
+        ["remind me at 7am to text dad that I'm running late", "text dad that I'm running late", /that you're running late\./],
+        ["remind me at 7am to ask her if she can drive me", "ask her if she can drive me", /drive you\./],
+        ["remind me at 7am to take my vitamins myself", "take my vitamins myself", /take your vitamins yourself\./],
+        ["remind me at 7am about my dentist appointment", "about my dentist appointment", /about your dentist appointment\./],
+        ["remind me at 7am to email prof about the thing I missed", "email prof about the thing I missed", /the thing you missed\./],
+    ])("%s", async (message, label, re) => { expect(await plan(message, label)).toMatch(re); });
+    it("leaves other words alone", async () => {
+        expect(await plan("remind me at 7am to buy milk", "buy milk")).toMatch(/to buy milk\./);
+        expect(await plan("remind me at 7am to call the dentist", "call the dentist")).toMatch(/to call the dentist\./);
+        expect(await plan("remind me at 7am to ring emma", "ring emma")).toMatch(/to ring emma\./);
+    });
+});

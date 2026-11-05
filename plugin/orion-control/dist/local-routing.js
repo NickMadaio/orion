@@ -30,6 +30,7 @@ import { withoutAsleepClaims, claimsAsleep } from "./awake-claims.js";
 import { newestOffer, slotAnswersGo } from "./offer-binding.js";
 import { ventTease } from "./vent-tease.js";
 import { withoutUnverifiedAlarmClaims } from "./alarm-claims.js";
+import { withoutUnverifiedBedtimeClaims } from "./bedtime-claims.js";
 import { asksChatSummary, chatSummary } from "./chat-summary.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
@@ -51,6 +52,7 @@ import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
 import { failedTools, failureReason } from "./tool-failure.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
 import { readTimer, runTimer, splitTimerAsk } from "./timer-flow.js";
+import { runReminderClause, splitReminderAsk } from "./reminder-split.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
@@ -1299,11 +1301,14 @@ export function registerLocalRouting(api, options) {
         // back; only the other clause goes on to the normal routes, and the reply says both. The 9B never called timer_set from a hint (gate 2 #61).
         const timerSplit = on && options.addTimer && !retrySlots.has(sessionKey) ? splitTimerAsk(messageIn) : undefined;
         const timerFirst = timerSplit ? await runTimer(readTimer(timerSplit.timer) ?? { seconds: 0, label: "Timer" }, { add: options.addTimer, list: options.listReminders ?? (async () => []), now: (options.now ?? pluginNow)() }).catch(() => undefined) : undefined;
+        // w20 r6 (reminder-split.ts): a reminder joined to another ask is set by code first, read back, and the rest goes on ("put pasta prep in at 6pm and remind me at 5 to buy pasta").
+        const remSplit = on && options.addReminder && !(timerSplit && timerFirst) ? splitReminderAsk(messageIn) : undefined;
+        const remFirst = remSplit ? await runReminderClause(remSplit.clause, { now: (options.now ?? pluginNow)(), extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)), list: options.listReminders ?? (async () => []), add: options.addReminder }).catch(() => undefined) : undefined;
         // w20 r5 (chat-asks.ts splitLeadOpen): "open youtube in safari and tell me whats the weather": the open is run by code and said first, the question is what is left.
-        const openSplit = on && options.chatRun && !(timerSplit && timerFirst) ? splitLeadOpen(messageIn) : undefined;
+        const openSplit = on && options.chatRun && !(timerSplit && timerFirst) && !(remSplit && remFirst) ? splitLeadOpen(messageIn) : undefined;
         const openFirst = openSplit ? await withTimeout(runChatAsks([{ kind: "open", req: openSplit.req }], options.chatRun).catch(() => undefined), 40000) : undefined;
-        const message = timerSplit && timerFirst ? timerSplit.rest : openSplit && openFirst ? openSplit.rest : messageIn;
-        const timerTools = openFirst ? openFirst.calls.map((canonical, i) => ({ canonical, stdout: openFirst.outputs[i] ?? "", exit: 0 })) : timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
+        const message = timerSplit && timerFirst ? timerSplit.rest : remSplit && remFirst ? remSplit.rest : openSplit && openFirst ? openSplit.rest : messageIn;
+        const timerTools = openFirst ? openFirst.calls.map((canonical, i) => ({ canonical, stdout: openFirst.outputs[i] ?? "", exit: 0 })) : remFirst ? remFirst.calls.map((canonical, i) => ({ canonical, stdout: remFirst.outputs[i] ?? "", exit: remFirst.ok ? 0 : 1 })) : timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
         if (sessionKey)
             retrySlots.delete(sessionKey);
         if (recentKey)
@@ -1498,7 +1503,7 @@ export function registerLocalRouting(api, options) {
                 ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : openFirst ? { preface: openFirst.text } : {}), started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : remFirst ? { preface: remFirst.text } : openFirst ? { preface: openFirst.text } : {}), started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn && !isBareConfirm(message) ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (ledgerAsk)
             run.ledger = ledgerAsk;
@@ -3083,6 +3088,15 @@ export function registerLocalRouting(api, options) {
                 const before = owed ?? reply;
                 const verified = withoutUnverifiedAlarmClaims(before, options.stateDir, (options.now ?? pluginNow)());
                 if (verified !== before && verified.trim()) {
+                    owed = verified;
+                    remember([runId, sessionKeyNow], owed);
+                }
+            }
+            // w20 r6 (bedtime-claims.ts): a reply claims a bedtime change only when orion-sleepplan wrote one this turn; its own read-back is what code states.
+            if (on && (owed ?? reply).trim() && !(run.flow && (run.flow.outcome === "done" || run.flow.outcome === "say"))) { // code's own sentences are built from its read-backs
+                const before = owed ?? reply;
+                const verified = withoutUnverifiedBedtimeClaims(before, run.tools);
+                if (verified !== before) {
                     owed = verified;
                     remember([runId, sessionKeyNow], owed);
                 }

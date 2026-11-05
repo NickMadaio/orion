@@ -87,6 +87,8 @@ function clockWords(text) {
     let t = text.replace(/\b(?:is|be|=)\s+(?=(?:twelve|eleven|ten|nine|midnight)\b)/g, "at ");
     t = relativeClock(t, { digits: true });
     t = t.replace(/\bmidnight\b/g, "12:00");
+    // A bare clock after "tonight" / "only" / a comma ("bedtime tonight only 11:50"): the time of the bedtime, so give it its "at".
+    t = t.replace(/(?<!\b(?:to|at|by|for|around|about|is|be|till|until|=)\s)(?<![\d:])(\d{1,2}:\d{2})(?![\d:])/g, "at $1");
     t = t.replace(/\b(0?\d|1\d|2[0-3])[ .]([0-5]\d)(?![\d:]|\s*(?:min|mins|minutes|hours?|hrs?|h\b|%|times))/g, "$1:$2");
     return normalizeSpoken(t);
 }

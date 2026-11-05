@@ -211,10 +211,16 @@ function dueFor(message, time, now, baseDay, fromPeriod = false) {
 function toLabel(label) {
     const l = label.trim();
     if (/^(about|that|of|for)\b/i.test(l))
-        return l;
+        return toYou(l);
     if (/^(my|the|a|an|our|his|her|this|these|those)\b/i.test(l))
-        return `about ${l}`;
-    return `to ${l.replace(/^to\s+/i, "")}`;
+        return toYou(`about ${l}`);
+    return toYou(`to ${l.replace(/^to\s+/i, "")}`);
+}
+/** The reply speaks to him, so the first person in his reminder words becomes second ("pack my gym bag" -> "pack your gym bag"). Gate 4 #60. */
+export function toYou(text) {
+    return text
+        .replace(/\bI(?:'|’)m\b/g, "you're").replace(/\bI(?:'|’)ll\b/g, "you'll").replace(/\bI(?:'|’)ve\b/g, "you've").replace(/\bI(?:'|’)d\b/g, "you'd")
+        .replace(/\bmyself\b/gi, "yourself").replace(/\bmine\b/gi, "yours").replace(/\bmy\b/gi, "your").replace(/\bme\b/gi, "you").replace(/\bI\b/g, "you");
 }
 /** "at 5:00 PM", "tomorrow at 9:00 AM", "Friday at 5:00 PM" — the reminder's day against now. */
 function whenWords(due, now, saidTomorrow = false) {

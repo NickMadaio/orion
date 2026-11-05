@@ -110,6 +110,9 @@ function readShift(m, named, ctx) {
         return undefined;
     if (back && up)
         return undefined;
+    // "put my alarm back to half 6": a clock after "to" is where it goes (a set), never an amount to shift by.
+    if (/\bto\s+(?:half\s+\S+|quarter\s+(?:to|past)\s+\S+|\d{1,2}:\d{2}|\d{1,2}\s*(?:am|pm)\b|\d{1,2}(?!\d|\s*(?:min|mins|minutes|hours?|hrs?|h|%)\b))/.test(m))
+        return undefined;
     if (!named && !ctx.recentAlarm && !NIGHTLY(ctx.hour))
         return undefined;
     const minutes = minutesIn(m);

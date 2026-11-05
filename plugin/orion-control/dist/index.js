@@ -22,7 +22,7 @@ import { liveMessagesRead } from "./messages-read.js";
 import { liveReadDeadlines } from "./deadline-read.js";
 import { liveConnectorStatus } from "./code-answers.js";
 import { readReminders, remindersPath } from "./ambient.js";
-import { addTimerEntry } from "./timer-store.js";
+import { addReminderEntry, addTimerEntry } from "./timer-store.js";
 import { updateReminders } from "./reminder-store.js";
 import { liveResolveApp, liveSessionExec, liveSessionFlow, liveSessionStatus } from "./session-flow.js";
 import { liveFocusProfile, liveFocusSites, livePending, liveTasksRun } from "./focus-ready.js";
@@ -1410,6 +1410,7 @@ export function installProvenanceHooks(api) {
             scheduleFlow: liveScheduleFlow,
             ledgerRun: liveLedgerRun, // w20 r3: undo / remove what ORION made (ledger-run.ts)
             removeReminders: (ids) => updateReminders(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined), (list) => list.filter((r) => !ids.includes(r.id))).then(() => undefined),
+            addReminder: (dueAt, label, important) => addReminderEntry(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined), dueAt, label, important), // w20 r6
             addTimer: (seconds, label) => addTimerEntry(remindersPath(typeof api.pluginConfig?.remindersPath === "string" ? api.pluginConfig.remindersPath : undefined), seconds, label), // w20 r4: timers are set by code (timer-flow.ts)
             readDay: liveReadDay,
             readDayJson: liveReadDayJson,

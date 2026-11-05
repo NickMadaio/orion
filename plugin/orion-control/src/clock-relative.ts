@@ -44,5 +44,10 @@ export function relativeClock(text: string, { digits = false }: { digits?: boole
     const minutes = /^\d+$/.test(n) ? Number(n) : MINUTE_WORDS[n.toLowerCase().replace(/[\s-]+/g, " ")];
     return (minutes === undefined ? undefined : build(minutes, dir.toLowerCase(), hour, mer)) ?? whole;
   });
+  // "half 11" is 11:30 (British), "half twelve" 12:30; not "half an hour", "half the".
+  out = out.replace(new RegExp(String.raw`\bhalf\s+(${HOUR_RE})\b${MER}(?!\s+(?:an?|hours?|hrs?|the|of|past|to|min|mins|minutes|way|day|week))`, "gi"), (whole, hour: string, mer?: string) => {
+    const h = hourOf(hour.toLowerCase());
+    return h === undefined || h < 1 || h > 12 ? whole : `${h}:30${mer ? keep(mer) : ""}`;
+  });
   return out;
 }

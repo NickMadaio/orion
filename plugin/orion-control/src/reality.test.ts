@@ -186,7 +186,7 @@ describe("reality on the live route", () => {
 
   it("a fact that cannot be saved is said honestly, nothing claimed", async () => {
     const r = route({ script: (s) => (s === "orion-declare" ? "NOTHING WAS CHANGED: disk" : undefined) });
-    expect((await r.turn("i dont have classes today", "f-1")).exact).toBe("I couldn't save that just now, so nothing changed. Say it again in a moment.");
+    expect((await r.turn("i dont have classes today", "f-1")).exact).toBe("I couldn't save that just now, so nothing changed. Say go and I'll retry it.");
     expect(r.calls.some((c) => c[1] === "classes-off")).toBe(false);
   });
 

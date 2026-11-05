@@ -99,7 +99,7 @@ describe("H2 no early return after an earlier step wrote", () => {
         const { result, writes } = await run("move study to 3 and add a 30 min walk", [steps[0], { do: "add", what: "Walk", minutes: 30 }], { preview: "NOTHING WAS BOOKED on Friday (2026-10-16). Do not tell him anything was added or moved.\nWould change Friday:\n  NOT BOOKED: Walk (30 min) did not fit on Friday — ask whether" });
         expect(writes).toEqual([]);
         expect(result).toMatchObject({ outcome: "say", kind: "plain" });
-        expect(result.text).toMatch(/Not done: Walk didn't fit/);
+        expect(result.text).toMatch(/Walk didn't fit/);
         expect(result.text).toMatch(/nothing else was changed/i);
     });
     it("a harmless preview runs every step and records every mark", async () => {

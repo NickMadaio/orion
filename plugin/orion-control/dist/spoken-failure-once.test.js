@@ -6,7 +6,8 @@ const failedOpen = [{ canonical: "app_open", stdout: 'Application "amazon uk" wa
 describe("a failed turn owns the failure once", () => {
     it.each(["I could not do that.", "Sorry, I couldn't do that.", "I can't do it."])("%s is not said after the acknowledgement", (worker) => {
         const out = finalizeReply(worker, failedOpen, { hostTools: 1 });
-        expect(out.split(/[.!?]/).filter((x) => x.trim()).length).toBe(1);
+        expect(out).not.toMatch(/Sorry|I can't do it|could not do that/);
+        expect(out.match(/couldn't run that/g)?.length).toBe(1);
         expect(acknowledgesFailure(out)).toBe(true);
     });
     it("a worker sentence with real content still follows the acknowledgement", () => {

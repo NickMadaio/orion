@@ -90,7 +90,7 @@ export function readDayDefault(message, outreach, now = new Date()) {
 }
 // ---- the day ----
 const UNDO = "Say \"undo\" to put it back.";
-const NO_DAY = "I couldn't read your calendar just now, so I haven't changed anything. Ask me again in a moment.";
+const NO_DAY = "I couldn't read your calendar just now, so I haven't changed anything. Say go and I'll retry it.";
 const say = (text, kind = "plain", calls = [], outputs = []) => ({ outcome: "say", kind, text, ...(calls.length ? { calls, outputs } : {}) });
 const canon = (args) => `exec orion-reschedule ${args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ")}`;
 const norm = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();

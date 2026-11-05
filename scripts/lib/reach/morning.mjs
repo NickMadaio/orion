@@ -187,7 +187,7 @@ export function composeBriefing({ now, day = [], travel = [], todos = [], today,
   // 2026-10-16 audit: "Nothing on the calendar today" was said on 2026-10-15 with four blocks planned. A failed
   // or empty read is UNKNOWN, never "nothing", and the words come from every block left today, not only fixed ones.
   if (calendar === "unknown") {
-    parts.push("I couldn't read your calendar just now, so I don't have your day. Ask me again in a minute.");
+    parts.push("I couldn't read your calendar just now, so I don't have your day. Say go and I'll retry it.");
   } else if (!real.length) {
     parts.push("I'm not seeing anything on your calendar, but I can't be sure the read was complete.");
   } else if (ahead.length) {

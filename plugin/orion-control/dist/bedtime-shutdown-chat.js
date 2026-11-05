@@ -14,7 +14,7 @@ export function argsFor(turn) {
         case "override": return ["override", turn.on ? "on" : "off", "--json"];
     }
 }
-const NOTHING = "I couldn't shut the Mac down just now, so nothing was closed or locked. Tell me again in a bit.";
+const NOTHING = "I couldn't shut the Mac down just now, so nothing was closed or locked. Say go and I'll retry it.";
 export async function runShutdownTurn(turn, deps) {
     const args = argsFor(turn);
     const r = await deps.run(args).catch(() => ({ stdout: "", code: 1 }));
@@ -25,5 +25,5 @@ export async function runShutdownTurn(turn, deps) {
             say = j.say;
     }
     catch { /* no answer */ }
-    return { text: say ?? (turn.kind === "run" ? NOTHING : "I couldn't change that just now. Tell me again in a bit."), calls: [`orion-bedtime-shutdown ${args.join(" ")}`], outputs: [r.stdout.trim().slice(0, 2000)] };
+    return { text: say ?? (turn.kind === "run" ? NOTHING : "I couldn't change that just now. Say go and I'll retry it."), calls: [`orion-bedtime-shutdown ${args.join(" ")}`], outputs: [r.stdout.trim().slice(0, 2000)] };
 }

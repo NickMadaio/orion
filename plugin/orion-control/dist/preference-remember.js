@@ -174,7 +174,7 @@ export async function savePreference(pref, run) {
     const call = `exec orion-remember --user "Preference: ${pref.fact}."`;
     if (out.code === 0 && /\bremembered\b/i.test(out.stdout))
         return { outcome: "done", calls: [call], outputs: [out.stdout], reply: `Got it — I'll remember ${pref.echo}.` };
-    return { outcome: "say", kind: "plain", text: "I couldn't save that just now, so it isn't kept yet. Say it again in a bit.", calls: [call], outputs: [out.stdout] };
+    return { outcome: "say", kind: "plain", text: "I couldn't save that just now, so it isn't kept yet. Say go and I'll retry it.", calls: [call], outputs: [out.stdout] };
 }
 /** The real script (no shell, fixed arguments), beside orion-wake in the repo's scripts (ORION_SCRIPTS_DIR for a replay). Wired in by index.ts only. */
 export const liveRememberRun = (args) => new Promise((resolve) => execFile(join(process.env.ORION_SCRIPTS_DIR || dirname(ORION_WAKE), "orion-remember"), args, { timeout: 15000 }, (e, stdout, stderr) => resolve({ stdout: `${String(stdout ?? "")}${String(stderr ?? "")}`, code: e ? 1 : 0 })));

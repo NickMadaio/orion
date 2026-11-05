@@ -1,4 +1,5 @@
 import { type Decision } from "./front-desk.js";
+import { type ToolResult } from "./work-check.js";
 import { type SessionExec, type SessionHint } from "./session-flow.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { parseEdit, type EditTarget } from "./edit-followup.js";
@@ -282,12 +283,14 @@ export declare function dateLine(now?: Date): string;
 export declare const PRODUCTION_NOTES: string;
 export declare const isPlanStatement: (message: string) => boolean;
 export declare const STATEMENT_LINE = "Got it. I haven't changed or noted anything. Tell me if you want me to add it to your day.";
-export declare const honestLine: (calendar: boolean, message?: string) => string;
+/** w20 wording: never "say it again". From the tool results when there are any (what ran, what failed and why, the next step);
+ *  else what really happened (nothing ran) and an offer to do it now. `rotate` avoids the same variant twice in a row (live replies only). */
+export declare const honestLine: (calendar: boolean, message?: string, tools?: ReadonlyArray<ToolResult>, rotate?: boolean) => string;
 export declare const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
-export declare const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
+export declare const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you yet. Want me to look it up now?";
 /** Spoken turns get one revise round (turn-budget.ts). What HONEST_STOP would have had the model say, said by code instead. */
 export declare const SPOKEN_STOP_WROTE = "Something went wrong partway through that, so I won't say it's done. Check your calendar, and say \"undo\" if it looks wrong.";
-export declare const SPOKEN_STOP = "I couldn't finish that properly, so I won't say it's done. Can you say it again?";
+export declare const SPOKEN_STOP = "That didn't finish properly, so I won't say it's done. Want me to run it again?";
 /**
  * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
  * never the model's reply, never a clean success line over a failed command.
@@ -301,6 +304,8 @@ export declare function spokenFinalLine(allFindings: readonly string[], ctx: {
     calendar: boolean;
     wrote: boolean;
     calendarChecked?: boolean;
+    tools?: ReadonlyArray<ToolResult>;
+    message?: string;
 }): string | undefined;
 /** Puts the text that must reach Nick into the turn's last assistant message (the one the host builds the
  *  reply from). Sweep 2026-10-15 (q006, q042, q055, q057, q067, q091): on `openclaw agent --json` —

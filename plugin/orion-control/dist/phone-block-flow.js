@@ -48,7 +48,7 @@ export async function blockGroups(opts) {
     const out = await run(args).catch(() => ({ stdout: "", code: 1 }));
     const tools = [{ canonical: cmd(args), stdout: out.stdout, exit: out.code }];
     if (out.code !== 0 || !/^\s*Sent to his phone/i.test(out.stdout)) {
-        return { flow: say(`I couldn't block ${sayLabels(groups)} just now, so nothing is blocked. Try again in a minute?`), tools, wrote: false };
+        return { flow: say(`I couldn't block ${sayLabels(groups)} just now, so nothing is blocked. Say go and I'll retry it.`), tools, wrote: false };
     }
     const label = opts.all ? "everything (social media, browsers, video, games and messaging)" : sayLabels(groups);
     const until = clockLabel(resolved.until);
@@ -66,7 +66,7 @@ export async function unblockGroups(opts) {
     const tools = [{ canonical: cmd(args), stdout: out.stdout, exit: out.code }];
     const text = out.stdout.trim();
     if (out.code !== 0 || !text)
-        return { flow: say("I couldn't reach your phone link just now, so nothing changed. Try again in a minute?"), tools, wrote: false };
+        return { flow: say("I couldn't reach your phone link just now, so nothing changed. Say go and I'll retry it."), tools, wrote: false };
     const still = text.match(/Still shut:\s*([^.]+)\./)?.[1];
     const stillSaid = still ? ` Still shut: ${sayLabels(still.split(","))}.` : "";
     const named = opts.groups === "all" ? "everything" : sayLabels(opts.groups);

@@ -129,7 +129,8 @@ describe("cluster 1: a question with no write keeps its answer", () => {
   });
   it("a change request that claims a change with no write still gets the honest line", async () => {
     const t = await route().turn("move gym to 9pm", "Done, I moved gym to 9 PM.");
-    expect(t.final).toMatch(/couldn't make that change|didn't actually do that/);
+    expect(t.final).toMatch(/couldn't (?:make that change|run that)/);
+    expect(t.final).not.toMatch(/say it again|rephrase/i);
   });
 });
 

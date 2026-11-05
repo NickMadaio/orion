@@ -71,7 +71,7 @@ export function readNamedWrite(message) {
 }
 // ---- carrying out ----
 const UNDO = "Say \"undo\" to put it back.";
-const READ_FAILED = "I couldn't read your calendar just now, so nothing changed. Tell me again in a moment.";
+const READ_FAILED = "I couldn't read your calendar just now, so nothing changed. Say go and I'll retry it.";
 const say = (text, calls = [], outputs = [], kind = "plain") => ({ outcome: "say", kind, text, calls, outputs });
 const label = (b) => b.title.replace(/\s+—.*$/, "");
 const cap = (t) => t.replace(/^./, (c) => c.toUpperCase());

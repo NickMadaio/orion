@@ -97,7 +97,7 @@ describe("schedule flow", () => {
         const out = "Changed Monday 2026-10-12:\n  rebuilt the remaining day\n  planned go over my marketing presentation: 17:15–18:00\n  planned practice leet code: 19:15–20:15";
         expect(spokenReply([out])).toBe("Done: go over my marketing presentation 5:15 PM–6:00 PM; practice leet code 7:15 PM–8:15 PM.");
         expect(spokenReply(["Changed:\n  do cert courses moved: 17:50 → 12:35–15:25"])).toBe("Done: do cert courses now 12:35 PM–3:25 PM.");
-        expect(spokenReply(["NOTHING WAS CHANGED: moving it would break the day rules — overlaps Macro"])).toMatch(/^Not done: moving it would break/);
+        expect(spokenReply(["NOTHING WAS CHANGED: moving it would break the day rules — overlaps Macro"])).toMatch(/^I couldn't do that: moving it would break/);
     });
     it("'clear my schedule after the lab' compiles to drop --after the lab", () => {
         expect(compile({ do: "clear_after", after: "B3" }, monday)).toEqual({ args: ["drop", "--after", "CS2101 Lab for Program Design & Implementation 1"] });
@@ -161,15 +161,15 @@ describe("schedule flow", () => {
         const exec = async (args) => (args[0] === "show" ? { stdout: JSON.stringify(thursday), code: 0 }
             : { stdout: "NOTHING WAS BOOKED: focus at 12:55 is already over today (Thursday 2026-10-15). If he meant another day, run again with --date YYYY-MM-DD.\nNOTHING WAS BOOKED on Thursday (2026-10-15). Do not tell him anything was added or moved.", code: 1 });
         const result = await runScheduleFlow({ message: "focus at 12:55", clock: "Thu 15:00", exec, ask: async () => ({ steps: [{ do: "add", what: "focus", minutes: 50, to: "12:55" }] }) });
-        expect(result).toMatchObject({ outcome: "say", kind: "plain", text: "Not done: focus at 12:55 PM has already ended today." });
+        expect(result).toMatchObject({ outcome: "say", kind: "plain", text: expect.stringMatching(/^I couldn't do that: focus at 12:55 PM has already ended today\. If you meant another day/) });
     });
     it("failure lines are spoken without usage text, block dumps, operator notes or 24-hour times", () => {
-        expect(spokenReply(['usage: orion-reschedule add "<title>" <minutes> [--at HH:MM | --after "<event>"] [--fixed] [--before HH:MM]'])).toBe("Not done: I couldn't make that change.");
-        expect(spokenReply(["NOTHING WAS BOOKED on Thursday (2026-10-15). Do not tell him anything was added or moved."])).toBe("Not done: nothing could be booked.");
-        expect(spokenReply(['NOTHING WAS CHANGED: no block called "gym" on Thursday. Blocks today: CS1800 Discrete Structures 09:00–10:30, finish resume 11:20–12:50.'])).toBe("Not done: there's no block called gym.");
+        expect(spokenReply(['usage: orion-reschedule add "<title>" <minutes> [--at HH:MM | --after "<event>"] [--fixed] [--before HH:MM]'])).toMatch(/^I couldn't make that change\./);
+        expect(spokenReply(["NOTHING WAS BOOKED on Thursday (2026-10-15). Do not tell him anything was added or moved."])).toMatch(/^I couldn't do that: nothing could be booked\./);
+        expect(spokenReply(['NOTHING WAS CHANGED: no block called "gym" on Thursday. Blocks today: CS1800 Discrete Structures 09:00–10:30, finish resume 11:20–12:50.'])).toMatch(/^I couldn't do that: there's no block called gym\. Which block did you mean/);
         expect(spokenReply(["NOTHING WAS CHANGED: moving it would break the day rules — CS2101 Lab (15:48–17:00) overlaps grind leetcode (16:15–17:45). Tell him what clashes and ask which to move; do not retry the same call."]))
-            .toBe("Not done: moving it would break the day rules — CS2101 Lab (3:48 PM–5:00 PM) overlaps grind leetcode (4:15 PM–5:45 PM).");
-        expect(spokenReply(["  NOT BOOKED: macro (45 min) did not fit on Thursday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)"])).toBe("Not done: macro didn't fit.");
+            .toMatch(/^I couldn't do that: moving it would break the day rules — CS2101 Lab \(3:48 PM–5:00 PM\) overlaps grind leetcode \(4:15 PM–5:45 PM\)\./);
+        expect(spokenReply(["  NOT BOOKED: macro (45 min) did not fit on Thursday — ask whether to drop it or put it on another day (--date YYYY-MM-DD)"])).toMatch(/^I couldn't do that: macro didn't fit around your classes and bedtime\./);
         expect(summarize(['NOTHING WAS CHANGED: no block called "gym" on Thursday. Blocks today: finish resume 11:20–12:50.'], []).reply).toBe("Not done: there's no block called gym.");
     });
     it("the form's own sentences name blocks by title, never by id", () => {

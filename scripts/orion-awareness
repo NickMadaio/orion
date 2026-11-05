@@ -23,7 +23,7 @@ import { readAwareness, writeAwareness, controlledDir } from "./lib/awareness/st
 import { sessionFacet, sessionFromHook, calendarFacet, macFacet, phoneFacet, sleepFacet, locationFacet, audioFacet, derive, isFresh, LIMITS } from "./lib/awareness/facets.mjs";
 import { macHomeEvidence } from "./lib/reach/facts.mjs";
 import { readJson, updateJson } from "./lib/awareness/io.mjs";
-import { readKnownPlaces, writeKnownPlaces, learnHome, reconcileHome, matchPlace, isNickConfirmed } from "./lib/awareness/places.mjs";
+import { readKnownPlaces, writeKnownPlaces, learnHome, reconcileHome, matchPlace, isNickConfirmed, findPlace, cleanAliases } from "./lib/awareness/places.mjs";
 import { gather, seamFacts } from "./lib/reach/facts.mjs";
 import { loadConfig } from "./lib/life/config.mjs";
 import { classAttendance, phoneMinutes } from "./lib/life/attendance.mjs";
@@ -151,17 +151,39 @@ async function main() {
   } else fail("usage: orion-awareness refresh|show|phase|place|curiosity (see the header of this file)");
 }
 
-function placeCommand(action, [id]) {
+function placeCommand(action, restArgs) {
+  const [id] = restArgs;
+  const rest = restArgs.slice(1);
   const places = readKnownPlaces(DIR);
   if (action === "list") {
-    for (const p of places) console.log(`${p.id}\t${p.name}\t${p.kind}\t${p.radiusM} m\t${p.source}`);
+    for (const p of places) console.log(`${p.id}\t${p.name}\t${p.kind}\t${p.radiusM} m\t${p.source}\t${(p.aliases ?? []).join(",")}`);
+  } else if (action === "find") {
+    const hit = findPlace(places, restArgs.join(" "));
+    if (!hit) fail(`no such place: ${restArgs.join(" ")}`, 1);
+    console.log(`${hit.id}\t${hit.name}\t${hit.kind}\t${hit.radiusM} m\t${hit.source}\t${(hit.aliases ?? []).join(",")}`);
+  } else if (action === "alias") {
+    const [, verb, ...words] = [id, ...rest];
+    const place = places.find((p) => p.id === id);
+    if (!place) fail(`no such place: ${id ?? ""}`, 1);
+    const alias = words.join(" ").trim();
+    if (!["add", "remove"].includes(verb) || !alias) fail("usage: orion-awareness place alias <id> add|remove <alias>");
+    const taken = places.find((p) => p.id !== id && findPlace([p], alias));
+    if (verb === "add" && taken) fail(`"${alias}" already means ${taken.id}`, 1);
+    const next = verb === "add" ? cleanAliases(place, [...(place.aliases ?? []), alias]) : (place.aliases ?? []).filter((a) => a.toLowerCase() !== alias.toLowerCase());
+    writeKnownPlaces(DIR, places.map((p) => (p.id === id ? { ...p, aliases: next } : p)));
+    console.log(`${verb === "add" ? "added" : "removed"} alias ${alias} on ${id}`);
   } else if (action === "set") {
     if (!id) fail("usage: orion-awareness place set <id> (--here | --lat N --lon N)");
     const point = args.includes("--here") ? hereFix() : { lat: Number(flag("--lat")), lon: Number(flag("--lon")) };
     if (!(Math.abs(point.lat) <= 90 && Math.abs(point.lon) <= 180) || Number.isNaN(point.lat + point.lon)) fail("need --here or valid --lat and --lon");
     const radius = Number(flag("--radius") ?? (id === "home" ? 150 : 120));
     if (!(radius >= 20 && radius <= 2000)) fail("--radius must be 20-2000 m");
-    const place = { id, name: flag("--name") ?? id, ...(flag("--label") ? { label: flag("--label") } : {}), ...point, radiusM: radius,
+    const aliasArgs = args.flatMap((a, i) => (args[i - 1] === "--alias" ? [a] : []));
+    const prior = places.find((p) => p.id === id);
+    const clash = aliasArgs.map((a) => places.find((p) => p.id !== id && findPlace([p], a))).find(Boolean);
+    if (clash) fail(`"${aliasArgs.find((a) => findPlace([clash], a))}" already means ${clash.id}`, 1);
+    const aliases = cleanAliases({ id, name: flag("--name") ?? id }, [...(prior?.aliases ?? []), ...aliasArgs]);
+    const place = { id, name: flag("--name") ?? id, ...(aliases.length ? { aliases } : {}), ...(flag("--label") ? { label: flag("--label") } : {}), ...point, radiusM: radius,
       kind: flag("--kind") ?? (id === "home" ? "home" : "other"), source: flag("--source") ?? "nick", confirmedAt: now.toISOString().slice(0, 10) };
     writeKnownPlaces(DIR, [...places.filter((p) => p.id !== id), place]);
     console.log(`saved ${id}`);

@@ -26,6 +26,30 @@ export function distanceM(a, b) {
   return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+const flatName = (s) => String(s ?? "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Every name a place answers to: its id, its name, its aliases ("spit" for Chapter Spitalfields). */
+export const namesOf = (place) => [...new Set([place?.id, place?.name, ...(Array.isArray(place?.aliases) ? place.aliases : [])].map(flatName).filter(Boolean))];
+
+/** The known place a phrase means ("spit", "the chapter spitalfields", "home"), by id, name or alias; null when none or when two places claim it. */
+export function findPlace(places, phrase) {
+  const want = flatName(String(phrase ?? "").replace(/^(?:the|my|our)\s+/i, ""));
+  if (!want) return null;
+  const hits = (places ?? []).filter((p) => namesOf(p).includes(want) || namesOf(p).includes(flatName(phrase)));
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/** Aliases cleaned: lowercase-insensitive de-duplication, short words only, never the place's own name. */
+export function cleanAliases(place, aliases) {
+  const own = new Set([flatName(place?.id), flatName(place?.name)]);
+  const seen = new Set();
+  return (aliases ?? []).map((a) => String(a ?? "").trim().replace(/^["'“”]+|["'“”]+$/g, "")).filter((a) => {
+    const k = flatName(a);
+    if (!k || k.length > 30 || own.has(k) || seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+
 /** The nearest known place whose radius holds the point, or null. */
 export function matchPlace(point, places) {
   if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lon)) return null;

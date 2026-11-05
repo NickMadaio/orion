@@ -68,6 +68,7 @@ export function summarize(outputs: string[], said: string[]): { reply: string; c
 /** A scheduler run that says it wrote nothing (its first line is "NOTHING WAS CHANGED/BOOKED"). */
 export const nothingWritten = (out: string): boolean => /^\s*(?:MUST-HAVE )?NOTHING WAS (?:CHANGED|BOOKED)\b/.test(out);
 
+export const NOTHING_CHANGED_LINE = "Nothing on your day changed.";
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
 export function spokenReply(outputs: string[], when?: string, kept?: string): string {
   // The plan a refused run lists is not what happened: only its failure lines are read.
@@ -91,6 +92,11 @@ export function spokenReply(outputs: string[], when?: string, kept?: string): st
     m = l.match(/^added(?: \(fixed\))? (.+?): (\d{2}:\d{2})–(\d{2}:\d{2})/);
     if (m) { planned.push(m[1]!); said.push(`${m[1]} ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
     m = l.match(/^(.+?) moved: \d{2}:\d{2} → (\d{2}:\d{2})–(\d{2}:\d{2})/);
+    if (m) { said.push(`${m[1]} now ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
+    // A rename keeps the slot ("New CS Lab 12:30–13:15 is now "CS Lab" (same time)"); a swap prints each block's new slot ("X now 12:30–13:15").
+    m = l.match(/^(.+?) \d{2}:\d{2}–\d{2}:\d{2} is now "(.+?)"(?: \(.*\))?$/);
+    if (m) { said.push(`renamed ${m[1]} to ${m[2]}`); continue; }
+    m = l.match(/^(.+?) now (\d{2}:\d{2})–(\d{2}:\d{2})$/);
     if (m) { said.push(`${m[1]} now ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
     m = l.match(/^(.+?) is now (\d+) min: (\d{2}:\d{2})–(\d{2}:\d{2})/);
     if (m) { said.push(`${m[1]} is now ${m[2]} minutes, ${ampm(m[3]!)}–${ampm(m[4]!)}`); continue; }
@@ -123,7 +129,7 @@ export function spokenReply(outputs: string[], when?: string, kept?: string): st
   const parts = [all.length ? `Done${when ? ` for ${when}` : ""}: ${all.slice(0, 6).join("; ")}.` : "", failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean);
   // A log carries its own one-line summary (what was logged, what moved, what is off today).
   if (logged) return [logged, failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean).join(" ");
-  return [...parts, ...(all.length && kept ? [kept] : [])].join(" ") || "Nothing on your day changed.";
+  return [...parts, ...(all.length && kept ? [kept] : [])].join(" ") || NOTHING_CHANGED_LINE;
 }
 
 const spanOf = (b: DayBlock): string => `${ampm(b.start)}–${ampm(b.end)}`;

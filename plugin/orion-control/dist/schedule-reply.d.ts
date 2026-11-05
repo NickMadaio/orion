@@ -14,6 +14,7 @@ export declare function summarize(outputs: string[], said: string[]): {
 };
 /** A scheduler run that says it wrote nothing (its first line is "NOTHING WAS CHANGED/BOOKED"). */
 export declare const nothingWritten: (out: string) => boolean;
+export declare const NOTHING_CHANGED_LINE = "Nothing on your day changed.";
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
 export declare function spokenReply(outputs: string[], when?: string, kept?: string): string;
 /** What differs between two reads of the same day, in plain words: added, removed, moved. */

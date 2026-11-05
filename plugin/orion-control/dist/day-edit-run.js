@@ -263,6 +263,38 @@ async function movePart(ctx, p) {
     if (settle(ctx, out, block.title, `move ${short}`))
         claim(ctx, p.day, block.title, to, to + len, (span) => `moved ${short} to ${span.split("–")[0]}`);
 }
+const SHORT_WORDS = new Set(["to", "at", "on", "in", "of", "up", "go", "do", "is", "it", "me", "we", "so", "or", "by", "no", "am", "pm", "vs", "my"]);
+/** His new title in the casing ORION writes: "cs lab" is "CS Lab". */
+const titleOf = (t) => t.split(/\s+/).filter(Boolean).map((w) => (/^[a-z]{2}$/.test(w) && !SHORT_WORDS.has(w) ? w.toUpperCase() : w.replace(/^./, (c) => c.toUpperCase()))).join(" ").slice(0, 80);
+/** "replace new cs lab with cs lab": the block keeps its slot under the new title; Y already on the day is a swap; a block that merely resembles Y is asked about. */
+async function renamePart(ctx, p) {
+    const day = await dayOf(ctx, p.day);
+    const block = blockNamed(p.name, day, ctx.nowMin);
+    if (!block && unreadable(ctx, p.day, `rename ${p.name}`))
+        return;
+    if (!block) {
+        ctx.failed.push(`rename ${p.name} (I can't see it on ${p.day === "today" ? "today's" : "that day's"} plan)`);
+        return;
+    }
+    const short = block.title.replace(/\s+[—–-].*$/, "");
+    const title = titleOf(p.to);
+    const others = (day?.blocks ?? []).filter((b) => b !== block && b.kind !== "commute");
+    const exact = others.find((b) => norm(b.title) === norm(title));
+    if (exact) {
+        const out = await exec(ctx, "orion-reschedule", ["swap", block.title, exact.title, ...DAY_ARGS[p.day]]);
+        if (settle(ctx, out, block.title, `swap ${short} and ${exact.title}`))
+            ctx.done.push(`swapped ${short} and ${exact.title.replace(/\s+[—–-].*$/, "")}`);
+        return;
+    }
+    const near = blocksNamedBy(p.to, others);
+    if (near.length) {
+        ctx.extra.push(`There's ${near.map((b) => `${b.title.replace(/\s+[—–-].*$/, "")} (${spanText(toMin(b.start), toMin(b.end))})`).join(" and ")} on ${p.day === "today" ? "today" : p.day}'s plan, which fits "${title}". Do you want ${short} swapped with it, or renamed "${title}"? I haven't changed anything.`);
+        return;
+    }
+    const out = await exec(ctx, "orion-reschedule", ["rename", block.title, title, ...DAY_ARGS[p.day]]);
+    if (settle(ctx, out, block.title, `rename ${short}`))
+        claim(ctx, p.day, title, toMin(block.start), toMin(block.end), (span) => `renamed ${short} to ${title} (it keeps ${span})`);
+}
 /** "shove the plan after that": it goes where the other block ends (read from the day after the other one moved), `gap` minutes later. */
 async function moveAfterPart(ctx, p) {
     const day = await dayOf(ctx, p.day);
@@ -572,6 +604,8 @@ export async function runDayEdit(edit, deps) {
             await resizePart(ctx, p);
         else if (p.op === "moveafter")
             await moveAfterPart(ctx, p);
+        else if (p.op === "rename")
+            await renamePart(ctx, p);
         else if (p.op === "move")
             await movePart(ctx, p);
         else if (p.op === "drop")

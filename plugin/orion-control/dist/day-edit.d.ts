@@ -64,6 +64,13 @@ export type EditPart = {
     day: DayRef;
     minutes: number;
 }
+/** "rename X to Y", "replace X with Y": the block keeps its slot and becomes Y (a swap when Y is already a block on the day). */
+ | {
+    op: "rename";
+    name: string;
+    day: DayRef;
+    to: string;
+}
 /** "shove the orion plan an hour after that": the block goes after another (the one named, or the one the clause before moved), `gap` minutes after it ends. */
  | {
     op: "moveafter";

@@ -15,6 +15,7 @@ Steps:
 - add: a new block titled "what", "minutes" long, at "to" or right after block "after"
 - drop: remove block "what" (movable only) · skip: he is not going to class "what" today
 - swap: block "what" with block "with" · tidy: separate overlaps
+- rename: block "what" keeps its time and becomes "newTitle" ("replace X with Y", "rename X to Y", "call it Y instead" when Y is not a block on the day)
 - late: he is running "minutes" late right now ("I'm running 15 late") — everything not yet done slides back
 - overrun: class "what" runs "minutes" over, or he is late to it and wants what comes after it pushed back by "minutes"
 - log: he says what he did or is doing, which may be over a planned block ("i'm at the gym", "was at the library since 2", "gym 2-4", "did gym instead of resume"): "what" is his own short title, "from" when he started (24-hour HH:MM), "to" when it ended (HH:MM) or "now" if he is still at it, "instead" the block id it replaced if he says so. A time he does not give is left out — code fills it in. "nothing", "nothing really", "just chilling" is NOT a log: answer
@@ -26,6 +27,7 @@ Examples, for this SAMPLE day only (his real day below has its own ids — never
 - "put gym between my two classes" (gym is not on the day) → {"steps":[{"do":"fill_between","what":"gym","after":"B1","before":"B2"}]}
 - "after my lab I'll go to the library, 10 min walk, then do my essay and call mom" → {"steps":[{"do":"plan","after":"B2"}]}
 - "going back to my dorm after the lab, clear my schedule after it, I'll tell you the plan later" → {"steps":[{"do":"clear_after","after":"B2"}]}
+- "rename the lab to CS Lab" → {"steps":[{"do":"rename","what":"B2","newTitle":"CS Lab"}]}   (a title that is not a block on the day; never a log)
 - "skip the lab today" → {"steps":[{"do":"skip","what":"B2"}]}   (a class is skipped, never dropped)
 - "DS got moved to 11:30 today" → {"steps":[{"do":"move","what":"B1","to":"11:30"}]}   (a FIXED block moves only when it is the thing he is moving, by name, with its new time; that is not an overrun. A FIXED block he only mentions beside another move stays put, and homework or study for a class is not the class)
 - "push cert courses to 6" → {"steps":[{"do":"move","what":"B3","to":"18:00"}]}

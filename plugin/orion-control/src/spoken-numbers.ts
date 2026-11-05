@@ -40,7 +40,9 @@ const clock = (hour: number, minute: number | undefined, suffix = ""): string =>
 const meridiem = (s: string): string => (/^p/i.test(s.replace(/\s/g, "")) ? "pm" : "am");
 
 /** "half past seven" / "quarter to eight" / "quarter after six". */
-const RELATIVE = new RegExp(String.raw`\b(half|quarter)\s+(past|after|to)\s+(${HOUR})\b(?:\s*(${MERIDIEM}))?`, "gi");
+const RELATIVE = new RegExp(String.raw`\b(half|quarter)\s+(past|after|to)\s+(${HOUR}|\d{1,2})\b(?:\s*(${MERIDIEM}))?`, "gi");
+/** British "half six", "half 6": half past, after a time preposition only ("at half 6"). */
+const HALF = new RegExp(String.raw`\b(${PREP})\s+half\s+(${HOUR}|\d{1,2})\b(?!\s+(?:an?|hour|the|of|past|to)\b)`, "gi");
 /** "eleven forty five pm", "ten pm", "seven thirty am": a meridiem makes any hour word a time. */
 const WITH_MERIDIEM = new RegExp(String.raw`\b(${HOUR})(?:\s+(${MINUTES}))?\s*(${MERIDIEM})`, "gi");
 /** "six o'clock". */
@@ -52,18 +54,19 @@ const FKEY = new RegExp(String.raw`\b(?:f|function)[\s-]*(${NUM}|\d{1,2})\b(?![\
 /** "button six", "button number six". */
 const BUTTON = new RegExp(String.raw`\b(button|btn)\s+(?:number\s+|no\.?\s+|#)?(${NUM})\b`, "gi");
 /** "twenty minutes", "three sets": a count before a unit. */
-const COUNT = new RegExp(String.raw`\b(${NUM})\s+(min|mins|minutes?|hours?|hrs?|secs?|seconds?|sets?|reps?|miles?|km|times|days)\b`, "gi");
+const COUNT = new RegExp(String.raw`\b(${NUM})\s+(min|mins|minutes?|hours?|hrs?|seconds?|sets?|reps?|miles?|km|times|days)\b`, "gi");
 
 export function normalizeSpoken(text: string): string {
   if (!text) return text;
   let out = text.replace(RELATIVE, (whole, kind: string, dir: string, hour: string, mer?: string) => {
-    const h = num(hour);
-    if (h === undefined) return whole;
+    const h = /^\d+$/.test(hour) ? Number(hour) : num(hour);
+    if (h === undefined || h < 1 || h > 12) return whole;
     const suffix = mer ? meridiem(mer) : "";
     const k = kind.toLowerCase(), d = dir.toLowerCase();
     if (d === "to") return k === "quarter" ? clock(h === 1 ? 12 : h - 1, 45, suffix) : whole;
     return clock(h, k === "half" ? 30 : 15, suffix);
   });
+  out = out.replace(HALF, (whole, prep: string, hour: string) => { const h = /^\d+$/.test(hour) ? Number(hour) : num(hour); return h === undefined || h < 1 || h > 12 ? whole : `${prep} ${clock(h, 30)}`; });
   out = out.replace(WITH_MERIDIEM, (whole, hour: string, mins: string | undefined, mer: string) => {
     const h = num(hour); const m = mins === undefined ? undefined : minutesOf(mins);
     if (h === undefined || (mins !== undefined && m === undefined)) return whole;

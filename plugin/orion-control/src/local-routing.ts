@@ -74,6 +74,8 @@ import { kindOf, parseOutreach, asksWhy, asksYourQuestion, whyNote, planOutreach
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, readLastOutreach, stateCard, type CardInputs } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
 import { readDayEdit } from "./day-edit.js";
+import { gateDecision, isDirectQuestion, schedulingAsk } from "./route-gate.js";   // w20 routegate: the shared "did I understand" gate
+import { multiAskPrompt, splitAsks } from "./multi-ask.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
@@ -264,6 +266,8 @@ type Run = {
   noTools?: boolean;
   /** A front-desk tool move code worked out (tool-moves.ts): the one call the worker must make. */
   directive?: Extract<ToolDirective, { kind: "call" }>;
+  /** w20 routegate (multi-ask.ts): the asks of a plain multi-request message; the worker runs each and the reply covers each. */
+  multiAsk?: string[];
   brain?: Promise<string>;
   flow?: FlowResult;
   sessionKey?: string;
@@ -1264,7 +1268,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (quietUntil && addressed(message) && quietStart === undefined) quiet.end(nowMs());
     // 2026-10-31 (chatter.ts roomTalk): out loud and without "orion", one side of someone else's conversation, or a line in a run of them.
     if (addressed(message)) rooms.clear(sessionKey);
-    const room = on && !cont && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()), trailing: trailsOff(message) }) ?? undefined : undefined;
+    const room = on && !cont && !quietUntil && quietStart === undefined ? roomTalk(message, { spoken: spokenTurn, streak: rooms.recent(sessionKey, nowMs()) && !isDirectQuestion(message), trailing: trailsOff(message) }) ?? undefined : undefined;
     const hushed = !cont && ((!!quietUntil && spokenTurn && !addressed(message) && quietStart === undefined) || room === "room");
     const cutOff = !hushed && spokenTurn && trailsOff(message);
     if (sessionKey) lastTurn.set(sessionKey, { text: message, at: Date.now(), marks: [] });
@@ -1288,7 +1292,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const mmove = on && !cutOff && !quietTurn && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw)!.text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
     // w14 g-food (food-read.ts): a calorie question, "log this: …", a meal with a food in it, a chat photo, or his reply to "Log it?".
     const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
-    const food = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
+    const calendarAsk = schedulingAsk(message);   // "put gym at 10-11", "add marketing from 7-9:30pm": the calendar's, never a meal, app, mouse or shutdown turn
+    const food = on && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
       ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : {}), attachments: Array.isArray(event.attachments) ? event.attachments as Array<{ kind?: string }> : [],
       ...(foodMemory.lastLogged(sessionKey) ? { lastLogged: foodMemory.lastLogged(sessionKey)! } : {}) }) ?? undefined : undefined;
     if (!food && !quietTurn) foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
@@ -1304,9 +1309,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // w18 bedtime (bedtime-shutdown-read.ts): a yes to "want me to shut things down?", "put my computer to bed", "i need 20 more minutes": code runs it.
     const shutdownAt = (options.now ?? pluginNow)();
     const shutdownCtx = options.shutdownRun && options.stateDir ? shutdownContext(options.stateDir, shutdownAt, parseOutreach(raw)?.text, sessionKey ?? "") : undefined;
-    const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !isCrisis(message)
+    const shutdownTurn = on && shutdownCtx && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !isCrisis(message)
       ? readShutdownTurn(message, shutdownCtx) ?? undefined : undefined;
-    const appsTurn = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
+    const appsTurn = on && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !shutdownTurn && !isCrisis(message) && options.appsRun ? readAppsTurn(message) ?? undefined : undefined;
     // w18 mousechat (mouse-read.ts): "make my side button do stage manager", "dont do anything in minecraft", "what are my mouse buttons set to", or a yes to a new-mouse outreach.
     const mouseAt = (options.now ?? pluginNow)();
     const mouseWaiting = on && options.mouseRun ? mouseMemory.get(sessionKey, mouseAt.getTime()) : undefined;
@@ -1314,7 +1319,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // 15 minutes and nothing else was said in this chat since.
     const push = options.stateDir ? readLastOutreach(options.stateDir, mouseAt) : null;
     const mouseOutreach = parseOutreach(raw)?.text ?? (push && mouseAt.getTime() - Date.parse(push.at) <= 15 * 60_000 && Date.parse(push.at) > mouseMemory.lastOther(sessionKey) ? push.text : undefined);
-    const mouse = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
+    const mouse = on && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
       ? readMouseTurn(message, { ...(mouseWaiting ?? {}), outreachAbout: !!mouseOutreach && /\bmouse\b/i.test(mouseOutreach) }) ?? undefined : undefined;
     if (!mouse && !quietTurn) { mouseMemory.clear(sessionKey); mouseMemory.otherTurn(sessionKey, mouseAt.getTime()); }
     const reality = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
@@ -1470,7 +1475,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if ("error" in d || (d.fallback && d.fallback !== "code-first")) log({ stage: "decision", runId, message, decision: "error" in d ? { move: "escalate", fallback: d.error } : d });
     // A front-desk failure must not switch the flow off (it did once: "scrap the gym tmrw").
     if ("error" in d) { run.settled = { move: "escalate", fallback: d.error }; return { providerOverride: workerProvider, modelOverride: workerModel }; }
-    run.settled = d;
+    // w20 routegate: a side-effect tool move must have his verb aimed at that thing; "ignore" never silences a typed turn or a question.
+    run.settled = gateDecision(d, message, !!run.spoken);
     // r8 review 4 HIGH-1 (2026-10-16): the front desk read his reply as a device or lookup request ("turn off the lights"),
     // so it is not the title the add question asked for: nothing is booked and the turn routes normally.
     if (run.addAnswer?.kind === "run" && "title" in run.addAnswer.run && d.move === "tool") run.addAnswer = undefined;
@@ -1717,6 +1723,17 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const answersOutreach = !!run.outreach || (recentPush(run.card) && run.message.trim().split(/\s+/).length <= 6);
       if (!run.flow && run.settled.move === "ignore" && run.spoken && !addressed(run.message) && !answersOutreach && !run.stitched) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
       if (!run.flow && run.settled.move === "ignore" && isNotForOrion(run.message, !!run.spoken) && !answersOutreach && !run.stitched) run.flow = { outcome: "say", kind: "plain", text: NOT_CAUGHT };
+      // w20 routegate: several plain requests in one message ("open safari and set a timer and add milk to my list"). Code splits the asks (a
+      // clause about the calendar, a reminder, bed or the alarm keeps the whole message for the scheduling flow); the worker runs each with its
+      // tools and the reply says what happened to each. Before the readers below, which would each take only the first ask.
+      if (!run.flow && !run.cutOff && !run.hushed && !chatter && !run.codeFirst && !run.reminder && !run.outreach && !run.pending) {
+        const asks = splitAsks(run.message);
+        if (asks) {
+          const hints = asks.map((a) => { const d = toolDirective({ move: "answer" }, a); return d?.kind === "call" ? `use ${taskRunCall(d.args)}` : undefined; });
+          run.multiAsk = asks;
+          return { systemPrompt: `${LOCAL_IDENTITY}\n\n${multiAskPrompt(asks, hints)}\n\n${PRODUCTION_NOTES}\n\n${now}` };
+        }
+      }
       // "im ready to work" / "done" / "i need youtube for this" (focus-ready.ts): code starts the session from the plan with the task's
       // apps, ends it early with one break-or-next question, or allows one site. Typed or addressed to ORION only starts anything.
       if (!run.flow && !run.cutOff && options.focusReady) {

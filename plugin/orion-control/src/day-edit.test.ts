@@ -81,15 +81,17 @@ describe("reading: what already happened", () => {
 
 describe("running: every part is tried, the past is logged", () => {
   it("add 7-9:30 (already started) and run 10-11 and bedtime: log, add, sleepplan, one line", async () => {
-    const { calls, deps } = fakeRun();
+    // orion-sleepplan answers with its read-back from wake-plan.json (w20 routegate): the line states that, not what was asked for.
+    const readback = { evening: "2026-11-04", sleepBy: "23:45", nudgeAt: "23:15", wake: "09:00", wakeDate: "2026-11-05", alarmAsked: false, hours: 9.25, lockdownBelowHours: 6, tonightOnly: true, standing: "00:00" };
+    const { calls, deps } = fakeRun(DAY, (s) => (s === "orion-sleepplan" ? { stdout: JSON.stringify({ ok: true, readback }), code: 0 } : undefined));
     const out = await runDayEdit(readDayEdit("add pottery from 7pm to 9:30pm. then run from 10pm to 11pm. push bed to 11:45", NOW)!, deps);
     expect(calls).toEqual([
       ["orion-reschedule", "log", "Pottery", "--from", "19:00", "--to", "21:30"],
       ["orion-reschedule", "add", "Run", "60", "--at", "22:00", "--length-explicit"],
-      ["orion-sleepplan", "bedtime", "23:45"],
+      ["orion-sleepplan", "bedtime", "23:45", "--tonight", "--json"],
     ]);
     expect(out.writes).toBe(2);
-    expect("reply" in out.flow && out.flow.reply).toBe("I logged pottery 7–9:30 PM, put run at 10–11 PM and set your bedtime to 11:45 PM.");
+    expect("reply" in out.flow && out.flow.reply).toBe("I logged pottery 7–9:30 PM, put run at 10–11 PM and set your bedtime to 11:45 PM tonight (wind-down 11:15 PM, 9.25h of sleep before your 9 AM alarm).");
   });
   it("a refusal in one part does not stop the next, and is said with its reason", async () => {
     const { calls, deps } = fakeRun(DAY, (_s, a) => (a[1] === "Pottery" ? { stdout: "NOTHING WAS CHANGED: Pottery has already started", code: 1 } : undefined));

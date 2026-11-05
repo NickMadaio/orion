@@ -12,6 +12,7 @@
  `schedulingAsk` before the routes that must never take a calendar ask.
 */
 import type { Decision } from "./front-desk.js";
+import { isTimerRequest } from "./tool-moves.js";
 
 const flat = (s: string): string => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
 
@@ -51,32 +52,28 @@ export function schedulingAsk(message: string): boolean {
 }
 
 const QUESTION_START = /^(?:please |pls |hey |ok |okay |so |and |but )*(?:can|could|would|will|do|does|did|are|is|am|was|were|have|has|what|whats|what's|why|how|when|where|who|which|should|shall)\b/i;
+const AIMED_AT_ORION = /\b(?:you|u|ya|yourself|urself|your|ur|orion)\b/;
 /** A direct question: ends in "?" or opens like one. */
 export const isDirectQuestion = (message: string): boolean => { const m = flat(message); return /\?\s*$/.test(m) || QUESTION_START.test(m); };
 
 // Side-effect desk moves need his verb aimed at that thing in his words. One entry per tool; a tool not listed here is a read or is gated elsewhere.
-const START = String.raw`(?:start|begin|kick off|launch|run|do|go|let'?s|lets|put me|get me|set up|set|lock in|time me|need|want)`;
 const OPEN = /\b(?:re-?open|open|launch|start|pull up|bring up|bring|go to|switch to|load|run|fire up|show me)\b/i;
 const FOCUS_THING = /\b(?:focus|session|pomodoro|deep work|work(?:ing)? on|study(?:ing)?|grind|lock in|block)\b/i;
-const SESSION_VERB = new RegExp(String.raw`\b${START}\b|\b(?:stop|end|finish|pause|resume|extend|cancel|check|how long|status|what'?s)\b`, "i");
-const LIGHTS_VERB = /\b(?:turn|switch|put|set|dim|brighten|make|kill|lights?|lamp|bright|darker|colou?r)\b/i;
-const MEDIA_VERB = /\b(?:play|pause|skip|next|previous|stop|resume|volume|louder|quieter|mute|unmute|queue|put on|turn|music|song|track|shuffle)\b/i;
 const BROWSER_VERB = /\b(?:open|go to|search|google|look up|pull up|visit|navigate|load|bring up|browse|youtube)\b|\.(?:com|org|net|io|edu|co)\b|\bhttps?:/i;
-const SIDE_EFFECT_TOOLS = new Set(["session", "app_open", "browser", "lights", "media", "wake", "alarm", "log_intake", "repair_note", "phone_time"]);
+const SIDE_EFFECT_TOOLS = new Set(["session", "app_open", "browser"]);
 
 function toolUnderstood(tool: string, args: Record<string, unknown>, message: string): boolean {
   const m = flat(message);
   switch (tool) {
     case "session": {
       const doing = String(args.do ?? "");
-      if (doing === "status" || doing === "read") return true;
-      if (doing && doing !== "start") return SESSION_VERB.test(m) && /\b(?:session|focus|pomodoro|it|timer)\b/.test(m);
-      return SESSION_VERB.test(m) && (FOCUS_THING.test(m) || (typeof args.task === "string" && args.task.trim() !== "" && inHisWords(m, args.task)));
+      if (doing && doing !== "start") return true;   // status / stop / extend act on a session that exists
+      if (isTimerRequest(message)) return true;      // tool-moves.ts turns a timer into timer_set whatever the desk picked
+      // A start needs the focus thing in his words (or the task he named): narration like "now that we have that set, I will ask Orion" has neither.
+      return FOCUS_THING.test(m) || (typeof args.task === "string" && args.task.trim() !== "" && inHisWords(m, args.task));
     }
     case "app_open": return OPEN.test(m) && args.application !== undefined && inHisWords(m, args.application);
     case "browser": return BROWSER_VERB.test(m);
-    case "lights": return LIGHTS_VERB.test(m);
-    case "media": return MEDIA_VERB.test(m);
     default: return true; // wake/alarm are parsed from his words by their own flows; the rest are read or logged only with his phrasing elsewhere
   }
 }
@@ -84,17 +81,18 @@ function toolUnderstood(tool: string, args: Record<string, unknown>, message: st
 /**
  * The front desk's move, gated:
  *  - a side-effect tool move whose verb is not aimed at that thing in his words becomes an escalation (the worker reads his words, with tools);
- *  - "ignore" never silences a typed or phone message, and never a direct question, spoken or not.
+ *  - "ignore" never silences a direct question, spoken or typed (typed and phone turns are never silenced anyway: local-routing answers them
+ *    or has the worker ask what he needs; only spoken room talk with no question in it stays quiet).
  */
-export function gateDecision(decision: Decision, message: string, spoken: boolean, filler = false): Decision {
+export function gateDecision(decision: Decision, message: string, spoken = false): Decision {
   if (decision.move === "tool" && SIDE_EFFECT_TOOLS.has(decision.tool ?? "")) {
     if (!toolUnderstood(decision.tool ?? "", (decision.args ?? {}) as Record<string, unknown>, message)) {
       const { tool: _t, args: _a, say: _s, ...rest } = decision;
       return { ...rest, move: "escalate", tier: "standard", fallback: "gate: tool move not aimed at a thing in his words" };
     }
   }
-  // `filler`: a typed "hm" / "asdf" that local-routing answers with a fixed "didn't catch that" (still a reply, never silence).
-  if (decision.move === "ignore" && (isDirectQuestion(message) || (!spoken && !filler))) {
+  // Spoken: only a question aimed at ORION ("can you ...", "your ..."); a general question into the room (TV, a call) stays quiet.
+  if (decision.move === "ignore" && isDirectQuestion(message) && (!spoken || AIMED_AT_ORION.test(flat(message)))) {
     const { say: _s, ...rest } = decision;
     return { ...rest, move: "escalate", tier: "standard", fallback: "gate: ignore never silences a typed turn or a question" };
   }

@@ -1,7 +1,28 @@
+/*
+ Which chat turns are about his mouse buttons (w18 mousechat, 2026-11-03). Pure: mouse-chat.ts carries them out through scripts/orion-mouse.
+
+ Nick: "make my side button do stage manager", "back button should go to the left desktop", "dont do anything in minecraft",
+ "what are my mouse buttons set to".
+
+   status       "what are my mouse buttons set to"
+   set          "<button> <action>" with an optional app ("only in safari"); a missing button or action is the script's question
+   clear        "unbind the back button", "put the front button back to normal"
+   passthrough  "dont do anything in minecraft", "leave the mouse alone in photoshop", "stop ignoring the mouse in minecraft"
+   games        "turn off game detection"
+   wheel        "make my scroll wheel normal" (always), "normal scrolling when gaming" (games), "leave my mouse wheel alone" (never)
+   setup        "set up my new mouse", or a yes to ORION's own "I see a new mouse, want to set it up?"
+   apply        a yes to the suggested defaults the setup listed
+   decline      a no to either of those (answered here, nothing runs)
+   cancel       "never mind" while ORION is waiting on a button or an action
+
+ This file only picks the words out (a button phrase, an action phrase, an app phrase); the script is the one that resolves and validates them.
+ A reply ("the front one", "stage manager") belongs to the follow-up only while that question is still the last thing said in this chat.
+*/
+import { normalizeSpoken } from "./spoken-numbers.js";
 const flat = (s) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
 const BTN = String.raw `(?:front|back|forward|rear)`;
 const MOUSE = /\bmouse\b|\bbasilisk\b|\brazer\b/i;
-const BUTTON_PHRASE = new RegExp(String.raw `\b(?:(?:mouse )?button\s*#?\d{1,2}|${BTN} side(?: button)?|side ${BTN}(?: button)?|${BTN}(?: thumb)? button|(?:side|thumb) button|(?:top|sensitivity|dpi) button|f(?:1[3-9]|20)(?: key)? button)\b`, "i");
+const BUTTON_PHRASE = new RegExp(String.raw `\b(?:(?:mouse )?button\s*#?\d{1,2}|${BTN} side(?: button)?|side ${BTN}(?: button)?|${BTN}(?: thumb)? button|(?:side|thumb) button|(?:top|sensitivity|dpi) button|f(?:1[3-9]|20)(?: key)?(?: button)?)\b`, "i");
 const MOUSEISH = new RegExp(`${MOUSE.source}|${BUTTON_PHRASE.source}|\\bthumb\\b`, "i");
 const KEYWORD = String.raw `(?:cmd|command|ctrl|control|opt|option|alt|shift)`;
 const ACTION_PHRASE = new RegExp([
@@ -73,6 +94,7 @@ const lastIn = (said) => {
     const app = (APP_LEAD.exec(said) ?? APP_TAIL.exec(said))?.[1]?.trim();
     return app && !NOT_APP.test(app) ? app : undefined;
 };
+const distinctButtons = (said) => new Set([...said.matchAll(new RegExp(BUTTON_PHRASE.source, "gi"))].map((m) => m[0].replace(/^(?:the |my |mouse )/, "").replace(/(?: key| button)$/, "").replace(/\s+/g, ""))).size;
 const buttonOf = (said) => (BUTTON_PHRASE.exec(said)?.[0] ?? "").replace(/^(?:the |my )/, "");
 /** "nothing" is an action only as a binding ("make it do nothing", "set back button to nothing") or a bare reply, never in "my mouse does nothing". */
 const actionOf = (said) => ACTION_PHRASE.exec(said)?.[0]?.trim()
@@ -115,7 +137,8 @@ function readMany(said) {
     return { kind: "many", turns };
 }
 /** The mouse turn in his message, or null. */
-export function readMouseTurn(message, c = {}) {
+export function readMouseTurn(rawMessage, c = {}) {
+    const message = normalizeSpoken(rawMessage); // "button six", "f thirteen": the one shared normaliser, ahead of every parser
     const said = flat(message.trim().replace(/\s+/g, " "));
     if (!c.pending && !c.confirm && said.length <= 400) {
         const many = readMany(said);
@@ -163,15 +186,20 @@ function readOne(message, c) {
     const asked = /^(?:what|which|how|why|is|are|does|do)\b/.test(said);
     if (!BIND_VERB.test(said) && !asked && ((REOPEN_VERB.test(said) && REOPEN_THING.test(said) && !READING.test(said)) || REOPEN_BARE.test(said)))
         return { kind: "setup", again: true };
-    if (QUESTION.test(said))
+    // A question about the settings gets the status. A REQUEST phrased as a question ("can you set button 6 to ...?") is not one:
+    // it was dumped as a status paragraph when its button or action did not parse (A3 / A4, tube audit 2026-11-04).
+    const asksStatus = /\b(?:what|whats|which|how)\b/.test(said) || (QUESTION.test(said) && !BIND_VERB.test(said) && !/\b(?:can|could|would|will)\s+you\b/.test(said) || /^(?:what|which|how|is|are|does|do you|tell me|show|list|check|read)\b/.test(said));
+    if (QUESTION.test(said) && asksStatus)
         return mouseish && STATUS_WORD.test(said) || (MOUSE.test(said) && /\b(?:buttons?|settings?|bindings?)\b/.test(said)) ? { kind: "status" } : null;
     if (!mouseish)
         return null;
+    if (distinctButtons(said) > 1)
+        return null; // two buttons named and no way to tell which is meant: the model asks, code never guesses
     if (CLEAR_VERB.test(said) && !actionOf(said).replace(/^nothing$/i, ""))
         return { kind: "clear", button: buttonOf(said), ...(app ? { app } : {}) };
     const action = actionOf(said);
     if (!action && !(BIND_VERB.test(said) && buttonOf(said)))
-        return /\b(?:mouse (?:settings|buttons|bindings))\b/.test(said) ? { kind: "status" } : null;
+        return /\b(?:show|list|check|status|tell me)\b/.test(said) && /\b(?:mouse (?:settings|buttons|bindings))\b/.test(said) ? { kind: "status" } : null;
     const scoped = app && action && !action.toLowerCase().includes(app.toLowerCase()) ? app : undefined;
     return { kind: "set", button: buttonOf(said), action, ...(scoped ? { app: scoped } : {}) };
 }

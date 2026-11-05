@@ -52,11 +52,16 @@ export function wakeOn(date, options) {
 
 /** Minutes after `date`'s midnight by which he should be asleep that night (may pass 1440). */
 export function bedOn(date, { blocksOf, config, wakeRequest = null }) {
+  const plan = sleepPlanOf(config);
   const bedtime = toMinute(config.bedtime);
   const target = bedtime < 12 * 60 ? 1440 + bedtime : bedtime;
-  const sleep = sleepPlanOf(config).sleepHours;
+  // w20 routegate: a bedtime he named for this night is exact (no sleep-need cap, no night-out push); a standing one he named
+  // (plan.bedFixed) is exact too, so "bed at 11:45" means 11:45 even before an early alarm. The shortfall is said, never silently capped.
+  const forced = plan.bedOverrides?.[date];
+  if (forced) { const f = toMinute(forced); return f < 12 * 60 ? 1440 + f : f; }
+  const sleep = plan.sleepHours;
   const needed = 1440 + wakeOn(dayAfter(date), { blocksOf, config, wakeRequest }) - Math.round(sleep * 60);
-  let bed = Math.min(target, needed);
+  let bed = plan.bedFixed ? target : Math.min(target, needed);
   const lateFixed = blocksOf(date).filter((b) => b.fixed && b.source !== "orion" && b.end > bed).sort((a, b) => b.end - a.end)[0];
   if (lateFixed) bed = lateFixed.end + (config.commuteMinutes ?? 30);
   return bed;

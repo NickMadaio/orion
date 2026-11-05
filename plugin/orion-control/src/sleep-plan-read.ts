@@ -17,6 +17,8 @@
 import { isNo, isYes } from "./schedule-pending.js";
 import { saysYes } from "./day-lighten.js";
 import { readAlarm, type AlarmReq } from "./alarm-read.js";
+import { normalizeSpoken } from "./spoken-numbers.js";
+import { readBedtimeChange, type BedChange } from "./bedtime-read.js";
 import { AMOUNT, clean, LEAD, leadMinutes, slotsOf, wakeTime, type Draft } from "./sleep-plan-slots.js";
 
 export type { Draft, DayWake } from "./sleep-plan-slots.js";
@@ -32,6 +34,8 @@ export type SleepTurn =
   | { kind: "noexcept"; activity: string; grace?: boolean; again?: boolean }
   /** "i wanna sleep earlier this week": sleep only, nothing about waking. A new bedtime, said and saved in one reply. */
   | { kind: "bedtime"; time?: string }
+  /** w20 routegate (bedtime-read.ts): an exact bedtime or a shift, tonight or every night; carried out by bedtime-change.ts. */
+  | { kind: "bedset"; change: BedChange }
   /** W18: one morning's alarm said outright: set, off, moved, or read (alarm-read.ts, alarm-flow.ts). */
   | { kind: "alarm"; req: AlarmReq };
 
@@ -104,7 +108,7 @@ export function readBedShift(message: string): { time?: string } | undefined {
 
 /** Whether the sleep plan owns this statement before the health reader can (a wake statement, or a sleep-only bedtime shift). */
 export const ownsSleepStatement = (message: string, ctx: { now?: Date; recentAlarm?: boolean } = {}): boolean =>
-  !!readHabit(message) || !!readBedShift(message) || !!readAlarm(message, alarmCtx(ctx));
+  !!readHabit(message) || !!readBedtimeChange(message) || !!readBedShift(message) || !!readAlarm(message, alarmCtx(ctx));
 const alarmCtx = ({ now, recentAlarm }: { now?: Date; recentAlarm?: boolean }) => ({ ...(now ? { hour: now.getHours() } : {}), ...(recentAlarm ? { recentAlarm } : {}) });
 
 // ── exceptions by talk ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -204,9 +208,12 @@ export function readAnswer(message: string, held: SleepPending): SleepTurn | und
 }
 
 /** This turn's part in the sleep plan, or undefined. A held interview reads the answer first; a new statement starts over. */
-export function readSleepTurn(message: string, { held, now, recentAlarm }: { held?: SleepPending | undefined; now: Date; recentAlarm?: boolean }): SleepTurn | undefined {
+export function readSleepTurn(raw: string, { held, now, recentAlarm }: { held?: SleepPending | undefined; now: Date; recentAlarm?: boolean }): SleepTurn | undefined {
+  const message = normalizeSpoken(raw);   // the shared spoken-number normaliser, ahead of every reader below
   const fresh = readHabit(message);
   if (fresh) return { kind: "interview", draft: held && held.step !== "confirm" ? merge(held.draft, fresh) : fresh };
+  const bedset = readBedtimeChange(message);
+  if (bedset) return { kind: "bedset", change: bedset };
   const bed = readBedShift(message);
   if (bed) return { kind: "bedtime", ...bed };
   const alarm = readAlarm(message, alarmCtx({ now, ...(recentAlarm ? { recentAlarm } : {}) }));

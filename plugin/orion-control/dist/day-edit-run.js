@@ -5,6 +5,7 @@ import { noteOf, refused } from "./scheduler-out.js";
 import { whyNot } from "./day-requests.js";
 import { failureReason } from "./schedule-failure.js";
 import { rememberEdit } from "./day-edit-memory.js";
+import { applyBedChange } from "./bedtime-change.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 const DAY_ARGS = { today: [], tomorrow: ["--date", "tomorrow"], yesterday: ["--date", "yesterday"] };
@@ -185,11 +186,12 @@ async function bedtimePart(ctx, p) {
     const s = p.to;
     const raw = s.exact ? s.h * 60 + s.m + (s.ap === "p" && s.h < 12 ? 720 : 0) : s.h >= 6 && s.h <= 11 ? s.h * 60 + s.m + 720 : s.h === 12 ? s.m : s.h * 60 + s.m;
     const at = s.ap ? (s.h % 12) * 60 + (s.ap === "p" ? 720 : 0) + s.m : raw % 1440;
-    const out = await exec(ctx, "orion-sleepplan", ["bedtime", hhmm(at)]);
-    if (out.code === 0 && !/refus|cannot|can't|error/i.test(out.stdout))
-        ctx.done.push(`set your bedtime to ${ampm(at)}`);
+    // One writer, one read-back (bedtime-change.ts): "push sleep to 11:45" is that night only; the line says what the files now hold.
+    const r = await applyBedChange({ time: hhmm(at), scope: "tonight" }, async (args) => { const o = await exec(ctx, "orion-sleepplan", args); return { stdout: o.stdout, code: o.code }; });
+    if (r.ok)
+        ctx.done.push(`set your bedtime to ${ampm(toMin(r.readback.sleepBy))} tonight (wind-down ${ampm(toMin(r.readback.nudgeAt))}, ${r.readback.hours}h of sleep before your ${ampm(toMin(r.readback.wake))} alarm)`);
     else
-        ctx.failed.push(`change your bedtime (${out.stdout.trim().split("\n")[0]?.slice(0, 80) || "the sleep plan said no"})`);
+        ctx.failed.push(`change your bedtime (${r.error.slice(0, 80)})`);
 }
 async function busyPart(ctx, p) {
     const from = Math.ceil(ctx.nowMin / 5) * 5;

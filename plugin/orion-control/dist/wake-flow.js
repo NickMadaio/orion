@@ -15,6 +15,10 @@ import { execFile } from "node:child_process";
 import { ampm12 } from "./reminder-flow.js";
 import { isTimerRequest } from "./tool-moves.js";
 import { pluginNow } from "./plugin-clock.js";
+import { nextWake, spokenWake } from "./wake-state.js";
+import { normalizeSpoken } from "./spoken-numbers.js";
+import { homedir } from "node:os";
+import { join } from "node:path";
 export const ORION_WAKE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-wake";
 // 2026-10-31 gate (sch-alarm-push-c): "move tomorrow morning alarm from 8 to 9am" has no "my"/"the" and became a reminder named after it.
 const ALARM_WORD = /\b(?:my|the)\s+(?:(?:normal|usual|regular|automatic|auto|wake(?:[- ]?up)?|morning|phone)\s+)*alarm\b|\b(?:tomorrow(?:'s)?|tmrw|tonight'?s?)\s+(?:morning\s+)?(?:wake(?:[- ]?up)?\s+)?alarm\b|\bwake[- ]?up\s+(?:alarm|time|call)\b|\balarm\s+(?:to|for|at)\s+\d/i;
@@ -65,7 +69,8 @@ function answeredTime(message) {
 }
 /** What he asked of his wake alarm, or null when it is not about it. A time comes only from his words (or his direct
  *  answer to ORION's question, `answering`), never from the front desk's args. `now` is kept for the call site's symmetry. */
-export function parseWake(message, decision, _now, answering = false) {
+export function parseWake(raw, decision, _now, answering = false) {
+    const message = normalizeSpoken(raw); // "at eleven forty five" -> "at 11:45", ahead of every regex below
     if (isTimerRequest(message) || REMINDER_WORDS.test(message))
         return null;
     const fromDesk = decision?.move === "tool" && decision.tool === "wake";
@@ -93,7 +98,7 @@ export function parseWake(message, decision, _now, answering = false) {
 const say = (text) => ({ outcome: "say", kind: "plain", text });
 const firstLine = (s) => s.trim().split("\n")[0]?.replace(/^orion-wake:\s*/, "").slice(0, 160) || "no reply from orion-wake";
 /** One wake request, end to end; the reply is built only from orion-wake's output. */
-export async function runWakeFlow({ message, decision, now, exec, answering = false }) {
+export async function runWakeFlow({ message, decision, now, exec, answering = false, stateDir }) {
     const req = parseWake(message, decision, now, answering);
     if (!req)
         return { outcome: "fallback", reason: "not a wake alarm request" };
@@ -102,15 +107,20 @@ export async function runWakeFlow({ message, decision, now, exec, answering = fa
     if (req.kind === "ask")
         return { outcome: "say", kind: "ask", text: "What time should I set your wake alarm for?" };
     if (req.kind === "bedtime") {
-        // He said goodnight, not a time: the alarm is read, never changed.
-        const read = await exec([]).catch(() => ({ stdout: "", code: 1 }));
-        const set = read.code === 0 ? /^Wake-up set for (.+?) \(asked/.exec(read.stdout.trim()) : null;
-        return say(set?.[1] ? `Goodnight. Your wake alarm is still set for ${set[1]}.` : "Goodnight.");
+        // He said goodnight, not a time: the alarm is never changed. It is only mentioned when it is verified (wake-state.ts: a one-off request
+        // that is already in the past is stale, and the plan's alarm is the one that rings), otherwise nothing is said about it.
+        const next = nextWake(stateDir, now);
+        return say(next ? `Goodnight. Your next wake alarm is ${spokenWake(next.at, now)}.` : "Goodnight.");
     }
     const args = req.kind === "set" ? [req.time] : req.kind === "clear" ? ["clear"] : [];
-    const result = await exec(args);
+    const result = req.kind === "read" && stateDir && nextWake(stateDir, now) ? { stdout: "", code: 0 } : await exec(args); // a verified read needs no script
     const out = result.stdout.trim();
     if (req.kind === "read") {
+        const next = nextWake(stateDir, now);
+        if (next)
+            return say(`Your next wake alarm is ${spokenWake(next.at, now)}.`);
+        if (stateDir)
+            return say("You have no wake alarm set that is still ahead; your phone uses the automatic one (your first class minus get-ready time).");
         if (result.code !== 0)
             return say(`I couldn't read your wake alarm: ${firstLine(out)}.`);
         const set = /^Wake-up set for (.+?) \(asked/.exec(out);
@@ -137,7 +147,7 @@ let askedAt = 0; // when ORION last asked "what time?", so his next bare time is
 const ANSWER_WINDOW_MS = 5 * 60_000;
 export const liveWakeFlow = async (message, decision) => {
     const answering = Date.now() - askedAt < ANSWER_WINDOW_MS;
-    const result = await runWakeFlow({ message, ...(decision ? { decision } : {}), now: pluginNow(), answering, exec: (args) => runFile(ORION_WAKE, args, 15000) });
+    const result = await runWakeFlow({ message, ...(decision ? { decision } : {}), now: pluginNow(), answering, stateDir: process.env.ORION_CONTROLLED_DIR || join(homedir(), ".openclaw/orion-controlled"), exec: (args) => runFile(ORION_WAKE, args, 15000) });
     askedAt = result.outcome === "say" && result.kind === "ask" ? Date.now() : 0;
     return result;
 };

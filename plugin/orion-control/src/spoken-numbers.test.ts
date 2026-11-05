@@ -13,6 +13,9 @@ describe("normalizeSpoken (one normaliser ahead of every parser)", () => {
     expect(n("gym from ten to eleven pm")).toBe("gym from 10 to 11pm");
     expect(n("half past seven")).toBe("7:30");
     expect(n("quarter to eight pm")).toBe("7:45pm");
+    expect(n("bed at quarter to 12")).toBe("bed at 11:45");
+    expect(n("wake me at half 6 tomorrow")).toBe("wake me at 6:30 tomorrow");
+    expect(n("at half six")).toBe("at 6:30");
     expect(n("meet at six oclock")).toBe("meet at 6");
     expect(n("alarm for seven oh five")).toBe("alarm for 7:05");
   });

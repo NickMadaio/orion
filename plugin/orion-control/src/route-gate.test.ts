@@ -50,16 +50,13 @@ describe("gateDecision", () => {
     expect(gateDecision(tool("app_open", { application: "CS1802 Seminar" }), 're-open it one more time please, the "desktop ->" isnt working', false).move).toBe("escalate");
     expect(gateDecision(tool("app_open", { application: "Safari" }), "open safari", false).move).toBe("tool");
   });
-  it("lights and media need a verb", () => {
-    expect(gateDecision(tool("lights", { do: "off" }), "its so dark in here lol", false).move).toBe("escalate");
-    expect(gateDecision(tool("lights", { do: "off" }), "turn the lights off", false).move).toBe("tool");
-  });
-  it("ignore never silences a typed or phone message", () => {
-    expect(gateDecision({ move: "ignore" }, "ok so i was thinking about the plan for tomorrow", false).move).toBe("escalate");
-    expect(gateDecision({ move: "ignore" }, "hm", false, true).move).toBe("ignore");
+  it("ignore on a typed question is answered; a typed non-question stays with the worker's ask-what-you-need note", () => {
+    expect(gateDecision({ move: "ignore" }, "why was your response just three dots", false).move).toBe("escalate");
+    expect(gateDecision({ move: "ignore" }, "hm", false).move).toBe("ignore");
   });
   it("ignore never silences a spoken question; room chatter stays ignored", () => {
     expect(gateDecision({ move: "ignore" }, "Can you modify something in your own code?", true).move).toBe("escalate");
     expect(gateDecision({ move: "ignore" }, "yeah i told him we would be there at eight", true).move).toBe("ignore");
+    expect(gateDecision({ move: "ignore" }, "whats the difference between a latte and a flat white", true).move).toBe("ignore");
   });
 });

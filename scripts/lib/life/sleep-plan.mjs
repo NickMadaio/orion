@@ -118,8 +118,12 @@ export const minuteOf = toMinute;
 /** A new plan with one morning's alarm set to `time` (HH:MM) or "off". Pure. */
 export const withOverride = (plan, date, time) => ({ ...plan, overrides: { ...(plan.overrides ?? {}), [date]: time } });
 
+/** A new plan with an exact bedtime (HH:MM) for ONE evening. Pure. */
+export const withBedOverride = (plan, evening, time) => ({ ...plan, bedOverrides: { ...(plan.bedOverrides ?? {}), [evening]: time } });
+
 /** Overrides for mornings already behind `today` are gone. Pure. */
-export const pruneOverrides = (plan, today) => ({ ...plan, overrides: Object.fromEntries(Object.entries(plan.overrides ?? {}).filter(([d]) => d >= today)) });
+export const pruneOverrides = (plan, today) => ({ ...plan, overrides: Object.fromEntries(Object.entries(plan.overrides ?? {}).filter(([d]) => d >= today)),
+  bedOverrides: Object.fromEntries(Object.entries(plan.bedOverrides ?? {}).filter(([d]) => d >= today)) });
 
 /** The date a day word names, counting from `now`: today, tomorrow, a weekday (the next one whose alarm is still ahead), or YYYY-MM-DD. */
 export function wakeDate(raw, now, minute = null) {

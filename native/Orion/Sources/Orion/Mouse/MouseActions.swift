@@ -64,7 +64,10 @@ enum MouseActions {
         guard let source = CGEventSource(stateID: .hidSystemState),
               let down = CGEvent(keyboardEventSource: source, virtualKey: shortcut.keyCode, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: shortcut.keyCode, keyDown: false) else { return }
-        let flags = CGEventFlags(rawValue: shortcut.flags)
+        // A real arrow key carries the numeric-pad and secondary-fn bits; without them the Dock ignores a synthetic
+        // Ctrl-Left/Right (Spaces) or Ctrl-Down (App Exposé) and nothing happens (2026-11-05: Desktop ←/→ did nothing).
+        let arrowBits: UInt64 = (123...126).contains(Int(shortcut.keyCode)) ? (CGEventFlags.maskNumericPad.rawValue | CGEventFlags.maskSecondaryFn.rawValue) : 0
+        let flags = CGEventFlags(rawValue: shortcut.flags | arrowBits)
         down.flags = flags; up.flags = flags
         down.post(tap: .cghidEventTap)
         up.post(tap: .cghidEventTap)

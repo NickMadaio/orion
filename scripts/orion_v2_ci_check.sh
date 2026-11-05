@@ -80,6 +80,14 @@ else
     bad "test suite failed"; tail -25 "$LOGS"/orion-ci-test.log
 fi
 
+# w20 replay: Nick's real turns (anonymised) through the real routing with recorded model outputs. A case marked
+# expectFail is an open tube-audit bug and is only counted; any other failure is a regression and ends the run red.
+if node "$REPO/scripts/orion-replay" >"$LOGS"/orion-ci-replay.log 2>&1; then
+    ok "$(grep -E '^orion-replay \(deterministic\)' "$LOGS"/orion-ci-replay.log | sed 's/^orion-replay (deterministic): //')"
+else
+    bad "replay regression: a turn that used to work no longer does"; tail -25 "$LOGS"/orion-ci-replay.log
+fi
+
 if node --test "$REPO/tests/automation-removal.test.mjs" "$REPO/tests/automation-admission.test.mjs" "$REPO/tests/automation-dispatch.test.mjs" "$REPO/tests/automation-delivery.test.mjs" "$REPO/tests/automation-host.test.mjs" "$REPO/tests/automation-runtime.test.mjs" "$REPO/tests/automation-schedule.test.mjs" >"$LOGS"/orion-ci-automation-removal.log 2>&1; then
     ok "automation admission, dispatch, delivery and removal checks"
 else

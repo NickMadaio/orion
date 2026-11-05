@@ -1,0 +1,58 @@
+#!/usr/bin/env node
+/*
+ orion-replay: the regression guard. Nick's real turns, replayed against ORION's routing, graded on PROPERTIES (route, tool and args,
+ every ask addressed, banned reply shapes), never on exact text.
+
+   orion-replay                     deterministic layer: the repo's anonymised cases, recorded model outputs, no live model.
+                                    Exit 1 only when a case that is NOT marked expectFail fails. Prints the expected-fail count.
+   orion-replay --private           also the private corpus (~/.openclaw/orion-controlled/evals/replay/*.cases.json)
+   orion-replay --live              the live layer: real local models (Ollama) on the private corpus, in a sandbox.
+                                    --corpus DIR  --only id,id  --desk MODEL  --worker MODEL  --label NAME  --compare BASELINE
+   orion-replay --show ID           one case in full: reply, route, calls, failures
+   orion-replay --list              the case ids
+   orion-replay --strict            an unexpected pass (xpass) is an error too (to prune expectFail markers)
+
+ The private corpus holds Nick's real words and never enters the repo. Build it with scripts/lib/replay/build-corpus.mjs.
+*/
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const dist = join(here, "..", "plugin", "orion-control", "dist", "replay");
+if (!existsSync(join(dist, "suite.js"))) { console.error("orion-replay: the plugin is not built (run npm run build in plugin/orion-control)."); process.exit(2); }
+
+const args = process.argv.slice(2);
+const has = (n) => args.includes(n);
+const val = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
+const privateDir = val("--corpus") ?? join(homedir(), ".openclaw", "orion-controlled", "evals", "replay");
+
+const { readCases, readCaseDir } = await import(join(dist, "cases.js"));
+const { runDeterministic, summarize, summaryLine, report } = await import(join(dist, "suite.js"));
+const repoCases = readCases(new URL("../scripts/eval/replay/cases.json", `file://${here}/`));
+const only = val("--only")?.split(",");
+const pick = (cs) => (only ? cs.filter((c) => only.includes(c.id) || only.includes(c.audit)) : cs);
+
+if (has("--list")) { for (const c of repoCases) console.log(`${c.id}${c.audit ? `  [${c.audit}]` : ""}${c.expectFail ? "  (expected-fail)" : ""}`); process.exit(0); }
+
+if (has("--live")) {
+  const { runLive } = await import(join(dist, "live-run.js"));
+  process.exit(await runLive({ dir: privateDir, only, desk: val("--desk"), worker: val("--worker"), label: val("--label"), compare: val("--compare"), repoCases, schedule: val("--schedule") }));
+}
+
+const cases = pick([...repoCases, ...(has("--private") ? readCaseDir(privateDir) : [])]);
+const verdicts = await runDeterministic(cases);
+
+if (has("--show")) {
+  const id = val("--show");
+  for (const v of verdicts.filter((x) => x.id === id || x.audit === id)) console.log(JSON.stringify(v, null, 2));
+  process.exit(0);
+}
+const summary = summarize(verdicts);
+const text = report(verdicts);
+if (text) console.log(text);
+console.log(`\norion-replay (deterministic): ${summaryLine(summary)}`);
+const bad = summary.fail > 0 || (has("--strict") && summary.xpass > 0);
+console.log(bad ? "orion-replay: REGRESSION" : "orion-replay: ok (no regression; expected failures are the open tube-audit bugs)");
+process.exit(bad ? 1 : 0);

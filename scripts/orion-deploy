@@ -136,6 +136,7 @@ echo "== 3. every suite, source and machine =="
 # sufficient answer on this machine.
 for suite in \
     "scripts/orion_v2_ci_check.sh --quick" \
+    "scripts/orion-replay" \
     "scripts/orion_v2_attack_check.py" \
     "scripts/orion_v2_strictness_check.sh" \
     "scripts/orion_v2_authority_contract_check.sh" \
@@ -155,6 +156,9 @@ do
     # normal audits continue to describe the live machine.
     if env ORION_CATALOG_DIST="$PLUGIN/dist" "${runner[@]}" $extra >"/tmp/orion-deploy-$(basename "$name").log" 2>&1; then
         printf '  ok    %s\n' "$(basename "$name")"
+        # The replay guard states its own count (how many known audit bugs are still open): show it, it is the point.
+        [ "$(basename "$name")" = "orion-replay" ] && grep -E '^orion-replay \(deterministic\)' "/tmp/orion-deploy-orion-replay.log" | sed 's/^/        /'
+        true
     else
         printf '  FAIL  %s\n' "$(basename "$name")"
         tail -15 "/tmp/orion-deploy-$(basename "$name").log" | sed 's/^/        /'

@@ -69,6 +69,11 @@ jobs:
         working-directory: plugin/orion-control
         run: npm test
 
+      - name: replay regression guard
+        # Nick's real turns, anonymised, through the real routing with recorded model outputs. Fails only for a case
+        # that is not marked expectFail; the count of open tube-audit bugs is printed, never hidden.
+        run: node scripts/orion-replay
+
       - name: static analysis
         working-directory: plugin/orion-control
         run: npx tsc --noEmit -p tsconfig.json

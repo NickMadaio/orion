@@ -51,6 +51,8 @@ function openDirective(req) {
         return call("app_open", { application: req.name }, `Then say what you did, only if the result shows it, like "I opened ${req.name}." ${FIRST_PERSON}`, `I couldn't open ${req.name} — nothing opened. Is it installed under another name?`);
     if (req.kind === "folder")
         return call("folder_open", { folder: req.folder }, `Then say what you did, only if the result shows it, like "I opened your ${req.folder} folder." ${FIRST_PERSON}`, `I couldn't open your ${req.folder} folder — nothing opened.`);
+    if (req.kind === "personal")
+        return { kind: "say", text: `What's the link for your ${req.name}? I don't know that page yet, and I won't open a search for it.` };
     const where = req.browser ? ` in ${req.browser}` : "";
     return call("browser_open_url", { url: req.url, ...(req.browser ? { browser: req.browser } : {}) }, `Then say what you did, only if the result shows it, like "I opened ${hostOf(req.url)}${where}." ${FIRST_PERSON}`, `I couldn't open ${hostOf(req.url)}${where} — nothing opened.`);
 }

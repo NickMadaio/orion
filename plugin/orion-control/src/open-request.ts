@@ -10,6 +10,8 @@ import { APPS } from "./computer-intent.js";
 export type OpenRequest =
   | { kind: "app"; name: string }
   | { kind: "url"; url: string; browser?: string }
+  /** A page he calls by his own name ("my CS group"): ORION does not know its address, so it is looked up or asked, never searched. */
+  | { kind: "personal"; name: string; browser?: string }
   | { kind: "folder"; folder: string };
 
 const OPEN_VERB = String.raw`(?:op(?:en|ne|n|em)|oepn|launch|lauch|lanch|luanch|launhc|pu(?:l|ll)\s?up|bring up|fire up)(?:\s+up)?`;
@@ -56,6 +58,15 @@ function regionalSite(key: string): string | null {
   return hit ? `https://www.${site}.${hit}` : null;
 }
 
+const PAGE_NOUN = /\b(?:group|page|site|link|chat|docs?|form|portal|account|dashboard|profile|board|channel|server|course|class|feed|wiki|drive|folder|sheet|deck|repo|workspace|community|forum|thread|playlist|album|stream)\b/i;
+/** "my CS group" / "our uni portal": a page named by his own words. Null for a known site, or (without a browser named) anything that is not page-like. */
+export function personalPage(target: string, browserNamed: boolean): string | null {
+  const m = /^(?:my|our)\s+(.{2,60})$/i.exec(target.trim().replace(/[.,!?]+$/, ""));
+  const name = m?.[1]?.trim().replace(/\s+(?:page|website|web ?site|site)$/i, "");
+  if (!name || SITES[name.toLowerCase()] || DOMAIN.test(name) || NOT_AN_APP.test(name)) return null;
+  return browserNamed || PAGE_NOUN.test(name) ? name : null;
+}
+
 function siteUrl(target: string): string | null {
   const t = target.trim().replace(/[.,!?]+$/, "");
   if (/^https?:\/\//i.test(t)) return DOMAIN.test(t) ? t : null;
@@ -83,11 +94,15 @@ export function openRequest(message: string): OpenRequest | null {
 
   const inBrowser = BROWSER_IN.exec(rest);
   if (inBrowser) {
+    const personal = personalPage(inBrowser[1]!, true);
+    if (personal) return { kind: "personal", name: personal, browser: BROWSERS[inBrowser[2]!.toLowerCase()]! };
     const url = siteUrl(inBrowser[1]!);
     return url ? { kind: "url", url, browser: BROWSERS[inBrowser[2]!.toLowerCase()]! } : null;
   }
   const inDefault = DEFAULT_BROWSER_IN.exec(rest);
   if (inDefault) {
+    const personal = personalPage(inDefault[1]!, true);
+    if (personal) return { kind: "personal", name: personal };
     const url = siteUrl(inDefault[1]!);
     return url ? { kind: "url", url } : null;
   }
@@ -96,6 +111,9 @@ export function openRequest(message: string): OpenRequest | null {
     const url = siteUrl(toSite[2]!);
     return url ? { kind: "url", url, browser: BROWSERS[toSite[1]!.toLowerCase()]! } : null;
   }
+  const folder0 = /^(?:the |my )?([a-z]+) folder$/i.exec(rest)?.[1]?.toLowerCase();
+  const personalBare = folder0 && OPENABLE_FOLDERS.includes(folder0) ? null : personalPage(rest, false);
+  if (personalBare) return { kind: "personal", name: personalBare };
   const folder = /^(?:the |my )?([a-z]+) folder$/i.exec(rest)?.[1]?.toLowerCase();
   if (folder) return OPENABLE_FOLDERS.includes(folder) ? { kind: "folder", folder } : null;
   if (DOMAIN.test(rest)) return { kind: "url", url: /^https?:/i.test(rest) ? rest : `https://${rest}` };

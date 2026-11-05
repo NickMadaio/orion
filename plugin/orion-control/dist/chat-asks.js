@@ -12,6 +12,7 @@
 */
 import { openRequest } from "./open-request.js";
 import { splitAsks } from "./multi-ask.js";
+import { askLink, askWhich } from "./named-page.js";
 const LEAD = String.raw `(?:(?:hey|ok|okay|so|and|also|pls|please|orion|can you|could you|can u|would you|just|wait|yo)[,\s]+)*`;
 const ADD = new RegExp(String.raw `^${LEAD}(?:add|put|stick|throw|pop|chuck)\s+(.+?)\s+(?:to|on|onto|in|into)\s+(?:my|the|our)\s+(?:(?:to-?do|todo|to do|shopping|grocery|groceries|task)\s+)?(?:lists?|to-?dos?|tasks)\s*[.!]*$`, "i");
 const NOT_A_LIST_ITEM = /\b(?:calendar|schedule|reminders?|alarm|timer|plan|day|tonight|tomorrow|today|at \d|\d\s*(?:am|pm))\b/i;
@@ -40,7 +41,7 @@ function readOne(clause) {
     if (READ.test(said) && !/\b(?:calendar|schedule|day)\b/i.test(said))
         return [{ kind: "todo-list" }];
     const open = openRequest(said);
-    if (open && (open.kind === "app" || open.kind === "url"))
+    if (open && (open.kind === "app" || open.kind === "url" || open.kind === "personal"))
         return [{ kind: "open", req: open }];
     return null;
 }
@@ -115,7 +116,7 @@ export function splitLeadOpen(message) {
         const head = text.slice(0, m.index).trim().replace(/[.,;!]+$/, "");
         const rest = text.slice((m.index ?? 0) + m[0].length).trim();
         const req = openRequest(head);
-        if (req && (req.kind === "app" || req.kind === "url") && rest.length >= 3 && !openRequest(rest))
+        if (req && (req.kind === "app" || req.kind === "url" || req.kind === "personal") && rest.length >= 3 && !openRequest(rest))
             return { req, rest };
     }
     return null;
@@ -142,6 +143,16 @@ catch {
 const appLabel = (name) => name.split(" ").map(cap).join(" ");
 async function openOne(ask, deps, out) {
     const run = async (args) => { const r = await deps.open(args).catch(() => ({ stdout: "", code: 1 })); out.calls.push(`open ${args.join(" ")}`); out.outputs.push(r.stdout); return r; };
+    if (ask.req.kind === "personal") {
+        // A page he named in his own words: opened only when exactly one address is held for it, else asked about. Never a search.
+        const { name, browser } = ask.req;
+        const found = (await deps.resolveNamed?.(name).catch(() => [])) ?? [];
+        if (found.length === 1) {
+            const r = await run(browser ? ["-a", browser, found[0]] : [found[0]]);
+            return r.code === 0 ? `Opened ${hostOf(found[0])} for your ${name}${browser ? ` in ${browser}` : ""}.` : `I couldn't open ${hostOf(found[0])}: nothing opened.`;
+        }
+        return found.length > 1 ? askWhich(name, found) : askLink(name);
+    }
     if (ask.req.kind === "url") {
         const { url, browser } = ask.req;
         const r = await run(browser ? ["-a", browser, url] : [url]);

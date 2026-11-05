@@ -48,6 +48,15 @@ function regionalSite(key) {
     const hit = allowed.includes(tld) ? tld : site === "google" && tld === "in" ? "co.in" : null;
     return hit ? `https://www.${site}.${hit}` : null;
 }
+const PAGE_NOUN = /\b(?:group|page|site|link|chat|docs?|form|portal|account|dashboard|profile|board|channel|server|course|class|feed|wiki|drive|folder|sheet|deck|repo|workspace|community|forum|thread|playlist|album|stream)\b/i;
+/** "my CS group" / "our uni portal": a page named by his own words. Null for a known site, or (without a browser named) anything that is not page-like. */
+export function personalPage(target, browserNamed) {
+    const m = /^(?:my|our)\s+(.{2,60})$/i.exec(target.trim().replace(/[.,!?]+$/, ""));
+    const name = m?.[1]?.trim().replace(/\s+(?:page|website|web ?site|site)$/i, "");
+    if (!name || SITES[name.toLowerCase()] || DOMAIN.test(name) || NOT_AN_APP.test(name))
+        return null;
+    return browserNamed || PAGE_NOUN.test(name) ? name : null;
+}
 function siteUrl(target) {
     const t = target.trim().replace(/[.,!?]+$/, "");
     if (/^https?:\/\//i.test(t))
@@ -80,11 +89,17 @@ export function openRequest(message) {
         return null;
     const inBrowser = BROWSER_IN.exec(rest);
     if (inBrowser) {
+        const personal = personalPage(inBrowser[1], true);
+        if (personal)
+            return { kind: "personal", name: personal, browser: BROWSERS[inBrowser[2].toLowerCase()] };
         const url = siteUrl(inBrowser[1]);
         return url ? { kind: "url", url, browser: BROWSERS[inBrowser[2].toLowerCase()] } : null;
     }
     const inDefault = DEFAULT_BROWSER_IN.exec(rest);
     if (inDefault) {
+        const personal = personalPage(inDefault[1], true);
+        if (personal)
+            return { kind: "personal", name: personal };
         const url = siteUrl(inDefault[1]);
         return url ? { kind: "url", url } : null;
     }
@@ -93,6 +108,10 @@ export function openRequest(message) {
         const url = siteUrl(toSite[2]);
         return url ? { kind: "url", url, browser: BROWSERS[toSite[1].toLowerCase()] } : null;
     }
+    const folder0 = /^(?:the |my )?([a-z]+) folder$/i.exec(rest)?.[1]?.toLowerCase();
+    const personalBare = folder0 && OPENABLE_FOLDERS.includes(folder0) ? null : personalPage(rest, false);
+    if (personalBare)
+        return { kind: "personal", name: personalBare };
     const folder = /^(?:the |my )?([a-z]+) folder$/i.exec(rest)?.[1]?.toLowerCase();
     if (folder)
         return OPENABLE_FOLDERS.includes(folder) ? { kind: "folder", folder } : null;

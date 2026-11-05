@@ -2,7 +2,7 @@ import { type OpenRequest } from "./open-request.js";
 export type ChatAsk = {
     kind: "open";
     req: Extract<OpenRequest, {
-        kind: "app" | "url";
+        kind: "app" | "url" | "personal";
     }>;
 } | {
     kind: "list-add";
@@ -17,7 +17,8 @@ export type Exec = (args: string[]) => Promise<{
 export type ChatDeps = {
     open: Exec;
     installed: (app: string) => Promise<boolean>;
-    tasks: Exec;
+    tasks: Exec; /** The addresses ORION holds for a page he names ("cs group"): notes, domains he has been on. Unset: none known. */
+    resolveNamed?: (name: string) => Promise<string[]>;
 };
 /** A question ORION asked that a bare "yeah" answers: open this address. */
 export type WebOffer = {
@@ -50,7 +51,7 @@ export declare function splitTrailingListAdd(message: string): {
 /** "open youtube in safari and tell me whats the weather": the open (run by code, said first) and the question left to answer (live gate 3 #100: only Safari opened and the weather was dropped). */
 export declare function splitLeadOpen(message: string): {
     req: Extract<OpenRequest, {
-        kind: "app" | "url";
+        kind: "app" | "url" | "personal";
     }>;
     rest: string;
 } | null;

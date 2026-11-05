@@ -17,6 +17,7 @@
 //   bed  = next wake − sleep need (capped by bedtime), unless a night out runs through it.
 import { toMinute, sleepPlanOf, WEEKDAYS } from "./config.mjs";
 import { classify } from "./live-day.mjs";
+import { napCreditMinutes } from "./naps.mjs";
 
 const dayAfter = (date) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate() + 1); return d.toLocaleDateString("en-CA"); };
 /** "mon".."sun" for a YYYY-MM-DD. */
@@ -50,12 +51,17 @@ export function wakeOn(date, options) {
   return wakeWhy(date, options).minute;
 }
 
-/** Minutes after `date`'s midnight by which he should be asleep that night (may pass 1440). */
-export function bedOn(date, { blocksOf, config, wakeRequest = null }) {
+/**
+ * Minutes after `date`'s midnight by which he should be asleep that night (may pass 1440).
+ * `napMinutes`: what he already slept in naps that day (WHOOP). A real nap takes up to an hour off tonight's need and lets
+ * the bedtime slide by the same amount, never earlier (W20).
+ */
+export function bedOn(date, { blocksOf, config, wakeRequest = null, napMinutes = 0 }) {
+  const credit = napCreditMinutes(napMinutes);
   const bedtime = toMinute(config.bedtime);
-  const target = bedtime < 12 * 60 ? 1440 + bedtime : bedtime;
+  const target = (bedtime < 12 * 60 ? 1440 + bedtime : bedtime) + credit;
   const sleep = sleepPlanOf(config).sleepHours;
-  const needed = 1440 + wakeOn(dayAfter(date), { blocksOf, config, wakeRequest }) - Math.round(sleep * 60);
+  const needed = 1440 + wakeOn(dayAfter(date), { blocksOf, config, wakeRequest }) - Math.round(sleep * 60) + credit;
   let bed = Math.min(target, needed);
   const lateFixed = blocksOf(date).filter((b) => b.fixed && b.source !== "orion" && b.end > bed).sort((a, b) => b.end - a.end)[0];
   if (lateFixed) bed = lateFixed.end + (config.commuteMinutes ?? 30);

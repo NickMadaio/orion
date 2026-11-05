@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { napMinutesOf, napPhrase, napsOn, recoveryTrend, totalSleepHours } from "./lib/life/naps.mjs";
 
 let log = {};
 try { log = JSON.parse(readFileSync(join(homedir(), ".openclaw/orion-controlled/health-log.json"), "utf8")); }
@@ -27,7 +28,10 @@ const supplements = (log.supplements ?? []).map((s) => ({ name: s.name, taken: t
 const out = {
   day: today,
   wearableDay,
-  sleep: { hours: w.sleepHours ?? null, performance: w.sleepPerformance ?? null },
+  sleep: { hours: w.sleepHours ?? null, performance: w.sleepPerformance ?? null, napMinutes: napMinutesOf(w), totalHours: totalSleepHours(w) },
+  naps: napsOn(log, wearableDay).map((x) => ({ start: x.start, minutes: x.minutes, performance: x.performance ?? null, said: napPhrase(x) })),
+  workouts: (w.whoopWorkouts ?? []).map((x) => ({ start: x.start, minutes: x.minutes, strain: x.strain ?? null, sport: x.sport ?? null })),
+  recoveryTrend: recoveryTrend(log, 7),
   recovery: w.recovery ?? null, hrv: w.hrv ?? null, restingHeartRate: w.restingHeartRate ?? null, strain: w.strain ?? null,
   water: { bottles: t.waterBottles ?? 0, goal: typeof log.nutritionGoals?.water === "number" && Number.isFinite(log.nutritionGoals.water) ? Math.min(30, Math.max(1, Math.round(log.nutritionGoals.water))) : 9 },
   food: { calories: meals.reduce((a, m) => a + (m.calories ?? 0), 0), protein: meals.reduce((a, m) => a + (m.protein ?? 0), 0),
@@ -40,6 +44,9 @@ if (process.argv.includes("--json")) { console.log(JSON.stringify(out, null, 2))
 const n = (v, unit = "") => (v === null || v === undefined ? "not recorded" : `${v}${unit}`);
 console.log(`Health for ${today} (WHOOP + what Nick logged):`);
 console.log(`  latest WHOOP reading (${wearableDay ?? "none"}): sleep ${n(out.sleep.hours, "h")} (performance ${n(out.sleep.performance, "%")}), recovery ${n(out.recovery, "%")}, HRV ${n(out.hrv, " ms")}, resting HR ${n(out.restingHeartRate)}, strain ${n(out.strain)}`);
+if (out.naps.length) console.log(`  naps: ${out.naps.map((x) => x.said).join(", ")}; total sleep ${out.sleep.totalHours}h with the night`);
+if (out.workouts.length) console.log(`  WHOOP workouts: ${out.workouts.map((x) => `${x.sport ?? "workout"} ${x.minutes ?? "?"} min, strain ${n(x.strain)}`).join(", ")}`);
+if (out.recoveryTrend.direction) console.log(`  recovery trend: ${out.recoveryTrend.latest}% against ${out.recoveryTrend.baseline}% before (${out.recoveryTrend.direction})`);
 console.log(`  water ${out.water.bottles}/${out.water.goal} bottles; food ${out.food.calories}/${out.food.goal} kcal, ${out.food.protein} g protein${out.food.meals.length ? ` — ${out.food.meals.join(", ")}` : ""}`);
 if (supplements.length) console.log(`  supplements: ${supplements.map((s) => `${s.name} ${s.taken ? "taken" : "not yet"}`).join(", ")}`);
 console.log(`  last 7 days recovery: ${out.week.map((w) => `${w.day.slice(5)} ${n(w.recovery, "%")}`).join(", ")}`);

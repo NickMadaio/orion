@@ -68,6 +68,7 @@ import { routineWalls } from "./lib/patterns/hooks.mjs";
 import { checkDay } from "./lib/life/day-check.mjs";
 import { fillDay } from "./lib/life/fill-day.mjs";
 import { recoveryFromLog } from "./lib/life/recovery.mjs";
+import { napMinutesOf } from "./lib/life/naps.mjs";
 import { anchorsFrom, loadConfig, toMinute } from "./lib/life/config.mjs";
 import { applyPlan, undoLast, bridge, clean, iso, recordUndo, appendUndoSteps, UNDO_FILE } from "./lib/life/calendar-write.mjs";
 import { addSkip } from "./lib/life/skips.mjs";
@@ -256,6 +257,7 @@ const dayWord = (word) => {
 };
 const date = dayWord(flag("--date")) ?? wordDate ?? said[0]?.date ?? localDate(nowDate);
 // WHOOP recovery for the day being planned: low recovery makes the fill lighter (lib/life/recovery.mjs). Unreadable is unknown, never low.
+const napMinutesToday = (day) => { try { return napMinutesOf(JSON.parse(readLock(joinPath(controlledDir(), "health-log.json"), "utf8")).days?.[day]); } catch { return 0; } };
 const recoveryToday = () => { try { return recoveryFromLog(JSON.parse(readLock(joinPath(controlledDir(), "health-log.json"), "utf8")), date); } catch { return null; } };
 if (date < localDate(nowDate)) fail(`orion-reschedule: ${date} is in the past; nothing was changed`, 1);
 const otherDays = said.filter((p) => p.date !== date);
@@ -327,7 +329,7 @@ if (command === "show") {
 }
 // The day ends at the "asleep by" line his phone alarm is set from (night.mjs),
 // so wind-down, the last thing planned, ends exactly on it (2026-09-30).
-const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest: await readWakeRequest() });
+const asleepBy = bedOn(date, { blocksOf: (d) => toBlocks(events, d), config, wakeRequest: await readWakeRequest(), napMinutes: napMinutesToday(date) });
 // "Plan things until around 8 PM": --until HH:MM ends the planning window there
 // (for extend, --until is the block's new end instead).
 // extend and move read --until as the END of the block they change, not the day's window.

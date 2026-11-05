@@ -168,11 +168,16 @@ public struct LinkSnapshot: Codable, Equatable, Sendable {
         public var sleepHours: Double?
         public var sleepPerformance: Int?
         public var strain: Double?
+        /// Asleep minutes across the day's naps, and when the first one started (ISO). Nil: no nap.
+        public var napMinutes: Int?
+        public var napStart: String?
         public var id: String { date }
         public init(date: String, recovery: Int? = nil, hrv: Int? = nil, restingHeartRate: Int? = nil,
-                    sleepHours: Double? = nil, sleepPerformance: Int? = nil, strain: Double? = nil) {
+                    sleepHours: Double? = nil, sleepPerformance: Int? = nil, strain: Double? = nil,
+                    napMinutes: Int? = nil, napStart: String? = nil) {
             self.date = date; self.recovery = recovery; self.hrv = hrv; self.restingHeartRate = restingHeartRate
             self.sleepHours = sleepHours; self.sleepPerformance = sleepPerformance; self.strain = strain
+            self.napMinutes = napMinutes; self.napStart = napStart
         }
     }
 

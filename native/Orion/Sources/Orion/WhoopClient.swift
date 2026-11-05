@@ -219,7 +219,7 @@ final class WhoopClient: ObservableObject {
             }
         }
 
-        for path in ["/recovery", "/activity/sleep", "/cycle"] {
+        for path in ["/recovery", "/activity/sleep", "/cycle", "/activity/workout"] {
             for lookback in Self.windows {
                 group.enter()
                 get(path, token: token, lookback: lookback) { finish(path, $0) }
@@ -234,11 +234,15 @@ final class WhoopClient: ObservableObject {
             // Naps are sleep records too, and treating one as the night would
             // report a twenty-minute afternoon nap as the night's sleep and,
             // worse, as the time you woke up.
-            let sleeps = (collected["/activity/sleep"] ?? []).filter { ($0["nap"] as? Bool) != true }
+            let allSleeps = collected["/activity/sleep"] ?? []
+            let sleeps = allSleeps.filter { ($0["nap"] as? Bool) != true }
             let cycles = collected["/cycle"] ?? []
+            // The naps are kept, apart from the night (W20).
+            let naps = WhoopExtras.naps(from: allSleeps)
+            let workouts = WhoopExtras.workouts(from: collected["/activity/workout"] ?? [])
 
             WhoopClient.exportNights(sleeps)
-            let week = WhoopClient.buildWeek(recoveries: recoveries, sleeps: sleeps, cycles: cycles)
+            let week = WhoopClient.buildWeek(recoveries: recoveries, sleeps: sleeps, cycles: cycles, naps: naps, workouts: workouts)
             var next = WhoopClient.snapshot(recoveries: recoveries, sleeps: sleeps, cycles: cycles)
 
             // The end of the most recent real night IS the moment the day
@@ -488,7 +492,9 @@ final class WhoopClient: ObservableObject {
     static func buildWeek(
         recoveries: [[String: Any]],
         sleeps: [[String: Any]],
-        cycles: [[String: Any]]
+        cycles: [[String: Any]],
+        naps: [WhoopNap] = [],
+        workouts: [WhoopWorkoutRecord] = []
     ) -> WhoopWeek {
         let calendar = Calendar.current
         var byDay: [Date: WhoopDayPoint] = [:]
@@ -521,6 +527,23 @@ final class WhoopClient: ObservableObject {
             guard let day = point(for: record) else { continue }
             var entry = byDay[day] ?? WhoopDayPoint(date: day)
             entry.strain = strainField(record)
+            byDay[day] = entry
+        }
+
+        // A nap or a workout belongs to the day it ended on.
+        func day(ofEnd raw: String) -> Date? {
+            parseTimestamp(raw).map { calendar.startOfDay(for: $0) }
+        }
+        for nap in naps {
+            guard let day = day(ofEnd: nap.end) else { continue }
+            var entry = byDay[day] ?? WhoopDayPoint(date: day)
+            entry.naps.append(nap)
+            byDay[day] = entry
+        }
+        for workout in workouts {
+            guard let day = day(ofEnd: workout.end) else { continue }
+            var entry = byDay[day] ?? WhoopDayPoint(date: day)
+            entry.workouts.append(workout)
             byDay[day] = entry
         }
 

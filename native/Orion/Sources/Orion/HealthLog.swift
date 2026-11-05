@@ -101,6 +101,10 @@ struct HealthDayRecord: Codable, Equatable {
     var hrv: Int?
     var restingHeartRate: Int?
     var strain: Double?
+    /// Naps WHOOP saw that day (W20), and their total, so the planner can count them.
+    var naps: [WhoopNap]?
+    var napMinutes: Int?
+    var whoopWorkouts: [WhoopWorkoutRecord]?
     var updatedAt: String = ""
 }
 
@@ -116,8 +120,12 @@ struct WearableReading: Equatable {
     var hrv: Int?
     var restingHeartRate: Int?
     var strain: Double?
+    var naps: [WhoopNap]?
+    var workouts: [WhoopWorkoutRecord]?
 
     func apply(to record: inout HealthDayRecord) {
+        if let naps, !naps.isEmpty { record.naps = naps; record.napMinutes = WhoopExtras.totalMinutes(naps) }
+        if let workouts, !workouts.isEmpty { record.whoopWorkouts = workouts }
         if let recovery { record.recovery = recovery }
         if let sleepPerformance { record.sleepPerformance = sleepPerformance }
         if let sleepHours { record.sleepHours = sleepHours }

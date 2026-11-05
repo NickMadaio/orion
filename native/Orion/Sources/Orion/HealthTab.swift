@@ -176,7 +176,8 @@ struct HealthTab: View {
                 if let sleep = snapshot.sleepPerformance {
                     Text("Slept \(sleep)%"
                          + (snapshot.sleepHours.map { String(format: ", %.1fh in bed", $0) } ?? "")
-                         + (snapshot.wokeAt.map { " · up at \($0.formatted(date: .omitted, time: .shortened))" } ?? ""))
+                         + (snapshot.wokeAt.map { " · up at \($0.formatted(date: .omitted, time: .shortened))" } ?? "")
+                         + (WhoopExtras.napLine(whoop.week.naps(on: Date())).map { " · \($0)" } ?? ""))
                         .font(OrionTheme.mono(11))
                         .foregroundStyle(OrionTheme.textDim)
                 }
@@ -249,6 +250,11 @@ struct HealthTab: View {
     }
 
     private func eveningDetail(_ snapshot: WhoopSnapshot) -> String {
+        let napped = WhoopExtras.napLine(whoop.week.naps(on: Date())).map { "You \($0), which lightens tonight. " } ?? ""
+        return napped + eveningBase(snapshot)
+    }
+
+    private func eveningBase(_ snapshot: WhoopSnapshot) -> String {
         let baseline = whoop.week.sleepHours.baseline
         let usual = baseline.map { String(format: "%.1fh", $0) } ?? "your usual"
         guard let strain = snapshot.strain else {

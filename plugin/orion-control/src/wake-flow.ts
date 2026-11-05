@@ -27,7 +27,7 @@ export type WakeRequest = { kind: "set"; time: string } | { kind: "clear" } | { 
 export const ORION_WAKE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-wake";
 
 // 2026-10-31 gate (sch-alarm-push-c): "move tomorrow morning alarm from 8 to 9am" has no "my"/"the" and became a reminder named after it.
-const ALARM_WORD = /\b(?:my|the)\s+(?:(?:normal|usual|regular|automatic|auto|wake(?:[- ]?up)?|morning|phone)\s+)*alarm\b|\b(?:tomorrow(?:'s)?|tmrw|tonight'?s?)\s+(?:morning\s+)?(?:wake(?:[- ]?up)?\s+)?alarm\b|\bwake[- ]?up\s+(?:alarm|time|call)\b|\balarm\s+(?:to|for|at)\s+\d/i;
+const ALARM_WORD = /\b(?:my|the)\s+(?:(?:normal|usual|regular|automatic|auto|wake(?:[- ]?up)?|morning|phone)\s+)*alarm\b|\b(?:tomorrow(?:'s)?|tmrw|tonight'?s?)\s+(?:morning\s+)?(?:wake(?:[- ]?up)?\s+)?alarm\b|\bwake(?:[- ]?up)?\s+(?:alarm|time|call)\b|\b(?:my|the)\s+wake(?:[- ]?up)?\s+(?:to|for|at)\s+\d|\balarm\s+(?:to|for|at)\s+\d/i;
 const WAKE_ME = /\bwake me(?:\s+up)?\b/i;
 const REMINDER_WORDS = /\b(remind|reminder|ping me|nudge me|don'?t let me forget)\b/i;
 const CLEAR = /\b(clear|cancel|reset|remove|delete|turn off|go back|back to)\b|\b(normal|usual|regular|automatic|auto)\s+(?:wake[- ]?up\s+)?alarm\b/i;

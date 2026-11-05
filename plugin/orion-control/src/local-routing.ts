@@ -74,6 +74,7 @@ import { kindOf, parseOutreach, asksWhy, asksYourQuestion, whyNote, planOutreach
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, readLastOutreach, stateCard, type CardInputs } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
 import { readDayEdit } from "./day-edit.js";
+import { rememberAsk } from "./day-edit-memory.js";
 import { gateDecision, isDirectQuestion, schedulingAsk } from "./route-gate.js";   // w20 routegate: the shared "did I understand" gate
 import { multiAskPrompt, splitAsks } from "./multi-ask.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
@@ -1303,14 +1304,16 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // w14 g-food (food-read.ts): a calorie question, "log this: …", a meal with a food in it, a chat photo, or his reply to "Log it?".
     const foodPending = on && options.foodRun && options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
     const calendarAsk = schedulingAsk(message);   // "put gym at 10-11", "add marketing from 7-9:30pm": the calendar's, never a meal, app, mouse or shutdown turn
-    const food = on && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
+    // w20 fix-dayedit: a message the day-edit reader owns whole ("i did gym 2-3 and ate at 4") is never read again by the food or workout route; the clause
+    // for them goes to them from inside the edit (day-edit-run.ts). A pending "Log it?" answer or workout question is still theirs.
+    const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
+    const dayEditTurn = !workoutPending && !foodPending && !!readDayEdit(message, (options.now ?? pluginNow)());
+    const food = on && !cutOff && !quietTurn && !calendarAsk && !dayEditTurn && !qmove && !smove && !mmove && !isCrisis(message) && options.foodRun && options.stateDir ? readFoodTurn(message, { now: (options.now ?? pluginNow)(), mealsOn: true,
       ...(foodPending ? { pending: foodPending, bound: foodMemory.bound(sessionKey, foodPending, parseOutreach(raw)?.text) } : {}), attachments: Array.isArray(event.attachments) ? event.attachments as Array<{ kind?: string }> : [],
       ...(foodMemory.lastLogged(sessionKey) ? { lastLogged: foodMemory.lastLogged(sessionKey)! } : {}) }) ?? undefined : undefined;
     if (!food && !quietTurn) foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
     // w17 g-workout (workout-read.ts): "just did legs, squats 4x6 at 185", "log my workout: …", "went for a 3 mile run", or his answer to the follow-up question.
-    const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
     // w20 sched: "add gym at 10-11pm" / "i did gym from 2 to 3" is his calendar (day-edit.ts), not a workout to describe; an answer to the workout question is still the workout's.
-    const dayEditTurn = !workoutPending && !!readDayEdit(message, (options.now ?? pluginNow)());
     const workout = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !dayEditTurn && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
       ...(workoutPending ? { pending: workoutPending, bound: workoutMemory.bound(sessionKey, workoutPending, parseOutreach(raw)?.text) } : {}), outreach: !!parseOutreach(raw),
       ...(workoutMemory.lastLogged(sessionKey) ? { lastLogged: workoutMemory.lastLogged(sessionKey)! } : {}) }) ?? undefined : undefined;
@@ -1332,6 +1335,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     const mouse = on && !cutOff && !quietTurn && !calendarAsk && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !isCrisis(message) && options.mouseRun
       ? readMouseTurn(message, { ...(mouseWaiting ?? {}), outreachAbout: !!mouseOutreach && /\bmouse\b/i.test(mouseOutreach) }) ?? undefined : undefined;
     if (!mouse && !quietTurn) { mouseMemory.clear(sessionKey); mouseMemory.otherTurn(sessionKey, mouseAt.getTime()); }
+    if (on && !quietTurn) rememberAsk(message, (options.now ?? pluginNow)());   // day-edit-memory.ts: "those" in "undo, i meant add those"
     const reality = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !workout && !appsTurn && !shutdownTurn && !mouse && options.realityRun ? readReality(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
     const realityWhole = (!!reality && !reality.rest) || !!qmove || !!smove || !!mmove || !!food || !!workout || !!appsTurn || !!shutdownTurn || !!mouse;
     // 2026-10-30 gate: putting gym off, or "wipe my week", is code's before the intent layer can read it as a drop or a clear.
@@ -1664,6 +1668,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           readDayOn: (dateArgs: string[]) => (options.readDayJson ? options.readDayJson(dateArgs) : Promise.resolve(undefined)),
           slipsOf: (what: string) => slips.filter((s) => s.planned?.kind === what || (s.planned?.title ?? "").toLowerCase().includes(what.toLowerCase())).length,
           ...(options.stateDir ? { stateDir: options.stateDir } : {}),   // Wave 6: slip-history.ts
+          // w20 fix-dayedit: the wake and meal clauses of a day edit run through their own routes (day-edit-run.ts)
+          ...(options.wakeExec ? { wake: options.wakeExec } : {}),
+          ...(options.foodRun && options.stateDir ? { food: async (text: string): Promise<string | undefined> => {
+            const at = (options.now ?? pluginNow)();
+            const turn = readFoodTurn(/^i\b/.test(text) ? text : `i ${text}`, { now: at, mealsOn: true });
+            if (!turn || (turn.kind !== "meal" && turn.kind !== "log")) return undefined;
+            return (await withTimeout(runFoodTurn(turn, { run: options.foodRun!, stateDir: options.stateDir!, now: at }).catch(() => undefined), 55000))?.text;
+          } } : {}),
           ...(options.readDeadlines ? { readDeadlines: options.readDeadlines } : {}),
           ...(next ? { next } : {}) };
         if (read.rest) await declareOnly(read, deps).catch(() => null);

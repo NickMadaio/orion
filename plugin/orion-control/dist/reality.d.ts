@@ -50,7 +50,8 @@ export type Reality = {
 /** w20 sched (day-edit.ts): one or more edits to his day, including time already gone: logged, never refused. */
  | {
     kind: "edit";
-    edit: DayEdit;
+    edit: DayEdit; /** "undo, i meant add those": the last edit comes off first (E11). */
+    undoFirst?: boolean;
 };
 /** A reality statement plus whether he also asked for another change in the same breath ("..., put catch-up on it tomorrow"). */
 export type RealityRead = {
@@ -69,6 +70,13 @@ export type RealityDeps = {
     text: string;
     /** Another day, by orion-reschedule's --date words ("tomorrow", a weekday, YYYY-MM-DD). Unset: only today is read. */
     readDayOn?: (dateArgs: string[]) => Promise<Day | undefined>;
+    /** orion-wake with its arguments ("06:00"), for a wake clause inside a day edit (day-edit-run.ts). Unset: the alarm cannot be reached from here. */
+    wake?: (args: string[]) => Promise<{
+        stdout: string;
+        code: number;
+    }>;
+    /** His food log for a meal clause inside a day edit ("ate chicken at 4"): the reply it gives, or undefined when it could not read or log it. */
+    food?: (text: string) => Promise<string | undefined>;
     /** How many times this kind or title slipped in the last 7 days (the state card), for "that's the fourth gym skip this week". */
     slipsOf?: (what: string) => number;
     /** Wave 6: ORION's state dir (day-requests.ts reads how often a deferred plan already slid). */

@@ -38,6 +38,21 @@ export type EditPart = {
 } | {
     op: "busy";
     until: Said;
+}
+/** "wake me at 6": the alarm's, run through orion-wake (day-edit-run.ts), never a block on the calendar. */
+ | {
+    op: "wake";
+    time: string;
+}
+/** "ate at 4": his food log's, handed on whole. */
+ | {
+    op: "food";
+    text: string;
+}
+/** "i want six hours of sleep": a bedtime counted back from his alarm. */
+ | {
+    op: "sleephours";
+    hours: number;
 } | {
     op: "note";
     text: string;

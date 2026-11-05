@@ -53,6 +53,8 @@ const DAY_TOTAL = /\b(?:today|so far|this week|yesterday|left|remaining|goal|tar
 const THAT = new RegExp(String.raw`^(?:and |so |ok |okay )?(?:${HOWM} ${NUTRIENT}(?: (?:was|is|are|were|in))?(?: in)? (?:that|it|this|those)|(?:what(?:'s|s| is| are|re)? )?(?:the )?${NUTRIENT} (?:on|in|for|of) (?:that|it|this|those)|(?:the )?${NUTRIENT})\??[.!]*$`, "i");
 const ASK = new RegExp(String.raw`\b(?:${HOWM} ${NUTRIENT}(?: (?:is|are|was|were|does|do|would))?(?: (?:there|it|that|this))?(?: (?:in|for|of|on|have|be))?|${NUTRIENT} (?:in|for|of|on)|estimate (?:the |my )?${NUTRIENT}(?: (?:in|for|of|on))?(?: my [a-z]+)?|macro (?:check|estimate)(?: (?:on|for))?)\b`, "i");
 const LOG = /^(?:please |pls |can you |could you )?(?:log|track)\s+(?:(?:this|that|these)\s*(?:meal|food)?\s*:\s*|(?:food|meal)\s*:\s*|(?=(?:a|an|some|two|three|four|half|\d+)\s))(.+)$/i;
+/** "add chicken at 7pm to my meals": a food put on his meals, logged as that food. */
+const ADD_TO_MEALS = /^(?:please |pls |can you |could you )?(?:add|put|log|track)\s+(.{2,80}?)\s+(?:to|in|into|on)\s+(?:my\s+|the\s+)?(?:meals?|food(?:\s+log)?|diet|calories|macros|intake)\b[.!]*$/i;
 const NOT_FOOD = /\b(?:workout|gym|lift(?:s|ed|ing)?|run|ran|water|bottles?|sleep|slept|weight|mood|hours?|minutes?|mins?|steps|study|period|expense|spent|[£$€]|meds?|medication|supplements?)\b/i;
 const YES = /^(?:y|ya|yah|yes|yeah|yea|yep|yup|sure|ok|okay|k|please|please do|pls|do it|go ahead|go for it|sounds good|perfect|correct|right|that's right|thats right|log it|log that|add it|add that|save it|yes please|yeah please|yes log it|yeah log it|yep log it|sure log it|ok log it|yes add it)(?:\s+(?:please|pls|thanks|thank you|thx|ty))?$/i;
 const NO = /^(?:n|no|nah|nope|no thanks|no thank you|nah thanks|don'?t|dont|don'?t log it|dont log it|don'?t bother|skip it|skip|never ?mind|forget it|leave it|not now|no need)$/i;
@@ -164,6 +166,8 @@ export function readFoodTurn(message: string, c: FoodContext): FoodTurn | null {
   if (THAT.test(said)) return { kind: "that" };
   const asked = nutritionQuestion(m);
   if (asked) return asked.food.length >= 2 ? { kind: "ask", text: asked.food, question: m } : { kind: "that" };
+  const toMeals = ADD_TO_MEALS.exec(m);
+  if (toMeals && !NOT_FOOD.test(toMeals[1]!)) return { kind: "log", text: tidy(toMeals[1]!) };
   const log = LOG.exec(m);
   if (log && !NOT_FOOD.test(m)) return { kind: "log", text: tidy(log[1]!) };
   if (c.mealsOn) {

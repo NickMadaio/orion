@@ -12,6 +12,9 @@
 */
 import { naturalToDigits, pickClock, pickRange, takeClock, takeRange } from "./day-edit-time.js";
 import { takeLength } from "./intent-time.js";
+import { notScheduling } from "./not-scheduling.js";
+import { parseWake } from "./wake-flow.js";
+import { normalizeSpoken } from "./spoken-numbers.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/[…]/g, ".").replace(/\s+/g, " ").trim();
 const FILLER = /\b(?:um+|uh+|erm|hmm+|like|just|literally|basically|actually|please|pls|plz|orion|hey|ok(?:ay)?|alright|hello|so|really|for me|real quick|quickly|lol|lmao|haha|tbh|btw|idk|ish)\b[,]?/g;
 const VERB = /\b(?:add|ass|put|schedule|book|pencil in|move|push|shift|bump|reschedule|clear|drop|delete|remove|cancel|scrap|log|note|mark|record|plan|set)\b/;
@@ -28,9 +31,13 @@ const tidy = (raw) => raw.trim().replace(NAME_STOP, "").replace(/\b(?:to|in|on) 
     .replace(/\s+/g, " ").trim().replace(PREP, "").replace(/^(?:me|that|it)\s+/, "").replace(/[.,!?]+$/g, "").replace(/\s+/g, " ").trim();
 const nameOf = (raw) => { const t = tidy(raw); return t && t.split(" ").length <= 5 && /[a-z]/.test(t) && !/^(?:everything|all|anything|something|it|that|this|day|my day)\b/.test(t) ? t : null; };
 const dayOf = (c, dflt) => (/\b(?:yesterday|last night)\b/.test(c) ? "yesterday" : /\b(?:tomorrow|tmrw)\b/.test(c) ? "tomorrow" : /\b(?:today|tonight|earlier|this (?:morning|afternoon|evening))\b/.test(c) ? "today" : dflt);
-const SPLIT = /[.;!|]+\s*(?=\S)|\s+(?=(?:add|put|schedule) (?:it|that|them|this)\b)|\s+(?:and then|then|also|plus)\s+|\s*,\s*(?=(?:and |also |then )?(?:add|ass|put|move|push|shift|drop|clear|delete|remove|cancel|schedule|book|log|set)\b)|\s+and\s+(?=(?:add|put|move|push|shift|drop|clear|delete|remove|cancel|schedule|book|log)\b)/;
-const BEDTIME = /\b(?:push|move|shift|set|change|make|put)\s+(?:my\s+)?(?:sleep(?:\s?time)?|bed\s?time|bed)\s+(?:back\s+|earlier\s+|later\s+|up\s+)?(?:to|until|till|at|for)\s+(\S+(?:\s*[ap]\.?m\.?)?)\b/;
+const SPLIT = /[.;!|]+\s*(?=\S)|\s+(?=(?:add|put|schedule) (?:it|that|them|this)\b)|\s+(?:and then|then|also|plus)\s+|\s*,\s*(?=(?:and |also |then )?(?:add|ass|put|move|push|shift|drop|clear|delete|remove|cancel|schedule|book|log|set)\b)|\s+and\s+(?=(?:add|put|move|push|shift|drop|clear|delete|remove|cancel|schedule|book|log)\b)|\s*,\s*(?=(?:and |also |then )?(?:my )?(?:bed\s?time|sleep(?:\s?time)?|wake|alarm|(?:i )?(?:ate|eaten|drank))\b)|\s+and\s+(?=(?:my\s+)?(?:bed\s?time|sleep(?:\s?time)?|wake\s+(?:me|up)|alarm|set (?:an? )?alarm|(?:i )?(?:ate|eaten|drank)\b))/;
+const BEDTIME = /(?:\b(?:push|move|shift|set|change|make|put)\s+|^(?:and |also |then )?)(?:my\s+)?(?:sleep(?:\s?time)?|bed\s?time|bed)\s+(?:back\s+|earlier\s+|later\s+|up\s+)?(?:to|until|till|at|for)\s+(\S+(?:\s*[ap]\.?m\.?)?)\b/;
 const SLEEP_HOURS = /\b(?:plan|aim|give me|get|want|need)\b.*\b(\d{1,2})\s*(?:hours?|hrs?)\s+(?:of\s+)?sleep\b/;
+const WAKE_WORD = /\b(?:wake|woke|alarm|get me up|get up)\b/;
+const FOOD_SAY = /^(?:(?:i|ive|i've)\s+)?(?:just\s+|already\s+)?(?:ate|eaten|drank|had (?:lunch|dinner|breakfast|a snack|supper|some food))\b/;
+/** What a clause says after its time: a second clock there is a second ask, never part of the first one's name. */
+const LEFTOVER_CLOCK = (rest) => /\d/.test(rest.replace(/\b\d+\s*(?:min|mins|minutes|hours?|hrs?)\b/g, ""));
 function didnt(c) {
     const m = /\b(?:didn'?t|did not|never)\s+(?:do|go to|go|make it to|make it|have|get to|end up doing|bother with|attend)\s+(?:the |my |that |any )?(.+?)(?:\s+(?:block|session|slot))?\s*(?:,|;|-|\band\b|\bbecause\b|\bcause\b|\bcoz\b|\binstead\b|\bi\b|$)(.*)$/.exec(c);
     if (!m)
@@ -64,7 +71,7 @@ function moved(c, dflt) {
         return null;
     const name = nameOf(m[1]);
     const t = takeClock(`to ${m[2]}`);
-    if (!name || !t || /^(?:everything|all)/.test(name))
+    if (!name || !t || /^(?:everything|all)/.test(name) || LEFTOVER_CLOCK(t.rest))
         return null;
     return { op: "move", name, day: dayOf(c, dflt), to: t.s };
 }
@@ -99,7 +106,7 @@ export function readDayEdit(message, now) {
     let m = clean(message);
     if (!m || m.length > 420)
         return null;
-    if (EXERCISE.test(m) || CONDITION.test(m))
+    if (EXERCISE.test(m.replace(/\bset (?:an? |my |the )?(?:alarm|wake)/g, "")) || CONDITION.test(m) || notScheduling(m))
         return null;
     m = clean(m.replace(FILLER, " ").replace(/\b(\d{1,2}(?::\d{2})?)\s*\/\s*(\d{1,2}(?::\d{2})?)(\s*[ap]m)?/g, "$2$3"));
     m = naturalToDigits(m.replace(/\b(to|at|until|till|by|for|from)\s*,\s*/g, "$1 ").replace(/^[\s.,]+/, "").replace(/\bass\b/g, "add"), nowMin);
@@ -129,19 +136,26 @@ export function readDayEdit(message, now) {
         if (/^(?:add|put|schedule|book) (?:it|that|them|this)\b/.test(c) && !/\d/.test(c))
             continue;
         const bed = BEDTIME.exec(c);
-        if (bed) {
+        if (WAKE_WORD.test(c)) {
+            // wake / alarm wording is the alarm's, never a block: a clause whose time cannot be read makes the whole message not mine
+            const w = parseWake(c, undefined, now);
+            if (w?.kind !== "set")
+                return null;
+            part = { op: "wake", time: w.time };
+        }
+        else if (bed) {
             const t = takeClock(`to ${bed[1]}`);
             part = t ? { op: "bedtime", to: t.s } : null;
         }
-        else if (SLEEP_HOURS.test(c))
-            part = { op: "note", text: "I left how long you sleep alone; tell me the bedtime you want and I'll set it" };
+        else if (SLEEP_HOURS.test(normalizeSpoken(c)))
+            part = { op: "sleephours", hours: Number(SLEEP_HOURS.exec(normalizeSpoken(c))[1]) };
         else if (story && /\bpush (?:everything|it all|the rest|all of it|my day)\s+back\b/.test(c)) {
             const back = /\b(?:back|home|free|done|finished|out)\s+(?:around|by|at|about)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/.exec(m);
             const t = back ? takeClock(`at ${back[1]}`) : null;
             part = t ? { op: "busy", until: t.s } : null;
         }
         else
-            part = didnt(c) ?? dropped(c, dflt) ?? moved(c, dflt) ?? logged(c, dflt) ?? added(c, dflt, carry);
+            part = didnt(c) ?? dropped(c, dflt) ?? moved(c, dflt) ?? logged(c, dflt) ?? (FOOD_SAY.test(c) && /\d|\b(?:noon|midnight)\b/.test(c) ? { op: "food", text: c } : null) ?? added(c, dflt, carry);
         if (part) {
             parts.push(part);
             continue;
@@ -156,9 +170,13 @@ export function readDayEdit(message, now) {
             }
         }
         const asks = VERB.test(c) || (PAST_SAY.test(c) && /\d/.test(c) && !/\b(?:supposed|meant|going to|gonna)\b/.test(c));
-        if (asks)
+        // a clock in a clause nothing read ("ring the dentist at 11") is an ask he made: never dropped, so the message is not mine
+        const clocked = /\d|\b(?:noon|midnight)\b/.test(c) && !/^(?:i|im|i'm|ill|i'll|ive|i've|it|it's|its|we|you|there|that|this|and|then|but|so)\b/.test(c);
+        if (asks || clocked)
             return null;
     }
+    if (parts.length && parts.every((p) => p.op === "wake" || p.op === "food"))
+        return null; // a wake ask alone is the alarm route's (wake-flow.ts), a meal alone the food route's
     return parts.length ? { parts } : null;
 }
 /** Whether any part is about time that has already gone: his own log of the day. Only clocks he made exact (am/pm, 24-hour) count, so a bare "at 6" late at night is never read as a log. */

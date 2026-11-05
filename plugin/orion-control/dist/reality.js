@@ -1,7 +1,7 @@
 import { noteOf } from "./scheduler-out.js";
 import { readDayEdit, touchesPast } from "./day-edit.js";
 import { runDayEdit } from "./day-edit-run.js";
-import { readOverride } from "./day-edit-memory.js";
+import { isUndoThen, readOverride, recallAsk, recallRun } from "./day-edit-memory.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf } from "./day-requests.js";
 import { pluginNow } from "./plugin-clock.js";
 import { readIntent } from "./calendar-intent.js";
@@ -97,8 +97,13 @@ export function readReality(message, now = pluginNow()) {
     // ("can we do gym later, like after dinner" is a request, not a question).
     // w20 sched: what he says about time that is already gone is a record of his day (logged, not refused), and several edits in one
     // message are all done. The older readers keep every single future edit they already read.
+    if (isUndoThen(message)) { // E11: "Undo. I meant add those to the schedule": the ask before it, written as the schedule, once the last edit is off
+        const before = recallAsk(now);
+        const again = before ? readDayEdit(before, now) : null;
+        return again ? { reality: { kind: "edit", edit: again, undoFirst: true }, rest: false } : null;
+    }
     const edit = readOverride(message, now) ?? readDayEdit(message, now);
-    if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op === "bedtime" || p.op === "busy")))
+    if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op !== "add" && p.op !== "move" && p.op !== "drop" && p.op !== "note")))
         return { reality: { kind: "edit", edit }, rest: false };
     const request = readDayRequest(message, now);
     if (request)
@@ -511,8 +516,24 @@ export async function runReality(read, deps) {
     if (r.kind === "request")
         return runDayRequest(r.request, deps);
     if (r.kind === "edit")
-        return runDayEdit(r.edit, deps);
+        return r.undoFirst ? undoThenEdit(r.edit, deps) : runDayEdit(r.edit, deps);
     return noted(r, deps, deps.next);
+}
+/** E11: the last day edit comes off, then the corrected ask runs; one reply says both. Nothing to undo, or the undo failing, stops here. */
+async function undoThenEdit(edit, deps) {
+    const last = recallRun(deps.now);
+    if (!last)
+        return { flow: say("I don't have a change of mine to undo, so nothing was changed. Tell me what to put on the schedule."), facts: [], writes: 0 };
+    const undone = await undoReality(last, deps.run);
+    if (undone.outcome !== "done")
+        return { flow: undone, facts: [], writes: 0 };
+    const out = await runDayEdit(edit, deps);
+    const f = out.flow;
+    const lead = (undone.reply ?? "Undone.").replace(/, and I've forgotten what you told me about it\.$/, ".");
+    const calls = [...(undone.calls ?? []), ...("calls" in f && f.calls ? f.calls : [])];
+    const outputs = [...(undone.outputs ?? []), ...("outputs" in f && f.outputs ? f.outputs : [])];
+    const flow = f.outcome === "done" ? { ...f, calls, outputs, reply: `${lead} ${f.reply}` } : f.outcome === "say" ? { ...f, calls, outputs, text: `${lead} ${f.text}` } : f;
+    return { ...out, flow };
 }
 /** Only the fact, for a statement that also asks for another change ("i skipped marketing, put catch-up tomorrow"): the change goes on as usual. */
 export async function declareOnly(read, deps) {

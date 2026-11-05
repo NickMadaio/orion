@@ -32,12 +32,12 @@ export async function removeNote(deps, label) {
     return { ...out, text: `Removed the note: "${preview(label)}". It's archived, so it can be restored if you change your mind.`, removed: [{ kind: "note", label, at: deps.now }] };
 }
 /** Cancels the reminders whose label names every word given; says which, then reads the store again to confirm they are gone. */
-export async function removeReminder(deps, labels, words) {
+export async function removeReminder(deps, labels, words, onlyIds) {
     const out = blank();
     if (!deps.reminders)
         return { ...out, text: "I can't reach your reminders right now, so nothing was cancelled." };
     const live = await deps.reminders.list().catch(() => []);
-    const matched = live.filter((r) => labels.some((l) => (words ? namesLabel(words, r.label) : r.label.trim().toLowerCase() === l.trim().toLowerCase() || namesLabel(contentWords(l), r.label))));
+    const matched = onlyIds ? live.filter((r) => onlyIds.includes(r.id)) : live.filter((r) => labels.some((l) => (words ? namesLabel(words, r.label) : r.label.trim().toLowerCase() === l.trim().toLowerCase() || namesLabel(contentWords(l), r.label))));
     if (!matched.length)
         return { ...out, text: `I couldn't find a reminder called ${labels.join(" or ")}, so nothing was cancelled.` };
     if (matched.length > 1 && words)

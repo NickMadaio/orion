@@ -28,11 +28,11 @@ export async function removeNote(deps: LedgerDeps, label: string): Promise<Ledge
 }
 
 /** Cancels the reminders whose label names every word given; says which, then reads the store again to confirm they are gone. */
-export async function removeReminder(deps: LedgerDeps, labels: string[], words?: string[]): Promise<LedgerOutcome> {
+export async function removeReminder(deps: LedgerDeps, labels: string[], words?: string[], onlyIds?: string[]): Promise<LedgerOutcome> {
   const out = blank();
   if (!deps.reminders) return { ...out, text: "I can't reach your reminders right now, so nothing was cancelled." };
   const live = await deps.reminders.list().catch(() => []);
-  const matched = live.filter((r) => labels.some((l) => (words ? namesLabel(words, r.label) : r.label.trim().toLowerCase() === l.trim().toLowerCase() || namesLabel(contentWords(l), r.label))));
+  const matched = onlyIds ? live.filter((r) => onlyIds.includes(r.id)) : live.filter((r) => labels.some((l) => (words ? namesLabel(words, r.label) : r.label.trim().toLowerCase() === l.trim().toLowerCase() || namesLabel(contentWords(l), r.label))));
   if (!matched.length) return { ...out, text: `I couldn't find a reminder called ${labels.join(" or ")}, so nothing was cancelled.` };
   if (matched.length > 1 && words) return { ...out, text: `Which one? ${matched.map((r) => r.label).join(", ")}.` };
   const ids = matched.map((r) => r.id);

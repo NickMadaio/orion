@@ -1407,7 +1407,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (sessionKey) ledgerHeld.delete(sessionKey);   // any next turn answers or drops the question
     const ledgerRead: LedgerAsk | undefined = on && !cutOff && !quietTurn && !isCrisis(message) && options.ledgerRun
       ? (heldAsk && nowMs() - heldAsk.at < STITCH_WINDOW_MS && (isYes(message.replace(/[.!?…]+$/, "")) || saysYes(message))
-        ? { verb: "remove", strong: true, kinds: [heldAsk.kind], targets: [contentWords(heldAsk.label)], pointing: false, bare: false, confirmed: true }
+        ? { verb: "remove", strong: true, kinds: [heldAsk.kind], targets: heldAsk.label === "*all" ? [] : [contentWords(heldAsk.label)], pointing: false, bare: false, confirmed: true, ...(heldAsk.label === "*all" ? { every: true } : {}) }
         : readLedgerAsk(message) ?? ((): LedgerAsk | undefined => {
           const more = sessionKey && nowMs() - (ledgerLast.get(sessionKey) ?? 0) < STITCH_WINDOW_MS ? readFollowUp(message) : null;
           return more ? { verb: "remove", strong: true, kinds: [], targets: more, pointing: false, bare: false } : undefined;

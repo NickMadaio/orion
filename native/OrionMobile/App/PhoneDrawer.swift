@@ -91,7 +91,7 @@ struct PhoneDrawer: View {
 
     private func chatRow(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.system(size: 16)).lineLimit(1)
+            Text(title).font(.system(size: 16)).lineLimit(1).minimumScaleFactor(0.7)
                 .foregroundStyle(selected ? Phone.text : Phone.soft)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 9).contentShape(Rectangle())

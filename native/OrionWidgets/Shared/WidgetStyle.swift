@@ -103,7 +103,7 @@ struct Eyebrow: View {
     init(_ text: String, tint: Color = W.dim, rule: Bool = true) { self.text = text; self.tint = tint; self.rule = rule }
     var body: some View {
         HStack(spacing: 6) {
-            Text(text).textCase(.uppercase).font(W.mono(9)).tracking(1.4).foregroundStyle(tint).lineLimit(1)
+            Text(text).textCase(.uppercase).font(W.mono(9)).tracking(1.4).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
             if rule {
                 LinearGradient(colors: [W.hairline, .clear], startPoint: .leading, endPoint: .trailing).frame(height: 1)
             }
@@ -195,7 +195,7 @@ struct BlockRow: View {
             RoundedRectangle(cornerRadius: 1.5).fill(W.tint(block.kind)).frame(width: 3, height: compact ? 14 : 18)
                 .opacity(block.end < now ? 0.35 : 1)
             Text(block.title).font(.system(size: compact ? 12 : 13, weight: on ? .semibold : .regular))
-                .foregroundStyle(on ? W.text : W.soft).lineLimit(1)
+                .foregroundStyle(on ? W.text : W.soft).lineLimit(1).minimumScaleFactor(0.7)
             Spacer(minLength: 0)
             if on {
                 Text(W.duration(block.end.timeIntervalSince(now))).font(W.mono(9)).foregroundStyle(W.tint(block.kind))

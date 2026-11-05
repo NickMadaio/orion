@@ -100,7 +100,7 @@ struct SectionLabel: View {
     init(_ text: String, tint: Color = Phone.dim) { self.text = text; self.tint = tint }
     var body: some View {
         HStack(spacing: 10) {
-            Text(text).textCase(.uppercase).font(Phone.mono(10)).tracking(2.2).foregroundStyle(tint).lineLimit(1)
+            Text(text).textCase(.uppercase).font(Phone.mono(10)).tracking(2.2).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
             LinearGradient(colors: [Phone.hairline, .clear], startPoint: .leading, endPoint: .trailing).frame(height: 1)
         }
         .accessibilityAddTraits(.isHeader)
@@ -192,7 +192,7 @@ struct PhoneGauge: View {
                 .padding(.horizontal, 8)
             }
             .frame(width: size, height: size)
-            Text(label).textCase(.uppercase).font(Phone.mono(9.5)).tracking(2).foregroundStyle(tint).lineLimit(1)
+            Text(label).textCase(.uppercase).font(Phone.mono(9.5)).tracking(2).foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
         }
         .animation(PhoneMotion.spring(PhoneMotion.enter, reduce: reduceMotion), value: fraction)
         .accessibilityElement(children: .ignore)

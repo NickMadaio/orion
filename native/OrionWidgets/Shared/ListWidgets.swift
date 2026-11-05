@@ -19,7 +19,7 @@ struct TodoLine: View {
     var body: some View {
         HStack(spacing: 7) {
             Circle().stroke(ring, lineWidth: todo.priority == 1 ? 1.8 : 1.3).frame(width: 10, height: 10)
-            Text(todo.title).font(.system(size: 12, weight: todo.priority == 1 ? .semibold : .regular)).foregroundStyle(W.text).lineLimit(1)
+            Text(todo.title).font(.system(size: 12, weight: todo.priority == 1 ? .semibold : .regular)).foregroundStyle(W.text).lineLimit(1).minimumScaleFactor(0.7)
             Spacer(minLength: 0)
             if let due = todo.due {
                 Text(Calendar.current.isDateInToday(due) ? W.clock(due) : due.formatted(.dateTime.day().month(.abbreviated)))
@@ -98,7 +98,7 @@ struct ProjectLine: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
-                Text(project.name).font(.system(size: compact ? 12 : 14, weight: .semibold)).foregroundStyle(W.text).lineLimit(1)
+                Text(project.name).font(.system(size: compact ? 12 : 14, weight: .semibold)).foregroundStyle(W.text).lineLimit(1).minimumScaleFactor(0.7)
                 Spacer(minLength: 4)
                 Text("\(project.percent)%").font(W.mono(compact ? 11 : 13, .bold)).foregroundStyle(Self.tint(project.status))
             }
@@ -112,7 +112,7 @@ struct ProjectLine: View {
             HStack(spacing: 5) {
                 Circle().fill(Self.tint(project.status)).frame(width: 5, height: 5).opacity(project.live ? 1 : 0.5)
                 Text(project.step ?? project.activeTask ?? Self.label(project.status))
-                    .font(W.mono(9, .medium)).foregroundStyle(W.soft).lineLimit(1)
+                    .font(W.mono(9, .medium)).foregroundStyle(W.soft).lineLimit(1).minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
                 if !compact { Text("\(project.accepted)/\(project.total)").font(W.mono(9)).foregroundStyle(W.dim) }
             }
@@ -150,7 +150,7 @@ struct ProjectView: View {
                         }
                     }
                     .frame(width: 74, height: 74)
-                    Text(project.name).font(W.display(13, .bold)).foregroundStyle(W.text).lineLimit(1)
+                    Text(project.name).font(W.display(13, .bold)).foregroundStyle(W.text).lineLimit(1).minimumScaleFactor(0.7)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else if projects.isEmpty {
@@ -167,7 +167,7 @@ struct ProjectView: View {
                     ForEach(projects) { ProjectLine(project: $0) }
                     Spacer(minLength: 0)
                     if family == .systemLarge, let checkin = entry.glance?.checkin, checkin.phase == "active" {
-                        Text("You: \(checkin.what)").font(W.mono(10)).foregroundStyle(W.violet).lineLimit(1)
+                        Text("You: \(checkin.what)").font(W.mono(10)).foregroundStyle(W.violet).lineLimit(1).minimumScaleFactor(0.7)
                     }
                 }
             }

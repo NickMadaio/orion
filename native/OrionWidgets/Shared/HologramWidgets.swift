@@ -161,7 +161,7 @@ struct HorizonWidgetView: View {
         let align: HorizontalAlignment = center ? .center : .leading
         VStack(alignment: align, spacing: 1) {
             if let block = now ?? next {
-                Text(block.title).font(W.display(center ? 13 : 16, .bold)).foregroundStyle(W.text).lineLimit(1)
+                Text(block.title).font(W.display(center ? 13 : 16, .bold)).foregroundStyle(W.text).lineLimit(1).minimumScaleFactor(0.7)
                 if let now {
                     Text(timerInterval: entry.date...max(entry.date, now.end), countsDown: true)
                         .font(W.mono(center ? 12 : 22, .bold)).foregroundStyle(W.tint(now.kind))

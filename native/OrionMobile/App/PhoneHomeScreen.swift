@@ -16,9 +16,9 @@ struct PhoneHomeScreen: View {
     @ObservedObject private var lock = FocusLock.shared
     @ObservedObject private var shield = FocusSessionShield.shared
     let onOpenChat: () -> Void
+    let onOpenSection: (String) -> Void
     /// The conversation Home's messages join: the chat tab's current one, so typing on Home then opening chat is one thread.
     var conversation: () -> String = { LinkSchema.threadID }
-    let onOpenSection: (String) -> Void
 
     @State private var decided: [String: Bool] = [:]
     @State private var answered: Set<String> = []

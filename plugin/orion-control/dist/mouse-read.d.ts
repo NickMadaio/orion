@@ -51,4 +51,4 @@ export type MouseContext = {
     outreachAbout?: boolean;
 };
 /** The mouse turn in his message, or null. */
-export declare function readMouseTurn(message: string, c?: MouseContext): MouseTurn | null;
+export declare function readMouseTurn(rawMessage: string, c?: MouseContext): MouseTurn | null;

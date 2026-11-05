@@ -15,7 +15,8 @@ const ack = join(homedir(), "Library/Application Support/ORION Link/status.json"
 const arg = process.argv[2];
 const read = (f) => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };
 if (!arg) {
-  const current = read(file);
+  const found = read(file);
+  const current = found && new Date(found.at) > new Date() ? found : null;   // a one-off that has already rung is stale: never state it (2026-11-04, L2)
   console.log(current ? `Wake-up set for ${new Date(current.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })} (asked ${current.setAt}).` : "No manual wake-up; the phone uses the automatic one (first class minus get-ready time).");
   process.exit(0);
 }

@@ -65,7 +65,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** A whole sleepPlan, as stored (every field optional; unknown fields refused). */
 export function validSleepPlan(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
-  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions", "gymDays", "overrides"];
+  const known = ["byDay", "firstClassLeadMin", "sleepHours", "nudgeBeforeMin", "lockdownBelowHours", "legitReasons", "exceptions", "gymDays", "overrides", "bedOverrides", "bedFixed"];
   if (Object.keys(v).some((k) => !known.includes(k))) return false;
   const byDay = v.byDay ?? {};
   if (typeof byDay !== "object" || Array.isArray(byDay)) return false;
@@ -85,7 +85,11 @@ export function validSleepPlan(v) {
   const ov = v.overrides ?? {};
   const ovOk = typeof ov === "object" && !Array.isArray(ov) && Object.keys(ov).length <= 30
     && Object.entries(ov).every(([d, t]) => DATE.test(d) && (t === "off" || (typeof t === "string" && HHMM.test(t))));
-  return ovOk && gymOk && daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
+  // w20 routegate: an exact bedtime for ONE night (date -> HH:MM) and "this bedtime is exact, not capped by the sleep need".
+  const bo = v.bedOverrides ?? {};
+  const boOk = typeof bo === "object" && !Array.isArray(bo) && Object.keys(bo).length <= 30 && Object.entries(bo).every(([d, t]) => DATE.test(d) && typeof t === "string" && HHMM.test(t));
+  const fixedOk = v.bedFixed === undefined || typeof v.bedFixed === "boolean";
+  return boOk && fixedOk && ovOk && gymOk && daysOk && leadOk && sleepOk && nudgeOk && lockOk && reasonsOk && exOk;
 }
 
 const HHMM_OK = (v) => typeof v === "string" && HHMM.test(v);
@@ -104,7 +108,7 @@ export function validPlanBreaks(v) {
 export function sleepPlanOf(config) {
   const saved = config?.sleepPlan && typeof config.sleepPlan === "object" ? config.sleepPlan : {};
   return { ...DEFAULTS.sleepPlan, ...saved, byDay: { ...(saved.byDay ?? {}) }, legitReasons: [...(saved.legitReasons ?? DEFAULTS.sleepPlan.legitReasons)],
-    exceptions: [...(saved.exceptions ?? [])], overrides: { ...(saved.overrides ?? {}) }, sleepHours: saved.sleepHours ?? config?.sleepHours ?? 8 };
+    exceptions: [...(saved.exceptions ?? [])], overrides: { ...(saved.overrides ?? {}) }, bedOverrides: { ...(saved.bedOverrides ?? {}) }, bedFixed: saved.bedFixed === true, sleepHours: saved.sleepHours ?? config?.sleepHours ?? 8 };
 }
 
 /** Replaces the stored sleepPlan after validating it whole. */

@@ -19,6 +19,7 @@ import { ORION_WAKE } from "./wake-flow.js";
 import { pluginNow } from "./plugin-clock.js";
 import { cap, clock, meridiem } from "./sleep-fmt.js";
 import { runAlarmTurn } from "./alarm-flow.js";
+import { runBedChange } from "./bedtime-change.js";
 import type { Draft, SleepPending, SleepStep, SleepTurn } from "./sleep-plan-read.js";
 
 export type SleepRun = (args: string[]) => Promise<{ stdout: string; code: number }>;
@@ -217,6 +218,7 @@ export async function runSleepTurn(turn: SleepTurn, { run, now = pluginNow(), ch
   if (turn.kind === "confirm") return save(turn.draft, run);
   if (turn.kind === "except") return except(turn.reason, turn.until, run);
   if (turn.kind === "bedtime") return bedtime(turn.time, run);
+  if (turn.kind === "bedset") return runBedChange(turn.change, run);
   if (turn.kind === "alarm") return runAlarmTurn(turn.req, { run, now });
   return noExcept(turn, run, now, checkin);
 }

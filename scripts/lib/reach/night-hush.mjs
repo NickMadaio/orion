@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { readJson } from "../awareness/io.mjs";
 import { eveningOf, instant } from "../life/sleep-plan.mjs";
 import { toMinute } from "../life/config.mjs";
+import { effectiveBedtime } from "../life/effective-bed.mjs";
 
 /** The instant tonight's wind-down starts: Nick's own wake-plan nudge, else life-config bedtime minus windDownMinutes. */
 export function nudgeInstant({ now, plan = null, config = {} }) {
@@ -12,7 +13,7 @@ export function nudgeInstant({ now, plan = null, config = {} }) {
   const own = plan?.source === "nick" ? (plan.bedtimes ?? []).find((b) => b?.date === evening) : null;
   const iso = own ? Date.parse(own.nudgeAtIso) : NaN;
   if (Number.isFinite(iso)) return new Date(iso);
-  const bed = toMinute(config.bedtime ?? "00:00");
+  const bed = toMinute(effectiveBedtime(config, evening));
   const wind = Number.isFinite(Number(config.windDownMinutes)) ? Number(config.windDownMinutes) : 30;
   return instant(evening, (bed < 12 * 60 ? bed + 1440 : bed) - wind);
 }

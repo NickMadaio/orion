@@ -1,6 +1,25 @@
+/*
+ Which chat turns are about a workout he did (w17 g-workout, 2026-11-03). Pure: workout-chat.ts carries them out through orion-workout-log.
+
+ Nick: "make it so that I can just explain or tell orion about my workout and then he can log it for me. if I forget a part he can
+ ask me about it."
+
+   describe  "just did legs, squats 4x6 at 185…", "log my workout: …", "went for a 3 mile run", "worked out today": parse, then log or ask ONE question
+   answer    his reply to that question ("55 min and 185 on squats"), only while the question is still the last thing in this chat
+   skip      "skip" / "idk" / "no": log what is known and say what was skipped
+   cancel    "never mind" / "dont log it": drop the waiting workout
+   undo      "undo" within half an hour of a workout log in this chat
+
+ A question, a plan ("gonna do legs later"), a miss ("skipped the gym"), a schedule edit and anything else is not a workout statement, and
+ a reply about something else never binds to the follow-up (the precedence food-read.ts and plan-check-story.ts keep for their own replies).
+*/
+import { PAST_TENSE, schedulingAsk } from "./route-gate.js";
+import { normalizeSpoken } from "./spoken-numbers.js";
 const UNDO_MS = 30 * 60_000;
 const flat = (s) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
 const LOG = /^(?:please |pls |can you |could you )?(?:log|track|record|add)\s+(?:my |a |the |today'?s |this |that )?(?:workout|work ?out|session|gym session|gym|training|lift(?:ing)?(?: session)?|run|cardio|swim|ride)\b[\s:,-]*(.*)$/i;
+// "add" is a logging verb only when he says where it goes ("add it to my workout log") or that it happened; "add gym" alone is the calendar's.
+const ADD_TO_LOG = /\bto (?:my |the )?(?:workout|gym|training|exercise|fitness)(?: log| journal| history)\b|\bto (?:my )?log\b/;
 const LIFT_PARTS = String.raw `(?:push|pull|legs?|chest|back|arms?|upper|lower|full body|shoulders?|core|abs?|cardio|hiit|biceps|triceps|glutes|quads)`;
 const SPORTS = String.raw `(?:basketball|soccer|tennis|football|squash|badminton|pickleball|volleyball|padel|rugby|climbing|bouldering|boxing|bjj|yoga|pilates|swimming|hockey)`;
 const DONE = new RegExp([
@@ -29,12 +48,16 @@ function isStatement(said) {
 }
 /** The workout turn in his message, or null. */
 export function readWorkoutTurn(message, c) {
-    const m = message.trim().replace(/\s+/g, " ");
+    const m = normalizeSpoken(message).trim().replace(/\s+/g, " ");
     const said = flat(m);
     if (!said || m.length > 800)
         return null;
+    // w20 routegate (E4 / E10 / E17): "put gym at 10-11", "add marketing from 7-9:30pm. Then gym ..." is a calendar ask, never a workout and
+    // never the answer to the follow-up question. Past tense ("i did gym from 10 to 11") is what makes a time a workout he had.
+    if (schedulingAsk(said))
+        return null;
     const log = LOG.exec(m);
-    if (log && !NOT_STATEMENT.test(said) && !SCHEDULING.test(said))
+    if (log && !NOT_STATEMENT.test(said) && !SCHEDULING.test(said) && (!/^(?:please |pls |can you |could you )?add\b/i.test(m) || ADD_TO_LOG.test(said) || PAST_TENSE.test(said)))
         return { kind: "describe", text: log[1].trim() ? log[1].trim() : "workout" };
     if (c.pending && c.bound) {
         if (CANCEL.test(said))

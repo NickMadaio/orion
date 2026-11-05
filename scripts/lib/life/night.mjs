@@ -55,14 +55,18 @@ export function wakeOn(date, options) {
  * Minutes after `date`'s midnight by which he should be asleep that night (may pass 1440).
  * `napMinutes`: what he already slept in naps that day (WHOOP). A real nap takes up to an hour off tonight's need and lets
  * the bedtime slide by the same amount, never earlier (W20).
+ * w20 routegate: a bedtime he named for this night is exact (no sleep-need cap, no nap credit, no night-out push); a standing one
+ * he named (plan.bedFixed) is exact too. The shortfall is said, never silently capped.
  */
 export function bedOn(date, { blocksOf, config, wakeRequest = null, napMinutes = 0 }) {
+  const plan = sleepPlanOf(config);
+  const forced = plan.bedOverrides?.[date];
+  if (forced) { const f = toMinute(forced); return f < 12 * 60 ? 1440 + f : f; }
   const credit = napCreditMinutes(napMinutes);
   const bedtime = toMinute(config.bedtime);
   const target = (bedtime < 12 * 60 ? 1440 + bedtime : bedtime) + credit;
-  const sleep = sleepPlanOf(config).sleepHours;
-  const needed = 1440 + wakeOn(dayAfter(date), { blocksOf, config, wakeRequest }) - Math.round(sleep * 60) + credit;
-  let bed = Math.min(target, needed);
+  const needed = 1440 + wakeOn(dayAfter(date), { blocksOf, config, wakeRequest }) - Math.round(plan.sleepHours * 60) + credit;
+  let bed = plan.bedFixed ? target : Math.min(target, needed);
   const lateFixed = blocksOf(date).filter((b) => b.fixed && b.source !== "orion" && b.end > bed).sort((a, b) => b.end - a.end)[0];
   if (lateFixed) bed = lateFixed.end + (config.commuteMinutes ?? 30);
   return bed;

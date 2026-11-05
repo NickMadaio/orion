@@ -18,6 +18,7 @@ import { ORION_WAKE } from "./wake-flow.js";
 import { pluginNow } from "./plugin-clock.js";
 import { cap, clock, meridiem } from "./sleep-fmt.js";
 import { runAlarmTurn } from "./alarm-flow.js";
+import { runBedChange } from "./bedtime-change.js";
 /** One interview per chat, for a few minutes; taken (and so cleared) by the next turn whatever it is. */
 export class SleepPlanPending {
     static TTL_MS = 15 * 60_000;
@@ -210,6 +211,8 @@ export async function runSleepTurn(turn, { run, now = pluginNow(), checkin }) {
         return except(turn.reason, turn.until, run);
     if (turn.kind === "bedtime")
         return bedtime(turn.time, run);
+    if (turn.kind === "bedset")
+        return runBedChange(turn.change, run);
     if (turn.kind === "alarm")
         return runAlarmTurn(turn.req, { run, now });
     return noExcept(turn, run, now, checkin);

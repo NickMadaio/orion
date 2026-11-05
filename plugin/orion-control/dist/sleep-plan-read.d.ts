@@ -1,4 +1,5 @@
 import { type AlarmReq } from "./alarm-read.js";
+import { type BedChange } from "./bedtime-read.js";
 import { type Draft } from "./sleep-plan-slots.js";
 export type { Draft, DayWake } from "./sleep-plan-slots.js";
 export { slotsOf } from "./sleep-plan-slots.js";
@@ -33,6 +34,11 @@ export type SleepTurn = {
     kind: "bedtime";
     time?: string;
 }
+/** w20 routegate (bedtime-read.ts): an exact bedtime or a shift, tonight or every night; carried out by bedtime-change.ts. */
+ | {
+    kind: "bedset";
+    change: BedChange;
+}
 /** W18: one morning's alarm said outright: set, off, moved, or read (alarm-read.ts, alarm-flow.ts). */
  | {
     kind: "alarm";
@@ -58,7 +64,7 @@ export declare function readPlea(message: string, now: Date): SleepTurn | undefi
 /** His reply to the question ORION asked; undefined when it is not one (the pending interview is then dropped). */
 export declare function readAnswer(message: string, held: SleepPending): SleepTurn | undefined;
 /** This turn's part in the sleep plan, or undefined. A held interview reads the answer first; a new statement starts over. */
-export declare function readSleepTurn(message: string, { held, now, recentAlarm }: {
+export declare function readSleepTurn(raw: string, { held, now, recentAlarm }: {
     held?: SleepPending | undefined;
     now: Date;
     recentAlarm?: boolean;

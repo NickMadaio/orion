@@ -86,7 +86,7 @@ const ASKED_REASONS = new Set(["plan", "class"]);
 export function wakePlanDoc({ now, days, config }) {
   const plan = sleepPlanOf(config);
   const byNick = Object.keys(plan.byDay).length > 0 || Number.isInteger(plan.firstClassLeadMin)
-    || Object.values(plan.overrides ?? {}).some((t) => t !== "off");
+    || Object.values(plan.overrides ?? {}).some((t) => t !== "off") || plan.bedFixed === true || Object.keys(plan.bedOverrides ?? {}).length > 0;
   return {
     source: byNick ? "nick" : "default",
     generatedAt: now.toISOString(),
@@ -119,8 +119,12 @@ export const minuteOf = toMinute;
 /** A new plan with one morning's alarm set to `time` (HH:MM) or "off". Pure. */
 export const withOverride = (plan, date, time) => ({ ...plan, overrides: { ...(plan.overrides ?? {}), [date]: time } });
 
+/** A new plan with an exact bedtime (HH:MM) for ONE evening. Pure. */
+export const withBedOverride = (plan, evening, time) => ({ ...plan, bedOverrides: { ...(plan.bedOverrides ?? {}), [evening]: time } });
+
 /** Overrides for mornings already behind `today` are gone. Pure. */
-export const pruneOverrides = (plan, today) => ({ ...plan, overrides: Object.fromEntries(Object.entries(plan.overrides ?? {}).filter(([d]) => d >= today)) });
+export const pruneOverrides = (plan, today) => ({ ...plan, overrides: Object.fromEntries(Object.entries(plan.overrides ?? {}).filter(([d]) => d >= today)),
+  bedOverrides: Object.fromEntries(Object.entries(plan.bedOverrides ?? {}).filter(([d]) => d >= today)) });
 
 /** The date a day word names, counting from `now`: today, tomorrow, a weekday (the next one whose alarm is still ahead), or YYYY-MM-DD. */
 export function wakeDate(raw, now, minute = null) {

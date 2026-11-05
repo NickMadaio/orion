@@ -4,6 +4,7 @@
  what went wrong." So: say what really happened from the tool results (what ran, what failed and why) in one first-person sentence,
  offer the concrete next step, keep a model reply that was already true, and when the capability is missing say so and offer to build it.
 */
+import { isBareConfirm } from "./bare-confirm.js";
 import { claimsIn, outcomeOf, type ToolResult } from "./work-check.js";
 import { failureReason, failedTools } from "./tool-failure.js";
 import { parseReason, reasonFromSpoken, reasonOffer, repeatOffer, reasonClause } from "./failure-reason.js";
@@ -51,10 +52,20 @@ export function failureStory(tools: ReadonlyArray<ToolResult>): string {
 
 export type HonestCtx = { calendar: boolean; message?: string; tools?: ReadonlyArray<ToolResult>; rotate?: boolean };
 
+/** A bare "go" / "that one" with no tool run and nothing to say yes to: said plainly, then asked (live gate 3 #97 #98, not "I got ahead of myself"). */
+export const NOTHING_PENDING_LINES = [
+  "There's nothing waiting on a yes from me right now. What did you mean?",
+  "I don't have anything open to go ahead with. What are you after?",
+  "Nothing's pending on my side, so I'm not sure what you mean. What should I do?",
+];
+const POINTS_AT_NOTHING = /^(?:(?:yeah|yes|yep|ok|okay|sure)[\s,]+)?(?:(?:that|this|the) one|that|this|it)[\s.!?]*$/i;
+export const isBareGoAhead = (message: string | undefined): boolean => !!message && (isBareConfirm(message) || POINTS_AT_NOTHING.test(message.trim()));
+
 /** The honest line for a reply that claimed more than the tools show. From tool results when there are any. */
 export function honestReply(ctx: HonestCtx): string {
   const story = failureStory(ctx.tools ?? []);
   if (story) return story;
+  if (!(ctx.tools ?? []).length && isBareGoAhead(ctx.message)) return pickVariant(ctx.rotate ? "honest:nothing-pending" : undefined, ctx.message ?? "", NOTHING_PENDING_LINES);
   const ran = (ctx.tools ?? []).filter((t) => outcomeOf(t) !== "read").length;
   const looked = (ctx.tools ?? []).length - ran;
   const seed = `${ctx.message ?? ""}|${ctx.calendar}|${looked}`;

@@ -22,9 +22,13 @@ import { execFile } from "node:child_process";
 import { scriptPath } from "./tool-guards.js";
 import { dueParked, openOffer, parkedAny, readFixItems, type FixItem } from "./selffix-store.js";
 
+export type LastExchange = { message: string; reply: string; at: string };
+// "why did you say that": no subject named, so it is about the reply just before in THIS chat, never an older failure found on disk (live gate 3 #44 #94).
+const GENERIC = new Set(["why", "whyd", "whys", "why'd", "did", "didnt", "didn't", "would", "wouldnt", "do", "does", "you", "u", "ya", "that", "this", "it", "say", "said", "reply", "replied", "respond", "responded", "answer", "answered", "like", "way", "so", "the", "a", "an", "just", "even", "then", "word", "wording", "response", "message", "line", "there", "here", "pls", "please", "lol", "mate", "wait", "hang", "on", "ok", "okay", "hm", "hmm", "was", "is", "your", "ur", "what", "how", "come", "go", "put", "write", "wrote", "act", "sound", "and", "but", "thing", "one", "now", "last", "previous"]);
+export const isBareWhy = (about: string): boolean => !(about.toLowerCase().match(/[a-z0-9']{2,}/g) ?? []).some((w) => !GENERIC.has(w));
 export type SelffixRun = (script: "orion-selfcheck" | "orion-selffix", args: string[], input?: string) => Promise<{ stdout: string; code: number; stderr?: string }>;
 export type SelffixMove =
-  | { kind: "why"; about: string }
+  | { kind: "why"; about: string; /** ORION's previous exchange in THIS chat (message, reply), supplied by the router. */ last?: LastExchange | null }
   | { kind: "now"; id: string }
   | { kind: "later"; id: string; at?: string; reparking?: boolean }
   | { kind: "no"; id: string }
@@ -253,7 +257,10 @@ export async function runSelffixMove(move: SelffixMove, run: SelffixRun, now: Da
     case "fix-go": return fixGo(move.hold, run, log, now);
     case "fix-drop": return { ...log, text: "Okay, I won't start it. Say \"fix your code\" when you want me to." };
     case "why": {
-      const found = await call(run, "orion-selfcheck", ["why", "--about", move.about, "--exclude", move.about, "--json"], log);
+      const bare = isBareWhy(move.about);
+      if (bare && move.last === null) return { ...log, text: "I haven't said anything in this chat yet that I could explain. Ask me again after I've answered something." };
+      const lastArgs = bare && move.last ? ["--last-message", move.last.message, "--last-reply", move.last.reply, "--last-at", move.last.at] : [];
+      const found = await call(run, "orion-selfcheck", ["why", "--about", move.about, "--exclude", move.about, ...lastArgs, "--json"], log);
       if (!found) return { ...log, text: "I couldn't read back my own recent turns just now, so I can't tell you why yet. Say go and I'll retry it." };
       const d = found.diagnosis as { says: string; fixable: boolean } | null;
       if (!d) return { ...log, text: "I have no recent turns on record to look at, so I can't say why." };

@@ -42,6 +42,8 @@ export declare class FoodMemory {
     chatOffer(key: string, nowMs: number): {
         food: string;
     } | undefined;
+    /** When the offer this chat is still answering was made (undefined when none is open). */
+    chatOfferAt(key: string, nowMs: number): number | undefined;
     /** The offer is still what this chat is answering: nothing else was said since, and any label is the offer's own line. */
     bound(key: string, pending: FoodPendingView, label?: string): boolean;
 }

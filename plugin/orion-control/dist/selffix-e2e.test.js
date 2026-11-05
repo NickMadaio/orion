@@ -14,11 +14,11 @@ function world(opts = {}) {
     const dir = join(root, "ctl");
     mkdirSync(join(dir, "chats"), { recursive: true });
     const at = (h, m, s = 0) => new Date(2026, 10, 4, h, m, s).toISOString();
-    writeFileSync(join(dir, "chats", "c.json"), JSON.stringify({ id: "c", title: "t", createdAt: at(13, 0), updatedAt: at(13, 5), messages: [
-            { role: "user", text: "open amazon uk", id: "u1", at: at(13, 0) },
-            { role: "orion", text: "I couldn't run that lookup just now. I could not do that.", id: "o1", at: at(13, 0, 15) },
+    writeFileSync(join(dir, "chats", "c.json"), JSON.stringify({ id: "c", title: "t", createdAt: at(14, 0), updatedAt: at(14, 5), messages: [
+            { role: "user", text: "open amazon uk", id: "u1", at: at(14, 0) },
+            { role: "orion", text: "I couldn't run that lookup just now. I could not do that.", id: "o1", at: at(14, 0, 15) },
         ] }));
-    writeFileSync(join(dir, "task-ledger.jsonl"), `${JSON.stringify({ taskId: "t1", status: "failed", createdAt: at(13, 0, 5), steps: [{ stepId: "s", status: "failed_permanent", request: { action: "app_open", arguments: { application: "amazon uk" } }, error: "Application \"amazon uk\" was not found in /Applications." }] })}\n`);
+    writeFileSync(join(dir, "task-ledger.jsonl"), `${JSON.stringify({ taskId: "t1", status: "failed", createdAt: at(14, 0, 5), steps: [{ stepId: "s", status: "failed_permanent", request: { action: "app_open", arguments: { application: "amazon uk" } }, error: "Application \"amazon uk\" was not found in /Applications." }] })}\n`);
     const calls = join(root, "projects.log");
     const fake = join(root, "fake-projects");
     writeFileSync(fake, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(calls)}, process.argv.slice(2)[0] + "\\n");\nif (process.argv[2] === "launch" && process.env.FAKE_LAUNCH_FAIL) { console.error(process.env.FAKE_LAUNCH_FAIL); process.exit(1); }\nconsole.log(JSON.stringify(process.argv[2] === "add" ? { id: "project-e2e" } : { launched: true }));\n`);
@@ -43,8 +43,14 @@ function world(opts = {}) {
         const [direct] = (await fire("before_agent_reply", { cleanedBody: prompt }, ctx));
         return direct?.reply?.text;
     };
+    // An exchange ORION already had in this chat (finalize records it): what a bare "why did you do that" is about.
+    const said = async (prompt, text) => {
+        const ctx = { runId: `w19-${n += 1}`, sessionKey: "agent:main:orion-chat-w19" };
+        await fire("before_model_resolve", { prompt }, ctx);
+        await fire("before_agent_finalize", { runId: ctx.runId, lastAssistantMessage: text, messages: [{ role: "assistant", content: [{ type: "text", text }] }] }, ctx);
+    };
     const projectCalls = () => (existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n") : []);
-    return { dir, reply, desk, projectCalls };
+    return { dir, reply, said, desk, projectCalls };
 }
 describe("why did you do that, then now / later / no", () => {
     it("diagnoses from his own turn and offers; a repeat is a duplicate, not another offer", async () => {
@@ -58,6 +64,7 @@ describe("why did you do that, then now / later / no", () => {
     });
     it("an unrelated turn clears the offer: a later bare yes or no does nothing to it", async () => {
         const w = world();
+        await w.said("open amazon uk", "I couldn't run that lookup just now. I could not do that.");
         await w.reply("why did you do that");
         expect(await w.reply("ok set a 25 min timer")).toBeUndefined();
         expect(await w.reply("yes")).toBeUndefined();
@@ -67,6 +74,7 @@ describe("why did you do that, then now / later / no", () => {
     });
     it("later: parks the project, schedules the reminder, does not start it", async () => {
         const w = world();
+        await w.said("open amazon uk", "I couldn't run that lookup just now. I could not do that.");
         await w.reply("why'd u do that");
         const text = await w.reply("tomorrow at 9");
         expect(text).toMatch(/parked it\. It won't run until you say so\. I'll remind you tomorrow at 9:00 AM/);
@@ -85,6 +93,7 @@ describe("why did you do that, then now / later / no", () => {
     });
     it("no: nothing is created and the decision is recorded", async () => {
         const w = world();
+        await w.said("open amazon uk", "I couldn't run that lookup just now. I could not do that.");
         await w.reply("why did you do that");
         expect(await w.reply("nah leave it")).toMatch(/dropped it/);
         expect(w.projectCalls()).toEqual([]);

@@ -16,6 +16,12 @@ describe("a stated wake-up time must be the real one", () => {
   it("drops an invented 7:45 when the alarm is 6:30", () => {
     expect(withoutUnverifiedAlarmClaims("Just checking in. You're all set for sleep until your 7:45 AM wake-up.", dirWith(alarm), now)).toBe("Just checking in.");
   });
+  it("drops 'sleep well until 7:45' too (live gate 3 #99), and keeps it when it is the real alarm", () => {
+    expect(withoutUnverifiedAlarmClaims("Goodnight Nick. Sleep well until 7:45 AM.", dirWith(alarm), now)).toBe("Goodnight Nick.");
+    expect(withoutUnverifiedAlarmClaims("Goodnight Nick. Sleep well until 6:30 AM.", dirWith(alarm), now)).toBe("Goodnight Nick. Sleep well until 6:30 AM.");
+    for (const t of ["Night mate, you're good to sleep till 7:45.", "Rest until 8 AM.", "Sleeping until 7:45 AM then."]) expect(withoutUnverifiedAlarmClaims(t, dirWith(alarm), now), t).not.toMatch(/7:45|8 AM/);
+  });
+  it("keeps it", () => { expect(withoutUnverifiedAlarmClaims("Sleep well. Lecture is at 9:00 AM.", dirWith(alarm), now)).toBe("Sleep well. Lecture is at 9:00 AM."); });
   it("keeps the real time, however it is written", () => {
     for (const t of ["6:30 AM", "6:30 am", "06:30"]) expect(withoutUnverifiedAlarmClaims(`You're up at ${t} for your alarm.`, dirWith(alarm), now), t).toContain(t);
   });

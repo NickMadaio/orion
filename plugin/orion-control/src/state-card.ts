@@ -172,6 +172,8 @@ export function stateCard(i: CardInputs): string {
     "What you know about Nick right now (code read this from his state; \"unknown\" means nobody knows: never fill it in or guess):",
     ...(i.record ? recordLines(i.record) : [`- His plan and what he is doing: unknown (${i.recordGap ?? "no record"})`]),
   ];
+  // w20 r5 (live gate 3 #110): a message from him is proof he is awake, whatever the sleep window says: "should be asleep" is advice, never "you are asleep".
+  lines.splice(1, 0, "- He is awake: he is messaging you right now. A sleep window or bedtime means he SHOULD be asleep, never that he is; do not tell him he is asleep.");
   // What his Mac says he is on, ahead of the plan lines' guesses: "playing Minecraft" is not "at-mac".
   if (i.activityLine) lines.splice(1, 0, `- ${i.activityLine}`);
   if (i.declared.length) lines.push(`- He told you today: ${i.declared.slice(-4).map((f) => (FACT_SAID[f.kind] ?? FACT_SAID.note!)(f)).join("; ")}`);

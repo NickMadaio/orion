@@ -4,7 +4,9 @@
  that time is the next real alarm (wake-plan.json via nextWake); otherwise the sentence is dropped, not corrected from memory.
 */
 import { nextWake } from "./wake-state.js";
-const ALARM_WORD = /\b(?:wake[- ]?(?:up|alarm|time)?|alarms?|wake me|get up|up at)\b/i;
+const ALARM_WORD = /\b(?:wake[- ]?(?:up|alarm|time)?|alarms?|wake me|get up|up at|sleep(?:ing)? (?:well|tight|in)?\s*(?:until|till)|rest (?:until|till)|(?:until|till) (?:your|the) (?:wake|alarm|morning))\b|\bsleep\b[^.?!]*\b(?:until|till)\b/i;
+// A sentence that is about another thing he does at that time ("lecture at 9:00") is not a claim about the alarm.
+const OTHER_EVENT = /\b(?:lecture|class|seminar|lab|gym|meeting|session|deadline|dinner|lunch|breakfast|call|appointment|exam|shift|flight|train|bus)\b/i;
 const CLOCK = /\b(\d{1,2}):(\d{2})\s*(am|pm)?\b|\b(\d{1,2})\s*(am|pm)\b/gi;
 /** The h:mm times a sentence states, as minutes after midnight (am/pm applied; a bare h:mm is read as written, 24-hour). */
 function statedMinutes(sentence) {
@@ -22,7 +24,7 @@ export function withoutUnverifiedAlarmClaims(draft, stateDir, now) {
     const next = nextWake(stateDir, now);
     const real = next ? next.at.getHours() * 60 + next.at.getMinutes() : undefined;
     return parts.filter((s) => {
-        if (!ALARM_WORD.test(s))
+        if (!ALARM_WORD.test(s) || (OTHER_EVENT.test(s) && !/\b(?:alarm|wake)/i.test(s)))
             return true;
         const times = statedMinutes(s);
         if (!times.length)

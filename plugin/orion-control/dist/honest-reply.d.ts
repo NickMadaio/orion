@@ -11,6 +11,9 @@ export type HonestCtx = {
     tools?: ReadonlyArray<ToolResult>;
     rotate?: boolean;
 };
+/** A bare "go" / "that one" with no tool run and nothing to say yes to: said plainly, then asked (live gate 3 #97 #98, not "I got ahead of myself"). */
+export declare const NOTHING_PENDING_LINES: string[];
+export declare const isBareGoAhead: (message: string | undefined) => boolean;
 /** The honest line for a reply that claimed more than the tools show. From tool results when there are any. */
 export declare function honestReply(ctx: HonestCtx): string;
 /** True when the model's reply plainly says nothing happened and claims no change. The check may flag "is already running"; that stays. */

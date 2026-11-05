@@ -108,7 +108,7 @@ test("at 21:55 the same words try CS Lab from now until 22:30 as a second sessio
   assert.deepEqual(w.writes, [["add", "CS Lab", "35", "--at", "21:55", "--again", "--length-explicit"]]);
   // The scheduler refuses (the Gym, 90 minutes, would not fit after it) and lists the plan it tried: that list is never said as done.
   assert.deepEqual(r.outcome, "say", JSON.stringify(r));
-  assert.equal(r.text, "Not done: Gym didn't fit. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait.");
+  assert.equal(r.text, "I couldn't do that: Gym didn't fit around your classes and bedtime. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait.");
   assert.deepEqual(w.day(), before);
 });
 

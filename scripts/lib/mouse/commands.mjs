@@ -150,7 +150,7 @@ export const SETUP_SAY = "Okay, let me help. Tell me what you want the buttons t
 /** `setup`: opens the Mac's mouse-setup popup (one record in outreach.jsonl) and says SETUP_SAY. */
 export function openSetup({ env = process.env, again = false } = {}) {
   const req = requestSetupPopup({ env });
-  return { ok: true, popup: req.written, ...(req.row ? { record: req.row } : {}), say: again ? "Here it is." : SETUP_SAY };
+  return { ok: true, popup: req.written, ...(req.row ? { record: req.row } : {}), say: !req.written ? "I couldn't open the mapper just now." : again ? "Here it is." : SETUP_SAY };
 }
 
 export const LEARN_SAY = "Okay, press the button you want to add. I'm listening for 10 seconds, and Esc cancels.";

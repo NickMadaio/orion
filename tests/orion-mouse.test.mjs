@@ -241,3 +241,19 @@ test("top button: set and status through the CLI", () => {
   const lacking = sandbox({ devices: { ...devices, devices: [{ ...devices.devices[0], extraButtons: [3, 4] }] } });
   assert.equal(lacking.run("set", "f13", "stage manager").code, 1);
 });
+
+test("the mapper popup opens even while an evaluation marker exists, and the reply is honest", async () => {
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  const dir = mkdtempSync(join(tmpdir(), "orion-mouse-eval-"));
+  try {
+    writeFileSync(join(dir, "eval-mode"), "gate\n");
+    const r = spawnSync(process.execPath, [new URL("../scripts/orion-mouse", import.meta.url).pathname, "setup", "--again", "--json"], { env: { ...process.env, ORION_CONTROLLED_DIR: dir }, encoding: "utf8" });
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.popup, true);
+    assert.equal(out.say, "Here it is.");
+    assert.match(readFileSync(join(dir, "outreach.jsonl"), "utf8"), /"event":"setup-open"/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

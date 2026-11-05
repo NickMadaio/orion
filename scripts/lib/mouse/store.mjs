@@ -4,7 +4,6 @@
 import { readFileSync, existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { controlledDir, clockNow } from "../clock.mjs";
-import { evalMode } from "../eval-mode.mjs";
 import { updateJson } from "../awareness/io.mjs";
 
 export const mouseDir = (env = process.env) => join(controlledDir(env), "mouse");
@@ -38,7 +37,7 @@ const validButtons = (map) => !!map && typeof map === "object" && Object.entries
  * It has no "text", so every outreach reader (reply context, the plugin's readLastOutreach) skips it. Not written during an evaluation.
  */
 export function requestSetupPopup({ env = process.env, now = clockNow(env), event = "setup-open" } = {}) {
-  if (evalMode()) return { written: false };
+  // The popup is local UI on his own screen, never a message to a person: an evaluation marker must not block it (2026-11-05: a gate run left him unable to open the mapper).
   mkdirSync(controlledDir(env), { recursive: true });
   const row = { kind: "mouse", event, at: now.toISOString() };
   appendFileSync(join(controlledDir(env), "outreach.jsonl"), `${JSON.stringify(row)}\n`);

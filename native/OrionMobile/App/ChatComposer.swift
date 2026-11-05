@@ -30,22 +30,26 @@ struct ChatComposer: View {
             HStack(alignment: .bottom, spacing: 8) {
                 if let onAttach { attach(onAttach).padding(.leading, 5).padding(.bottom, 5) }
                 TextField("Message ORION", text: $draft, axis: .vertical)
-                    .lineLimit(1...5).font(.system(size: 16)).focused(typing)
+                    .lineLimit(1...6).font(.system(size: 16)).focused(typing)
                     .submitLabel(.send).onSubmit(onSend)
                     .padding(.leading, onAttach == nil ? 16 : 2).padding(.vertical, 10)
                 trailing.padding(.trailing, 5).padding(.bottom, 5)
             }
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Phone.wash(typing.wrappedValue ? 0.22 : 0.13), lineWidth: 1))
+            .background(Phone.wash(0.04), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(typing.wrappedValue ? Phone.accent.opacity(0.6) : Phone.wash(0.14), lineWidth: 1))
+            .shadow(color: Phone.accent.opacity(typing.wrappedValue ? 0.22 : 0), radius: 8)
             .overlay { sendPulse }
             .animation(PhoneMotion.press, value: typing.wrappedValue)
             .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 8)
         }
         .background(Phone.ink)
+        .overlay(alignment: .top) { Rectangle().fill(Phone.hairline).frame(height: 0.5) }
         .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
     }
 
     private var sendPulse: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Phone.accent, lineWidth: 1)
+        RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Phone.accent, lineWidth: 1)
             .keyframeAnimator(initialValue: Pulse(), trigger: reduceMotion ? 0 : sendCount) { view, pulse in
                 view.scaleEffect(x: 1 + 0.04 * (pulse.scale - 1) , y: 1 + 0.25 * (pulse.scale - 1)).opacity(pulse.opacity)
             } keyframes: { _ in
@@ -86,7 +90,7 @@ struct ChatComposer: View {
     private func replyLine(_ id: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "arrowshape.turn.up.left").font(.system(size: 11))
-            Text("Replying to ORION").font(PhoneChat.meta)
+            Text("REPLYING TO ORION").font(PhoneChat.kicker).tracking(1.2).lineLimit(1)
             Spacer()
             Button(action: onClearReply) { Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)) }
                 .buttonStyle(PhonePressStyle())

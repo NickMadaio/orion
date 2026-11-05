@@ -46,7 +46,7 @@ struct PhoneHomeCard<Actions: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(PhoneHome.kickerText(kicker))
                 .font(.system(size: 9.5, weight: .semibold, design: .monospaced)).tracking(2.2)
-                .foregroundStyle(hue).lineLimit(1).padding(.bottom, 10)
+                .foregroundStyle(hue).lineLimit(1).minimumScaleFactor(0.7).padding(.bottom, 10)
             Text(title)
                 .font(.system(size: 21, design: .serif)).foregroundStyle(ink.text)
                 .lineLimit(4).fixedSize(horizontal: false, vertical: true)

@@ -25,6 +25,8 @@ export const STAGE_LABELS = {
     "double-checking": "double-checking the answer",
     "using-tool": "running a tool",
 };
+/** Longest "say" kept: one short line. */
+export const MAX_SAY = 140;
 /** Progress files older than this are deleted when a new turn begins (one file per session otherwise lingers forever). */
 export const PRUNE_AFTER_MS = 24 * 60 * 60_000;
 /** Most stages a single turn keeps; a tool loop cannot grow the file without bound. */
@@ -131,6 +133,14 @@ export class TurnProgress {
             }
         }
         catch { /* no directory yet */ }
+    }
+    /** The front desk's progress line for the running turn. Ignored when the turn has not begun or the line is empty. */
+    say(sessionKey, text) {
+        const doc = sessionKey ? this.docs.get(sessionKey) : undefined;
+        const line = text.replace(/\s+/g, " ").trim().slice(0, MAX_SAY);
+        if (!doc || !line || doc.say === line)
+            return;
+        this.put({ ...doc, say: line, updatedAt: this.now().toISOString() });
     }
     stage(sessionKey, stage, detail) {
         const doc = sessionKey ? this.docs.get(sessionKey) : undefined;

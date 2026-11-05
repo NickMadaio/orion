@@ -225,8 +225,8 @@ public struct PhoneFocusBanner: View {
             Button(action: onTap) {
                 HStack(spacing: 10) {
                     Circle().fill(hue).frame(width: 6, height: 6).shadow(color: hue.opacity(0.8), radius: 4)
-                    Text(face.kicker).font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(2).foregroundStyle(hue).lineLimit(1)
-                    Text(face.title).font(.system(size: 13, design: .serif)).foregroundStyle(ink.soft).lineLimit(1)
+                    Text(face.kicker).font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(2).foregroundStyle(hue).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(face.title).font(.system(size: 13, design: .serif)).foregroundStyle(ink.soft).lineLimit(1).minimumScaleFactor(0.7)
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(ink.dim)
                 }

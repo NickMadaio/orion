@@ -26,8 +26,8 @@ struct OrionLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(state.title).font(W.display(15, .bold)).lineLimit(1)
-                        Text(state.detail).font(.system(size: 12)).foregroundStyle(W.soft).lineLimit(1)
+                        Text(state.title).font(W.display(15, .bold)).lineLimit(1).minimumScaleFactor(0.7)
+                        Text(state.detail).font(.system(size: 12)).foregroundStyle(W.soft).lineLimit(1).minimumScaleFactor(0.7)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -97,7 +97,7 @@ private struct CheckinButtons: View {
             Button(intent: OrionWidgetIntent(.done)) { Text("Done").frame(maxWidth: .infinity) }.buttonStyle(PillStyle(tint: tint, filled: true))
         } else if let next = state.nextTitle, let at = state.nextAt {
             HStack {
-                Text("Then \(next)").font(.system(size: 12)).foregroundStyle(W.soft).lineLimit(1)
+                Text("Then \(next)").font(.system(size: 12)).foregroundStyle(W.soft).lineLimit(1).minimumScaleFactor(0.7)
                 Spacer()
                 Text(W.clock(at)).font(W.mono(11)).foregroundStyle(W.dim)
             }
@@ -117,12 +117,12 @@ struct LockScreenPresence: View {
                     Spacer()
                     Timer(state: state).font(W.mono(13, .bold)).foregroundStyle(tint)
                 }
-                Text(state.title).font(W.display(17, .bold)).foregroundStyle(W.text).lineLimit(1)
+                Text(state.title).font(W.display(17, .bold)).foregroundStyle(W.text).lineLimit(1).minimumScaleFactor(0.7)
                 if state.mode == "now" || state.mode == "focus" || state.mode == "break" {
                     ProgressView(timerInterval: state.start...state.end, countsDown: false) { EmptyView() } currentValueLabel: { EmptyView() }
                         .tint(tint)
                 } else {
-                    Text(state.detail).font(.system(size: 12)).foregroundStyle(W.soft).lineLimit(1)
+                    Text(state.detail).font(.system(size: 12)).foregroundStyle(W.soft).lineLimit(1).minimumScaleFactor(0.7)
                 }
                 CheckinButtons(state: state, tint: tint)
             }

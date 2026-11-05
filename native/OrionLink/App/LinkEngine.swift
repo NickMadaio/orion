@@ -40,8 +40,15 @@ final class LinkEngine: ObservableObject {
     private var busy = false
     private var started = false
 
-    /// Commands older than this are not run: whoever sent them has moved on.
-    private let staleAfter: TimeInterval = 10 * 60
+    /// Chat and control commands wait here, one at a time, so the poll keeps acknowledging new ones while a long answer runs (w20).
+    private var queue: [CKRecord] = []
+    private var queued = Set<String>()
+    private var worker: Task<Void, Never>?
+    /// The change-feed position after the last poll; saved as `changeToken` only once the queue is empty, so a quit mid-queue refetches.
+    private var feedToken: CKServerChangeToken?
+    private var dedupe = CommandDedupe()
+    private var hold = StaleHold()
+    private static let progressInterval: Duration = .milliseconds(1500)
 
     func start() {
         guard !started else { return }
@@ -377,7 +384,7 @@ final class LinkEngine: ObservableObject {
         var pending: [CKRecord] = []
         var mirrors: [CKRecord] = []
         var photos: [CKRecord] = []
-        var token = changeToken
+        var token = feedToken ?? changeToken
         do {
             var more = true
             while more {
@@ -389,7 +396,8 @@ final class LinkEngine: ObservableObject {
                        (record[FoodPhotoSchema.status] as? String) == LinkCommandStatus.pending.rawValue {
                         photos.append(record)
                     } else if record.recordType == LinkSchema.commandType,
-                       (record[LinkSchema.commandStatus] as? String) == LinkCommandStatus.pending.rawValue {
+                       [LinkCommandStatus.pending.rawValue, LinkCommandStatus.received.rawValue].contains(record[LinkSchema.commandStatus] as? String),
+                       !queued.contains(record.recordID.recordName) {
                         pending.append(record)
                     } else if record.recordType == LinkSchema.commandType, (record[LinkSchema.commandDevice] as? String) == "orion",
                               PhoneMirror.isMirrorID(record[LinkSchema.commandAskID] as? String) {
@@ -413,13 +421,44 @@ final class LinkEngine: ObservableObject {
             return
         }
         let ordered = pending.sorted { ($0[LinkSchema.commandSentAt] as? Date ?? .distantPast) < ($1[LinkSchema.commandSentAt] as? Date ?? .distantPast) }
-        for record in ordered { await handle(record) }
+        // Logs, plans and focus taps run at once, as before. A chat or control command is acknowledged now ("received": the Mac
+        // has it) and queued; the answer can take a minute, and nothing behind it should wait unseen.
+        var toQueue: [CKRecord] = []
+        for record in ordered {
+            let kind = (record[LinkSchema.commandKind] as? String).flatMap(LinkCommandKind.init(rawValue:)) ?? .control
+            if kind == .chat || kind == .control { toQueue.append(record) } else { await handle(record) }
+        }
+        await acknowledge(toQueue)
         for record in mirrors { logPhoneMirror(record) }
         for record in photos { await fileFoodPhoto(record) }
         // Advanced only after every fetched command was handled: quitting
         // mid-command means it is fetched again, never silently skipped.
         // (orion-remote's replay guard refuses a second run of the same id.)
-        changeToken = token
+        if queue.isEmpty && worker == nil { feedToken = nil; changeToken = token } else { feedToken = token }
+    }
+
+    /// Tell the phone the Mac has these, then work through them in order.
+    private func acknowledge(_ records: [CKRecord]) async {
+        guard !records.isEmpty else { return }
+        for record in records {
+            queue.append(record); queued.insert(record.recordID.recordName)
+            if (record[LinkSchema.commandStatus] as? String) == LinkCommandStatus.pending.rawValue {
+                record[LinkSchema.commandStatus] = LinkCommandStatus.received.rawValue as CKRecordValue
+            }
+        }
+        _ = try? await save(records, policy: .changedKeys)
+        guard worker == nil else { return }
+        worker = Task { [weak self] in await self?.drainQueue() }
+    }
+
+    private func drainQueue() async {
+        while !queue.isEmpty {
+            let record = queue.removeFirst()
+            await handle(record)
+            queued.remove(record.recordID.recordName)
+        }
+        worker = nil
+        if let pending = feedToken { changeToken = pending; feedToken = nil }
     }
 
     /// A notification only the phone sent, mirrored into the thread: log it as outreach (`orion-reach --already-sent phone`)
@@ -442,9 +481,10 @@ final class LinkEngine: ObservableObject {
         lastCommand = text
         let result: CommandRunner.Result
         let kind = (record[LinkSchema.commandKind] as? String).flatMap(LinkCommandKind.init(rawValue:)) ?? .control
+        if kind == .chat || kind == .control { await handleConversation(record, kind: kind); return }
         // A glass of water drunk while the Mac slept still happened, on the day it
         // was logged; only commands expire.
-        let limit = kind == .log ? 36 * 3600 : staleAfter
+        let limit = kind == .log ? 36 * 3600 : StaleCommand.limit
         if Date().timeIntervalSince(sentAt) > limit {
             result = .init(ok: false, reply: "Not run: this was sent more than ten minutes ago. Send it again if you still want it.")
         } else {
@@ -454,8 +494,7 @@ final class LinkEngine: ObservableObject {
             let id = record.recordID.recordName
             switch kind {
             case .chat, .control:
-                let chat = kind == .chat
-                result = await Task.detached(priority: .userInitiated) { runner.run(text: text, id: id, sentAt: sentAt, chat: chat, conversation: record[LinkSchema.commandConversation] as? String, model: record[LinkSchema.commandModel] as? String, replyTo: record[LinkSchema.commandReplyTo] as? String) }.value
+                result = .init(ok: false, reply: "Not a log.")   // handled by handleConversation; unreachable
             case .log where (try? LinkLog.decode(text)).map({ if case .note = $0 { return true }; return false }) == true:
                 if case .note(let body, let at)? = try? LinkLog.decode(text),
                    (try? MemoryNote().append(body, at: ISO8601DateFormatter().date(from: at) ?? sentAt)) != nil {
@@ -505,6 +544,76 @@ final class LinkEngine: ObservableObject {
         }
         // The state probably changed (a pause, an approval): publish promptly.
         await publishState(force: true)
+    }
+
+    /// A chat message or control command (w20). Late ones are not refused: a chat always runs, a time-bound command is asked about
+    /// and a bare "yes" runs it. An identical chat from the phone within two minutes is the first run's answer, not a second run.
+    /// While it runs, the front desk's progress line goes onto the record so the phone shows it until the reply lands.
+    private func handleConversation(_ record: CKRecord, kind: LinkCommandKind) async {
+        var text = record[LinkSchema.commandText] as? String ?? ""
+        var id = record.recordID.recordName
+        var sentAt = record[LinkSchema.commandSentAt] as? Date ?? .distantPast
+        var kind = kind
+        let conversation = record[LinkSchema.commandConversation] as? String
+        let (confirmed, rest) = hold.confirming(text, now: Date())
+        hold = rest
+        if let confirmed { text = confirmed.text; id = confirmed.id + "-yes"; sentAt = Date(); kind = .control }
+        let age = Date().timeIntervalSince(sentAt)
+        var result: CommandRunner.Result
+        var archive = kind == .chat
+        if case .ask(let question) = StaleCommand.decide(kind: kind, age: age) {
+            hold = hold.holding(id: id, text: text, at: Date())
+            result = .init(ok: true, reply: question); archive = false
+        } else if kind == .chat, case .collapse(let first) = dedupe.verdict(id: id, text: text, conversation: conversation, sentAt: sentAt) {
+            if case .finished(let ok, let reply, let thinking) = first.outcome {
+                var same = CommandRunner.Result(ok: ok, reply: reply); same.thinking = thinking; result = same
+            } else { result = .init(ok: true, reply: "Already on that one.") }
+            archive = false
+        } else {
+            if kind == .chat { dedupe = dedupe.starting(id: id, text: text, conversation: conversation, sentAt: sentAt) }
+            record[LinkSchema.commandStatus] = LinkCommandStatus.running.rawValue as CKRecordValue
+            _ = try? await save([record], policy: .changedKeys)
+            let began = Date()
+            let watcher = Task { [weak self] in await self?.relayProgress(record, session: CommandRunner.session(conversation: conversation, chat: kind == .chat), since: began) }
+            let runner = self.runner, chat = kind == .chat
+            // orion-remote refuses an envelope older than ten minutes; a chat that waited is run as of now.
+            let runAt = age > StaleCommand.limit ? began : sentAt
+            let model = record[LinkSchema.commandModel] as? String, replyTo = record[LinkSchema.commandReplyTo] as? String
+            result = await Task.detached(priority: .userInitiated) { runner.run(text: text, id: id, sentAt: runAt, chat: chat, conversation: conversation, model: model, replyTo: replyTo) }.value
+            watcher.cancel()
+            await watcher.value   // an in-flight progress save must land before the answer does
+            if kind == .chat { dedupe = dedupe.finishing(id: id, ok: result.ok, reply: result.reply, thinking: result.thinking) }
+        }
+        record[LinkSchema.commandStatus] = (result.ok ? LinkCommandStatus.done : .failed).rawValue as CKRecordValue
+        // A refusal or timeout is not an exchange: the phone shows it with a retry, and archiving it would leave the Mac's
+        // history with a failure line plus the same words again once he retries.
+        if archive, result.ok { archiveChat(record, text: text, sentAt: sentAt, result: result) }
+        record[LinkSchema.commandThinking] = result.thinking as CKRecordValue?
+        record[LinkSchema.commandReply] = result.reply as CKRecordValue
+        record[LinkSchema.commandRepliedAt] = Date() as CKRecordValue
+        do {
+            try await save([record], policy: .changedKeys)
+            commandsHandled += 1
+        } catch {
+            problem = "Could not send a reply: \(error.localizedDescription)"
+        }
+        await publishState(force: true)
+    }
+
+    /// While a command runs: whatever line the plugin's progress file holds goes onto the record (status stays `running`, the
+    /// reply field carries the line until the answer replaces it). Stops when cancelled.
+    private func relayProgress(_ record: CKRecord, session: String, since: Date) async {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var last: String?
+        while !Task.isCancelled {
+            try? await Task.sleep(for: Self.progressInterval)
+            guard !Task.isCancelled else { return }
+            guard let line = PhoneProgress.read(home: home, session: session, notBefore: since), line != last else { continue }
+            last = line
+            record[LinkSchema.commandStatus] = LinkCommandStatus.running.rawValue as CKRecordValue
+            record[LinkSchema.commandReply] = line as CKRecordValue
+            _ = try? await save([record], policy: .changedKeys)
+        }
     }
 
     /// The phone's focus report (W19). Every one is kept as history for ORION's nudges; "finish", "pause" and "resume" also

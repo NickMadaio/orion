@@ -2,11 +2,13 @@ import { pickClock, pickRange } from "./day-edit-time.js";
 import { ampm as ampmFull, hhmm, toMin } from "./intent-time.js";
 import { blocksNamedBy, pickByTime } from "./block-names.js";
 import { noteOf, refused } from "./scheduler-out.js";
-import { whyNot } from "./day-requests.js";
+import { whyNot, yesterdayOf } from "./day-requests.js";
 import { failureReason } from "./schedule-failure.js";
 import { forgetEdit, rememberEdit, rememberRun } from "./day-edit-memory.js";
 import { nextWake } from "./wake-state.js";
 import { applyBedChange } from "./bedtime-change.js";
+import { ANCHOR_END } from "./meal-anchors.js";
+import { collision, writeOrder } from "./move-order.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 const DAY_ARGS = { today: [], tomorrow: ["--date", "tomorrow"], yesterday: ["--date", "yesterday"] };
@@ -18,11 +20,23 @@ const ampm = (m) => ampmFull(m).replace(":00", "");
 const spanText = (a, b) => { const [x, y] = [ampm(a), ampm(b)]; return x.slice(-2) === y.slice(-2) ? `${x.slice(0, -3)}–${y}` : `${x}–${y}`; };
 const CAP = (t) => t.replace(/^./, (c) => c.toUpperCase());
 const DEFAULT_MIN = [[/lunch/, 30], [/dinner|supper/, 45], [/breakfast/, 20], [/nap/, 45], [/call|chat/, 30], [/walk|tube|commute|train/, 30], [/gym|workout|lift|run/, 60]];
-const defaultMinutes = (name) => DEFAULT_MIN.find(([re]) => re.test(name))?.[1] ?? 60;
-const ANCHOR_END = [[/lunch/, 13 * 60 + 30], [/dinner|supper/, 19 * 60 + 30], [/breakfast/, 9 * 60]];
+const defaultMinutes = (name) => DEFAULT_MIN.find(([re]) => re.test(name.toLowerCase()))?.[1] ?? 60;
 const list = (items) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
+/** Yesterday cannot be read by the scheduler (a past day is refused); what the calendar held comes from the agenda, as blocks of a guessed length. */
+async function yesterdayDay(ctx) {
+    const date = yesterdayOf(ctx.deps.now);
+    const agenda = ctx.deps.agendaDay ? await ctx.deps.agendaDay(date).catch(() => undefined) : undefined;
+    const blocks = (agenda?.events ?? []).map((e) => {
+        const start = toMin(e.start);
+        const cls = /lecture|class|seminar|tutorial|\blab\b|[A-Z]{2,5}\d{3,5}/i.test(e.title);
+        return { title: e.title, start: e.start, end: hhmm(Math.min(1439, start + (cls ? 90 : defaultMinutes(e.title)))), fixed: cls, kind: cls ? "class" : "other" };
+    });
+    return { date, now: null, blocks };
+}
 async function dayOf(ctx, ref) {
     const { deps } = ctx;
+    if (ref === "yesterday")
+        return yesterdayDay(ctx);
     let day;
     try {
         day = ref === "today" ? await deps.readDay() : deps.readDayOn ? await deps.readDayOn(DAY_ARGS[ref]) : undefined;
@@ -44,7 +58,11 @@ const unreadable = (ctx, ref, what) => {
 };
 const blockNamed = (name, day, now) => {
     const found = blocksNamedBy(name, (day?.blocks ?? []).filter((b) => b.kind !== "commute"));
-    return found.length ? pickByTime(found, now) : undefined;
+    if (found.length)
+        return pickByTime(found, now);
+    // "the lecture" / "the seminar": the kind of thing, not a title word; the day's class it means ("i didnt go to the lecture yesterday").
+    const classes = /^(?:lectures?|class(?:es)?|seminars?|tutorials?)$/.test(name.trim()) ? (day?.blocks ?? []).filter((b) => b.kind === "class") : [];
+    return classes.length ? pickByTime(classes, now) : undefined;
 };
 async function exec(ctx, script, args) {
     const out = await ctx.deps.run(script, args).catch(() => ({ stdout: "", code: 1 }));
@@ -159,9 +177,67 @@ async function movePart(ctx, p) {
             ctx.done[ctx.done.length - 1] = `moved ${short} to ${spanText(to, Math.min(to + len, p.day === "today" ? ctx.nowMin + LOG_AHEAD : to + len))}`;
         return;
     }
-    const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...DAY_ARGS[p.day]]);
+    const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
     if (settle(ctx, out, block.title, `move ${short}`))
         ctx.done.push(`moved ${short} to ${ampm(to)}`);
+}
+/** "push the learning plan back an hour": one block, by an amount. Only what has not started; what already happened is moved with a clock. */
+async function shiftPart(ctx, p) {
+    const day = await dayOf(ctx, p.day);
+    const block = blockNamed(p.name, day, ctx.nowMin);
+    if (!block && unreadable(ctx, p.day, `move ${p.name}`))
+        return;
+    if (!block) {
+        ctx.failed.push(`move ${p.name} (I can't see it on ${p.day === "today" ? "today's" : "that day's"} plan)`);
+        return;
+    }
+    const short = block.title.replace(/\s+[—–-].*$/, "");
+    const start = toMin(block.start);
+    const to = start + p.minutes;
+    if (p.day === "today" && start <= ctx.nowMin) {
+        ctx.failed.push(`move ${short} (it has already started, so tell me the time it really happened)`);
+        return;
+    }
+    if (to < 0 || to + (toMin(block.end) - start) > 1440) {
+        ctx.failed.push(`move ${short} (that would push it past the day)`);
+        return;
+    }
+    const out = await exec(ctx, "orion-reschedule", ["move", block.title, "--to", hhmm(to), ...(block.fixed ? ["--named"] : []), ...DAY_ARGS[p.day]]);
+    if (settle(ctx, out, block.title, `move ${short}`, to))
+        ctx.done.push(`moved ${short} ${p.minutes > 0 ? "back" : "earlier"} to ${ampm(to)}`);
+}
+/** Two or more moves of blocks still to come on one day: planned together. Reordered so none lands where another still sits; refused when two land on each other. */
+async function planMoves(ctx, parts) {
+    const moves = parts.filter((p) => (p.op === "move" || p.op === "shift") && p.day !== "yesterday");
+    if (moves.length < 2 || new Set(moves.map((m) => m.day)).size !== 1)
+        return parts;
+    const day = await dayOf(ctx, moves[0].day);
+    if (!day)
+        return parts;
+    const plans = [];
+    for (const p of moves) {
+        const block = blockNamed(p.name, day, ctx.nowMin);
+        if (!block || plans.some((x) => x.title === block.title))
+            return parts;
+        const start = toMin(block.start);
+        const len = toMin(block.end) - start;
+        if (p.day === "today" && start <= ctx.nowMin)
+            return parts;
+        const to = p.op === "shift" ? start + p.minutes : clockFor(p.to, ctx.nowMin, p.day, "future", start);
+        if (p.day === "today" && to <= ctx.nowMin)
+            return parts;
+        plans.push({ p, mover: { current: [start, start + len], next: [to, to + len] }, title: block.title.replace(/\s+[—–-].*$/, "") });
+    }
+    const clash = collision(plans.map((x) => x.mover));
+    const rest = parts.filter((p) => !moves.includes(p));
+    if (clash) {
+        const a = plans[clash.a];
+        const b = plans[clash.b];
+        ctx.failed.push(`move ${a.title} to ${spanText(...a.mover.next)} and ${b.title} to ${spanText(...b.mover.next)} (they would overlap from ${ampm(clash.from)} to ${ampm(clash.to)}, so I haven't moved either; tell me which should go first, or give me one new time)`);
+        return rest;
+    }
+    const order = writeOrder(plans.map((x) => x.mover));
+    return [...order.map((i) => plans[i].p), ...rest];
 }
 async function dropPart(ctx, p) {
     const day = await dayOf(ctx, p.day);
@@ -178,33 +254,68 @@ async function dropPart(ctx, p) {
     if (settle(ctx, out, block.title, `clear ${short}`))
         ctx.done.push(started ? `marked ${short} as skipped` : `took ${short} off ${p.day === "today" ? "today" : p.day}`);
 }
+/** In the small hours a time he says he did something "today" that is still ahead cannot have happened: it was yesterday. */
+function pastDayRef(ctx, ref, span) {
+    if (ref !== "today" || ctx.nowMin >= 300 || !span)
+        return ref;
+    const r = pickRange(span.a, span.b, ctx.nowMin, "past");
+    return r && r.from > ctx.nowMin + 10 ? "yesterday" : ref;
+}
+/** A class he did not go to is on record as missed (orion-declare skip, dated), so it is not counted as attended. */
+async function markMissed(ctx, title, ref) {
+    const date = ref === "yesterday" ? yesterdayOf(ctx.deps.now) : undefined;
+    const out = await ctx.deps.run("orion-declare", ["add", "--kind", "skip", "--text", ctx.deps.text.slice(0, 200), "--source", ctx.deps.source, "--title", title, ...(date ? ["--date", date] : [])]).catch(() => ({ stdout: "", code: 1 }));
+    ctx.calls.push(`exec orion-declare add --kind skip --title ${/\s/.test(title) ? `"${title}"` : title}${date ? ` --date ${date}` : ""}`);
+    ctx.outputs.push(out.stdout);
+    let id;
+    try {
+        id = JSON.parse(out.stdout.trim().split("\n").at(-1) ?? "").id;
+    }
+    catch {
+        id = undefined;
+    }
+    const short = title.replace(/\s+[—–-].*$/, "");
+    if (out.code === 0 && typeof id === "string") {
+        ctx.facts.push(id);
+        ctx.done.push(`marked ${short} as missed${ref === "yesterday" ? " yesterday" : ""}`);
+    }
+    else
+        ctx.failed.push(`mark ${short} as missed`);
+}
 async function didntPart(ctx, p) {
-    const day = await dayOf(ctx, "today");
+    const ref = pastDayRef(ctx, p.day, p.span);
+    const day = await dayOf(ctx, ref);
     const block = blockNamed(p.name, day, ctx.nowMin);
-    const range = p.span ? rangeFor(p.span, ctx.nowMin, "today", "past") : null;
-    if (!block && unreadable(ctx, "today", `change ${p.name}`))
+    const range = p.span ? rangeFor(p.span, ctx.nowMin, ref, "past") : null;
+    if (!block && unreadable(ctx, ref, `change ${p.name}`))
         return;
     if (!block) {
         if (p.did && range)
-            await logIt(ctx, "today", CAP(p.did), range.from, range.to);
+            await logIt(ctx, ref, CAP(p.did), range.from, range.to);
+        else if (ref === "yesterday")
+            ctx.failed.push(`change ${p.name} (I can't see it on yesterday's calendar)`);
         else
             ctx.failed.push(`change ${p.name} (I can't see it on today's plan)`);
         return;
     }
     const short = block.title.replace(/\s+[—–-].*$/, "");
     const start = toMin(block.start);
+    if (block.fixed)
+        await markMissed(ctx, block.title, ref);
     if (!p.did) {
-        await dropPart(ctx, { op: "drop", name: p.name, day: "today" });
+        if (!block.fixed)
+            await dropPart(ctx, { op: "drop", name: p.name, day: ref });
         return;
     }
     const from = range?.from ?? start;
     const to = range?.to ?? Math.min(toMin(block.end), Math.max(ctx.nowMin, start + 5));
-    if (!range && start > ctx.nowMin) {
-        await dropPart(ctx, { op: "drop", name: p.name, day: "today" });
+    if (!range && ref === "today" && start > ctx.nowMin) {
+        if (!block.fixed)
+            await dropPart(ctx, { op: "drop", name: p.name, day: "today" });
         ctx.failed.push(`log ${p.did} (${short} hasn't started yet, so give me the times)`);
         return;
     }
-    await logIt(ctx, "today", CAP(p.did), from, to, block);
+    await logIt(ctx, ref, CAP(p.did), from, to, block);
 }
 async function bedtimePart(ctx, p) {
     const s = p.to;
@@ -299,22 +410,27 @@ export async function runDayEdit(edit, deps) {
     const ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set(), extra: [], facts: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps) } : {}) };
     const notes = [];
     const refused = [];
-    for (const p of edit.parts) {
+    for (const p of await planMoves(ctx, edit.parts)) {
         const failedBefore = ctx.failed.length;
         if (p.op === "add")
             await addPart(ctx, p);
         else if (p.op === "log") {
-            const day = await dayOf(ctx, p.day);
-            const r = p.span ? rangeFor(p.span, ctx.nowMin, p.day, "past") : null;
-            const end = p.day === "today" ? ctx.nowMin : 1440;
+            const ref = pastDayRef(ctx, p.day, p.span);
+            const day = await dayOf(ctx, ref);
+            const r = p.span ? rangeFor(p.span, ctx.nowMin, ref, "past") : null;
+            const end = ref === "today" ? ctx.nowMin : 1440;
             const from = r?.from ?? end - (p.minutes ?? 30);
             const to = r?.to ?? end;
             const block = blockNamed(p.name, day, ctx.nowMin);
             if (p.span && !r)
                 ctx.failed.push(`log ${p.name} (I couldn't read those times)`);
             else
-                await logIt(ctx, p.day, CAP(p.name), from, to, block);
+                await logIt(ctx, ref, CAP(p.name), from, to, block);
         }
+        else if (p.op === "correct")
+            await movePart(ctx, { op: "move", name: p.name, day: p.evening && p.day === "today" ? "yesterday" : p.day, to: p.at });
+        else if (p.op === "shift")
+            await shiftPart(ctx, p);
         else if (p.op === "move")
             await movePart(ctx, p);
         else if (p.op === "drop")
@@ -333,7 +449,7 @@ export async function runDayEdit(edit, deps) {
             await foodPart(ctx, p);
         else if (p.op === "sleephours")
             await sleepHoursPart(ctx, p);
-        else
+        else if (p.op === "note")
             notes.push(p.text);
         if (ctx.failed.length > failedBefore)
             refused.push(p);

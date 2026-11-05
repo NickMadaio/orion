@@ -13,6 +13,7 @@ import { acknowledgement, acknowledgesFailure, failedTools, wroteSomething } fro
 import { outcomeOf, type ToolResult } from "./work-check.js";
 import { fahrenheitWords } from "./weather-words.js";
 import { firstPerson } from "./self-voice.js";
+import { OVERFLOW, OVERFLOW_LINE } from "./history-trim.js";
 
 const GMAIL_SIGN_IN = "Gmail's sign-in expired — run `gog auth add nmadaio08@gmail.com` to reconnect.";
 const GMAIL_OFFLINE = "I couldn't reach Gmail just now.";
@@ -221,6 +222,8 @@ export function finalizeReply(reply: string, tools: ReadonlyArray<ToolResult>, c
 }
 
 function finalizeCore(reply: string, tools: ReadonlyArray<ToolResult>, ctx: FinalizeContext): string {
+  // The host's raw "Context overflow: prompt too large ... Try /reset" is never shown (gate #57).
+  if (OVERFLOW.test(reply)) return OVERFLOW_LINE;
   const failed = ctx.codeAuthored ? [] : failedTools(tools);
   if (!ctx.codeAuthored && restatesMoveWithoutWrite(reply, tools, ctx.askedChange === true)) return NOTHING_MOVED;
   const clean = sanitizeReply(reply, { ...(ctx.mailFailed ? { mailFailed: true } : {}), ...(failed.length ? { strict: true } : {}), ...(ctx.codeAuthored ? { codeAuthored: true } : {}) });

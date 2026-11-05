@@ -9,6 +9,11 @@ export type FocusMove = {
 } | BreakMove | {
     kind: "extend";
     minutes: number;
+}
+/** "stop the focus session, im knackered" / "end focus": really ended through orion-session, then read back (w20 r3, gate #47/#48). */
+ | {
+    kind: "end";
+    how: "abandon" | "finish";
 } | {
     kind: "block";
 } | {

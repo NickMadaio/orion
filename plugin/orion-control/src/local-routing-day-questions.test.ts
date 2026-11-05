@@ -27,6 +27,7 @@ function harness(decision: Decision) {
   const flows: string[] = [];
   const reads: boolean[] = [];
   registerLocalRouting(f.api, { warm: false, mode: "on", logPath: join(mkdtempSync(join(tmpdir(), "lr-")), "r.jsonl"),
+    now: () => new Date(2030, 9, 3, 23, 25),   // pinned: after midnight "tomorrow" is read another way (late-tomorrow.ts)
     decideImpl: async () => decision, clock: () => "Thu 23:25", brainSearch: async () => "",
     scheduleFlow: async (m) => { flows.push(m); return { outcome: "fallback", reason: "a question, not a change" }; },
     readDay: async (tomorrow) => { reads.push(tomorrow); return "B1 09:00–10:30 CS1800 Lecture (FIXED) (already happened)\nB2 13:45–14:30 CS Lab (FIXED) (already happened)"; } });

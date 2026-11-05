@@ -12,6 +12,7 @@ import { type ReadyDeps } from "./focus-ready.js";
 import { type FocusRow } from "./focus-status.js";
 import { type PendingRun } from "./schedule-pending.js";
 import { type Probe, type QueuedMessage } from "./model-outage.js";
+import { type AgendaRun } from "./agenda-day.js";
 import { type ConnectorRow, type HealthLog } from "./code-answers.js";
 import { type ScriptRun } from "./reality.js";
 import { type PhoneTimeRun } from "./phone-block-flow.js";
@@ -162,6 +163,8 @@ export type LocalRoutingOptions = {
     readDay?: (tomorrow: boolean) => Promise<string>;
     /** Reads a day as `show --json` gives it (--date args), for the time backstop on the worker's own writes (tests pass a stub; wired from index.ts). */
     readDayJson?: (dateArgs: string[]) => Promise<Day | undefined>;
+    /** What the calendar held on a day that is over (agenda-day.ts): yesterday cannot be read by the scheduler. */
+    agendaDay?: AgendaRun;
     /** How long that read may take before the write is refused as unreadable (default DAY_READ_MS; tests shorten it). */
     dayReadMs?: number;
     /** Reads the calendar's deadlines and dated to-dos for "whats due this week"; null when it fails (tests pass a stub; wired from index.ts) (q041, 2026-10-16 r8). */

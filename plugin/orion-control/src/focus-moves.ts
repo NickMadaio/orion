@@ -29,6 +29,8 @@ export type FocusMove =
   | { kind: "stall"; minutes: number }
   | BreakMove
   | { kind: "extend"; minutes: number }
+  /** "stop the focus session, im knackered" / "end focus": really ended through orion-session, then read back (w20 r3, gate #47/#48). */
+  | { kind: "end"; how: "abandon" | "finish" }
   | { kind: "block" }
   | { kind: "doomscroll"; app: string; instead?: string; duty?: true }
   | { kind: "side-missed"; label: string };
@@ -38,6 +40,9 @@ export type FocusOutcome = { calls?: string[]; outputs?: string[]; flow?: FlowRe
 const ACK = String.raw`^(?:(?:ya|yah|yeah|yea|yep|yup|ok(?:ay)?|k|sure|fine|alright|aight|mhm|uh huh|hmm)[,.!\s]+)*`;
 const STALL = new RegExp(`${ACK}(?:(?:i'?ll\\s+|im\\s+|i'?m\\s+|gonna\\s+)?(?:start(?:ing)?(?:\\s+it)?|get(?:ting)?\\s+(?:on it|started|going)|on it|doing it|do it|be there)\\s+)?(?:in\\s+(?:a\\s+)?(sec|second|min|minute|bit|moment|few|(\\d{1,2}))(?:\\s*(?:mins?|minutes?|m|secs?))?|(\\d{1,2})\\s*more\\s*(?:mins?|minutes?)|after this(?:\\s+(?:video|episode|one|game|round))?|(?:give me|gimme|gimmie) (?:a (?:sec|second|minute|min)|(\\d{1,2})\\s*(?:mins?|minutes?)?))\\s*(?:lol|haha)?[.!]*$`, "i");
 const EXTEND = /^(?:(?:actually|ok(?:ay)?|yeah|nah|wait|hmm|no)[,\s]+)*(?:keep (?:going|it going|the (?:session|timer|focus(?: session)?) going)|(?:give me |i need |i want )?(?:another|a few more|(\d{1,3}) more)(?:\s*(?:min(?:ute)?s?|m))?|extend (?:it|this|the session|my session|my focus(?: session)?)(?: by (\d{1,3})\s*(?:min(?:ute)?s?|m))?|(?:a )?(?:bit|little) longer|not done yet)(?:\s+(?:for a bit|a bit longer|a little longer|longer|please|pls|on this))*\s*[.!]*$/i;
+// A stop or end of the running session, said to ORION: not a question, not a start ("stop me getting distracted"), not a calendar block.
+const END_SESSION = /^(?:(?:actually|ok(?:ay)?|yeah|yep|nah|wait|hmm|no|pls|please|orion|hey|right|can you|could you|just|ugh|and|so|then)[,\s]+)*(?:(stop|end|finish|quit|cancel|kill|abandon|close|turn off|cut|scrap|drop)\s+(?:the\s+|my\s+|this\s+|that\s+|our\s+)?(?:focus(?:ing)?|study(?:ing)?|work(?:ing)?|deep work|lock[- ]?in)(?:\s+(?:session|mode|block|timer))?|(?:stop|end|finish|quit|cancel|kill|abandon)\s+(?:the\s+|my\s+|this\s+|that\s+)?(?:session|timer|pomodoro)|i(?:'?m| am|m)\s+(?:done|finished)\s+(?:with\s+)?(?:the\s+|my\s+)?(?:focus|session)|(?:i\s+)?(?:wanna|want to|need to|gotta)\s+(?:stop|end|quit)\s+(?:the\s+|my\s+)?(?:focus|session))\b(?!\s+(?:me|from|my phone|distract))/i;
+const GAVE_UP = /\b(?:knackered|tired|exhausted|shattered|wrecked|cant|can't|cannot|give up|giving up|gave up|quit|abandon|scrap|ill|sick|headache|migraine|not feeling|burnt out|burned out|done in|no more|over it|sleep)\b/i;
 const EXTEND_NEEDS = /\b(?:for a bit|a bit longer|a little longer|longer|more|another|extend|not done yet)\b/i;
 const BLOCK = /\b(?:block|lock|hide|shut off|cut off|stop me (?:from )?(?:using|opening|going on))\b[^.?!]{0,40}\b(?:apps?|distract\w*|instagram|insta|tiktok|youtube|reddit|twitter|social media|games?|websites?|sites?|stuff|my phone)\b/i;
 const NOT_BLOCK = /\bblock (?:off|out)\b|\bcalendar\b|\btime block\b|\bstudy block\b/i;
@@ -75,6 +80,7 @@ export function readFocusMove(message: string): FocusMove | null {
   }
   const brk = readBreak(m);
   if (brk) return brk;
+  if (END_SESSION.test(m) && !/\?\s*$/.test(m) && !/\b(?:start|begin|set up|schedule|remind)\b/i.test(m)) return { kind: "end", how: /\b(?:stop|quit|cancel|kill|abandon|scrap|drop|cut)\b/i.test(m) || GAVE_UP.test(m) ? "abandon" : "finish" };
   const ext = EXTEND.exec(m);
   if (ext && EXTEND_NEEDS.test(m)) return { kind: "extend", minutes: Math.min(120, Number(ext[1] ?? ext[2] ?? 25)) };
   if (BLOCK.test(m) && !NOT_BLOCK.test(m)) return { kind: "block" };
@@ -188,6 +194,17 @@ export async function runFocusMove(move: FocusMove, deps: Deps): Promise<FocusOu
   const status = await call(deps.exec, ["status"], ran) ?? {};
   const running = RUNNING.has(String(status.status ?? ""));
   const task = taskOf(status, deps.task);
+  if (move.kind === "end") {
+    if (!running) return { flow: say(`No focus session is running, so there's nothing to ${move.how === "finish" ? "end" : "stop"}.`, ran.calls, ran.outputs) };
+    const mins = Math.round(Number(status.servedFocusSeconds ?? 0) / 60);
+    await call(deps.exec, [move.how], ran);
+    // What he is told is what the session says now, never the command's say-so.
+    const after = await call(deps.exec, ["status"], ran);
+    if (!after) return { flow: say(`I asked Orion to stop your ${task} session but couldn't read it back, so I can't say it's stopped. Check the Orion app.`, ran.calls, ran.outputs) };
+    if (RUNNING.has(String(after.status ?? ""))) return { flow: say(`I tried to stop your ${task} session but it still shows as running, so it isn't stopped. Say "end focus" again and I'll retry, or stop it in Orion.`, ran.calls, ran.outputs) };
+    const kept = mins >= 1 ? ` You'd done ${mins} min, and that's kept.` : "";
+    return { flow: { outcome: "done", calls: ran.calls, outputs: ran.outputs, reply: `Stopped: your ${task} session is over and nothing is running now.${kept}` } };
+  }
   if (move.kind === "block") {
     if (running && ARMED.has(String(status.enforcement ?? ""))) return { flow: say(`Enforcement is already on for your ${task} session: only the apps you allowed get through.`, ran.calls, ran.outputs) };
     return { flow: say(`I can't block single apps from chat, so nothing's blocked yet. ${running ? `Your ${task} session is running; in Orion, firm mode on it only lets your work apps through.` : "Want me to start a focus session now? In Orion, firm mode on it only lets your work apps through."}`, ran.calls, ran.outputs), ...(running ? {} : { pendingSession: `start a focus session on ${task}` }) };

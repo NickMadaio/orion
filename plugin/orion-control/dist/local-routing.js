@@ -84,6 +84,9 @@ import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readG
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { casualStartTask, workStartTask } from "./work-start.js";
+import { pastDayReply, readPastDayAsk } from "./agenda-day.js";
+import { dateLabel, isLateTomorrow, lateTomorrowAnswer } from "./late-tomorrow.js";
+import { OVERFLOW, OVERFLOW_LINE, historyBudget, trimHistory } from "./history-trim.js";
 import { afterReply as retryAfterReply, isRetryWord, replayOf as retryReplay, withoutRetryOffer, RETRY_OFFER } from "./retry-slot.js";
 import { honestReply, offersBuild, refusalRewrite, truthfulDenial } from "./honest-reply.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, requestShaped, roomQuiet, roomTalk } from "./chatter.js";
@@ -710,6 +713,8 @@ export function registerLocalRouting(api, options) {
     const lastMade = new Map();
     /** w20 H3: per chat, the message whose reply offered "Say go and I'll retry it.". A bare go replays it; any other turn clears it. */
     const retrySlots = new Map();
+    /** Chats whose last turn hit the context limit: their history is trimmed to half the usual budget until it fits again (history-trim.ts). */
+    const overflowed = new Set();
     const knowledgePending = new KnowledgePending(); // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
     const sleepPending = new SleepPlanPending(); // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
     /** w20 r3: per chat, the web page ORION just offered ("want the web player?") and the last reply that came back blank. */
@@ -1638,6 +1643,16 @@ export function registerLocalRouting(api, options) {
         });
         api.on("before_prompt_build", guardedPrompt(async (event, ctx) => {
             const run = runFor(event, ctx);
+            // gate #57: a long chat keeps working on the local model: the oldest turns are dropped, in place, before the prompt is built (history-trim.ts).
+            if (run && !run.cloud && Array.isArray(event.messages)) {
+                const tight = run.sessionKey ? overflowed.has(run.sessionKey) : false;
+                const budget = Math.floor(historyBudget(ctx.contextTokenBudget) / (tight ? 2 : 1));
+                const dropped = trimHistory(event.messages, budget);
+                if (dropped)
+                    traceLine("history_trimmed", event, ctx, { dropped, budget });
+                if (tight && run.sessionKey)
+                    overflowed.delete(run.sessionKey);
+            }
             if (!run?.settled || run.cloud)
                 return undefined;
             // The workspace prompt written for Claude is ~17k tokens; on the 9B that cost 60-100 s a turn
@@ -1861,6 +1876,7 @@ export function registerLocalRouting(api, options) {
                     source: run.spoken ? "voice" : /phone/.test(key ?? "") ? "phone" : "chat",
                     readDay: () => (options.readDayJson ? options.readDayJson(read.reality.kind === "no-classes" && read.reality.tomorrow ? ["--date", "tomorrow"] : []) : Promise.resolve(undefined)),
                     readDayOn: (dateArgs) => (options.readDayJson ? options.readDayJson(dateArgs) : Promise.resolve(undefined)),
+                    ...(options.agendaDay ? { agendaDay: options.agendaDay } : {}),
                     slipsOf: (what) => slips.filter((s) => s.planned?.kind === what || (s.planned?.title ?? "").toLowerCase().includes(what.toLowerCase())).length,
                     ...(options.stateDir ? { stateDir: options.stateDir } : {}), // Wave 6: slip-history.ts
                     // w20 fix-dayedit: the wake and meal clauses of a day edit run through their own routes (day-edit-run.ts)
@@ -2251,7 +2267,7 @@ export function registerLocalRouting(api, options) {
             // Any statement about his day goes through the flow (a plan like "after my lab I'm going to…"
             // has no change verb, 2026-10-12); a question or anything the form cannot express falls back.
             const openAsk = run.ask && answersAsk(run.message, run.ask) ? run.ask : undefined;
-            if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !asksDayRead(run.message) && !asksHabit(run.message) && !run.flow && !run.scheduleTried && isCalendarTurn(run.message, run.settled, !!openAsk)) {
+            if ((SCHEDULING.test(run.message) || RUNNING_LATE.test(run.message) || LOGGING.test(run.message) || openAsk) && !isQuestion(run.message) && !isTimerRequest(run.message) && !asksDayRead(run.message) && !asksHabit(run.message) && !run.flow && !run.scheduleTried && isCalendarTurn(run.message, run.settled, !!openAsk)) {
                 // No built-in default: only the plugin entry point wires the real scheduler in (a test that
                 // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
                 // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
@@ -2279,6 +2295,28 @@ export function registerLocalRouting(api, options) {
                     markRead(run, tomorrow ? "day-tomorrow" : "day");
                     run.flow = { outcome: "say", kind: "plain", text: after.text };
                     dayMemory.set(run.sessionKey, { at: Date.now(), memory: after.memory });
+                }
+            }
+            // gate #63: "what did i have on yesterday evening": the agenda for that date, said by code (the scheduler cannot read a past day).
+            if (!run.flow && !run.cutOff && options.agendaDay) {
+                const past = readPastDayAsk(run.message);
+                if (past) {
+                    const at = (options.now ?? pluginNow)();
+                    const y = new Date(at.getFullYear(), at.getMonth(), at.getDate() - 1, 12);
+                    const date = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+                    const agenda = await options.agendaDay(date).catch(() => undefined);
+                    run.provided = true;
+                    run.tools.push({ canonical: `exec orion-agenda day ${date}`, stdout: agenda ? `${agenda.events.length} events` : "unreadable", exit: agenda ? 0 : 1 });
+                    run.flow = { outcome: "say", kind: "plain", text: pastDayReply(agenda, past, dateLabel(y)) };
+                }
+            }
+            // gate #66: "whats tomorrow looking like" in the small hours is the day coming up (today's date), said with its weekday and date by code.
+            if (!run.flow && !run.cutOff && options.readDay && (SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && (isQuestion(run.message) || asksDayRead(run.message)) && isLateTomorrow(run.message, (options.now ?? pluginNow)())) {
+                const day = await options.readDay(false).catch(() => "");
+                if (day !== "") {
+                    run.provided = true;
+                    markRead(run, "day");
+                    run.flow = { outcome: "say", kind: "plain", text: lateTomorrowAnswer(day, (options.now ?? pluginNow)()) };
                 }
             }
             // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
@@ -2416,8 +2454,10 @@ export function registerLocalRouting(api, options) {
             const keys = [str(event.runId) ?? "", `session:${str(event.sessionKey) ?? ""}`];
             const hit = keys.map((k) => finalText.get(k)).find((v) => v && Date.now() - v.at < 120000);
             if (!hit) {
-                // The host's raw "Exec failed" line is never spoken (q059, 2026-10-16).
+                // The host's raw "Exec failed" line is never spoken (q059, 2026-10-16); nor is its raw context-overflow error (gate #57).
                 const raw = str((event.payload ?? {}).text);
+                if (raw && OVERFLOW.test(raw))
+                    return { payload: { ...event.payload, text: OVERFLOW_LINE }, reason: "orion-control: no raw context overflow" };
                 return raw && stripExecFailed(raw) !== raw ? { payload: { ...event.payload, text: stripExecFailed(raw) }, reason: "orion-control: no raw exec failure" } : undefined;
             }
             keys.forEach((k) => finalText.delete(k));
@@ -2631,6 +2671,20 @@ export function registerLocalRouting(api, options) {
         const hostDrops = event.hadDeterministicSideEffect === true;
         try {
             const reply = str(event.lastAssistantMessage) ?? "";
+            // gate #57: the host's raw context-overflow error is never his reply: one honest line is put in place, the chat's history is trimmed
+            // harder next turn, and his message is kept for "go" (history-trim.ts). Nothing else about this run is checked.
+            if (on && OVERFLOW.test(reply)) {
+                putReplyInPlace(event.messages, OVERFLOW_LINE);
+                remember([runId, `session:${pick(event, ctx, "sessionKey") ?? ""}`], OVERFLOW_LINE);
+                if (run.sessionKey) {
+                    overflowed.add(run.sessionKey);
+                    const slot = retryAfterReply(OVERFLOW_LINE, run.message, nowMs());
+                    if (slot)
+                        retrySlots.set(run.sessionKey, slot);
+                }
+                done();
+                return undefined;
+            }
             const allFindings = checkWork({ reply, turnResults: run.tools, finished: reply.trim().length > 0, changeRequest: CHANGE_REQUEST.test(run.message) && !/\?\s*$/.test(run.message.trim()) && run.flow?.outcome !== "say", dictated: run.flow?.outcome === "done" || run.flow?.outcome === "say" || run.noTools === true, provided: run.provided ?? false });
             // H4 (r8 review 1, 2026-10-16): when only CODE read (gmail/messages/deadlines/focus) and handed the worker the data, a summary
             // that says "found/confirmed/booked" is the data talking, not a claimed write: no done-claim finding, no replaced reply.
@@ -2855,6 +2909,13 @@ export function registerLocalRouting(api, options) {
                     remember([runId, sessionKeyNow], owed);
                 }
             }
+            // gate #57: the host's raw context-overflow error is never shown; the next turn trims this chat's history harder.
+            if (on && OVERFLOW.test(owed ?? reply)) {
+                owed = OVERFLOW_LINE;
+                remember([runId, sessionKeyNow], owed);
+                if (run.sessionKey)
+                    overflowed.add(run.sessionKey);
+            }
             // w20 H3: a reply that offers a retry stores what to retry; with nothing to store, it stops promising one.
             if (on && RETRY_OFFER.test(owed ?? reply)) {
                 const slot = run.sessionKey ? retryAfterReply(owed ?? reply, run.message, nowMs()) : undefined;
@@ -2864,6 +2925,12 @@ export function registerLocalRouting(api, options) {
                     owed = withoutRetryOffer(owed ?? reply);
                     remember([runId, sessionKeyNow], owed);
                 }
+            }
+            else if (on && run.sessionKey) {
+                // gate #54: a change that failed ("I couldn't add the call ...") is kept, so "try again" runs it again instead of guessing what to retry.
+                const slot = retryAfterReply(owed ?? reply, run.message, nowMs());
+                if (slot)
+                    retrySlots.set(run.sessionKey, slot);
             }
             if (on && owed)
                 putReplyInPlace(event.messages, owed);

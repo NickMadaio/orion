@@ -10,6 +10,7 @@
    - spelled-out times ("ten thirty") are read as digits first
  Anything that is not this exact shape returns undefined and the form handles it as before.
 */
+import { EARLY_CUE, WAKING_FROM } from "./waking-hours.js";
 import type { AskContext, Day } from "./schedule-flow.js";
 import { isYes } from "./schedule-pending.js";
 import { clockAfter, parseClock, resolveEnd, spokenTimesToDigits } from "./intent-time.js";
@@ -19,10 +20,20 @@ const toMin = (t: string): number => { const [h, m] = t.split(":").map(Number); 
 const hhmm = (n: number): string => `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
 
 /** The time he states in the evening that a form would write as the morning: "10:30" at 21:55 is 22:30, but only with no am/pm in his words. */
-export function eveningTime(t: string | undefined, nowMinute: number, message: string): string | undefined {
+export function eveningTime(t: string | undefined, nowMinute: number, message: string, start = true): string | undefined {
   if (!t || !/^\d{1,2}:\d{2}$/.test(t) || /\b(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message)) return t;
   const m = toMin(t);
+  // w20 r3 (waking-hours.ts): a small hour (1:00-6:59) he did not call morning is the afternoon or evening one, at any hour of the night:
+  // "add gym at half 5" at 1 AM is 17:30. A 24-hour way of writing it ("05:30") is exact and stays.
+  if (start && m >= 60 && m < WAKING_FROM && !EARLY_CUE.test(message) && !/\b0\d:\d{2}\b/.test(message)) return hhmm(m + 720);
   return m < nowMinute && m + 720 > nowMinute && m + 720 < 1440 && m >= 60 && m < 720 ? hhmm(m + 720) : t;
+}
+
+/** Up in the small hours, a small bare hour only a few hours off ("a walk at 5" at 3 AM) could be this morning or the afternoon: asked, never guessed. */
+export function trulyAmbiguous(t: string | undefined, nowMinute: number, message: string): [string, string] | undefined {
+  if (!t || !/^\d{1,2}:\d{2}$/.test(t) || /\b(?:a\.?m\.?|p\.?m\.?)(?![a-z])/i.test(message) || EARLY_CUE.test(message) || /\b0\d:\d{2}\b/.test(message)) return undefined;
+  const m = toMin(t);
+  return nowMinute < 300 && m >= 60 && m < WAKING_FROM && m > nowMinute && m - nowMinute <= 180 ? [t.padStart(5, "0"), hhmm(m + 720)] : undefined;
 }
 
 export type DirectAdd = { args: string[]; title: string; minutes: number; at: string; earlier?: { title: string; start: string; end: string } } | { say: "ask" | "cannot"; text: string };

@@ -10,8 +10,8 @@
  This file only READS (pure, no clock reads, no calendar); day-edit-run.ts carries it out. A message with an action clause it cannot read
  whole is null, so the older readers and the model keep it: a half-read request must never run as a quarter of itself.
 */
-import { naturalToDigits, pickClock, pickRange, takeClock, takeRange } from "./day-edit-time.js";
-import { takeLength } from "./intent-time.js";
+import { CLK, naturalToDigits, pickClock, pickRange, takeClock, takeRange, withEarlyCue } from "./day-edit-time.js";
+import { parseClock, takeLength } from "./intent-time.js";
 import { notScheduling } from "./not-scheduling.js";
 import { parseWake } from "./wake-flow.js";
 import { readBedtimeChange } from "./bedtime-read.js";
@@ -28,7 +28,7 @@ const PAST_SAY = /\bi(?:'ve| have)?\s+(?:actually\s+)?(?:was|did|went|had|ended 
 const NAME_STOP = /\s+(?:i'?m|im|i am|i'?m not|because|cause|coz|as|since|but|cos)\b.*$/;
 const PREP = /^(?:(?:at|in|on|doing|to|the|a|an|my|some|having|been|going to|go to|up|that|i was|i did|i had|i went to|me|did|went to|went|then)\s+)+/;
 const tidy = (raw) => raw.trim().replace(NAME_STOP, "").replace(/\b(?:to|in|on) (?:my|the) (?:schedule|calendar|day|plan|planner)\b/g, " ").replace(/\b(?:session|block|slot|start|starts|starting|begin|begins)s?\b/g, " ")
-    .replace(/\b(?:today|tonight|tomorrow|tmrw|yesterday|this (?:morning|afternoon|evening)|earlier|later|again|too|as well)\b/g, " ")
+    .replace(/\b(?:today|tonight|tomorrow|tmrw|yesterday|this (?:morning|afternoon|evening)|earlier|later|again|too|as well|instead|in the end|last night)\b/g, " ")
     .replace(/\s+/g, " ").trim().replace(PREP, "").replace(/^(?:me|that|it)\s+/, "").replace(/[.,!?]+$/g, "").replace(/\s+/g, " ").trim();
 const nameOf = (raw) => { const t = tidy(raw); return t && t.split(" ").length <= 5 && /[a-z]/.test(t) && !/^(?:everything|all|anything|something|it|that|this|day|my day)\b/.test(t) ? t : null; };
 const dayOf = (c, dflt) => (/\b(?:yesterday|last night)\b/.test(c) ? "yesterday" : /\b(?:tomorrow|tmrw)\b/.test(c) ? "tomorrow" : /\b(?:today|tonight|earlier|this (?:morning|afternoon|evening))\b/.test(c) ? "today" : dflt);
@@ -40,7 +40,9 @@ const WAKE_WORD = /\b(?:wake|woke|alarm|get me up|get up)\b/;
 const FOOD_SAY = /^(?:(?:i|ive|i've)\s+)?(?:just\s+|already\s+)?(?:ate|eaten|drank|had (?:lunch|dinner|breakfast|a snack|supper|some food))\b/;
 /** What a clause says after its time: a second clock there is a second ask, never part of the first one's name. */
 const LEFTOVER_CLOCK = (rest) => /\d/.test(rest.replace(/\b\d+\s*(?:min|mins|minutes|hours?|hrs?)\b/g, ""));
-function didnt(c) {
+function didnt(c0, dflt = "today") {
+    // "i skipped the lecture yesterday and was at the library 1-3": the same thing said another way
+    const c = c0.replace(/\b(?:skipped|bunked|ditched|bailed on|blew off)\s+(?:the |my |that )?/, "didnt go to the ").replace(/(\byesterday)\s+and\s+(?=(?:i\s+)?was\b)/, "$1, i ");
     const m = /\b(?:didn'?t|did not|never)\s+(?:do|go to|go|make it to|make it|have|get to|end up doing|bother with|attend)\s+(?:the |my |that |any )?(.+?)(?:\s+(?:block|session|slot))?\s*(?:,|;|-|\band\b|\bbecause\b|\bcause\b|\bcoz\b|\binstead\b|\bi\b|$)(.*)$/.exec(c);
     if (!m)
         return null;
@@ -53,7 +55,36 @@ function didnt(c) {
         return null;
     const range = takeRange(was[1]);
     const did = nameOf(range ? range.rest : was[1]);
-    return { op: "didnt", name, ...(did ? { did } : {}), ...(range ? { span: { a: range.a, b: range.b } } : {}) };
+    return { op: "didnt", name, day: dayOf(c, dflt), ...(did ? { did } : {}), ...(range ? { span: { a: range.a, b: range.b } } : {}) };
+}
+// "i did dinner at 7 not 6 earlier", "i actually called mum at 4 not 5 so shift it": one clock replacing another for a thing already on the day.
+const CORRECTED = new RegExp(String.raw `^(?:i\s+)?(?:(?:did|had|ate|went to|was at|was on|called|rang|phoned|started|finished|met|saw|got|have|do)\s+)?(?:my\s+|the\s+|a\s+|that\s+)?(.+?)\s+(?:at|for)\s+(?<a>${CLK})\s+(?:and\s+)?not\s+(?:at\s+)?(?<b>${CLK})(?![\d:])(?<rest>.*)$`);
+const EVENING_SAID = /\b(?:earlier|tonight|this evening|last night|this afternoon|yesterday evening)\b/;
+function corrected(c, dflt, nowMin) {
+    const m = CORRECTED.exec(c);
+    if (!m?.groups)
+        return null;
+    const name = nameOf(m[1]);
+    const a = parseClock(m.groups.a.replace(/\s+/g, ""));
+    const was = parseClock(m.groups.b.replace(/\s+/g, ""));
+    if (!name || !a || !was || /\b(?:tomorrow|tmrw)\b/.test(c) || LEFTOVER_CLOCK(m.groups.rest))
+        return null;
+    return { op: "correct", name, day: dayOf(c, dflt), at: a, was, ...(nowMin < 300 && EVENING_SAID.test(c) ? { evening: true } : {}) };
+}
+// "push the orion learning plan back an hour", "bump gym up 30 min", "push back gym by 20": a shift by an amount, not to a clock.
+const SHIFT_AFTER = /^(?:move|push|shift|bump|nudge)\s+(?:my\s+|the\s+)?(.+?)\s+(back|later|forward|forwards|ahead|earlier|up)\s+(?:by\s+)?(.+)$/;
+const SHIFT_BEFORE = /^(?:move|push|shift|bump|nudge)\s+(back|later|forward|forwards|earlier|up)\s+(?:my\s+|the\s+)?(.+?)\s+by\s+(.+)$/;
+function shifted(c, dflt) {
+    const after = SHIFT_AFTER.exec(c);
+    const before = after ? null : SHIFT_BEFORE.exec(c);
+    const hit = after ? { name: after[1], dir: after[2], amount: after[3] } : before ? { name: before[2], dir: before[1], amount: before[3] } : null;
+    if (!hit)
+        return null;
+    const len = takeLength(hit.amount);
+    const name = nameOf(hit.name);
+    if (!name || !len.minutes || len.minutes <= 0 || LEFTOVER_CLOCK(len.rest) || /^(?:everything|all)/.test(name))
+        return null;
+    return { op: "shift", name, day: dayOf(c, dflt), minutes: /^(?:earlier|up)$/.test(hit.dir) ? -len.minutes : len.minutes };
 }
 function logged(c, dflt) {
     const body = c.replace(/^(?:add|log|note|put|record|mark)(?: down)?(?: that)?\s+/, "");
@@ -100,6 +131,18 @@ function added(c, dflt, carry) {
     if (!name || (!range && !one && !after))
         return null;
     return { op: "add", name, day: dayOf(c, dflt), ...(range ? { span: { a: range.a, b: range.b } } : {}), ...(one ? { at: one.s } : {}), ...(after ? { after: after[1].trim() } : {}), ...(len.minutes ? { minutes: len.minutes } : {}) };
+}
+/** "gym at 5 in the morning": his words say the small hours, so a bare clock in that clause is exact (waking-hours.ts). */
+function earlyRead(p, clause) {
+    if (p.op === "add")
+        return { ...p, ...(p.at ? { at: withEarlyCue(p.at, clause) } : {}), ...(p.span ? { span: { a: withEarlyCue(p.span.a, clause), b: withEarlyCue(p.span.b, clause) } } : {}) };
+    if (p.op === "log" || p.op === "didnt")
+        return p.span ? { ...p, span: { a: withEarlyCue(p.span.a, clause), b: withEarlyCue(p.span.b, clause) } } : p;
+    if (p.op === "move")
+        return { ...p, to: withEarlyCue(p.to, clause) };
+    if (p.op === "correct")
+        return { ...p, at: withEarlyCue(p.at, clause), was: withEarlyCue(p.was, clause) };
+    return p;
 }
 /** A clause that is only a time, said before its verb ("ass 10 to 11pm add gym"): lent to the clause after it. */
 const DANGLING = /^(?:(?:ass|add|and|at|from|so|then)\s+)?(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to|till|until)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)$/;
@@ -165,9 +208,9 @@ export function readDayEdit(message, now) {
             part = t ? { op: "busy", until: t.s } : null;
         }
         else
-            part = didnt(c) ?? dropped(c, dflt) ?? moved(c, dflt) ?? logged(c, dflt) ?? (FOOD_SAY.test(c) && /\d|\b(?:noon|midnight)\b/.test(c) ? { op: "food", text: c } : null) ?? added(c, dflt, carry);
+            part = didnt(c, dflt) ?? corrected(c, dflt, nowMin) ?? dropped(c, dflt) ?? shifted(c, dflt) ?? moved(c, dflt) ?? logged(c, dflt) ?? (FOOD_SAY.test(c) && /\d|\b(?:noon|midnight)\b/.test(c) ? { op: "food", text: c } : null) ?? added(c, dflt, carry);
         if (part) {
-            parts.push(part);
+            parts.push(earlyRead(part, c));
             continue;
         }
         // a bare "gym start at 10pm" beside other edits is one more add; any other unread clause that asks for something makes the message not mine

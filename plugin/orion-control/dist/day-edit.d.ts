@@ -30,8 +30,25 @@ export type EditPart = {
 } | {
     op: "didnt";
     name: string;
+    day: DayRef;
     did?: string;
     span?: Span;
+}
+/** "i did dinner at 7 not 6 earlier": the block (said at `was`) really happened at `at`, length kept. evening: it is the small hours and "earlier" means last evening. */
+ | {
+    op: "correct";
+    name: string;
+    day: DayRef;
+    at: Said;
+    was: Said;
+    evening?: boolean;
+}
+/** "push the learning plan back an hour": by minutes, later (+) or earlier (-). */
+ | {
+    op: "shift";
+    name: string;
+    day: DayRef;
+    minutes: number;
 }
 /** scope: bedtime-read.ts's reading of the clause ("change my bedtime to 11:30" is every night, "push it to 12" is tonight). */
  | {

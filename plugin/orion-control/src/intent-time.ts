@@ -90,11 +90,9 @@ export function resolveStart(said: Said, ctx: ClockContext): Resolved {
   if (said.h === 12) return passed(720 + said.m);
   const am = said.h * 60 + said.m; const pm = am + 720;
   if (ctx.part === "morning") return passed(am);                     // "tomorrow morning at 6" is 6 AM
-  // Still up before 5 AM: "a walk at 5" at 2 AM is 5 AM, not tomorrow afternoon; a small hour further off is asked about.
-  if (today && ctx.now! < 5 * 60 && ctx.part !== "evening" && am > ctx.now!) {
-    if (am - ctx.now! <= 180) return { at: am };
-    if (said.h <= 6) return { ambiguous: [am, pm] };
-  }
+  // Still up before 5 AM (w20 r3): a bare small hour is the waking-hours one ("gym at half 5" at 1 AM is 17:30, never 05:30), unless his words
+  // say early morning (part "morning"). Only a small hour that is truly close ("a walk at 5" at 3 AM, two hours off) is asked about.
+  if (today && ctx.now! < 5 * 60 && ctx.part !== "evening" && am > ctx.now! && said.h <= 6 && am - ctx.now! <= 180) return { ambiguous: [am, pm] };
   if (ctx.part === "evening" || said.h <= 6) return passed(pm);   // "at 5" while awake is 5 PM
   if (!today) return { ambiguous: [am, pm] };
   const ahead = [am, pm].filter((c) => c > ctx.now!);

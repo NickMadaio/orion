@@ -1,4 +1,4 @@
-export type ReasonKind = "bedtime" | "started" | "over" | "no_block" | "no_room" | "fixed_event" | "other_day" | "exists" | "unknown";
+export type ReasonKind = "bedtime" | "started" | "over" | "no_block" | "no_room" | "fixed_event" | "other_day" | "exists" | "needs_time" | "unknown";
 export type Reason = {
     kind: ReasonKind;
     what?: string;

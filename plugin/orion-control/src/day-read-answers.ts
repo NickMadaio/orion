@@ -36,8 +36,8 @@ const namedAs = (k: Kind): RegExp => new RegExp(`\\b(?:my|the|a|an)\\s+(?:\\w+\\
 const FITTING = /\b(?:time for|room for|squeeze|fit)\b/i;
 
 const BLOCK = /^B\d+ (\d{2}):(\d{2})–(\d{2}):(\d{2}) (.*?)(?: \(FIXED\))?(?: \(already happened\))?$/;
-type Row = { hour: number; minute: number; endHour: number; endMinute: number; title: string; over: boolean };
-function rows(day: string): Row[] {
+export type Row = { hour: number; minute: number; endHour: number; endMinute: number; title: string; over: boolean };
+export function rows(day: string): Row[] {
   return day.split("\n").flatMap((line) => {
     const m = BLOCK.exec(line.trim());
     return m ? [{ hour: Number(m[1]), minute: Number(m[2]), endHour: Number(m[3]), endMinute: Number(m[4]), title: m[5]!, over: /\(already happened\)\s*$/.test(line.trim()) }] : [];

@@ -69,6 +69,8 @@ export function parseReason(input) {
         return named({ kind: "over", what: m[1] });
     if ((m = line.match(/^(.+?) already ended at (\d{2}:\d{2})/i)))
         return named({ kind: "over", what: m[1], at: m[2] });
+    if (/^an? (?:fixed )?plan needs --at\b/i.test(line))
+        return named({ kind: "needs_time" });
     if (/is in the past/i.test(line))
         return named({ kind: "over" });
     if ((m = line.match(/^no block called "?(.+?)"? on /i)))
@@ -111,6 +113,7 @@ export function reasonClause(r) {
         case "fixed_event": return `${what === "that" ? "that" : what} is a class or a plan with people, so it doesn't move`;
         case "other_day": return `${what} is on ${r.at && /^\d{4}-/.test(r.at) ? "another day" : "a different day"}`;
         case "exists": return `${what} is already on today's calendar${r.at ? ` at ${when(r.at)}` : ""}`;
+        case "needs_time": return "that is a plan with someone, so it needs an exact time";
         default: return r.raw ? r.raw.replace(/\b(\d{2}:\d{2})\b/g, (t) => ampm(t)).replace(/\.$/, "") : "";
     }
 }
@@ -125,6 +128,7 @@ export function reasonOffer(r) {
         case "fixed_event": return "I can skip it for today if you're not going. Want that?";
         case "other_day": return "Want me to put it on that day?";
         case "exists": return "Want it moved or made longer instead?";
+        case "needs_time": return "What time should I put it at?";
         default: return "Want me to try it a different way?";
     }
 }
@@ -139,6 +143,7 @@ export function repeatOffer(r) {
         case "fixed_event": return "Say \"skip it today\" if you're not going.";
         case "other_day": return "Tell me to put it on that day and I will.";
         case "exists": return "Say \"extend it\" or \"move it\" and give me the time.";
+        case "needs_time": return "Give me a start time, like \"at 2\", and I'll put it there.";
         default: return "Give me a different time or name and I'll try that. If you think I should be able to do this, say \"build that\" and I'll start on it.";
     }
 }

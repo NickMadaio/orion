@@ -28,12 +28,13 @@ describe("1. an end after midnight, from a start late today, is tonight after mi
         expect(read(m, now)).toMatchObject({ intent: { items: [{ issue: { kind: "passed", at: when } }] } });
     });
 });
-describe("2. before 5 AM a small hour in the next few hours is this early morning, or asked", () => {
+// w20 r3: a bare small hour is the waking-hours one (17:30, not 05:30); only one truly close is asked about.
+describe("2. before 5 AM a small hour is the waking-hours one; a truly close one is asked about", () => {
     it.each([
-        ["put a walk at 5", at(2), { start: "05:00" }],
-        ["put a walk at 4:30", at(2), { start: "04:30" }],
-        ["put a walk at 3", at(2, 30), { start: "03:00" }],
-        ["put a walk at 6", at(2), { issue: { kind: "ambiguous", choices: ["06:00", "18:00"] } }],
+        ["put a walk at 5", at(2), { issue: { kind: "ambiguous", choices: ["05:00", "17:00"] } }],
+        ["put a walk at 4:30", at(2), { issue: { kind: "ambiguous", choices: ["04:30", "16:30"] } }],
+        ["put a walk at 3", at(2, 30), { issue: { kind: "ambiguous", choices: ["03:00", "15:00"] } }],
+        ["put a walk at 6", at(2), { start: "18:00" }],
         ["put a walk at 5 tonight", at(2), { start: "17:00" }],
         ["put a walk at 5", at(12), { start: "17:00" }],
         ["put a walk at 1", at(2), { start: "13:00" }],

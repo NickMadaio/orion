@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { eveningTime, spokenTimesToDigits } from "./direct-add.js";
+import { isTimerRequest } from "./tool-moves.js";
+import { SOCIAL_TITLE, mealEnd } from "./meal-anchors.js";
+import { eveningTime, spokenTimesToDigits, trulyAmbiguous } from "./direct-add.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
 import { blocksNamed, replanReply } from "./day-replan.js";
 import { dayPlanReply } from "./day-plan.js";
@@ -296,7 +298,10 @@ export function compile(input, day, message, opts = {}) {
     // A clock he said with no am/pm, in the evening, is the evening ("until 10:30" at 21:55 is 22:30, not this morning).
     if (day.now && message && ["add", "move", "extend"].includes(step.do)) {
         const n = toMin(day.now);
-        step = { ...step, ...(step.to ? { to: eveningTime(step.to, n, message) } : {}), ...(step.until ? { until: eveningTime(step.until, n, message) } : {}) };
+        const close = step.do === "add" || step.do === "move" ? trulyAmbiguous(step.to, n, message) : undefined;
+        if (close)
+            return { say: "ask", text: `Do you mean ${ampm(close[0])} or ${ampm(close[1])} for ${cleanAddTitle(String(step.what ?? "it"))}?` };
+        step = { ...step, ...(step.to ? { to: eveningTime(step.to, n, message) } : {}), ...(step.until ? { until: eveningTime(step.until, n, message, false) } : {}) };
     }
     const byId = (id) => (id && /^B\d+$/.test(id) ? day.blocks[Number(id.slice(1)) - 1] : undefined);
     const now = day.now ? toMin(day.now) : 0;
@@ -450,7 +455,17 @@ export function compile(input, day, message, opts = {}) {
             // A block with no length is not a block: a to-do became add "email prof…" 0 (sweep q043, 2026-10-15).
             if (minutes < 5)
                 return { error: "add needs at least 5 minutes" };
-            const at = stated ? ["--at", time(step.to)] : anchor?.after ? ["--after", anchor.after.title] : [];
+            // A plan with someone is booked at an exact time only. "after lunch" with no lunch on the day is the usual end of lunch (meal-anchors.ts);
+            // with no clue at all, he is asked, never told "a fixed plan needs --at".
+            let social;
+            if (!stated && !anchor?.after && !anchor?.before && SOCIAL_TITLE.test(step.what)) {
+                const end = message ? mealEnd(message) : undefined;
+                if (end !== undefined && end >= now)
+                    social = ["--at", hhmm(Math.ceil(end / 5) * 5)];
+                else
+                    return { say: "ask", text: `What time should I put ${step.what} at?` };
+            }
+            const at = social ?? (stated ? ["--at", time(step.to)] : anchor?.after ? ["--after", anchor.after.title] : []);
             const end = !stated && anchor?.before ? ["--before", hhmm(anchor.before.minute)] : [];
             return { args: ["add", step.what, String(Math.round(minutes)), ...at, ...end, ...(again ? ["--again"] : [])] };
         }
@@ -649,6 +664,9 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     const tooSlow = { outcome: "fallback", reason: "too slow" };
     /** The day a stored argv was for (its --date), read again: only after an unknown outcome. */
     const readDayAgain = (argv) => { const i = argv.indexOf("--date"); return exec(["show", "--json", ...(i >= 0 && argv[i + 1] ? ["--date", argv[i + 1]] : [])]).then((r) => JSON.parse(r.stdout), () => undefined); };
+    // A countdown is the timer tool's, never a block on the calendar (gate #69).
+    if (isTimerRequest(message))
+        return { outcome: "fallback", reason: "a timer, not the calendar" };
     if (edit)
         return runEdit(edit, { exec, undoTop });
     if (pending?.kind === "push")

@@ -47,9 +47,10 @@ function openDirective(req) {
 }
 /** The exact job for a front-desk tool move, when code can know it; null leaves the turn to the worker. */
 export function toolDirective(decision, message) {
-    if (decision?.move === "escalate")
+    // A timer is a timer whatever the front desk picked, escalations included (gate #69: "set a 10 min timer for my pasta" escalated and became a "bed" block).
+    const timer = isTimerRequest(message) ? TIMER.exec(message) : null;
+    if (decision?.move === "escalate" && !timer)
         return null;
-    const timer = decision && isTimerRequest(message) ? TIMER.exec(message) : null;
     if (timer) {
         const total = seconds(timer[1] ?? timer[3] ?? "0", timer[2] ?? timer[4] ?? "m");
         if (total >= 1 && total <= 86400)

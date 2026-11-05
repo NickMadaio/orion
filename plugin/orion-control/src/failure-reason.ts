@@ -7,7 +7,7 @@
  From a reason code can say what happened in one first-person sentence and what to do about it (reasonSentence, reasonOffer).
 */
 
-export type ReasonKind = "bedtime" | "started" | "over" | "no_block" | "no_room" | "fixed_event" | "other_day" | "exists" | "unknown";
+export type ReasonKind = "bedtime" | "started" | "over" | "no_block" | "no_room" | "fixed_event" | "other_day" | "exists" | "needs_time" | "unknown";
 export type Reason = { kind: ReasonKind; what?: string; at?: string; now?: string; bedtime?: string; raw?: string };
 
 const ALIASES: Record<string, ReasonKind> = {
@@ -60,6 +60,7 @@ export function parseReason(input: string | Record<string, unknown>): Reason {
   if ((m = line.match(/^(.+?) cannot start at (\d{2}:\d{2}); it is already (\d{2}:\d{2})/i))) return named({ kind: "started", what: m[1]!, at: m[2]!, now: m[3]! });
   if ((m = line.match(/^(.+?) (?:is|are) already over today/i))) return named({ kind: "over", what: m[1]! });
   if ((m = line.match(/^(.+?) already ended at (\d{2}:\d{2})/i))) return named({ kind: "over", what: m[1]!, at: m[2]! });
+  if (/^an? (?:fixed )?plan needs --at\b/i.test(line)) return named({ kind: "needs_time" });
   if (/is in the past/i.test(line)) return named({ kind: "over" });
   if ((m = line.match(/^no block called "?(.+?)"? on /i))) return named({ kind: "no_block", what: clean(m[1]!) });
   if ((m = line.match(/^no class or fixed plan called "?(.+?)"? left/i))) return named({ kind: "no_block", what: clean(m[1]!) });
@@ -91,6 +92,7 @@ export function reasonClause(r: Reason): string {
     case "fixed_event": return `${what === "that" ? "that" : what} is a class or a plan with people, so it doesn't move`;
     case "other_day": return `${what} is on ${r.at && /^\d{4}-/.test(r.at) ? "another day" : "a different day"}`;
     case "exists": return `${what} is already on today's calendar${r.at ? ` at ${when(r.at)}` : ""}`;
+    case "needs_time": return "that is a plan with someone, so it needs an exact time";
     default: return r.raw ? r.raw.replace(/\b(\d{2}:\d{2})\b/g, (t) => ampm(t)).replace(/\.$/, "") : "";
   }
 }
@@ -106,6 +108,7 @@ export function reasonOffer(r: Reason): string {
     case "fixed_event": return "I can skip it for today if you're not going. Want that?";
     case "other_day": return "Want me to put it on that day?";
     case "exists": return "Want it moved or made longer instead?";
+    case "needs_time": return "What time should I put it at?";
     default: return "Want me to try it a different way?";
   }
 }
@@ -121,6 +124,7 @@ export function repeatOffer(r: Reason): string {
     case "fixed_event": return "Say \"skip it today\" if you're not going.";
     case "other_day": return "Tell me to put it on that day and I will.";
     case "exists": return "Say \"extend it\" or \"move it\" and give me the time.";
+    case "needs_time": return "Give me a start time, like \"at 2\", and I'll put it there.";
     default: return "Give me a different time or name and I'll try that. If you think I should be able to do this, say \"build that\" and I'll start on it.";
   }
 }

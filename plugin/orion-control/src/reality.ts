@@ -65,7 +65,9 @@ export type RealityDeps = { run: ScriptRun; readDay: () => Promise<Day | undefin
   /** Wave 6: ORION's state dir (day-requests.ts reads how often a deferred plan already slid). */
   stateDir?: string;
   /** His deadlines, for what freed class time is spent on (freed-class-time.ts). */
-  readDeadlines?: () => Promise<DeadlineRead | null | undefined> };
+  readDeadlines?: () => Promise<DeadlineRead | null | undefined>;
+  /** What the calendar held on a day that is over (agenda-day.ts): the scheduler refuses to read a past day. */
+  agendaDay?: (date: string) => Promise<import("./agenda-day.js").AgendaDay | undefined> };
 /** What a reality turn did: the reply, the declared fact ids and how many calendar writes (each is one orion-reschedule undo). */
 export type RealityOutcome = { flow: FlowResult; facts: string[]; writes: number };
 
@@ -158,7 +160,7 @@ export function readReality(message: string, now: Date = pluginNow()): RealityRe
     return again ? { reality: { kind: "edit", edit: again, undoFirst: true }, rest: false } : null;
   }
   const edit = readOverride(message, now) ?? readDayEdit(message, now);
-  if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op !== "add" && p.op !== "move" && p.op !== "drop" && p.op !== "note"))) return { reality: { kind: "edit", edit }, rest: false };
+  if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op !== "add" && p.op !== "move" && p.op !== "drop" && p.op !== "note" && p.op !== "shift"))) return { reality: { kind: "edit", edit }, rest: false };
   const request = readDayRequest(message, now);
   if (request) return { reality: { kind: "request", request }, rest: false };
   if (QUESTION.test(m)) return null;

@@ -15,6 +15,7 @@
  Not about apps: "quit smoking", "close the door", "close this tab", "close it" (nothing to name), a question about how to close something.
  An unclear which-apps request is the sensible quit-unused, never a question: these actions are pre-approved and harmless.
 */
+import { APPS } from "./computer-intent.js";
 import { readMusicTurn, type MusicTurn } from "./music-read.js";
 
 export type AppsTurn =
@@ -31,6 +32,8 @@ export type AppsTurn =
   | { kind: "gameLast" };
 
 const flat = (s: string) => s.toLowerCase().replace(/[’]/g, "'").replace(/\s+/g, " ").trim();
+const BUILTIN_APP_NAMES: ReadonlySet<string> = new Set(["minecraft", "spotify", "discord", "slack", "zoom", "steam", "photoshop", "figma", "obsidian", "notion", "xcode", "vscode", "vs code", "firefox", "arc", "finder", "mail", "messages",
+  "music", "calendar", "preview", "terminal", "system settings", "teams", "microsoft teams", "whatsapp", "telegram", "chrome", "safari", "notes", "netflix", "youtube", "word", "excel", "powerpoint", "pages", "numbers", "keynote", "roblox", "fortnite", "valorant", "league of legends", "twitch", "messenger", "instagram", "tiktok"]);
 const VERB = String.raw`(?:close|quit|shut ?down|shut|kill|exit|force quit|force close|get rid of|ditch|clear out|clean up|cleanup)`;
 const FILLER = /^(?:the|my|all|some|these|those|that|this|app|apps|application|applications|program|programs|please|pls|for me|real quick|rn|now|out|off)$/;
 // Words that make "close X" / "quit X" something other than an app.
@@ -187,7 +190,11 @@ export function readAppsTurn(message: string): AppsTurn | null {
   if (q) {
     const body = (q[1] ?? "").replace(/\s+(?:for me|please|pls|real quick|rn|right now|now)$/, "");
     const names = splitNames(body);
-    if (names.length && names.every(appish)) return { kind: "quit", names };
+    // "get rid of / ditch / clear out / clean up" also means a calendar block ("get rid of New CS Lab"). Those verbs close an app only when every thing
+    // named is a KNOWN app; anything else is left to the calendar's remove path (tube audit T4, 11-05: '"new cs lab" isn't open.'). "quit" and "close" are unambiguous.
+    const ambiguous = /^(?:.*?\s)?(?:get rid of|ditch|clear out|clean up|cleanup)\s/.test(m);
+    const known = (n: string) => !!APPS[n.toLowerCase().replace(/\s+app$/, "")] || BUILTIN_APP_NAMES.has(n.toLowerCase().replace(/\s+app$/, ""));
+    if (names.length && names.every(appish) && (!ambiguous || names.every(known))) return { kind: "quit", names };
   }
   return null;
 }

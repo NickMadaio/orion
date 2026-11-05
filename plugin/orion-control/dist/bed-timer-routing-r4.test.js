@@ -119,3 +119,33 @@ describe("another reminder, and cancelling by description", () => {
         expect(h.store).toHaveLength(2);
     }, 30000);
 });
+describe("review fixes: a timer is only an order, and the rest of the message is not dropped", () => {
+    it.each(["dont set a 10 min timer", "should i set a 10 min timer?", "can you set a 5 min timer? or is that too short lol"])("%s sets nothing", async (said) => {
+        const h = setup();
+        await h.turn(said);
+        expect(h.timers).toEqual([]);
+    }, 30000);
+    it("'make it a 10 min timer instead' with no timer before it sets nothing", async () => {
+        const h = setup();
+        await h.turn("make it a 10 min timer instead");
+        expect(h.timers).toEqual([]);
+    }, 30000);
+    it("'make it a 15 min timer instead' after a timer replaces it", async () => {
+        const h = setup();
+        await h.turn("set a 10 min timer for the pasta");
+        const reply = await h.turn("make it a 15 min timer instead");
+        expect(h.timers.map((t) => t.seconds)).toEqual([600, 900]);
+        expect(h.store.filter((r) => r.kind === "timer")).toHaveLength(1);
+        expect(reply).toMatch(/Swapped the old timer\. Timer set: 15 minutes/);
+    }, 30000);
+    it.each([
+        ["set a 10 min timer and move my gym to 6", /move my gym to 6/],
+        ["set a 10 min timer then add a 30 min walk to my calendar", /add a 30 min walk to my calendar/],
+    ])("%s hands both asks to the worker", async (said, rest) => {
+        const h = setup();
+        const prompt = await h.turn(said);
+        expect(prompt).toMatch(rest);
+        expect(prompt).toMatch(/timer/);
+        expect(prompt).toMatch(/timer_set/);
+    }, 30000);
+});

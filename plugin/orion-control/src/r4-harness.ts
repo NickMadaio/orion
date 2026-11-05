@@ -23,7 +23,7 @@ export type Rig = {
 export type RigOptions = {
   foodRun?: FoodRun; ledgerRun?: LedgerRun; selffixRun?: SelffixRun; noteFlow?: (m: string, b?: boolean) => Promise<FlowResult>;
   chatRun?: ChatDeps; todoDoneFlow?: (m: string) => Promise<FlowResult>; health?: object;
-  decide?: Decision; scheduleFlow?: (m: string) => Promise<FlowResult>;
+  decide?: Decision; day?: import("./schedule-flow.js").Day; scheduleFlow?: (m: string) => Promise<FlowResult>;
 };
 
 /** A chat session; `turn` returns the direct reply when code owns it, else the drafted system prompt text (what the worker is told to say). */
@@ -38,7 +38,7 @@ export function rig(o: RigOptions): Rig {
   registerLocalRouting(api, { warm: false, mode: "on", logPath: join(dir, "r.jsonl"), progressDir: join(dir, "tp"), stateDir: dir, clock: () => "Thu 13:00", now: () => new Date(clock),
     decideImpl: async () => (o.decide ?? { move: "escalate" }) as Decision, brainSearch: async () => "",
     scheduleFlow: async (m: string) => { flows.push(m); return o.scheduleFlow ? o.scheduleFlow(m) : { outcome: "fallback", reason: "test" }; },
-    readDayJson: async () => undefined, readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [],
+    readDayJson: async () => o.day, readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [],
     ...(o.foodRun ? { foodRun: o.foodRun } : {}), ...(o.ledgerRun ? { ledgerRun: o.ledgerRun } : {}), ...(o.selffixRun ? { selffixRun: o.selffixRun } : {}),
     ...(o.noteFlow ? { noteFlow: o.noteFlow } : {}), ...(o.chatRun ? { chatRun: o.chatRun } : {}), ...(o.todoDoneFlow ? { todoDoneFlow: o.todoDoneFlow } : {}),
   } as never);

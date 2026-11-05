@@ -19,7 +19,9 @@ const YES_LEAD = /^(?:y|ya|yah|yes|yeah|yea|yep|yup|sure|ok|okay)\b[,.!]*\s+(.+)
 /** "go", "yeah go on", "yeah add it", "put that in", "yep confirm": his yes to a "Log it?" that is still the last thing said (only read when an offer is bound). */
 const OFFER_YES = /^(?:(?:y|ya|yah|yes|yeah|yea|yep|yup|sure|ok|okay|k|alright|aight|fine|cool)[, ]+)*(?:go(?: on| ahead| for it| then)?|do it|do that|confirm(?:ed)?|that works|(?:please |pls )?(?:add|put|stick|log|save|pop|chuck|track|record)(?: (?:it|that|this|those|them|that one))?(?: (?:in|down|on|in there|in then))?(?: (?:to|in|on) (?:my )?(?:log|food|meals|calories|macros|tracker))?)(?:\s+(?:please|pls|thanks|thank you|thx|ty|then|now))?$/i;
 /** A decline of an unlogged offer by what he says about the food: "i didnt eat that", "take it off", "scrap that". */
-const DECLINE = /\b(?:didn'?t|did not|never|haven'?t|havent)\s+(?:actually\s+|even\s+)?(?:eat|ate|eaten|have|had|drink|drank)\s+(?:that|it|this|those|them|any of (?:it|that))\b|\b(?:wasn'?t|wasnt|isn'?t|isnt|not)\s+(?:that|this|it)\b|^(?:(?:nah|no|nope|actually|oh|ok|okay|wait|hey|nvm|nevermind|never mind)[, ]+)*(?:take|remove|delete|scrap|scratch|forget|ditch|drop|cancel|clear)\s+(?:it|that|this)(?:\s+(?:off|out|away))?(?:\s+(?:pls|please))?$/i;
+const DECLINE = /\b(?:didn'?t|did not|never|haven'?t|havent)\s+(?:actually\s+|even\s+)?(?:eat|ate|eaten|have|had|drink|drank)\s+(?:that|it|this|those|them|any of (?:it|that))\b|^(?:(?:nah|no|nope|actually|oh|ok|okay|wait|hey|nvm|nevermind|never mind)[, ]+)*(?:take|remove|delete|scrap|scratch|forget|ditch|drop|cancel|clear)\s+(?:it|that|this)(?:\s+(?:off|out|away))?(?:\s+(?:pls|please))?$/i;
+/** "not that", "it wasnt that", "that wasnt it": the whole message, so "it wasnt that, i meant my nap" is not a decline. */
+const NOT_THAT = /^(?:(?:nah|no|nope|oh|ok|okay|actually)[, ]+)*(?:(?:it|that|this) )?(?:wasn'?t|isn'?t|is not|was not)(?: (?:that|this|it|the one))?$|^not (?:that|this|it)(?: one)?$/i;
 const NO = /^(?:n|no|nah|nope|no thanks|no thank you|nah thanks|don'?t|dont|don'?t log it|dont log it|don'?t bother|skip it|skip|never ?mind|forget it|leave it|not now|no need)$/i;
 const CORRECTION = /\b(?:it was|was (?:a|an|just|only|more|less|about|like)|actually|only|just|half|small(?:er)?|large|big(?:ger)?|tiny|huge|didn'?t (?:have|eat|finish)|without|no (?:cheese|sauce|oil|mayo|dressing|rice|fries|chips|sugar|milk|bread|bun)|there was no|plus|also had|and (?:a|an|some)|with (?:a|an|some|extra)|extra|diet|zero|grams?|\d+\s?(?:g|ml|oz)\b|two|three|double|single)\b/i;
 const NOT_A_CORRECTION = /\b(?:remind|move|schedule|book|cancel|calendar|gym|class|alarm|timer|lights?|text|call|email|weather|focus|session|tomorrow|tonight|at \d)\b|\?$/i;
@@ -116,7 +118,7 @@ function nutritionQuestion(message) {
 function readChatOffer(said, m, food) {
     if (YES.test(said) || OFFER_YES.test(said))
         return { kind: "log", text: food };
-    if (NO.test(said) || DECLINE.test(said) || readNo(said, m, [food], 1))
+    if (NO.test(said) || DECLINE.test(said) || NOT_THAT.test(said) || readNo(said, m, [food], 1))
         return { kind: "no" };
     if (CORRECTION.test(said) && !NOT_A_CORRECTION.test(said) && said.length <= 140)
         return { kind: "ask", text: `${food}, ${tidy(m)}` };
@@ -149,7 +151,7 @@ export function readFoodTurn(message, c) {
     }
     if (c.pending && c.bound && open > 0) {
         const count = open, names = c.pending.names ?? [];
-        if (!c.pending.loggedId && DECLINE.test(said) && !NOT_A_CORRECTION.test(said))
+        if (!c.pending.loggedId && (DECLINE.test(said) || NOT_THAT.test(said)) && !NOT_A_CORRECTION.test(said))
             return { kind: "no", ...(count >= 2 ? { which: m } : {}) };
         if (OFFER_YES.test(said) && !(count >= 2 && picked(said, names)))
             return { kind: "yes" };

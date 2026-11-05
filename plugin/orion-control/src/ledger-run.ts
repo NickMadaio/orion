@@ -26,6 +26,10 @@ export type LedgerDeps = {
   reminders?: { list: () => Promise<StoredReminder[]>; remove: (ids: string[]) => Promise<void> };
   /** This chat has been about food lately: a removal that names no calendar thing is a meal to take off the food log. */
   foodRecent?: boolean;
+  /** Titles of today's food log entries (the food path is only for what is in it). */
+  foodToday?: () => Promise<string[]>;
+  /** When this chat last took a food entry off the log (ms): a bare "undo" after it puts it back. */
+  foodOffAt?: number;
   /** What he said, for the checks that read the whole message. */
   said?: string;
 };
@@ -189,7 +193,7 @@ async function removeNamed(ask: LedgerAsk, words: string[], deps: LedgerDeps): P
     }
   }
   if (kinds.includes("food")) return removeItem(deps, { kind: "food", label: words.join(" "), at: deps.now });
-  if (deps.foodRecent && !kinds.length && ask.verb === "remove") { const meal = await removeFoodByWords(deps, words, deps.said ?? words.join(" ")); if (meal) return meal; }
+  if (!kinds.length && ask.verb === "remove") { const meal = await removeFoodByWords(deps, words, deps.said ?? words.join(" ")); if (meal) return meal; }
   if (kinds.includes("note")) return ask.confirmed ? removeNote(deps, words.join(" ")) : askAboutNote(deps, words);
   void out;
   return undefined;
@@ -202,6 +206,12 @@ export async function runLedgerAsk(ask: LedgerAsk, deps: LedgerDeps): Promise<Le
     const newest = deps.items.at(-1);
     const calendarLast = deps.calendar && topEntry(deps) ? deps.calendar.last : 0;
     // A block ORION added is taken back through the journal (it restores anything the add replaced), never by dropping by name.
+    // The newest thing this chat did was taking a meal off the log: undo puts it back (orion-log keeps the removed entry).
+    if (deps.foodOffAt && deps.foodOffAt >= Math.max(newest?.at ?? 0, calendarLast)) {
+      const o = acc();
+      const r = await exec(deps, o, "orion-log", ["food-restore"]);
+      return { ...o, text: r.code === 0 ? r.stdout.trim() : `I couldn't put it back: ${r.stdout.trim() || "the health log didn't answer"}.` };
+    }
     if (newest && newest.at >= calendarLast && newest.kind !== "block") return removeItem(deps, newest);
     return undoCalendar(deps);
   }

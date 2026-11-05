@@ -36,6 +36,10 @@ export type LedgerDeps = {
     };
     /** This chat has been about food lately: a removal that names no calendar thing is a meal to take off the food log. */
     foodRecent?: boolean;
+    /** Titles of today's food log entries (the food path is only for what is in it). */
+    foodToday?: () => Promise<string[]>;
+    /** When this chat last took a food entry off the log (ms): a bare "undo" after it puts it back. */
+    foodOffAt?: number;
     /** What he said, for the checks that read the whole message. */
     said?: string;
 };

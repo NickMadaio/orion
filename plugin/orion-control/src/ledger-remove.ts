@@ -49,16 +49,27 @@ export async function removeReminder(deps: LedgerDeps, labels: string[], words?:
 /** Words that make "remove X" a calendar, list or reminder ask, never a meal. */
 const NOT_A_MEAL = /\b(?:tomorrow|tonight|calendar|block|schedule|session|meeting|class|lecture|gym|workout|plan|day|reminder|alarm|timer|list|todo|task|event|focus|break|note)\b/;
 
+const FOODISH = /\b(?:eggs?|toast|banana|bananas|apple|chicken|rice|bread|cheese|burger|burrito|wrap|pizza|sandwich|salad|cereal|yoghurt|yogurt|porridge|oats|coffee|tea|milk|fries|chips|bar|snack|fruit|soup|steak|fish|sushi|noodles|biscuits?|cookies?|cake|chocolate|crisps|smoothie|shake|coke|juice)\b/;
+
 /**
- * "remove the eggs" in a chat that has been about food: the entry is taken off today's food log by its words. The reply is the script's own
- * line, or says plainly that no such meal is logged: water is never the answer to a removal.
+ * "remove the eggs": the food path is taken only when the named thing IS in today's food log, or is plainly a food and nothing on the calendar
+ * matches. A name on both ("dinner") is asked about; anything else (a haircut, a nap, a call) is undefined, so the calendar / ledger flows have it.
+ * The removal is journaled by orion-log, so "undo" puts the entry back.
  */
 export async function removeFoodByWords(deps: LedgerDeps, words: string[], said: string): Promise<LedgerOutcome | undefined> {
   if (!words.length || NOT_A_MEAL.test(said.toLowerCase())) return undefined;
+  const titles = deps.foodToday ? await deps.foodToday().catch(() => []) : [];
+  const entry = titles.some((t) => namesLabel(words, t));
+  const day = deps.readDay ? await deps.readDay([]).catch(() => undefined) : undefined;
+  const calendar = (day?.blocks ?? []).some((b) => namesLabel(words, b.title));
+  const shown = (said.toLowerCase().match(/[a-z0-9']+/g) ?? []).filter((t) => words.includes(contentWords(t)[0] ?? "")).join(" ") || words.join(" ");
   const out = blank();
+  out.calls.push("read health-log.json nutritionLog"); out.outputs.push(JSON.stringify({ titles: titles.length, calendar }));   // a read, so the ledger owns this reply
+  if (entry && calendar) return { ...out, text: `${shown} is on your calendar and in your food log, so I haven't removed either. Say "remove the ${shown} meal" or "cancel the ${shown} block".` };
+  if (!entry && (calendar || !(deps.foodRecent && FOODISH.test(said.toLowerCase())))) return undefined;
+  if (!entry) return { ...out, text: `I don't have ${shown} in today's food log, so nothing was taken off.` };
   const r = await deps.run("orion-log", ["food-off", ...words]).catch(() => ({ stdout: "", code: 1 }));
   out.calls.push(`exec orion-log food-off ${words.join(" ")}`); out.outputs.push(r.stdout);
-  if (r.code === 0 && /^Took /.test(r.stdout.trim())) return { ...out, text: r.stdout.trim(), removed: [{ kind: "food", label: words.join(" "), at: deps.now }] };
-  const shown = (said.toLowerCase().match(/[a-z0-9']+/g) ?? []).filter((t) => words.includes(contentWords(t)[0] ?? "")).join(" ") || words.join(" ");
-  return { ...out, text: `I don't have ${shown} in today's food log, so nothing was taken off.` };
+  if (r.code === 0 && /^Took /.test(r.stdout.trim())) return { ...out, text: `${r.stdout.trim()} Say "undo" to put it back.`, removed: [{ kind: "food", label: words.join(" "), at: deps.now }] };
+  return { ...out, text: `I couldn't take ${shown} off the food log: ${r.stdout.trim() || "the health log didn't answer"}.` };
 }

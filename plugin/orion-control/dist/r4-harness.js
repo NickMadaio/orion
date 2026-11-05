@@ -17,7 +17,7 @@ export function rig(o) {
     registerLocalRouting(api, { warm: false, mode: "on", logPath: join(dir, "r.jsonl"), progressDir: join(dir, "tp"), stateDir: dir, clock: () => "Thu 13:00", now: () => new Date(clock),
         decideImpl: async () => (o.decide ?? { move: "escalate" }), brainSearch: async () => "",
         scheduleFlow: async (m) => { flows.push(m); return o.scheduleFlow ? o.scheduleFlow(m) : { outcome: "fallback", reason: "test" }; },
-        readDayJson: async () => undefined, readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [],
+        readDayJson: async () => o.day, readDeadlines: async () => ({ events: [], tasks: [] }), listReminders: async () => [],
         ...(o.foodRun ? { foodRun: o.foodRun } : {}), ...(o.ledgerRun ? { ledgerRun: o.ledgerRun } : {}), ...(o.selffixRun ? { selffixRun: o.selffixRun } : {}),
         ...(o.noteFlow ? { noteFlow: o.noteFlow } : {}), ...(o.chatRun ? { chatRun: o.chatRun } : {}), ...(o.todoDoneFlow ? { todoDoneFlow: o.todoDoneFlow } : {}), });
     let n = 0;

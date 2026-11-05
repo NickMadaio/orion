@@ -108,8 +108,8 @@ describe("removal reads the food log, never water", () => {
     expect(f.calls.some((c) => c.includes("--log"))).toBe(false);
   });
   it.each([["remove the eggs"], ["take it off"], ["nah i didnt eat that, take it off"], ["scrap the banana"], ["delete that meal"]])("the water guard blocks orion-log water on %s", (m) => {
-    expect(waterLogBlock(m, "/Users/x/scripts/orion-log water 1")).toMatch(/never a water log/);
-    expect(waterLogBlock(m, "/Users/x/scripts/orion-log water 2 eggs on toast for breakfast")).toMatch(/never a water log/);
+    expect(waterLogBlock(m, "scripts/orion-log water 1")).toMatch(/never a water log/);
+    expect(waterLogBlock(m, "scripts/orion-log water 2 eggs on toast for breakfast")).toMatch(/never a water log/);
   });
   it.each(["just finished a big bottle of water", "i drank 2 bottles", "had a bottle of water, remove the last one but add 2 bottles of water"])("%s may log water", (m) => {
     expect(waterLogBlock(m, "orion-log water 1")).toBeUndefined();
@@ -121,7 +121,7 @@ describe("removal reads the food log, never water", () => {
   it("the hook blocks the worker's water write on a removal turn", async () => {
     const { r } = chat();
     await r.turn("remove the eggs");
-    const res = (await r.fire("before_tool_call", { toolName: "exec", params: { command: "/Users/x/scripts/orion-log water 2 eggs on toast for breakfast" } }, { runId: "r4-1", sessionKey: "agent:main:orion-chat-r4" })) as Array<{ block?: boolean } | undefined>;
+    const res = (await r.fire("before_tool_call", { toolName: "exec", params: { command: "scripts/orion-log water 2 eggs on toast for breakfast" } }, { runId: "r4-1", sessionKey: "agent:main:orion-chat-r4" })) as Array<{ block?: boolean } | undefined>;
     expect(res.some((x) => x?.block === true)).toBe(true);
   });
 });
@@ -223,9 +223,49 @@ describe("fix your code names the failure and asks first", () => {
     expect(calls.some((c) => c.includes("accept") || c.includes("propose"))).toBe(false);
   });
   it("a yes with nothing asked is not a fix", () => {
-    expect(readSelffixMove("yes", { stateDir: "/x", now: new Date(), items: [] })).toBeUndefined();
+    expect(readSelffixMove("yes", { stateDir: "x", now: new Date(), items: [] })).toBeUndefined();
   });
   it("runSelffixMove 'fix-drop' says nothing started", async () => {
     expect((await runSelffixMove({ kind: "fix-drop" }, script([]))).text).toMatch(/won't start it/);
+  });
+});
+
+describe("food removal never swallows a calendar removal (review r4)", () => {
+  const today = new Date(Date.now() - 4 * 3600_000).toLocaleDateString("en-CA");
+  const block = (title: string) => ({ title, start: "15:00", end: "16:00", fixed: false });
+  const health = (titles: string[]) => ({ schema: "orion.health.v3", supplements: [], supplementLog: {}, workouts: [], nutritionLog: { [today]: titles.map((t, i) => ({ id: `E${i}`, title: t, calories: 300 })) } });
+  const world = (titles: string[], blocks: string[]) => {
+    const f = fakeFood(); const ran: string[] = [];
+    const ledger = async (s: string, a: string[]) => { ran.push(`${s} ${a.join(" ")}`); return s === "orion-log" && a[0] === "food-off" ? { stdout: `Took ${a.slice(1).join(" ")} off (300 kcal): 0 kcal today.`, code: 0 } : s === "orion-log" ? { stdout: "Put it back (300 kcal): 300 kcal today.", code: 0 } : f.ledger(s, a); };
+    return { f, ran, r: rig({ foodRun: f.run, ledgerRun: ledger, health: health(titles), day: { date: "d", now: null, blocks: blocks.map(block) } as never }) };
+  };
+  it.each(["remove the haircut", "cancel my nap", "remove the call with mum", "remove dentist", "drop the run", "scrap the 6pm"])("%s after a food turn does not touch the food log", async (m) => {
+    const w = world(["Eggs on toast"], []);
+    await w.r.turn("log 2 eggs on toast for breakfast");
+    const reply = String(await w.r.turn(m));
+    expect(reply).not.toMatch(/food log/);
+    expect(w.ran.some((c) => c.includes("food-off"))).toBe(false);
+  });
+  it("a name in today's food log and not on the calendar is taken off, and undo puts it back", async () => {
+    const w = world(["Dinner"], []);
+    expect(await w.r.turn("cancel dinner")).toMatch(/^Took dinner off.*Say "undo" to put it back/);
+    expect(await w.r.turn("undo")).toMatch(/Put it back/);
+    expect(w.ran).toContain("orion-log food-restore");
+  });
+  it("a name on both the calendar and the food log is asked about, and nothing is removed", async () => {
+    const w = world(["Dinner"], ["Dinner"]);
+    expect(await w.r.turn("cancel dinner")).toMatch(/on your calendar and in your food log, so I haven't removed either/);
+    expect(w.ran.some((c) => c.includes("food-off"))).toBe(false);
+  });
+  it("with an offer pending, a sentence that merely contains 'not that' is not a decline", async () => {
+    const { f, r } = chat();
+    await r.turn("whats the protein in a mcchicken");
+    expect(await r.turn("it wasnt that, i meant my nap")).not.toBe("Okay, not logged.");
+    expect(f.calls.some((c) => c[0] === "discard")).toBe(false);
+  });
+  it.each(["not that", "nah it wasnt that", "that wasnt it"])("%s declines an offer", async (m) => {
+    const { r } = chat();
+    await r.turn("whats the protein in a mcchicken");
+    expect(await r.turn(m)).toBe("Okay, not logged.");
   });
 });

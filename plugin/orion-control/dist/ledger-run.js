@@ -189,7 +189,7 @@ async function removeNamed(ask, words, deps) {
     }
     if (kinds.includes("food"))
         return removeItem(deps, { kind: "food", label: words.join(" "), at: deps.now });
-    if (deps.foodRecent && !kinds.length && ask.verb === "remove") {
+    if (!kinds.length && ask.verb === "remove") {
         const meal = await removeFoodByWords(deps, words, deps.said ?? words.join(" "));
         if (meal)
             return meal;
@@ -206,6 +206,12 @@ export async function runLedgerAsk(ask, deps) {
         const newest = deps.items.at(-1);
         const calendarLast = deps.calendar && topEntry(deps) ? deps.calendar.last : 0;
         // A block ORION added is taken back through the journal (it restores anything the add replaced), never by dropping by name.
+        // The newest thing this chat did was taking a meal off the log: undo puts it back (orion-log keeps the removed entry).
+        if (deps.foodOffAt && deps.foodOffAt >= Math.max(newest?.at ?? 0, calendarLast)) {
+            const o = acc();
+            const r = await exec(deps, o, "orion-log", ["food-restore"]);
+            return { ...o, text: r.code === 0 ? r.stdout.trim() : `I couldn't put it back: ${r.stdout.trim() || "the health log didn't answer"}.` };
+        }
         if (newest && newest.at >= calendarLast && newest.kind !== "block")
             return removeItem(deps, newest);
         return undoCalendar(deps);

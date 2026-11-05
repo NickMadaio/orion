@@ -39,3 +39,19 @@ test("food-off takes the newest matching entry off and re-totals the day", () =>
   assert.equal(run("food-off", "big mac").status, 1);
   assert.match(run("food-off", "--last").stdout, /Took Apple off/);
 });
+
+// w20 round 4: food-off is journaled, so an undo puts the removed meal back.
+test("food-restore puts back the entry food-off took off, newest first, and says so when nothing is left", () => {
+  seed();
+  rmSync(join(home, ".openclaw/orion-controlled/food-off-undo.json"), { force: true });
+  run("food", "Dinner", "600", "40", "dinner");
+  run("food", "Eggs on toast", "330", "17", "breakfast");
+  assert.match(run("food-off", "dinner").stdout, /^Took Dinner off \(600 kcal\): 330 kcal today/);
+  assert.equal(Object.values(stored().nutritionLog)[0].length, 1);
+  const back = run("food-restore");
+  assert.match(back.stdout, /^Put Dinner back \(600 kcal\): 930 kcal today/);
+  assert.equal(Object.values(stored().nutritionLog)[0].length, 2);
+  const none = run("food-restore");
+  assert.equal(none.status, 1);
+  assert.match(none.stdout, /no removed food entry/);
+});

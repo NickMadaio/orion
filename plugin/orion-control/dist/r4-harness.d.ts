@@ -21,6 +21,7 @@ export type RigOptions = {
     todoDoneFlow?: (m: string) => Promise<FlowResult>;
     health?: object;
     decide?: Decision;
+    day?: import("./schedule-flow.js").Day;
     scheduleFlow?: (m: string) => Promise<FlowResult>;
 };
 /** A chat session; `turn` returns the direct reply when code owns it, else the drafted system prompt text (what the worker is told to say). */

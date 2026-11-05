@@ -63,6 +63,7 @@ import { detectComputerIntent } from "./computer-intent.js";
 import { stepsAsToolResults } from "./computer-evidence.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
 import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, gentleCheckIn, isBanterOnly, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
+import { readHealthLog } from "./health.js"; // w20 r4
 import { waterLogBlock } from "./water-guard.js"; // w20 r4
 import { NOTE_ASK, NOTE_WINDOW_MS, isBareNoteRequest, isOtherCommand, parseNote } from "./note-flow.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
@@ -793,6 +794,8 @@ export function registerLocalRouting(api, options) {
     // w20 wording: the chats whose last reply was "I can't do that yet ... Want me to build that?": the request, so a yes starts the fix project for it.
     const buildOffers = new Map();
     /** w20 r4 (selffix-flow.ts): the fix subject asked about ("I'll start a fix for: X. Go?"), kept for the very next message of that chat. */
+    /** w20 r4: when a chat last took a meal off the food log, so a bare "undo" puts it back. */
+    const foodOffAt = new Map();
     const fixHolds = new Map();
     /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
     const sessionChanges = new Map();
@@ -1885,6 +1888,7 @@ export function registerLocalRouting(api, options) {
                     readDay: (a) => (options.readDayJson ? options.readDayJson(a) : Promise.resolve(undefined)),
                     owned: (at) => !!changes?.stamps.includes(at), items: madeLedger.recent(key, Date.now()), ...(changes ? { calendar: { since: changes.first, last: changes.at } } : {}),
                     journal: options.undoJournal ?? (() => undoJournalEntries()), said: run.message, ...(key && foodMemory.recentFood(key) ? { foodRecent: true } : {}),
+                    ...(options.stateDir ? { foodToday: async () => { const log = await readHealthLog(join(options.stateDir, "health-log.json")); const rows = (log.nutritionLog ?? {})[localDayKey(new Date(Date.now() - 4 * 3600_000))]; return (rows ?? []).map((r) => String(r?.title ?? "")).filter(Boolean); } } : {}), ...(key && foodOffAt.has(key) ? { foodOffAt: foodOffAt.get(key) } : {}),
                     ...(options.listReminders && options.removeReminders ? { reminders: { list: options.listReminders, remove: options.removeReminders } } : {}) }).catch(() => undefined), 90000);
                 if (out) {
                     run.provided = true;
@@ -1893,6 +1897,10 @@ export function registerLocalRouting(api, options) {
                     out.removed.forEach((item) => madeLedger.forget(key, madeLedger.recent(key, Date.now()).find((i) => i.kind === item.kind && i.label === item.label) ?? item));
                     if (out.held && key)
                         ledgerHeld.set(key, { ...out.held, at: Date.now() });
+                    if (key && out.calls.some((c) => /orion-log food-restore/.test(c)))
+                        foodOffAt.delete(key);
+                    else if (key && out.calls.some((c) => /orion-log food-off/.test(c)) && out.removed.some((i) => i.kind === "food"))
+                        foodOffAt.set(key, Date.now());
                     if (out.wroteCalendar) {
                         recordChange(key, [], !out.calls.some((c) => /orion-reschedule undo$/.test(c)));
                         forgetReplan(key);

@@ -96,8 +96,10 @@ function readShift(m: string, named: boolean, ctx: AlarmCtx): AlarmReq | undefin
   const verb = String.raw`(?:push|pushing|move|moving|bump|slide|delay|put|shift|bring|pull|make)`;
   const obj = String.raw`(?:it|that|the alarm|my alarm|alarm|my wake ?up|wake ?up|my wake time|wake time|my alarm clock)`;
   const back = new RegExp(String.raw`\b${verb}\s+${obj}\s+${SHIFT_BACK}\b`).test(m) || new RegExp(String.raw`\b(?:delay|snooze)\s+${obj}\b`).test(m)
-    || new RegExp(String.raw`\b${verb}\s+${obj}\s+(?:by\s+)?(?:${AMT})\s*(?:later)\b`).test(m);
-  const up = new RegExp(String.raw`\b${verb}\s+${obj}\s+${SHIFT_UP}\b`).test(m) || new RegExp(String.raw`\b${verb}\s+${obj}\s+(?:by\s+)?(?:${AMT})\s*(?:earlier|sooner)\b`).test(m);
+    || new RegExp(String.raw`\b${verb}\s+${obj}\s+(?:by\s+)?(?:${AMT})\s*(?:later)\b`).test(m)
+    || new RegExp(String.raw`^(?:my )?(?:alarm|wake ?up)\s+(?:by\s+)?(?:${AMT})\s*later\b`).test(m);   // "alarm 20 later"
+  const up = new RegExp(String.raw`\b${verb}\s+${obj}\s+${SHIFT_UP}\b`).test(m) || new RegExp(String.raw`\b${verb}\s+${obj}\s+(?:by\s+)?(?:${AMT})\s*(?:earlier|sooner)\b`).test(m)
+    || new RegExp(String.raw`^(?:my )?(?:alarm|wake ?up)\s+(?:by\s+)?(?:${AMT})\s*(?:earlier|sooner)\b`).test(m);
   if (!back && !up) return undefined;
   if (back && up) return undefined;
   if (!named && !ctx.recentAlarm && !NIGHTLY(ctx.hour)) return undefined;

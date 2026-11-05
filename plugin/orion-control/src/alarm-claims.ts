@@ -5,9 +5,9 @@
 */
 import { nextWake } from "./wake-state.js";
 
-const ALARM_WORD = /\b(?:wake[- ]?(?:up|alarm|time)?|alarms?|wake me|get up|up at|sleep(?:ing)? (?:well|tight|in)?\s*(?:until|till)|rest (?:until|till)|(?:until|till) (?:your|the) (?:wake|alarm|morning))\b|\bsleep\b[^.?!]*\b(?:until|till)\b/i;
-// A sentence that is about another thing he does at that time ("lecture at 9:00") is not a claim about the alarm.
-const OTHER_EVENT = /\b(?:lecture|class|seminar|lab|gym|meeting|session|deadline|dinner|lunch|breakfast|call|appointment|exam|shift|flight|train|bus)\b/i;
+// A claim about HIS alarm: the clause's subject is his alarm or wake-up ("your alarm is", "sleep well until", "I'll wake you at"). Reminders "to wake dad", a lecture
+// at 9:00 and the rest of a compound sentence are not claims about it and are kept.
+const HIS_ALARM = /\byour (?:\w+ )?(?:wake[- ]?(?:up|alarm|time)|alarm|alarms)\b|\b(?:sleep(?:ing)? (?:well |tight |in )?|rest |lie in |you can sleep |you're good to sleep |you are good to sleep )(?:until|till)\b|\bsleep\b[^.?!]*\b(?:until|till)\b|\b(?:until|till) (?:your |the )?(?:wake|alarm|morning)|\bwake you(?: up)?\b|\bwake me(?: up)?\b|\bget you up\b|\byou(?:'re| are) up at\b|\byour alarm\b/i;
 const CLOCK = /\b(\d{1,2}):(\d{2})\s*(am|pm)?\b|\b(\d{1,2})\s*(am|pm)\b/gi;
 
 /** The h:mm times a sentence states, as minutes after midnight (am/pm applied; a bare h:mm is read as written, 24-hour). */
@@ -21,14 +21,38 @@ function statedMinutes(sentence: string): number[] {
   return out;
 }
 
+const CLAUSE = /(\s*;\s*|\s*,\s*(?:and |but |so )?|\s+(?:and|but|so)\s+)/i;
+
+/** The time the claim names: the first one after the claim's own words, else the first in the clause. */
+function claimedMinutes(clause: string): number | undefined {
+  const at = HIS_ALARM.exec(clause);
+  const after = statedMinutes(clause.slice(at ? at.index : 0));
+  return after[0] ?? statedMinutes(clause)[0];
+}
+
+/** The draft without any clause that states HIS alarm at a time that is not the real one; the rest of every sentence stays. */
 export function withoutUnverifiedAlarmClaims(draft: string, stateDir: string | undefined, now: Date): string {
-  const parts = String(draft ?? "").split(/(?<=[.!?])\s+/);
   const next = nextWake(stateDir, now);
   const real = next ? next.at.getHours() * 60 + next.at.getMinutes() : undefined;
-  return parts.filter((s) => {
-    if (!ALARM_WORD.test(s) || (OTHER_EVENT.test(s) && !/\b(?:alarm|wake)/i.test(s))) return true;
-    const times = statedMinutes(s);
-    if (!times.length) return true;
-    return real !== undefined && times.every((t) => t === real);
-  }).join(" ").trim();
+  const wrong = (clause: string): boolean => {
+    if (!HIS_ALARM.test(clause)) return false;
+    const t = claimedMinutes(clause);
+    return t !== undefined && t !== real;
+  };
+  const sentences = String(draft ?? "").split(/(?<=[.!?])\s+/).map((sentence) => {
+    const end = /[.!?]+$/.exec(sentence)?.[0] ?? "";
+    const body = end ? sentence.slice(0, -end.length) : sentence;
+    const bits = body.split(CLAUSE);   // clause, separator, clause, ...
+    const keep: string[] = [];
+    for (let n = 0; n < bits.length; n += 2) {
+      const clause = bits[n] ?? "";
+      if (wrong(clause)) { if (keep.length === 0 && bits[n + 2] !== undefined) bits[n + 1] = ""; continue; }
+      if (keep.length) keep.push(bits[n - 1] ?? " ");
+      keep.push(clause);
+    }
+    const text = keep.join("").trim();
+    if (!text) return "";
+    return text === body.trim() ? sentence : `${text.charAt(0).toUpperCase()}${text.slice(1)}${end || "."}`;
+  });
+  return sentences.filter(Boolean).join(" ").trim();
 }

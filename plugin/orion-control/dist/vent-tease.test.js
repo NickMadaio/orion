@@ -13,7 +13,11 @@ describe("everyday venting", () => {
     });
     it.each([
         "i hate my life", "i hate everything about this uni", "i hate this uni so much i want to die", "i hate this uni, can you move my lecture to 3", "why do i hate uni so much",
-        "i hate myself", "i hate this uni and i feel hopeless", "i hate this uni so much im crying", "i hate people at uni lol", "this uni is killing me, i cant cope", "uni is boring, can you move my lecture to 3", "is uni boring lol",
+        "i hate myself",
+        "work is rough, my dad is in hospital", "i hate this uni, my mum is ill", "uni is the worst, my gran just died", "lol i hate this place, just broke up with my girlfriend",
+        "hate this job, i cant afford rent", "this uni is so boring and i cant sleep", "i hate work, got fired today", "i hate this module, im failing it", "this uni is the worst, i feel so lonely",
+        "i hate school so much, i broke my arm", "hate this uni, the doctor says its cancer", "i hate this uni my dog died", "uni is trash, im so stressed", "i hate this course, im struggling lol",
+        "this place is a joke, my parents are splitting up", "i hate my job, im in debt", "i hate this uni and i feel hopeless", "i hate this uni so much im crying", "i hate people at uni lol", "this uni is killing me, i cant cope", "uni is boring, can you move my lecture to 3", "is uni boring lol",
     ])("%s keeps its normal path", (m) => expect(ventTease(m), m).toBeNull());
 });
 describe("through the routing", () => {

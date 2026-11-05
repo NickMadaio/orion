@@ -471,7 +471,8 @@ const CANT_OR_CONFIRM = /\b(?:can'?t|cannot|unable|not (?:being )?(?:added|able)
 export const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so nothing was changed. Tell me the block, the day and the start and end times, and I'll do it.";
 /** exactReply for a run: after a crisis reply the support line stays, one short line, so it is never withdrawn (2026-10-19). */
 const exactFor = (run) => {
-    const text = run.flow ? exactReply(run.flow) : "";
+    const body = run.flow ? exactReply(run.flow) : "";
+    const text = body && run.preface ? `${run.preface} ${body}` : body;
     return run.afterCrisis && text ? `${text} ${SUPPORT_LINE}` : text;
 };
 /** What Nick must hear after the scheduling flow: the scheduler's own lines, or its "can't"/question. */
@@ -1277,7 +1278,13 @@ export function registerLocalRouting(api, options) {
         const ownSlot = sessionKey ? retrySlots.get(sessionKey) : undefined;
         const phoneKey = (k) => !!k && /orion-(?:app-v2|chat)/.test(k); // other chats stay separate
         const recentKey = !ownSlot && isRetryWord(typed) && phoneKey(sessionKey) ? [...retrySlots.entries()].filter(([k]) => phoneKey(k)).sort((x, y) => y[1].at - x[1].at)[0]?.[0] : undefined;
-        const message = retryReplay(ownSlot ?? (recentKey ? retrySlots.get(recentKey) : undefined), typed, nowMs());
+        const messageIn = retryReplay(ownSlot ?? (recentKey ? retrySlots.get(recentKey) : undefined), typed, nowMs());
+        // w20 r4 (timer-flow.ts): a timer order joined to another ask ("set a 10 min timer and move my gym to 6", either order) is set by code first and read
+        // back; only the other clause goes on to the normal routes, and the reply says both. The 9B never called timer_set from a hint (gate 2 #61).
+        const timerSplit = on && options.addTimer && !retrySlots.has(sessionKey) ? splitTimerAsk(messageIn) : undefined;
+        const timerFirst = timerSplit ? await runTimer(readTimer(timerSplit.timer) ?? { seconds: 0, label: "Timer" }, { add: options.addTimer, list: options.listReminders ?? (async () => []), now: (options.now ?? pluginNow)() }).catch(() => undefined) : undefined;
+        const message = timerSplit && timerFirst ? timerSplit.rest : messageIn;
+        const timerTools = timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
         if (sessionKey)
             retrySlots.delete(sessionKey);
         if (recentKey)
@@ -1461,7 +1468,7 @@ export function registerLocalRouting(api, options) {
                 ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: [], started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : {}), started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn && !isBareConfirm(message) ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (ledgerAsk)
             run.ledger = ledgerAsk;
@@ -1708,7 +1715,7 @@ export function registerLocalRouting(api, options) {
             // 2026-10-16 (speed audit): every system prompt below puts the stable text first and this clock, with the per-turn
             // facts, LAST. At the top it changed the prefix each minute and Ollama re-read the whole prompt (7.25 s against 0.05 s
             // on a 6.7k prompt; 3.67 s against 1.09 s on a 3.8k one). The wording of each part is unchanged, only its place.
-            const now = `Now: ${clock()} (Europe/London). ${dateLine()}`;
+            const now = `Now: ${clock()} (Europe/London). ${dateLine()}${run.preface ? `\nCode already did this part of his message: ${run.preface} Do not do that part again. Begin your reply with exactly that sentence, then do and report only the rest of his message: ${run.message}` : ""}`;
             // 2026-10-30: the state card and the tone note, just before the clock (both change far less often than it does).
             const tone = pastNudgeTime(options.stateDir, (options.now ?? pluginNow)()) ? `${TONE_NOTE.split("\n").slice(0, 2).join("\n")}\n${LATE_TONE_LINE}` : TONE_NOTE;
             const card = run.card ? `${[`${stateCard(run.card)}${standingRulesLine(options.userMdPath)}`, answeredCardLine(options.stateDir, (options.now ?? pluginNow)())].filter(Boolean).join("\n")}\n\n${tone}\n\n` : ""; // wave 12: + his standing rules (L2) and his answers (L1)
@@ -2266,17 +2273,7 @@ export function registerLocalRouting(api, options) {
             const whyDone = !run.flow && !run.cutOff && whyAbout && (asksWhy(run.message) || (asksYourQuestion(run.message) && run.message.trim().split(/\s+/).length <= 10)) ? whyAnswer(whyAbout) : undefined;
             if (whyDone?.kind === "say")
                 run.flow = { outcome: "say", kind: "plain", text: whyDone.text };
-            // w20 r4 (timer-flow.ts): a timer ORDER is written by code and read back; the worker's one call was never made (gate 2 #61). A timer clause with
-            // another ask after it ("... and move my gym to 6") goes to the worker as separate asks, so neither is dropped.
-            if (!run.flow && !run.cutOff && options.addTimer) {
-                const split = splitTimerAsk(run.message);
-                if (split) {
-                    const asks = [split.timer, split.rest];
-                    const hints = asks.map((a) => { const d = toolDirective({ move: "answer" }, a); return d?.kind === "call" ? `use ${taskRunCall(d.args)}` : undefined; });
-                    run.multiAsk = asks;
-                    return { systemPrompt: `${LOCAL_IDENTITY}\n\n${multiAskPrompt(asks, hints)}\n\n${PRODUCTION_NOTES}\n\n${now}` };
-                }
-            }
+            // w20 r4 (timer-flow.ts): a timer ORDER is written by code and read back; the worker's one call was never made (gate 2 #61).
             const lastT = run.sessionKey ? lastTimer.get(run.sessionKey) : undefined;
             const hasLastTimer = !!lastT && Date.now() - lastT.at < 15 * 60_000 && !!options.removeReminders;
             const timerAsk = !run.flow && !run.cutOff && options.addTimer ? readTimer(run.message, { hasLast: hasLastTimer }) : undefined;

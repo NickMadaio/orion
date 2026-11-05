@@ -18,21 +18,28 @@ export function readTimer(message, { hasLast = false } = {}) {
     return { seconds, label: raw && !NOT_LABEL.test(raw) ? raw : "Timer", ...(instead ? { replace: true } : {}) };
 }
 const REST = /^(?:move|add|put|schedule|book|remind|open|set|start|push|cancel|delete|remove|text|send|play|turn|log|call|make|take|drop|skip|plan|shift|(?:a|an)\s+\d|\d)\b.*/i;
-const JOIN = /^(.*?)(?:\s*,\s*(?:and\s+|then\s+)?|\s+(?:and then|and also|and|then|also|plus|after that)\s+)(.+)$/i;
-/** A timer clause followed by another ask ("set a 10 min timer and move my gym to 6"): the two clauses, or undefined for a single ask. */
+const SEP = /\s*,\s*(?:and\s+|then\s+)?|\s+(?:and then|and also|and|then|also|plus|after that)\s+/gi;
+/**
+ * A timer order joined to another ask, in either order ("set a 10 min timer and move my gym to 6", "move my gym to 6 and set a 10 min timer"):
+ * the timer clause and the rest. Undefined for a single ask, or when the other side is not a request ("... for mac and cheese").
+ */
 export function splitTimerAsk(message) {
     const text = message.trim();
     if (timerSeconds(text) === undefined)
         return undefined;
-    const norm = normalizeSpoken(text);
-    const end = (/timer\b/i.exec(norm)?.index ?? -1) + 5;
-    if (end < 5)
-        return undefined;
-    const j = JOIN.exec(text.slice(text.search(/timer\b/i) + 5));
-    if (!j || !REST.test(j[2].trim()))
-        return undefined;
-    const cut = text.length - (text.slice(text.search(/timer\b/i) + 5).length - (j[1].length));
-    return { timer: text.slice(0, cut).trim(), rest: j[2].trim() };
+    for (const m of text.matchAll(SEP)) {
+        const left = text.slice(0, m.index).trim();
+        const right = text.slice((m.index ?? 0) + m[0].length).trim();
+        if (!left || !right)
+            continue;
+        const leftTimer = timerSeconds(left) !== undefined;
+        const rightTimer = timerSeconds(right) !== undefined;
+        if (leftTimer && !rightTimer && REST.test(right))
+            return { timer: left, rest: right };
+        if (rightTimer && !leftTimer && REST.test(left) && !/\btimer\b/i.test(left))
+            return { timer: right, rest: left };
+    }
+    return undefined;
 }
 export async function runTimer(ask, deps) {
     const calls = [`timer_set ${ask.seconds}s ${ask.label}`];

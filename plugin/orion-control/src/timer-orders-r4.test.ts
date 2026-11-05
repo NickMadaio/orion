@@ -28,6 +28,8 @@ describe("a second clause is handed on", () => {
     ["set a 10 min timer and move my gym to 6", "set a 10 min timer", "move my gym to 6"],
     ["set a 10 min timer then add a 30 min walk to my calendar", "set a 10 min timer", "add a 30 min walk to my calendar"],
     ["start a 5 min timer for tea, then open safari", "start a 5 min timer for tea", "open safari"],
+    ["move my gym to 6 and set a 10 min timer", "set a 10 min timer", "move my gym to 6"],
+    ["add a walk to my calendar, then start a 5 min timer for tea", "start a 5 min timer for tea", "add a walk to my calendar"],
     ["i need a 20 min timer to study then a 5 min break", null, null],
   ])("%s", (said, timer, rest) => {
     const s = splitTimerAsk(said);

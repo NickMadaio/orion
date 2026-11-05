@@ -30,7 +30,10 @@ export type TimerAsk = {
 export declare function readTimer(message: string, { hasLast }?: {
     hasLast?: boolean;
 }): TimerAsk | undefined;
-/** A timer clause followed by another ask ("set a 10 min timer and move my gym to 6"): the two clauses, or undefined for a single ask. */
+/**
+ * A timer order joined to another ask, in either order ("set a 10 min timer and move my gym to 6", "move my gym to 6 and set a 10 min timer"):
+ * the timer clause and the rest. Undefined for a single ask, or when the other side is not a request ("... for mac and cheese").
+ */
 export declare function splitTimerAsk(message: string): {
     timer: string;
     rest: string;

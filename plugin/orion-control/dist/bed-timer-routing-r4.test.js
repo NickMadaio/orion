@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { registerLocalRouting } from "./local-routing.js";
 const NOW = new Date(2026, 10, 5, 2, 30);
-function setup(decision = { move: "escalate", tier: "quick" }) {
+function setup(decision = { move: "escalate", tier: "quick" }, extra = {}) {
     const sleepCalls = [];
     const wakeCalls = [];
     const timers = [];
@@ -20,7 +20,7 @@ function setup(decision = { move: "escalate", tier: "quick" }) {
     const dir = mkdtempSync(join(tmpdir(), "bt4-"));
     registerLocalRouting({ on: (name, fn) => handlers.set(name, [...(handlers.get(name) ?? []), fn]) }, {
         warm: false, mode: "on", logPath: join(dir, "r.jsonl"), brainSearch: async () => "", clock: () => "Thu 02:30", now: () => NOW, stateDir: dir,
-        decideImpl: async () => decision, sleepPlanRun,
+        decideImpl: async () => decision, sleepPlanRun, ...extra,
         wakeExec: async (args) => { wakeCalls.push(args); return { stdout: "Cleared.", code: 0 }; },
         extractReminder: async (m) => (/water/.test(m) ? { time: null, label: "drink water" } : { time: "15:00", label: "ring the dentist" }),
         listReminders: async () => [...store],
@@ -139,13 +139,27 @@ describe("review fixes: a timer is only an order, and the rest of the message is
         expect(reply).toMatch(/Swapped the old timer\. Timer set: 15 minutes/);
     }, 30000);
     it.each([
-        ["set a 10 min timer and move my gym to 6", /move my gym to 6/],
-        ["set a 10 min timer then add a 30 min walk to my calendar", /add a 30 min walk to my calendar/],
-    ])("%s hands both asks to the worker", async (said, rest) => {
+        "set a 10 min timer and move my gym to 6",
+        "move my gym to 6 and set a 10 min timer",
+        "move gym to 6 then start a 10 min timer",
+        "put my gym at 6, and set a 10 min timer pls",
+    ])("%s: code sets the timer, the scheduler gets only the gym clause, one reply says both", async (said) => {
+        const seen = [];
+        const h = setup(undefined, { scheduleFlow: async (m) => { seen.push(m); return { outcome: "done", calls: ['exec orion-reschedule move "gym" --to 18:00'], outputs: ["Changed: moved gym"], reply: "Moved gym to 6:00 PM." }; } });
+        const reply = await h.turn(said);
+        expect(h.timers.map((t) => t.seconds)).toEqual([600]);
+        expect(seen.length).toBeGreaterThan(0);
+        for (const m of seen) {
+            expect(m).toMatch(/gym/);
+            expect(m).not.toMatch(/timer/);
+        }
+        expect(reply).toContain("Timer set: 10 minutes, it rings at 2:40 AM. Moved gym to 6:00 PM.");
+    }, 30000);
+    it("with no scheduler flow the worker is told what code did and the other clause", async () => {
         const h = setup();
-        const prompt = await h.turn(said);
-        expect(prompt).toMatch(rest);
-        expect(prompt).toMatch(/timer/);
-        expect(prompt).toMatch(/timer_set/);
+        const prompt = await h.turn("set a 10 min timer and add a 30 min walk to my calendar");
+        expect(h.timers.map((t) => t.seconds)).toEqual([600]);
+        expect(prompt).toMatch(/Timer set: 10 minutes/);
+        expect(prompt).toMatch(/add a 30 min walk to my calendar/);
     }, 30000);
 });

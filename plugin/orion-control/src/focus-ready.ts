@@ -238,7 +238,8 @@ export async function runFocusReady(message: string, deps: ReadyDeps): Promise<F
   const fallback: FlowResult = { outcome: "fallback", reason: "not a work start or end" };
   const site = readSiteOverride(message);
   if (site) return allowSite(deps, site);
-  if (isSignOff(message)) return fallback;   // w20 r6: "ok last one, cheers" is thanks, not the apps he was asked for
+  const openQuestion = deps.pending.get();
+  if (isSignOff(message, { pending: !!openQuestion && deps.now.getTime() - openQuestion.at <= PENDING_MS })) return fallback;   // w20 r6: "ok last one, cheers" is thanks, not the apps he was asked for
   const done = isDoneMessage(message);
   if (done) return finishEarly(deps, done);
   const pending = deps.pending.get();

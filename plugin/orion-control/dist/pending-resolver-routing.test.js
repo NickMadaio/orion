@@ -13,9 +13,9 @@ function chat() {
         decideImpl: async (i) => (/^(?:go|that one|yeah go on then|ok do it)$/.test(i.message) ? { move: "answer", answer: "Go. You're good to start your day." } : { move: "escalate", tier: "standard" }), scheduleFlow: async () => ({ outcome: "fallback", reason: "t" }) });
     const fire = async (nm, e, ctx) => { const out = []; for (const fn of handlers.get(nm) ?? [])
         out.push(await fn(e, ctx)); return out; };
-    return async (said, replyAfter) => {
+    return async (said, replyAfter, key = "agent:main:orion-chat-pr") => {
         t += 15_000;
-        const ctx = { runId: `pr-${n++}`, sessionKey: "agent:main:orion-chat-pr" };
+        const ctx = { runId: `pr-${n++}`, sessionKey: key };
         await fire("before_model_resolve", { prompt: said }, ctx);
         const [direct] = (await fire("before_agent_reply", { cleanedBody: said }, ctx));
         const [built] = (await fire("before_prompt_build", { prompt: said, messages: [] }, ctx));
@@ -44,6 +44,23 @@ describe("a bare go-ahead", () => {
         await say("log a mcdouble", "About 540 kcal. Want me to log it?");
         const r = await say("go", "x");
         expect(r.appended).toContain("Want me to log it?");
+    });
+});
+describe("review r6: the phone's several session keys", () => {
+    it("an offer on one key is answered by a yes on another", async () => {
+        const say = chat();
+        await say("hows my day", "You have gym at 6. Want me to move it?", "agent:main:orion-chat-a");
+        const r = await say("yes", "x", "agent:main:orion-chat-b");
+        expect(r.heard).toBe("");
+        expect(r.appended).toContain("Want me to move it?");
+    });
+    it("the nothing-pending line is not itself something a later yes answers", async () => {
+        const say = chat();
+        const first = await say("that one", "x");
+        expect(first.heard).toMatch(/\?$/);
+        const second = await say("go", "x");
+        expect(second.heard).toMatch(/\?$/);
+        expect(second.appended).toBe("");
     });
 });
 describe("the web-player yes in his words (#25)", () => {

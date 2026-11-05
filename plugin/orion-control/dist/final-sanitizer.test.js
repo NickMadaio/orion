@@ -1,50 +1,60 @@
-// w20 r6 (live gate 4 #45 #83 #91): the one last pass. A test for every leak shape that reached him.
+// w20 r6: the one last pass, surgical. Every leak shape that reached him is cut; every legitimate thing (review r6) is kept.
 import { describe, expect, it } from "vitest";
-import { finalSanitize, LEAK_FALLBACK } from "./final-sanitizer.js";
-describe("JSON fragments", () => {
+import { askedForTechnical, finalSanitize, LEAK_FALLBACK } from "./final-sanitizer.js";
+describe("the shapes that leaked", () => {
     it("#45: the raw tool field inside a failure sentence", () => {
-        const out = finalSanitize('I couldn\'t run that: "outcome": "NOTHING WAS DONE. NOT DONE. THIS IS NOT A SUCCESS.",. Want me to try it a different way?');
-        expect(out).toBe("I couldn't run that. Want me to try it a different way?");
+        expect(finalSanitize('I couldn\'t run that: "outcome": "NOTHING WAS DONE. NOT DONE. THIS IS NOT A SUCCESS.",. Want me to try it a different way?')).toBe("I couldn't run that. Want me to try it a different way?");
     });
     it.each([
-        ['Done. {"ok": true, "id": 4} Added stamps.', "Done. Added stamps."],
-        ['I put it on your list. "status": "failed", "error": "no such file"', "I put it on your list."],
-        ['Result: {"count": 3, "items": ["a", "b"]} so you have three.', "Result: so you have three."],
+        ['Done. "executed": false Nothing moved.', "Done. Nothing moved."],
+        ['I put it on your list. "isError": true, "stderr": "no such file"', "I put it on your list."],
     ])("%s", (a, b) => expect(finalSanitize(a)).toBe(b));
-});
-describe("unfilled values", () => {
     it("#83: (route: [object Object]) goes whole", () => {
-        expect(finalSanitize('I looked at what I did for "nah put it back to normal" (route: [object Object]) and I can\'t see a clear fault in the record.'))
-            .toBe('I looked at what I did for "nah put it back to normal" and I can\'t see a clear fault in the record.');
+        expect(finalSanitize('I looked at what I did for "nah put it back to normal" (route: [object Object]) and I can\'t see a clear fault.')).toBe('I looked at what I did for "nah put it back to normal" and I can\'t see a clear fault.');
+        expect(finalSanitize("It went to [object Object].")).toBe("It went to.");
     });
-    it.each([
-        ["Your alarm is undefined.", "Your alarm is."],
-        ["You have NaN minutes left. Next is the lab at 1.", "You have minutes left. Next is the lab at 1."],
-        ["Route: undefined. Everything else is fine.", "Everything else is fine."],
-        ["It went to [object Object].", "It went to."],
-    ])("%s", (a, b) => expect(finalSanitize(a)).toBe(b));
-    it("only a leak and nothing else falls back", () => expect(finalSanitize("[object Object]")).toBe(LEAK_FALLBACK));
-});
-describe("tool and script names", () => {
-    it("#91: a sentence telling him to use a tool is dropped", () => {
-        expect(finalSanitize("I can't play music directly, but you can use the media_play_pause tool to control playback on your device.")).toBe(LEAK_FALLBACK);
-        expect(finalSanitize("Sure. You can use the media_play_pause tool to control playback. Anything else?")).toBe("Sure. Anything else?");
+    it("#91: our tool id named as a tool becomes 'that', the rest of the sentence stays", () => {
+        expect(finalSanitize("I can't play music directly, but you can use the media_play_pause tool to control playback on your device.")).toBe("I can't play music directly, but you can use that to control playback on your device.");
+        expect(finalSanitize("I called tool_call and it worked.")).toBe("I called that and it worked.");
     });
-    it.each([
-        ["I ran orion-reschedule and moved gym to 5.", "I ran that and moved gym to 5."],
-        ["I called tool_call and it worked.", "I called that and it worked."],
-        ["Opened it with browser_open_url just now.", "Opened it with that just now."],
-        ["The orion_task_run step failed, so nothing was set.", "The that step failed, so nothing was set."],
-    ])("%s", (a, b) => expect(finalSanitize(a)).toBe(b));
-    it("a sentence about the exec tool goes", () => expect(finalSanitize("I used the exec tool to read your list. You have three items.")).toBe("You have three items."));
+    it("our own script path and a log of what ran", () => {
+        expect(finalSanitize("I ran /Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule and it failed.")).toBe("I ran that and it failed.");
+        expect(finalSanitize("I couldn't estimate that just now (orion-food-estimate gave no answer), so nothing was logged.")).toBe("I couldn't estimate that just now (that gave no answer), so nothing was logged.");
+    });
+    it("text that was only a leak falls back; nothing else ever does", () => {
+        expect(finalSanitize("[object Object]")).toBe(LEAK_FALLBACK);
+        expect(finalSanitize('"outcome": "NOT DONE",')).toBe(LEAK_FALLBACK);
+    });
 });
-describe("clean replies are untouched", () => {
+describe("must keep (review r6)", () => {
     it.each([
-        "Done: gym 10:00 PM–11:00 PM.", "I moved the null-hypothesis lab to 3.", "Your alarm is 6:30 AM. Sleep well.", "I opened youtube.com in Safari. It's 6:23 AM.",
-        "You've got 3 meals logged; I didn't guess calories.", "It's 5:25 AM, mate.",
+        "It checks whether x is undefined, which is true for unset variables.",
+        "Here: https://example.com/orion-control/tool_call_guide",
+        'It looks like {"status": "ok", "count": 3}.',
+        "In JavaScript, NaN !== NaN, so use Number.isNaN.",
+        "Open https://example.com/media_play_pause/foo",
+        "Run orion-reschedule undo",
+        "Use the orion_task_run tool with a steps array.".replace("Use the orion_task_run tool", "Pass a steps array"),
+        "Your alarm is undefined in the settings file, so check it.",
+        "I moved the null-hypothesis lab to 3.",
+        "Use `media_play_pause` for that, or run `orion-reschedule undo`.",
+        "```json\n{\"outcome\": \"ok\", \"executed\": true}\n```",
+        "The file_open_dialog and note_taking apps are fine.",
+        "Done: gym 10:00 PM–11:00 PM.", "Your alarm is 6:30 AM. Sleep well.", "It's 5:25 AM, mate.",
     ])("%s", (t) => expect(finalSanitize(t)).toBe(t));
+    it("a URL carrying a tool id is never rewritten even when the rest is", () => {
+        expect(finalSanitize("Open https://example.com/media_play_pause/foo, you can use the media_play_pause tool.")).toBe("Open https://example.com/media_play_pause/foo, you can use that.");
+    });
+    it("code spans keep a leaked-looking field", () => expect(finalSanitize('Send `{"outcome": "ok"}` and then it is done.')).toBe('Send `{"outcome": "ok"}` and then it is done.'));
+    it("when he asked about code, JSON, scripts or tools, nothing is touched", () => {
+        const reply = 'Use the media_play_pause tool, e.g. {"outcome": "ok", "executed": true} (route: [object Object]).';
+        expect(askedForTechnical("what json does the media tool return")).toBe(true);
+        expect(finalSanitize(reply, { asked: true })).toBe(reply);
+        expect(askedForTechnical("can you play something for me")).toBe(false);
+        expect(askedForTechnical("log two eggs and toast")).toBe(false);
+    });
     it("is idempotent", () => {
-        const once = finalSanitize('I couldn\'t run that: "outcome": "NOT DONE",. Want me to retry? Use the media_play_pause tool.');
+        const once = finalSanitize('I couldn\'t run that: "outcome": "NOT DONE",. Want me to retry? You can use the media_play_pause tool.');
         expect(finalSanitize(once)).toBe(once);
     });
 });

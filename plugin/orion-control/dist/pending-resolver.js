@@ -6,20 +6,28 @@
 */
 import { isBareGoAhead, NOTHING_PENDING_LINES } from "./honest-reply.js";
 export const PENDING_WINDOW_MS = 15 * 60_000;
-const OFFER = /\b(?:want me to|shall i|should i|would you like me to|do you want me to|say go|log it\?|go ahead\?|ok\?|sound good\?|which one|which (?:of|do you)|or (?:the|a|just)\b[^?]*\?)/i;
+const OFFER = /\b(?:want me to|want to|shall i|shall we|should i|should we|would you like|do you want|how about|fancy|ready to|say go|log it\?|go ahead\?|ok\?|sound good\?|which one|which (?:of|do you)|or (?:the|a|just|take|do|log|move|start|open)\b[^?]*\?)/i;
 /** The question or offer in ORION's last reply: its last question sentence, or the whole reply when it ends in an offer. */
 export function resolvePending(last, now) {
-    if (!last || now - last.at > PENDING_WINDOW_MS)
+    if (!last || now - last.at > PENDING_WINDOW_MS || NOTHING_PENDING_LINES.includes(last.reply.trim()))
         return { pending: false };
     const text = last.reply.trim();
     const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
     const question = [...sentences].reverse().find((s) => /\?\s*$/.test(s));
     const tail = sentences.at(-1) ?? "";
-    if (question && (OFFER.test(question) || /\?\s*$/.test(tail)))
+    // Only a question that OFFERS something is waiting on a yes: "Anything else?" and "What did you mean?" are not.
+    if (question && OFFER.test(question))
         return { pending: true, refers: question.slice(0, 240) };
     if (OFFER.test(tail))
         return { pending: true, refers: tail.slice(0, 240) };
     return { pending: false };
+}
+/** The newest exchange across a chat's session keys: the phone sends one conversation under several (as the retry slots already allow). */
+export function latestExchange(all, key, isFamily) {
+    const own = key ? all.get(key) : undefined;
+    if (!key || !isFamily(key))
+        return own;
+    return [...all.entries()].filter(([k]) => k === key || isFamily(k)).map(([, v]) => v).sort((a, b) => b.at - a.at)[0] ?? own;
 }
 /** What a bare go-ahead gets when nothing is waiting. */
 export const nothingPending = (message) => NOTHING_PENDING_LINES[[...message].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % NOTHING_PENDING_LINES.length];

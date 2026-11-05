@@ -73,6 +73,7 @@ import { whyAnswer } from "./why-answer.js";
 import { kindOf, parseOutreach, asksWhy, asksYourQuestion, whyNote, planOutreachReply, outreachHistory, outreachNote, loopArgs, type Outreach } from "./outreach-reply.js";
 import { TONE_NOTE, clockOf, deskLine, loadCardInputs, readLastOutreach, stateCard, type CardInputs } from "./state-card.js";
 import { readStatedMove } from "./stated-move.js";
+import { readDayEdit } from "./day-edit.js";
 import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readGymSkip, type GymSkip } from "./anchor-guards.js";
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
@@ -1293,7 +1294,9 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (!food && !quietTurn) foodMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());
     // w17 g-workout (workout-read.ts): "just did legs, squats 4x6 at 185", "log my workout: …", "went for a 3 mile run", or his answer to the follow-up question.
     const workoutPending = on && options.workoutRun && options.stateDir ? readWorkoutPending(options.stateDir, (options.now ?? pluginNow)()) : undefined;
-    const workout = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
+    // w20 sched: "add gym at 10-11pm" / "i did gym from 2 to 3" is his calendar (day-edit.ts), not a workout to describe; an answer to the workout question is still the workout's.
+    const dayEditTurn = !workoutPending && !!readDayEdit(message, (options.now ?? pluginNow)());
+    const workout = on && !cutOff && !quietTurn && !qmove && !smove && !mmove && !food && !dayEditTurn && !isCrisis(message) && options.workoutRun && options.stateDir ? readWorkoutTurn(message, { now: (options.now ?? pluginNow)(),
       ...(workoutPending ? { pending: workoutPending, bound: workoutMemory.bound(sessionKey, workoutPending, parseOutreach(raw)?.text) } : {}), outreach: !!parseOutreach(raw),
       ...(workoutMemory.lastLogged(sessionKey) ? { lastLogged: workoutMemory.lastLogged(sessionKey)! } : {}) }) ?? undefined : undefined;
     if (!workout && !quietTurn) workoutMemory.otherTurn(sessionKey, (options.now ?? pluginNow)().getTime());

@@ -1,16 +1,3 @@
-/*
- Scheduling as a fixed sequence, not an open-ended tool loop (2026-10-12; research ideas #3/#4,
- docs/evals/v3/RESEARCH_IDEAS.md — TinyAgent, Apple's on-device model, SMCalFlow).
-
-   1. code reads the whole day (orion-reschedule show --json, past blocks included) and numbers it
-   2. the worker fills ONE small form; every block reference must be one of today's real ids (B1…)
-   3. code compiles the form into exact orion-reschedule arguments (no shell, no paths, no "&"
-      problem, no time arithmetic for the model — "between A and B" = from A's end to B's start)
-   4. the scheduler runs it; the worker only phrases what the scheduler printed
-
- Nick: "you go okay, the start time is a because the class ends at b, and the end time is x because
- the lab starts at y" — that decomposition is compile() below.
-*/
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { eveningTime, spokenTimesToDigits } from "./direct-add.js";
@@ -580,6 +567,9 @@ export function dayArgsFor(message, now = pluginNow()) {
 export const RESCHEDULE = "/Users/nickmadaio/Desktop/ORION/scripts/orion-reschedule";
 /** A request he took back at the end ("…, nvm"): said back, nothing guessed from it. */
 export const TOOK_BACK = "Okay, you took that back, so I've left your day as it is.";
+const SEPARATE_VERBS = new Set(["add", "drop", "move", "resize", "rename", "log"]);
+/** Several steps that each name their own block: a failure in one says nothing about the others. */
+const separateSteps = (argvs) => argvs.length > 1 && argvs.every((a) => SEPARATE_VERBS.has(a[0] ?? "") && !a.includes("--after")) && new Set(argvs.map((a) => (a[1] ?? "").toLowerCase())).size === argvs.length;
 /** Runs argv lists in order, recording what ran and the undo stamp of each change (shared by a fresh request and a confirmed pending one). */
 async function execute(argvs, { exec, undoTop, when, undone, before, reread }) {
     const calls = [];
@@ -599,8 +589,10 @@ async function execute(argvs, { exec, undoTop, when, undone, before, reread }) {
             unknown = true;
             break;
         }
-        if (FAILED.test(stdout))
-            break; // the rest depended on this one
+        // The rest depended on this one, unless the steps are separate things on the day (add A, add B, move C): one that failed
+        // never stops the others (2026-11-04: "7pm to 9:30pm. Then gym from 10pm" ran the first add and stopped).
+        if (FAILED.test(stdout) && !separateSteps(argvs))
+            break;
     }
     if (unknown) {
         // Never "nothing changed" and never a "Done" without proof: the day is read back and compared with how it was.

@@ -11,6 +11,7 @@
  Nick: "you go okay, the start time is a because the class ends at b, and the end time is x because
  the lab starts at y" — that decomposition is compile() below.
 */
+import type { ScheduleFailure } from "./schedule-failure.js";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { PendingAdd, PendingRun, TitlePending } from "./schedule-pending.js";
@@ -552,11 +553,15 @@ export const TOOK_BACK = "Okay, you took that back, so I've left your day as it 
 export type FlowResult =
   /** marks: the undo-journal stamp of each change made, so a continuation can take them back; undone: changes reverted first. */
   /** reply: a flow that builds its own reply (session-flow.ts) — used as-is instead of spokenReply(outputs). */
-  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string; /** a later call failed after an earlier one wrote */ partial?: true; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */ uncertain?: true; /** the reschedule request this change carried out, remembered for a follow-up reorder */ replan?: ReplanAsk }
+  | { outcome: "done"; calls: string[]; outputs: string[]; marks?: string[]; undone?: number; reply?: string; /** a later call failed after an earlier one wrote */ partial?: true; /** why each refused step refused, as data for the wording layer (schedule-failure.ts) */ failures?: ScheduleFailure[]; /** the scheduler crashed or its outcome is unknown: the reply says what the day reads now */ uncertain?: true; /** the reschedule request this change carried out, remembered for a follow-up reorder */ replan?: ReplanAsk }
   /** plain: said exactly as written (no "That doesn't fit" framing). calls/outputs: a scheduler run that changed nothing. */
-  | { outcome: "say"; text: string; kind: "cannot" | "ask" | "plain"; calls?: string[]; outputs?: string[]; pending?: PendingAdd; /** a reschedule request that was read but not carried out, remembered for a follow-up */ replan?: ReplanAsk;
+  | { outcome: "say"; text: string; kind: "cannot" | "ask" | "plain"; calls?: string[]; outputs?: string[]; failures?: ScheduleFailure[]; pending?: PendingAdd; /** a reschedule request that was read but not carried out, remembered for a follow-up */ replan?: ReplanAsk;
     /** the writes the time backstop refused, as they were (logged) */ blocked?: string[][] }
   | { outcome: "fallback"; reason: string };
+
+const SEPARATE_VERBS = new Set(["add", "drop", "move", "resize", "rename", "log"]);
+/** Several steps that each name their own block: a failure in one says nothing about the others. */
+const separateSteps = (argvs: string[][]): boolean => argvs.length > 1 && argvs.every((a) => SEPARATE_VERBS.has(a[0] ?? "") && !a.includes("--after")) && new Set(argvs.map((a) => (a[1] ?? "").toLowerCase())).size === argvs.length;
 
 /** Runs argv lists in order, recording what ran and the undo stamp of each change (shared by a fresh request and a confirmed pending one). */
 async function execute(argvs: string[][], { exec, undoTop, when, undone, before, reread }: {
@@ -574,7 +579,9 @@ async function execute(argvs: string[][], { exec, undoTop, when, undone, before,
     if (after && after !== top) marks.push(after);
     // A crash, a kill or an exit that is not one of its own refusals: nobody knows what was written (review 2026-10-21).
     if (stdout.startsWith(UNKNOWN_OUTCOME) || (code !== 0 && !FAILED.test(stdout) && !nothingWritten(stdout))) { unknown = true; break; }
-    if (FAILED.test(stdout)) break; // the rest depended on this one
+    // The rest depended on this one, unless the steps are separate things on the day (add A, add B, move C): one that failed
+    // never stops the others (2026-11-04: "7pm to 9:30pm. Then gym from 10pm" ran the first add and stopped).
+    if (FAILED.test(stdout) && !separateSteps(argvs)) break;
   }
   if (unknown) {
     // Never "nothing changed" and never a "Done" without proof: the day is read back and compared with how it was.

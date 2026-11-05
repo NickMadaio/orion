@@ -248,6 +248,7 @@ const dayWord = (word) => {
   if (!word || /^\d{4}-\d{2}-\d{2}$/.test(word)) return word;
   if (/^today$/i.test(word)) return localDate(nowDate);
   if (/^tomorrow$/i.test(word)) return localDate(new Date(nowDate.getTime() + 86400000));
+  if (/^yesterday$/i.test(word)) return localDate(new Date(nowDate.getTime() - 86400000));
   const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   const target = days.findIndex((d) => d.startsWith(word.toLowerCase().slice(0, 3)));
   if (target < 0) fail(`orion-reschedule: --date takes YYYY-MM-DD, today, tomorrow or a weekday, not "${word}"; nothing was changed`, 2);
@@ -257,7 +258,8 @@ const dayWord = (word) => {
 const date = dayWord(flag("--date")) ?? wordDate ?? said[0]?.date ?? localDate(nowDate);
 // WHOOP recovery for the day being planned: low recovery makes the fill lighter (lib/life/recovery.mjs). Unreadable is unknown, never low.
 const recoveryToday = () => { try { return recoveryFromLog(JSON.parse(readLock(joinPath(controlledDir(), "health-log.json"), "utf8")), date); } catch { return null; } };
-if (date < localDate(nowDate)) fail(`orion-reschedule: ${date} is in the past; nothing was changed`, 1);
+// w20: `log` alone may name an earlier day ("i was at the pub yesterday 5-6"): what really happened is written, nothing is re-weighed.
+if (date < localDate(nowDate) && command !== "log") fail(`orion-reschedule: ${date} is in the past; nothing was changed`, 1);
 const otherDays = said.filter((p) => p.date !== date);
 const dayName = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" });
 // Today's share of the study each assessment still needs (deadline-ramp). Only
@@ -270,7 +272,8 @@ function studyPlanFor(deadlines) {
   return rampDay ? rampDay.items.map((it) => ({ title: it.title, minutes: it.minutes })) : [];
 }
 const today = date === localDate(nowDate);
-const nowMinute = today ? nowDate.getHours() * 60 + nowDate.getMinutes() : 0;
+const pastDay = date < localDate(nowDate);
+const nowMinute = today ? nowDate.getHours() * 60 + nowDate.getMinutes() : pastDay ? 1440 : 0;
 // day … --only clears the rest of TODAY: on any other day nothing he said is being "only" (2026-10-25 review).
 if (command === "day" && args.includes("--only") && !today) fail(`NOTHING WAS CHANGED: --only is for today only (${date} is not today); nothing was cleared.`, 2);
 // Plan from when he actually gets up, once his history says so (3+ mornings).
@@ -1039,7 +1042,7 @@ if (command === "late") {
    `displace` takes a block that will not happen out of its slot. Both then re-weigh the rest of today by weight
    (lib/life/reality.mjs), in ONE undo step, and record the slips for the nightly review.
   */
-  if (!today) fail(`NOTHING WAS CHANGED: ${command} is only for today (${localDate(nowDate)}), not ${date}`, 1);
+  if (!today && !(pastDay && command === "log")) fail(`NOTHING WAS CHANGED: ${command} is only for today (${localDate(nowDate)}), not ${date}`, 1);
   const txn = `log-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const base = { date, now: nowMinute, window, soft: commuteWalls(blocks, config), config, buffer: config.bufferMinutes, txn, at: nowDate.toISOString() };
   const movableBlocks = blocks.filter((b) => !b.fixed || b.pinned);
@@ -1067,7 +1070,7 @@ if (command === "late") {
       instead = near[0];
     }
     const kind = ["class", "deadline"].includes(classify(title)) ? "study" : classify(title);
-    plan = planLog(blocks, { from: fromM, to: toM }, { ...base, title, kind, instead, reweighDay: !args.includes("--no-replan") });
+    plan = planLog(blocks, { from: fromM, to: toM }, { ...base, title, kind, instead, reweighDay: !args.includes("--no-replan") && !pastDay });
     head = [`logged ${title} ${hhmm(fromM)}–${hhmm(toM)}${plan.displaced?.length ? ` (replaced ${plan.displaced.map((d) => d.block.title).join(", ")})` : ""}`];
   } else {
     const name = rest[0]; const why = flag("--why") ?? "cancel";
@@ -1136,6 +1139,12 @@ if (command === "day") {
 */
 const onlyStated = command === "day" && args.includes("--only");
 const keptUnderWay = [];
+// w20: the same for any add / day plan: "gym at 10-11pm" with bedtime 21:50 is his time, not a must-have that "did not fit".
+// Only when the START he stated is itself past the day's end: a plain plan that merely RUNS past bedtime is still cut short.
+if (!onlyStated && (command === "add" || command === "day")) {
+  const statedEnd = Math.max(0, ...add.filter((a) => Number.isInteger(a.at) && a.at >= window.end).map((a) => a.at + a.minutes));
+  if (statedEnd > window.end) window = { ...window, end: Math.min(1440, statedEnd) };
+}
 if (onlyStated) {
   const statedEnd = Math.max(0, ...add.filter((a) => Number.isInteger(a.at)).map((a) => a.at + a.minutes));
   if (statedEnd > window.end) window = { ...window, end: Math.min(1440, statedEnd) };

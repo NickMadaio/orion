@@ -1,4 +1,5 @@
 import type { Day, FlowResult } from "./schedule-flow.js";
+import { type DayEdit } from "./day-edit.js";
 import { type DayRequest } from "./day-requests.js";
 import type { DeadlineRead } from "./deadline-read.js";
 export type Reality = {
@@ -45,13 +46,18 @@ export type Reality = {
  | {
     kind: "request";
     request: DayRequest;
+}
+/** w20 sched (day-edit.ts): one or more edits to his day, including time already gone: logged, never refused. */
+ | {
+    kind: "edit";
+    edit: DayEdit;
 };
 /** A reality statement plus whether he also asked for another change in the same breath ("..., put catch-up on it tomorrow"). */
 export type RealityRead = {
     reality: Reality;
     rest: boolean;
 };
-export type ScriptRun = (script: "orion-declare" | "orion-reschedule" | "orion-tasks", args: string[]) => Promise<{
+export type ScriptRun = (script: "orion-declare" | "orion-reschedule" | "orion-tasks" | "orion-sleepplan", args: string[]) => Promise<{
     stdout: string;
     code: number;
 }>;

@@ -32,8 +32,9 @@ export type Day = {
     };
 };
 export type Intent = {
-    do: "fill_between" | "plan" | "clear_after" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "tidy" | "late" | "overrun" | "log" | "cannot" | "ask" | "answer";
-    what?: string;
+    do: "fill_between" | "plan" | "clear_after" | "move" | "resize" | "extend" | "add" | "drop" | "skip" | "swap" | "rename" | "tidy" | "late" | "overrun" | "log" | "cannot" | "ask" | "answer";
+    what?: string; /** rename: the new title */
+    newTitle?: string;
     after?: string;
     before?: string;
     with?: string;
@@ -87,6 +88,11 @@ export declare function intentSchema(day: Day): {
                     do: {
                         type: string;
                         enum: string[];
+                    };
+                    newTitle: {
+                        type: string;
+                        maxLength: number;
+                        description: string;
                     };
                     where: {
                         type: string;

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isTimerRequest } from "./tool-moves.js";
 import { SOCIAL_TITLE, mealEnd } from "./meal-anchors.js";
 import { eveningTime, spokenTimesToDigits, trulyAmbiguous } from "./direct-add.js";
+import { reconcileNamed } from "./block-choice.js";
 import { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA } from "./schedule-form-prompt.js";
 import { blocksNamed, replanReply } from "./day-replan.js";
 import { dayPlanReply } from "./day-plan.js";
@@ -15,7 +16,7 @@ import { repairStart, timeMismatch } from "./time-backstop.js";
 import { parseClock, resolveStart } from "./intent-time.js";
 import { FORM_RETRY_MIN_MS, formCallMs } from "./turn-budget.js";
 export { FORM_PROMPT, EXTRACT_PROMPT, EXTRACT_SCHEMA };
-import { addedNotes, dayDiff, FAILED, nothingWritten, spokenFailure, spokenReply, summarize, uncertainReply, UNKNOWN_OUTCOME } from "./schedule-reply.js";
+import { addedNotes, dayDiff, FAILED, NOTHING_CHANGED_LINE, nothingWritten, spokenFailure, spokenReply, summarize, uncertainReply, UNKNOWN_OUTCOME } from "./schedule-reply.js";
 import { pluginNow } from "./plugin-clock.js";
 import { asksToShiftAfter, movesThisOne, overrunIsMove } from "./own-event-writes.js";
 export { nothingWritten, spokenFailure, spokenReply, summarize };
@@ -54,7 +55,8 @@ export function intentSchema(day) {
         type: "object",
         properties: {
             steps: { type: "array", maxItems: 4, items: { type: "object", properties: {
-                        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "tidy", "late", "overrun", "log", "cannot", "ask", "answer"] },
+                        do: { type: "string", enum: ["fill_between", "plan", "clear_after", "move", "resize", "extend", "add", "drop", "skip", "swap", "rename", "tidy", "late", "overrun", "log", "cannot", "ask", "answer"] },
+                        newTitle: { type: "string", maxLength: 60, description: "rename: the new title" },
                         where: { type: "string", maxLength: 40 }, travel: { type: "number" },
                         items: { type: "array", maxItems: 8, items: { type: "object", properties: { title: { type: "string", maxLength: 60 }, minutes: { type: "number" } }, required: ["title"] } },
                         what: { type: "string", maxLength: 60, description: "a block id (B1…) or, for something new, its short title" },
@@ -474,6 +476,11 @@ export function compile(input, day, message, opts = {}) {
         // "skip" is for a class or plan with people; for his own block it means drop ("ditch the macro stuff").
         case "skip": return what ? { args: [what.fixed ? "skip" : "drop", what.title] } : { error: "skip needs a block id" };
         case "swap": return what && byId(step.with) ? { args: ["swap", what.title, byId(step.with).title] } : { error: "swap needs two block ids" };
+        // "replace X with Y" / "rename X to Y": the same slot, a new title (the scheduler's own rename).
+        case "rename": {
+            const title = cleanAddTitle(String(step.newTitle ?? ""));
+            return what && title !== "something" ? { args: ["rename", what.title, title] } : { error: "rename needs a block id and the new title" };
+        }
         case "tidy": return { args: ["tidy"] };
         // orion-reschedule had late/overrun all along, but the form could not say them: "running 20 min late,
         // push the stuff after it back" became one move of one block (sweep q017/q029, 2026-10-15).
@@ -515,6 +522,9 @@ function compileLog(step, day, ctx) {
     const now = toMin(day.now);
     const ref = (v) => (v && /^B\d+$/.test(v) ? day.blocks[Number(v.slice(1)) - 1] : undefined);
     const title = (ref(step.what)?.title ?? String(step.what ?? "")).replace(/\s+/g, " ").trim().slice(0, 80);
+    // A whole sentence is no title: "Replace New CS Lab with CS Lab" asked "Since when — what time did you start" (audit T5). A rename is not a log.
+    if (/^(?:replace|swap|rename|change|switch|move|push|cancel|delete|remove)\b/i.test(title))
+        return { error: "that is a change to a block, not something he did: use rename, swap or move" };
     if (!title)
         return { error: "log needs what he did" };
     const named = ref(step.instead) ?? (step.instead ? day.blocks.find((b) => !b.fixed && normTitle(b.title).includes(normTitle(step.instead))) : undefined);
@@ -631,6 +641,17 @@ async function execute(argvs, { exec, undoTop, when, undone, before, reread }) {
         return { outcome: "done", calls, outputs, marks, undone, partial: true, reply: partialReply(before, now, outputs, when) };
     }
     return { outcome: "done", calls, outputs, marks, undone, ...(when ? { reply: spokenReply(outputs, when) } : {}) };
+}
+/**
+ * What he is told is what changed on his calendar: when the lines the scheduler printed read as "nothing" (a verb's output the reply builder has
+ * no pattern for) but the day read back differs, the day's own difference is said (audit T2: a swap that ran said "Nothing on your day changed.").
+ */
+async function readBackReply(ran, before, reread, when) {
+    if (ran.uncertain || ran.partial || (ran.reply && ran.reply !== NOTHING_CHANGED_LINE) || !before || spokenReply(ran.outputs, when) !== NOTHING_CHANGED_LINE)
+        return ran;
+    const after = await reread().catch(() => undefined);
+    const diff = after ? dayDiff(before, after) : [];
+    return diff.length ? { ...ran, reply: `Done${when ? ` for ${when}` : ""}: ${diff.slice(0, 5).join("; ")}${diff.length > 5 ? ` and ${diff.length - 5} more` : ""}.` } : ran;
 }
 /** Part of a request went through and part did not: what changed (read back from his calendar), what did not, and "undo". No "Done". */
 export function partialReply(before, after, outputs, when) {
@@ -799,7 +820,7 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
             }
             if (ran.outcome === "done" && planned.note)
                 return { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} ${planned.note}` };
-            return ran;
+            return ran.outcome === "done" ? readBackReply(ran, day, reread, when) : ran;
         }
     }
     // The message anchors an add only when it is the only add: with several, each step's own anchor decides (H3).
@@ -819,11 +840,22 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
         if (formCallMs(left()) === 0)
             return tooSlow;
         let out = await ask(FORM_PROMPT, user, intentSchema(day), formCallMs(left()));
+        // The block a step picked is the block his words name (block-choice.ts), or he is asked which.
+        const matched = reconcileNamed(message, out?.steps ?? [], day);
+        if ("ask" in matched)
+            return takenBack({ outcome: "say", kind: "ask", text: matched.ask });
+        if (out)
+            out = { ...out, steps: matched.steps };
         compiled = build(out?.steps ?? []);
         bad = compiled.find((c) => "error" in c);
         // One correction round, with the rule it broke (LLM-Modulo: the scheduler's rules check the model). Only with time to spare.
         if (bad && "error" in bad && left() >= FORM_RETRY_MIN_MS) {
             out = await ask(FORM_PROMPT, `${user}\n\nYour form ${JSON.stringify(out?.steps ?? [])} broke a rule: ${bad.error}. If what he names is not on his day, use its name as a new title. Fill the form again.`, intentSchema(day), formCallMs(left()));
+            const again = reconcileNamed(message, out?.steps ?? [], day);
+            if ("ask" in again)
+                return takenBack({ outcome: "say", kind: "ask", text: again.ask });
+            if (out)
+                out = { ...out, steps: again.steps };
             compiled = build(out?.steps ?? []);
             bad = compiled.find((c) => "error" in c);
         }
@@ -901,6 +933,8 @@ export async function runScheduleFlow({ message, clock, exec: execRaw, ask, now 
     const ran = await execute(argvs, { exec, undoTop, when, undone, before: day, reread });
     // A block the plan created that was not on his day is said to be new, with its length and why (live run 3).
     const added = ran.outcome === "done" && !ran.uncertain ? addedNotes(day, ran.outputs, argvs, message) : "";
+    if (ran.outcome === "done" && !added)
+        return readBackReply(ran, day, reread, when);
     return added && ran.outcome === "done" ? { ...ran, reply: `${ran.reply ?? spokenReply(ran.outputs, when)} ${added}` } : ran;
 }
 /** "do the oyster card first thing, 9am, resume at 4": a clock said on its own after an item is that item's start ("… first thing at 9am"). */

@@ -65,6 +65,7 @@ export function summarize(outputs, said) {
 }
 /** A scheduler run that says it wrote nothing (its first line is "NOTHING WAS CHANGED/BOOKED"). */
 export const nothingWritten = (out) => /^\s*(?:MUST-HAVE )?NOTHING WAS (?:CHANGED|BOOKED)\b/.test(out);
+export const NOTHING_CHANGED_LINE = "Nothing on your day changed.";
 /** The spoken reply, built only from the scheduler's lines ("planned X: 17:15–18:00", "X moved: a → b–c"). */
 export function spokenReply(outputs, when, kept) {
     // The plan a refused run lists is not what happened: only its failure lines are read.
@@ -102,6 +103,17 @@ export function spokenReply(outputs, when, kept) {
             continue;
         }
         m = l.match(/^(.+?) moved: \d{2}:\d{2} → (\d{2}:\d{2})–(\d{2}:\d{2})/);
+        if (m) {
+            said.push(`${m[1]} now ${ampm(m[2])}–${ampm(m[3])}`);
+            continue;
+        }
+        // A rename keeps the slot ("New CS Lab 12:30–13:15 is now "CS Lab" (same time)"); a swap prints each block's new slot ("X now 12:30–13:15").
+        m = l.match(/^(.+?) \d{2}:\d{2}–\d{2}:\d{2} is now "(.+?)"(?: \(.*\))?$/);
+        if (m) {
+            said.push(`renamed ${m[1]} to ${m[2]}`);
+            continue;
+        }
+        m = l.match(/^(.+?) now (\d{2}:\d{2})–(\d{2}:\d{2})$/);
         if (m) {
             said.push(`${m[1]} now ${ampm(m[2])}–${ampm(m[3])}`);
             continue;
@@ -157,7 +169,7 @@ export function spokenReply(outputs, when, kept) {
     // A log carries its own one-line summary (what was logged, what moved, what is off today).
     if (logged)
         return [logged, failed ? `Not done: ${spokenFailure(failed)}.` : ""].filter(Boolean).join(" ");
-    return [...parts, ...(all.length && kept ? [kept] : [])].join(" ") || "Nothing on your day changed.";
+    return [...parts, ...(all.length && kept ? [kept] : [])].join(" ") || NOTHING_CHANGED_LINE;
 }
 const spanOf = (b) => `${ampm(b.start)}–${ampm(b.end)}`;
 /** What differs between two reads of the same day, in plain words: added, removed, moved. */

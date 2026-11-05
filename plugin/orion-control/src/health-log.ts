@@ -23,7 +23,7 @@ import { readIntakeQuestion, readWaterLog, runIntake, type IntakeRead } from "./
 import { mutate, readHealthLog, today as dayOf, type HealthLogFile } from "./health.js";
 
 export type MealRead = { kind: "meal"; meal: string; title: string; notes: string; at: Date };
-export type GymRead = { kind: "gym"; scope: "week" | "last7" | "recent" };
+export type GymRead = { kind: "gym"; scope: "week" | "last7" | "recent" | "plan" };
 export type BedtimeRead = { kind: "bedtime"; read: boolean; time?: string; week: boolean; /** every night only when he said set/make/change on "bedtime" or "this week"; else tonight (as bedtime-read.ts) */ scope?: "tonight" | "always" };
 export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead | IntakeRead;
 
@@ -91,8 +91,12 @@ const GYM_WORD = String.raw`(?:gym|workouts?|work(?:ing)? out|lifting|lifts?|tra
 const GYM_ASK = new RegExp(String.raw`\b(?:how (?:many|often)|have i been|did i (?:go|make it|hit|get to)|am i (?:going|keeping up|being consistent)|do i (?:go|work out)|been (?:going|hitting|to))\b[^.?!]{0,40}\b${GYM_WORD}\b|\b${GYM_WORD}\s+(?:days?|streak|sessions?|count)\b|\bmy (?:gym |workout )?streak\b|\b(?:last|recent|latest|previous) (?:workouts?|gym sessions?|lifts?)\b|\bwhat did i (?:lift|do at the gym|train)\b`, "i");
 const GYM_CHANGE = /\b(?:move|add|cancel|skip|schedule|book|remind|shorten|drop|push|swap|start|log|logged)\b|\b(?:reps?|sets?|weight|pr|calories|protein)\b/i;
 
+// "what gym session should i do today", "which workout should i do", "what should i lift": a question about what to DO, not about his history (live gate 4 #94).
+const GYM_PLAN_ASK = new RegExp(String.raw`\b(?:what|which|whats|what'?s)\b[^.?!]{0,40}\b${GYM_WORD}\b[^.?!]{0,30}\b(?:should|shall|do i|to do|to hit|to do today|next)\b|\b(?:what|which)\b[^.?!]{0,20}\b(?:should|shall)\s+i\b[^.?!]{0,30}\b(?:lift|train|do at the gym|do for (?:gym|my workout)|work out|hit)\b|\bwhat (?:should|shall) i do (?:at|in) the gym\b`, "i");
+
 export function readGym(message: string): GymRead | null {
   const m = message.trim();
+  if (m.length <= 120 && GYM_PLAN_ASK.test(m) && !GYM_CHANGE.test(m)) return { kind: "gym", scope: "plan" };
   if (m.length > 120 || !GYM_ASK.test(m) || GYM_CHANGE.test(m)) return null;
   return { kind: "gym", scope: /\b(?:last|recent|latest|previous) (?:workouts?|gym sessions?|lifts?)\b|\bwhat did i (?:lift|do at the gym|train)\b/i.test(m) ? "recent" : /\bthis week\b/i.test(m) ? "week" : "last7" };
 }
@@ -205,6 +209,16 @@ export async function runGym(read: GymRead, deps: { stateDir: string; now: Date 
     const last = [...workouts].sort((a, b) => b.day.localeCompare(a.day)).slice(0, 3);
     if (!last.length) return say(done.size ? `I have gym days on record (last: ${weekday([...done].sort().at(-1)!)}) but no lifts logged. Tell me what you did and I'll log it.` : "I have no workouts logged yet. Tell me what you lift and I'll log it.");
     return say(`Last ${last.length === 1 ? "workout" : `${last.length} workouts`}: ${last.map((w) => `${weekday(w.day)} ${w.day.slice(8)}/${w.day.slice(5, 7)}${w.exercises.length ? ` (${listed(w.exercises.slice(0, 4))})` : w.title ? ` (${w.title})` : ""}`).join("; ")}.`);
+  }
+  if (read.scope === "plan") {
+    // What to do today, from what he did last: the last lift and how long ago, never a bare history count.
+    const lastDay = [...done].sort().at(-1);
+    const last = [...workouts].sort((a, b) => b.day.localeCompare(a.day))[0];
+    const gone = lastDay ? Math.round((new Date(`${dayKey(deps.now)}T12:00`).getTime() - new Date(`${lastDay}T12:00`).getTime()) / 86400_000) : undefined;
+    if (gone === undefined) return say("I've got no gym on record yet, so there's nothing to rotate from. How long have you got, and what do you want to hit: push, pull, legs, or a full body?");
+    const what = last && last.day === lastDay ? (last.exercises.length ? `${listed(last.exercises.slice(0, 4))}` : last.title || "a session") : "a gym day";
+    const ago = gone === 0 ? "today" : gone === 1 ? "yesterday" : `${gone} days ago`;
+    return say(`Your last gym was ${ago} (${what}), so today's the day to train something different. How long have you got, and do you want push, pull, legs or a full body?`);
   }
   const sinceMonday = (deps.now.getDay() + 6) % 7 + 1;   // days in this week so far, Monday first
   const useWeek = read.scope === "week" && sinceMonday >= 3;

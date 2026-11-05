@@ -9,7 +9,9 @@ import { spokenTime } from "./day-read-answers.js";
 import { LATE_NIGHT_UNTIL, TOMORROW } from "./schedule-flow.js";
 const AGENDA = "/Users/nickmadaio/Desktop/ORION/scripts/orion-agenda";
 const TASKS = "/Users/nickmadaio/Desktop/ORION/scripts/orion-tasks";
-const ASKS = /\b(?:what'?s|whats|what is|what are|which|any|anything|do i have|how many)\b[^.?]*\b(?:due|deadlines?)\b/i;
+const ASKS = /\b(?:what|what'?s|whats|what is|what are|which|any|anything|do i have|have i got|how many)\b[^.?]*\b(?:due|deadlines?)\b/i;
+// A wh-opener is a question without its "?" (spoken, typed fast): "what deadlines have i got coming up" (live gate 4 #54).
+const OPENER = /^(?:ok |so |and |hey |orion |can you tell me |tell me )*(?:what|what'?s|whats|which|any|anything|how many|have i got|do i have)\b/i;
 // A bare noun phrase with no "?" ("any deadlines coming up", "my deadlines", "deadlines this week"); "my deadlines are killing me" is not one.
 const BARE = /\b(?:my|upcoming|any) deadlines?\b|^\s*deadlines? (?:this|next|today|tomorrow|coming)\b/i;
 const STATEMENT = /\b(?:is|are|was|were|am|i'?m|i've|have|has)\b/i;
@@ -20,7 +22,7 @@ const OTHER_REQUEST = /\b(?:plan|book|put|block|clear|text|tell|send|email|remin
  * A question about what is due; a change ("make the essay due friday") is not one. The question form needs a real question
  * (`question`: a "?" or a question opener, "i wonder what's due" is neither); only a bare noun phrase passes without one.
  */
-export const asksDeadlines = (message, question = /\?\s*$/.test(message.trim())) => !CHANGES.test(message) && !OTHER_REQUEST.test(message) && ((question && ASKS.test(message)) || (BARE.test(message) && !STATEMENT.test(message)));
+export const asksDeadlines = (message, question = /\?\s*$/.test(message.trim())) => !CHANGES.test(message) && !OTHER_REQUEST.test(message) && (((question || OPENER.test(message.trim())) && ASKS.test(message)) || (BARE.test(message) && !STATEMENT.test(message)));
 const ymd = (d) => d.toLocaleDateString("en-CA");
 const dayStart = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const WEEKDAY = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -54,6 +56,8 @@ function windowOf(message, now) {
             return { from: 0, to: named.groups.by.toLowerCase() === "before" ? off - 1 : off, label: `${named.groups.by.toLowerCase()} ${name}` };
         return { from: off, to: off, label: named.groups.next ? `next ${WEEKDAY[target]}, ${addDays(now, off).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : name };
     }
+    if (/\b(?:coming up|upcoming|ahead|soon|next few days|in the next)\b/i.test(message) && !/\bthis week\b/i.test(message))
+        return { from: 0, to: 30, label: "in the next month" };
     return { from: 0, to: (7 - dow) % 7, label: "this week" };
 }
 function describe(item, today) {

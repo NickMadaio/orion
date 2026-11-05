@@ -245,7 +245,7 @@ async function whatsNow(claim: Claim | undefined, ack: boolean, deps: DefaultDep
     const gap = toMin(next.start) - nowMin;
     const soon = gap >= 30 && deps.deadlines ? soonDeadlines(await deps.deadlines().catch(() => null), deps.now, 1) : [];
     if (soon.length) reads.push("deadlines");
-    text = `${lead}Next is ${next.title} at ${ampm(toMin(next.start))}, in ${gap >= 60 ? `${Math.floor(gap / 60)} h ${gap % 60 ? `${gap % 60} min` : ""}`.trim() : `${gap} minutes`}.${soon[0] ? ` Until then, the ${soon[0].title} is ${soon[0].when}, so that's the best use of the time.` : ""}`;
+    text = `${lead}Next is ${next.title} at ${ampm(toMin(next.start))}, in ${gap >= 60 ? `${Math.floor(gap / 60)} h ${gap % 60 ? `${gap % 60} min` : ""}`.trim() : `${gap} minutes`}.${soon[0] ? ` For the gap, ${soon[0].title} is the one to chip at (due ${soon[0].when}).` : ""}`;
   } else {
     const tomorrow = await deps.readDay(["--date", "tomorrow"]).catch(() => undefined);
     if (!reads.includes("day-tomorrow")) reads.push("day-tomorrow");

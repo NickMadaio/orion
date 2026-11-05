@@ -5,6 +5,7 @@
  offer the concrete next step, keep a model reply that was already true, and when the capability is missing say so and offer to build it.
 */
 import { isBareConfirm } from "./bare-confirm.js";
+import { isSignOff } from "./sign-off.js";
 import { claimsIn, outcomeOf, type ToolResult } from "./work-check.js";
 import { failureReason, failedTools } from "./tool-failure.js";
 import { parseReason, reasonFromSpoken, reasonOffer, repeatOffer, reasonClause } from "./failure-reason.js";
@@ -59,7 +60,7 @@ export const NOTHING_PENDING_LINES = [
   "Nothing's pending on my side, so I'm not sure what you mean. What should I do?",
 ];
 const POINTS_AT_NOTHING = /^(?:(?:yeah|yes|yep|ok|okay|sure)[\s,]+)?(?:(?:that|this|the) one|that|this|it)[\s.!?]*$/i;
-export const isBareGoAhead = (message: string | undefined): boolean => !!message && (isBareConfirm(message) || POINTS_AT_NOTHING.test(message.trim()));
+export const isBareGoAhead = (message: string | undefined): boolean => !!message && !isSignOff(message) && (isBareConfirm(message) || POINTS_AT_NOTHING.test(message.trim()));
 
 /** The honest line for a reply that claimed more than the tools show. From tool results when there are any. */
 export function honestReply(ctx: HonestCtx): string {

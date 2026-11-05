@@ -13,6 +13,7 @@
  Code runs every call and every sentence of the reply comes from what the scripts returned. The only state kept between turns is the one
  question just asked (focus-ready-pending.json, so the Mac app's Done early button can ask it too).
 */
+import { isSignOff } from "./sign-off.js";
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -237,6 +238,7 @@ export async function runFocusReady(message: string, deps: ReadyDeps): Promise<F
   const fallback: FlowResult = { outcome: "fallback", reason: "not a work start or end" };
   const site = readSiteOverride(message);
   if (site) return allowSite(deps, site);
+  if (isSignOff(message)) return fallback;   // w20 r6: "ok last one, cheers" is thanks, not the apps he was asked for
   const done = isDoneMessage(message);
   if (done) return finishEarly(deps, done);
   const pending = deps.pending.get();

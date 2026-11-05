@@ -26,6 +26,9 @@
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 import { isBareConfirm } from "./bare-confirm.js";
+import { finalSanitize } from "./final-sanitizer.js";
+import { splitLeadMouse } from "./mouse-lead.js";
+import { isBareGoAhead, nothingPending, pendingNote, resolvePending } from "./pending-resolver.js";
 import { withoutAsleepClaims, claimsAsleep } from "./awake-claims.js";
 import { newestOffer, slotAnswersGo } from "./offer-binding.js";
 import { ventTease } from "./vent-tease.js";
@@ -483,7 +486,8 @@ export const REFUSED_NOTHING_CHANGED = "I couldn't make that change just now, so
 const exactFor = (run) => {
     const body = run.flow ? exactReply(run.flow) : "";
     const text = body && run.preface ? `${run.preface} ${body}` : body;
-    return run.afterCrisis && text ? `${text} ${SUPPORT_LINE}` : text;
+    // w20 r6: what is said, what the worker is told to say and what finalize expects are all the same leak-free text (final-sanitizer.ts).
+    return finalSanitize(run.afterCrisis && text ? `${text} ${SUPPORT_LINE}` : text);
 };
 /** What Nick must hear after the scheduling flow: the scheduler's own lines, or its "can't"/question. */
 function exactReply(flow) {
@@ -1301,7 +1305,7 @@ export function registerLocalRouting(api, options) {
         // The phone sends one conversation under several session keys, so a retry word with no offer of its own takes the most recent offer under any key (RETRY_WINDOW_MS still applies).
         // w20 r5 (offer-binding.ts): a go answers the offer ORION made LAST in this chat (web page, build, food, retry), never an older slot, and a slot under another key only while fresh.
         const newestOfferAt = newestOffer([sessionKey ? webOffers.get(sessionKey)?.at : undefined, sessionKey ? buildOffers.get(sessionKey)?.at : undefined,
-            sessionKey ? foodMemory.chatOfferAt(sessionKey, nowMs()) : undefined, options.stateDir ? readFoodPending(options.stateDir, (options.now ?? pluginNow)())?.at : undefined]);
+            sessionKey ? foodMemory.chatOfferAt(sessionKey, nowMs()) : undefined, (() => { const fp = options.stateDir && sessionKey ? readFoodPending(options.stateDir, (options.now ?? pluginNow)()) : undefined; return fp && foodMemory.bound(sessionKey, fp) ? fp.at : undefined; })()]);
         const slotOwn = sessionKey ? retrySlots.get(sessionKey) : undefined;
         const ownSlot = slotOwn && slotAnswersGo(slotOwn.at, newestOfferAt, false, nowMs()) ? slotOwn : undefined;
         const phoneKey = (k) => !!k && /orion-(?:app-v2|chat)/.test(k); // other chats stay separate
@@ -1317,8 +1321,11 @@ export function registerLocalRouting(api, options) {
         // w20 r5 (chat-asks.ts splitLeadOpen): "open youtube in safari and tell me whats the weather": the open is run by code and said first, the question is what is left.
         const openSplit = on && options.chatRun && !(timerSplit && timerFirst) && !(remSplit && remFirst) ? splitLeadOpen(messageIn) : undefined;
         const openFirst = openSplit ? await withTimeout(runChatAsks([{ kind: "open", req: openSplit.req }], options.chatRun).catch(() => undefined), 40000) : undefined;
-        const message = timerSplit && timerFirst ? timerSplit.rest : remSplit && remFirst ? remSplit.rest : openSplit && openFirst ? openSplit.rest : messageIn;
-        const timerTools = openFirst ? openFirst.calls.map((canonical, i) => ({ canonical, stdout: openFirst.outputs[i] ?? "", exit: 0 })) : remFirst ? remFirst.calls.map((canonical, i) => ({ canonical, stdout: remFirst.outputs[i] ?? "", exit: remFirst.ok ? 0 : 1 })) : timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
+        // w20 r6 (mouse-lead.ts): "open the mouse mapper and whats the weather tomorrow": the mouse clause is run by code and said first, the question is what is left.
+        const mouseSplit = on && options.mouseRun && !(timerSplit && timerFirst) && !(remSplit && remFirst) && !(openSplit && openFirst) ? splitLeadMouse(messageIn) : undefined;
+        const mouseFirst = mouseSplit ? await withTimeout(runMouseTurn(mouseSplit.turn, { run: options.mouseRun }).catch(() => undefined), 20000) : undefined;
+        const message = timerSplit && timerFirst ? timerSplit.rest : remSplit && remFirst ? remSplit.rest : openSplit && openFirst ? openSplit.rest : mouseSplit && mouseFirst ? mouseSplit.rest : messageIn;
+        const timerTools = mouseFirst ? mouseFirst.calls.map((canonical, i) => ({ canonical, stdout: mouseFirst.outputs[i] ?? "", exit: 0 })) : openFirst ? openFirst.calls.map((canonical, i) => ({ canonical, stdout: openFirst.outputs[i] ?? "", exit: 0 })) : remFirst ? remFirst.calls.map((canonical, i) => ({ canonical, stdout: remFirst.outputs[i] ?? "", exit: remFirst.ok ? 0 : 1 })) : timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
         if (sessionKey)
             retrySlots.delete(sessionKey);
         if (recentKey)
@@ -1513,7 +1520,7 @@ export function registerLocalRouting(api, options) {
                 ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
         if (sessionKey && !cutOff && !pending)
             pendingMemory.setMemo(sessionKey, null);
-        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : remFirst ? { preface: remFirst.text } : openFirst ? { preface: openFirst.text } : {}), started: Date.now(), journalTop0: journalTopAt() ?? null, passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+        const run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : remFirst ? { preface: remFirst.text } : openFirst ? { preface: openFirst.text } : mouseFirst ? { preface: mouseFirst.text } : {}), started: Date.now(), journalTop0: journalTopAt() ?? null, passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
             ...(on && !cutOff && !quietTurn && !isBareConfirm(message) ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
         if (ledgerAsk)
             run.ledger = ledgerAsk;
@@ -1699,7 +1706,7 @@ export function registerLocalRouting(api, options) {
         return { providerOverride: workerProvider, modelOverride: workerModel };
     });
     if (on) {
-        api.on("before_agent_reply", (event, ctx) => {
+        api.on("before_agent_reply", (event, ctx) => leakFree((() => {
             const d = runFor(event, ctx)?.settled;
             traceLine("before_agent_reply", event, ctx, { move: d?.move ?? null });
             const run = runFor(event, ctx);
@@ -1712,6 +1719,15 @@ export function registerLocalRouting(api, options) {
             const vent = run && !run.afterCrisis && !run.hushed ? ventTease(run.message) : null;
             if (vent)
                 return { handled: true, reply: { text: vent }, reason: "distress: everyday venting, light tease only" };
+            // w20 r6 (pending-resolver.ts): a bare go / "that one" nothing else owns refers to ORION's latest question or offer in THIS chat, or to nothing (said so, never invented).
+            if (run && !run.ownText && !run.flow && isBareGoAhead(run.message) && !(run.room || run.hushed || run.pending || run.pendingYes || run.preference || run.sleepTurn || run.phoneBlock || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge || run.ledger || run.reality || run.late || run.reminder || run.addAnswer || run.computer || run.stitched)) {
+                const last = run.sessionKey ? lastExchange.get(run.sessionKey) : undefined;
+                const resolved = resolvePending(last ? { reply: last.reply, at: last.at } : undefined, nowMs());
+                if (!resolved.pending)
+                    return { handled: true, reply: { text: nothingPending(run.message) }, reason: "nothing pending: a bare go-ahead with nothing to answer" };
+                run.pendingRefers = resolved.refers;
+                return undefined; // the worker answers it, told what it refers to (pendingNote)
+            }
             if (run && (run.room || run.hushed || run.pending || run.preference || run.sleepTurn || run.phoneBlock || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge))
                 return undefined; // 2026-10-31: code's, or the worker's textbook answer
             if (run && !ledgerSeen.has(run)) {
@@ -1719,7 +1735,7 @@ export function registerLocalRouting(api, options) {
                 madeLedger.ingest(run.sessionKey, run.tools, Date.now());
             }
             if (run?.ownText)
-                return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
+                return { handled: true, reply: { text: withGentleCheckIn(run.message, run.preface ? `${run.preface} ${run.ownText}` : run.ownText) }, reason: "code answered from data" };
             if (run && openRequest(run.message))
                 return undefined; // w18 voiceself: opening an app is app_open, never a drafted "I can't pull up apps"
             if (run && isOverwhelmed(run.message))
@@ -1743,7 +1759,7 @@ export function registerLocalRouting(api, options) {
             if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "") && !casualStartTask(run?.message ?? ""))
                 return { handled: true, reply: { text: withGentleCheckIn(run?.message ?? "", draftText) }, reason: "front desk answered" };
             return undefined;
-        });
+        })()));
         api.on("before_prompt_build", guardedPrompt(async (event, ctx) => {
             const run = runFor(event, ctx);
             // gate #57: a long chat keeps working on the local model: the oldest turns are dropped, in place, before the prompt is built (history-trim.ts).
@@ -2572,7 +2588,7 @@ export function registerLocalRouting(api, options) {
             }
             const lookup = needsLiveData(run.message);
             const draft = withoutUnverifiedAlarmClaims(withoutAsleepClaims(withoutDayClaims(run.settled.answer ?? "")), options.stateDir, (options.now ?? pluginNow)());
-            if (run.settled.move === "answer" && draft && !CHANGE_REQUEST.test(run.message) && !lookup) {
+            if (run.settled.move === "answer" && draft && !run.pendingRefers && !CHANGE_REQUEST.test(run.message) && !lookup) {
                 // Even a pure answer's draft can invent his day ("you've been coding for hours", q082) and the 9B
                 // read it out as "The front desk says…" (live sweep 2026-10-15). Round 2 (q079, q101): still named
                 // "the front desk drafted…", and "otherwise answer him yourself" swapped a right draft for the model's
@@ -2596,7 +2612,7 @@ export function registerLocalRouting(api, options) {
             const pushNote = pushed && asksWhy(run.message) ? `\n\n${whyNote(pushed.text)}` : pushed ? `\n\nHe is most likely answering what you sent him at ${clockOf(pushed.at)}: "${pushed.text.slice(0, 200)}". Act on that (book it, move it, start it, or ask which one first); never "didn't catch that".` : "";
             // H6 (r8b2, 2026-10-16): the worker's user message is only the rest of a cut-off request ("…cut off, this is the rest"); give it the whole.
             const joinedNote = run.stitched ? `[ORION: his request came in two parts. The whole request, joined: "${run.message.slice(0, 600)}". Answer that, not only the last part.]` : undefined;
-            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${pushNote}${brainFetched}${askNote}\n\n${card}${now}`, ...(joinedNote ? { appendContext: joinedNote } : {}),
+            return { systemPrompt: `${instructionsFor(run.settled, run.message)}\n\n${PRODUCTION_NOTES}\n\n${LOOK_IT_UP}${lookup ? `\n\n${LIVE_NOTE}` : ""}${ignoreNote}${pushNote}${brainFetched}${askNote}\n\n${card}${now}`, ...(joinedNote || run.pendingRefers ? { appendContext: [joinedNote, run.pendingRefers ? pendingNote(run.message, run.pendingRefers) : undefined].filter(Boolean).join("\n") } : {}),
                 ...(run.outreach ? { prependContext: outreachNote(run.outreach, run.message) } : run.staleOutreachNote ? { prependContext: run.staleOutreachNote } : {}) };
         }), { timeoutMs: HOOK_TIMEOUT_MS });
     }
@@ -2642,6 +2658,17 @@ export function registerLocalRouting(api, options) {
     // The text that must reach Nick for a run (the scheduler's own reply, or an honest stop), applied at
     // delivery: the 9B paraphrased it from session history ("Done: grind leetcode 6:15…" after a clear).
     const finalText = new Map();
+    /** w20 r6 (final-sanitizer.ts): the last pass over a direct reply: no JSON fragment, unfilled value or tool name reaches him. */
+    const leakFree = (result) => {
+        const r = result;
+        const text = r?.reply?.text;
+        if (r?.reply && typeof text === "string") {
+            const clean = finalSanitize(text);
+            if (clean !== text)
+                return { ...r, reply: { ...r.reply, text: clean } };
+        }
+        return result;
+    };
     const remember = (keys, text) => { for (const k of keys)
         if (k)
             finalText.set(k, { text, at: Date.now() }); };
@@ -2654,11 +2681,12 @@ export function registerLocalRouting(api, options) {
                 const raw = str((event.payload ?? {}).text);
                 if (raw && OVERFLOW.test(raw))
                     return { payload: { ...event.payload, text: OVERFLOW_LINE }, reason: "orion-control: no raw context overflow" };
-                return raw && stripExecFailed(raw) !== raw ? { payload: { ...event.payload, text: stripExecFailed(raw) }, reason: "orion-control: no raw exec failure" } : undefined;
+                const cleaned = raw ? finalSanitize(stripExecFailed(raw)) : raw;
+                return raw && cleaned !== raw ? { payload: { ...event.payload, text: cleaned }, reason: "orion-control: no raw exec failure or leak" } : undefined;
             }
             keys.forEach((k) => finalText.delete(k));
             const payload = (event.payload ?? {});
-            return { payload: { ...payload, text: hit.text }, reason: "orion-control: the scheduler's own reply" };
+            return { payload: { ...payload, text: finalSanitize(hit.text) }, reason: "orion-control: the scheduler's own reply" };
         });
     // Second guard (2026-10-16 re-run, q092): whatever the model decides, `orion-reschedule undo` does not run in
     // a session that has changed nothing: it would revert a change from an earlier day. OpenClaw's
@@ -3184,6 +3212,14 @@ export function registerLocalRouting(api, options) {
                 const slot = retryAfterReply(owed ?? reply, run.message, nowMs());
                 if (slot)
                     retrySlots.set(run.sessionKey, slot);
+            }
+            // w20 r6 (final-sanitizer.ts): the very last pass: no JSON fragment, unfilled value or tool name in anything that goes out, whichever route wrote it.
+            if (on && (owed ?? reply).trim()) {
+                const leakless = finalSanitize(owed ?? reply);
+                if (leakless !== (owed ?? reply)) {
+                    owed = leakless;
+                    remember([runId, sessionKeyNow], owed);
+                }
             }
             if (on && owed)
                 putReplyInPlace(event.messages, owed);

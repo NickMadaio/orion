@@ -34,6 +34,7 @@ export type ChatOut = {
 export declare function splitListItems(text: string): string[];
 /** What code does for this message, or null when any part of it is something else (the worker or another flow keeps it). */
 export declare function readChatAsks(message: string): ChatAsk[] | null;
+export declare const THEN_ASK: RegExp;
 /** "and a list item: pick up parcel from reception, then tell me whats on tomorrow evening": the list add (run by code) and the question left to answer. */
 export declare function splitLeadListItem(message: string): {
     item: string;

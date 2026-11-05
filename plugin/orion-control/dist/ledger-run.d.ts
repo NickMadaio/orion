@@ -34,6 +34,10 @@ export type LedgerDeps = {
         list: () => Promise<StoredReminder[]>;
         remove: (ids: string[]) => Promise<void>;
     };
+    /** This chat has been about food lately: a removal that names no calendar thing is a meal to take off the food log. */
+    foodRecent?: boolean;
+    /** What he said, for the checks that read the whole message. */
+    said?: string;
 };
 export type LedgerOutcome = {
     text: string;

@@ -30,10 +30,12 @@ export type ChatOut = {
     outputs: string[];
     offer?: WebOffer;
 };
+/** "oat milk and a phone charger cable" is two items, each its own row (so ticking one off finds it); "salt and pepper" stays one. */
+export declare function splitListItems(text: string): string[];
 /** What code does for this message, or null when any part of it is something else (the worker or another flow keeps it). */
 export declare function readChatAsks(message: string): ChatAsk[] | null;
 /** "You have 3 on your list: milk, email careers (due 2026-11-06), ...", from `orion-tasks list` output. */
 export declare function listReply(stdout: string): string;
-/** Runs every ask in order (one failing never stops the next) and says what happened to each. */
+/** Runs every ask in order (one failing never stops the next) and says what happened to each; items added in a row are one sentence naming each. */
 export declare function runChatAsks(asks: ChatAsk[], deps: ChatDeps): Promise<ChatOut>;
 export declare const answersWebOffer: (message: string) => boolean;

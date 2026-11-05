@@ -1,5 +1,5 @@
 import { namesLabel, contentWords } from "./made-ledger.js";
-import { removeNote, removeReminder } from "./ledger-remove.js";
+import { removeFoodByWords, removeNote, removeReminder } from "./ledger-remove.js";
 /** How far back this chat's calendar change can still be what a bare "undo" takes back. */
 export const CALENDAR_UNDO_WINDOW_MS = 2 * 3600_000;
 const ampm = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return `${((h ?? 0) + 11) % 12 + 1}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`; };
@@ -189,6 +189,11 @@ async function removeNamed(ask, words, deps) {
     }
     if (kinds.includes("food"))
         return removeItem(deps, { kind: "food", label: words.join(" "), at: deps.now });
+    if (deps.foodRecent && !kinds.length && ask.verb === "remove") {
+        const meal = await removeFoodByWords(deps, words, deps.said ?? words.join(" "));
+        if (meal)
+            return meal;
+    }
     if (kinds.includes("note"))
         return ask.confirmed ? removeNote(deps, words.join(" ")) : askAboutNote(deps, words);
     void out;

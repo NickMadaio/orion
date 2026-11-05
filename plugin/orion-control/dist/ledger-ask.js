@@ -58,7 +58,9 @@ export function readLedgerAsk(message) {
     const tail = DIDNT_HAVE.test(text);
     const stripped = text.replace(DIDNT_HAVE, "").trim();
     const noNeed = NO_NEED.exec(stripped);
-    const match = noNeed ?? TAKE_OFF.exec(stripped) ?? REMOVE_AT_START.exec(stripped) ?? UNDO_OBJECT.exec(stripped);
+    // "nah i didnt eat that, take it off": the removal is the clause after the aside.
+    const afterAside = tail ? text.split(/\s*(?:,|;|\bso\b|\band\b)\s*/).reverse().map((c) => TAKE_OFF.exec(c) ?? REMOVE_AT_START.exec(c)).find((m) => m) ?? null : null;
+    const match = noNeed ?? TAKE_OFF.exec(stripped) ?? REMOVE_AT_START.exec(stripped) ?? UNDO_OBJECT.exec(stripped) ?? afterAside;
     if (!match)
         return null;
     const object = match[match.length - 1].replace(/\s+(?:off|from)\s+(?:my|the)\s+(?:day|list|plan|calendar|log|schedule|today)$/, "").trim();

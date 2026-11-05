@@ -19,7 +19,7 @@ const LEAD = String.raw`(?:(?:hey|ok(?:ay)?|so|also|and|btw|orion|please|pls|can
 // "make a note", "take a quick note for me", "jot down a note", "add a note to self": the noun form.
 const NOUN = String.raw`(?:make|take|add|create|jot(?:\s+down)?|write(?:\s+down)?|put|save|keep|drop)\s+(?:me\s+)?(?:an?\s+|another\s+|this\s+)?(?:(?:quick|little|new|short|long)\s+)?note(?:\s+for\s+me)?(?:\s+to\s+self)?(?:\s+down)?(?:\s+(?:really\s+|real\s+|just\s+)?quick(?:ly)?)?`;
 // "note that", "remember that", "write this down", "keep in mind": the verb form. "remember to" is a reminder.
-const VERB = String.raw`(?:remember(?!\s+to\b)|note(?:\s+to\s+self)?|jot\s+down|write\s+(?:this\s+|that\s+|it\s+)?down|keep\s+in\s+mind|save\s+(?:that|this))`;
+const VERB = String.raw`(?:remember(?!\s+to\b)|note(?:\s+(?:this|that|it)(?:\s+down)?)?(?:\s+to\s+self)?|jot\s+(?:(?:this|that|it)\s+)?down|write\s+(?:this\s+|that\s+|it\s+)?down|keep\s+in\s+mind|save\s+(?:that|this|it)|put\s+(?:this|that|it)\s+down|log\s+(?:this|that)\s+(?:as\s+)?(?:a\s+)?note)`;
 const COMMAND = new RegExp(String.raw`^${LEAD}(?:${NOUN}|${VERB})(?![\w'-])`, "i");
 
 /** His words with only the command removed, or null when there is no command or nothing after it. */

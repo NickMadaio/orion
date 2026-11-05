@@ -45,3 +45,20 @@ export async function removeReminder(deps: LedgerDeps, labels: string[], words?:
   return { ...out, text: `Cancelled the reminder${matched.length > 1 ? "s" : ""}: ${matched.map((r) => r.label).join(" and ")}.`,
     removed: matched.map((r) => ({ kind: "reminder" as const, label: r.label, at: deps.now })) };
 }
+
+/** Words that make "remove X" a calendar, list or reminder ask, never a meal. */
+const NOT_A_MEAL = /\b(?:tomorrow|tonight|calendar|block|schedule|session|meeting|class|lecture|gym|workout|plan|day|reminder|alarm|timer|list|todo|task|event|focus|break|note)\b/;
+
+/**
+ * "remove the eggs" in a chat that has been about food: the entry is taken off today's food log by its words. The reply is the script's own
+ * line, or says plainly that no such meal is logged: water is never the answer to a removal.
+ */
+export async function removeFoodByWords(deps: LedgerDeps, words: string[], said: string): Promise<LedgerOutcome | undefined> {
+  if (!words.length || NOT_A_MEAL.test(said.toLowerCase())) return undefined;
+  const out = blank();
+  const r = await deps.run("orion-log", ["food-off", ...words]).catch(() => ({ stdout: "", code: 1 }));
+  out.calls.push(`exec orion-log food-off ${words.join(" ")}`); out.outputs.push(r.stdout);
+  if (r.code === 0 && /^Took /.test(r.stdout.trim())) return { ...out, text: r.stdout.trim(), removed: [{ kind: "food", label: words.join(" "), at: deps.now }] };
+  const shown = (said.toLowerCase().match(/[a-z0-9']+/g) ?? []).filter((t) => words.includes(contentWords(t)[0] ?? "")).join(" ") || words.join(" ");
+  return { ...out, text: `I don't have ${shown} in today's food log, so nothing was taken off.` };
+}

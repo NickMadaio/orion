@@ -55,6 +55,10 @@ export type FoodContext = {
         ids?: string[];
         at: number;
     };
+    /** The food ORION just answered a question about (the offer lives in this chat, not in food-pending.json: a gate / evaluation run never writes that file). Already bound. */
+    chatOffer?: {
+        food: string;
+    };
 };
 /** The food turn in his message, or null. */
 export declare function readFoodTurn(message: string, c: FoodContext): FoodTurn | null;

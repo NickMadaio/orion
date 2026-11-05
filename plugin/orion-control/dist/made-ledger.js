@@ -12,7 +12,7 @@ export const LEDGER_WINDOW_MS = 3 * 3600_000;
 const KEEP = 40;
 const STOPWORDS = new Set(["the", "a", "an", "my", "that", "this", "those", "these", "one", "ones", "i", "just", "added", "made", "saved", "logged", "set", "booked", "created",
     "off", "on", "from", "to", "of", "in", "day", "today", "list", "calendar", "plan", "schedule", "log", "block", "blocks", "note", "notes", "reminder", "reminders", "alarm", "alarms",
-    "session", "event", "slot", "please", "pls", "anymore", "any", "more", "back", "and", "both", "all", "it", "them", "me", "for", "at", "with", "about", "also", "too", "again"]);
+    "session", "event", "slot", "please", "pls", "anymore", "any", "more", "back", "and", "both", "all", "it", "them", "me", "for", "at", "with", "about", "also", "too", "again", "wasnt", "wasn't", "isnt", "isn't", "not", "didnt", "didn't", "was", "were", "is", "no", "nah", "yeah", "wrong"]);
 const stem = (w) => (w.length > 4 ? w.replace(/(?:ing|ed|es|s)$/, "") : w.replace(/s$/, ""));
 /** The words that name a thing: lowercase, no filler, no tense ("stretch", "careers", "mum"). */
 export function contentWords(text) {

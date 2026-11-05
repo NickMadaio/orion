@@ -31,25 +31,40 @@ const READ = new RegExp(String.raw`^${LEAD}(?:(?:whats|what's|what is|what are|w
 
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 
-function readOne(clause: string): ChatAsk | null {
+// Foods and things that are one item although they say "and" (w20 r4: "add eggs and bread" is two rows, "add salt and pepper" is one).
+const ONE_THING = /\b(?:salt and pepper|mac and cheese|macaroni and cheese|fish and chips|bread and butter|peanut butter and jelly|beans and rice|rice and beans|ham and cheese|cheese and onion|surf and turf|bangers and mash|sweet and sour|black and white|pen and paper|bits and bobs)\b/gi;
+const ARTICLE = /^(?:a|an|the|some|another|more|a bit of|a couple of|a few)\s+/i;
+
+/** "oat milk and a phone charger cable" is two items, each its own row (so ticking one off finds it); "salt and pepper" stays one. */
+export function splitListItems(text: string): string[] {
+  const kept: string[] = [];
+  const guarded = text.replace(ONE_THING, (m) => { kept.push(m); return `\u0001${kept.length - 1}\u0001`; });
+  const parts = guarded.split(/\s*(?:,|;|&|\band\b|\bplus\b|\balso\b)\s*/i).map((p) => p.replace(/\u0001(\d+)\u0001/g, (_, i) => kept[Number(i)]!).trim().replace(ARTICLE, "").trim()).filter((p) => /[a-z0-9]/i.test(p));
+  return [...new Set(parts)];
+}
+
+function readOne(clause: string): ChatAsk[] | null {
   const said = clause.trim().replace(/\s+/g, " ");
   if (!said) return null;
   const add = ADD.exec(said)?.[1]?.trim().replace(/^(?:some|a bit of)\s+/i, "");
-  if (add && add.length <= 80 && !NOT_A_LIST_ITEM.test(add) && /[a-z0-9]/i.test(add)) return { kind: "list-add", item: add };
-  if (READ.test(said) && !/\b(?:calendar|schedule|day)\b/i.test(said)) return { kind: "todo-list" };
+  if (add && add.length <= 120 && !NOT_A_LIST_ITEM.test(add) && /[a-z0-9]/i.test(add)) {
+    const items = splitListItems(add);
+    if (items.length && items.length <= 8 && items.every((i) => i.length <= 80)) return items.map((item) => ({ kind: "list-add" as const, item }));
+  }
+  if (READ.test(said) && !/\b(?:calendar|schedule|day)\b/i.test(said)) return [{ kind: "todo-list" }];
   const open = openRequest(said);
-  if (open && (open.kind === "app" || open.kind === "url")) return { kind: "open", req: open };
+  if (open && (open.kind === "app" || open.kind === "url")) return [{ kind: "open", req: open }];
   return null;
 }
 
 /** What code does for this message, or null when any part of it is something else (the worker or another flow keeps it). */
 export function readChatAsks(message: string): ChatAsk[] | null {
   const one = readOne(message);
-  if (one) return [one];
+  if (one) return one;
   const parts = splitAsks(message);
   if (!parts) return null;
   const asks = parts.map(readOne);
-  return asks.every((a): a is ChatAsk => a !== null) ? asks : null;
+  return asks.every((a): a is ChatAsk[] => a !== null) ? asks.flat() : null;
 }
 
 /** The web player or site for an app that is not installed. */
@@ -113,11 +128,27 @@ async function listOne(ask: Extract<ChatAsk, { kind: "list-add" | "todo-list" }>
   return r.code === 0 ? listReply(r.stdout) : "I couldn't read your list just now. Say go and I'll retry it.";
 }
 
-/** Runs every ask in order (one failing never stops the next) and says what happened to each. */
+/** Runs every ask in order (one failing never stops the next) and says what happened to each; items added in a row are one sentence naming each. */
 export async function runChatAsks(asks: ChatAsk[], deps: ChatDeps): Promise<ChatOut> {
   const out: ChatOut = { text: "", calls: [], outputs: [] };
   const said: string[] = [];
-  for (const ask of asks) said.push(ask.kind === "open" ? await openOne(ask, deps, out) : await listOne(ask, deps, out));
+  const added: string[] = [], failed: string[] = [];
+  const flush = () => {
+    const names = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}` : xs[0] ?? "");
+    if (added.length) said.push(`Added ${names(added)} to your list${added.length > 1 ? " as separate items" : ""}.`);
+    if (failed.length) said.push(`I couldn't add ${names(failed)} to your list: nothing was added.`);
+    added.length = 0; failed.length = 0;
+  };
+  for (const ask of asks) {
+    if (ask.kind === "list-add") {
+      const line = await listOne(ask, deps, out);
+      (/^Added /.test(line) ? added : failed).push(ask.item);
+      continue;
+    }
+    flush();
+    said.push(ask.kind === "open" ? await openOne(ask, deps, out) : await listOne(ask, deps, out));
+  }
+  flush();
   return { ...out, text: said.join(" ") };
 }
 

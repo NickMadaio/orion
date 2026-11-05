@@ -16,6 +16,8 @@ struct PhoneHomeScreen: View {
     @ObservedObject private var lock = FocusLock.shared
     @ObservedObject private var shield = FocusSessionShield.shared
     let onOpenChat: () -> Void
+    /// The conversation Home's messages join: the chat tab's current one, so typing on Home then opening chat is one thread.
+    var conversation: () -> String = { LinkSchema.threadID }
     let onOpenSection: (String) -> Void
 
     @State private var decided: [String: Bool] = [:]
@@ -107,7 +109,7 @@ struct PhoneHomeScreen: View {
 
     private func reply(_ text: String, to askID: String) {
         answered = answered.union([askID])
-        remote.say(text, conversation: LinkSchema.threadID, replyTo: askID)
+        remote.say(text, conversation: conversation(), replyTo: askID)
     }
 
     /// Long-press on the water: the Mac keeps the goal, so this is a command to it, shown here and on the widgets at once.

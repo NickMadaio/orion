@@ -22,7 +22,7 @@ function setup(decision = { move: "escalate", tier: "quick" }, extra = {}) {
         warm: false, mode: "on", logPath: join(dir, "r.jsonl"), brainSearch: async () => "", clock: () => "Thu 02:30", now: () => NOW, stateDir: dir,
         decideImpl: async () => decision, sleepPlanRun, ...extra,
         wakeExec: async (args) => { wakeCalls.push(args); return { stdout: "Cleared.", code: 0 }; },
-        extractReminder: async (m) => (/water/.test(m) ? { time: null, label: "drink water" } : { time: "15:00", label: "ring the dentist" }),
+        extractReminder: async (m) => (/vitamins/.test(m) ? { time: "08:00", label: "take my vitamins" } : /water/.test(m) ? { time: null, label: "drink water" } : { time: "15:00", label: "ring the dentist" }),
         listReminders: async () => [...store],
         removeReminders: async (ids) => { for (const id of ids) {
             const i = store.findIndex((r) => r.id === id);
@@ -57,7 +57,15 @@ function setup(decision = { move: "escalate", tier: "quick" }, extra = {}) {
         for (const fn of handlers.get("before_agent_finalize") ?? [])
             await fn({ sessionId: "s", lastAssistantMessage: "ok" }, ctx);
     };
-    return { turn, sleepCalls, wakeCalls, timers, store, workerCalled };
+    const delivered = async (runId) => {
+        for (const fn of handlers.get("reply_payload_sending") ?? []) {
+            const o = (await fn({ payload: { text: "I'll remind you at 8:00 AM to take my vitamins." }, runId, sessionKey: "agent:main:orion-chat-bt4" }, {}));
+            if (o?.payload?.text)
+                return o.payload.text;
+        }
+        return "";
+    };
+    return { turn, sleepCalls, wakeCalls, timers, store, workerCalled, delivered };
 }
 describe("bedtime phrasings reach the one bedtime writer, never the wake tool or the scheduler", () => {
     it.each([
@@ -161,5 +169,30 @@ describe("review fixes: a timer is only an order, and the rest of the message is
         expect(h.timers.map((t) => t.seconds)).toEqual([600]);
         expect(prompt).toMatch(/Timer set: 10 minutes/);
         expect(prompt).toMatch(/add a 30 min walk to my calendar/);
+    }, 30000);
+});
+describe("gate 3 #72: the reminder reply states what was actually stored", () => {
+    it("a worker that stored another time than the plan is told as stored, in 12-hour time", async () => {
+        const h = setup();
+        const h2 = h;
+        await h2.turn("remind me at 8 to take my vitamins");
+        await h2.workerCalled("r1", { steps: [{ action: "alarm_set", at: "2026-11-05T20:00", label: "take my vitamins" }] });
+        expect(await h2.delivered("r1")).toMatch(/I set that reminder for 8:00 PM to take my vitamins, not 8:00 AM/);
+    }, 30000);
+    it("the plan's own sentence stands when the call matched", async () => {
+        const h = setup();
+        await h.turn("remind me at 8 to take my vitamins");
+        await h.workerCalled("r1", { steps: [{ action: "alarm_set", at: "2026-11-05T08:00", label: "take my vitamins" }] });
+        expect(await h.delivered("r1")).toMatch(/I'll remind you at 8:00 AM/);
+    }, 30000);
+});
+describe("gate 3 #23: 'again in 15 mins' after a reminder is a reminder, not a 60 min block", () => {
+    it.each(["and again in 15 mins to drink water", "again in 20 min to drink water", "once more in an hour to drink water"])("%s", async (said) => {
+        const h = setup();
+        await h.turn("remind me to ring the dentist at 3pm");
+        await h.workerCalled("r1", { steps: [{ action: "alarm_set", at: "2026-11-05T15:00", label: "ring the dentist" }] });
+        const prompt = await h.turn(said);
+        expect(prompt).toMatch(/"action":"alarm_set"/);
+        expect(prompt).not.toMatch(/orion-reschedule/);
     }, 30000);
 });

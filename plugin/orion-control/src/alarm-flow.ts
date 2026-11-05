@@ -28,7 +28,8 @@ const hhmmOf = (d: Date): string => `${String(d.getHours()).padStart(2, "0")}:${
 
 /** The wake date a request means: tomorrow (the coming morning), today, a weekday word (the CLI picks the next), or the next time that clock comes round. */
 export function wakeDateArg(day: AlarmDay | undefined, time: string, now: Date): string {
-  if (day === "tomorrow") return plusDays(eveningOf(now), 1);
+  // Before 5 AM he is still in tonight: "tomorrow" is the coming morning, today's date (calendar-intent.ts LATE_NIGHT_UNTIL, the same rule as the day reads).
+  if (day === "tomorrow") return now.getHours() < 5 ? ymd(now) : plusDays(ymd(now), 1);
   if (day === "today") return ymd(now);
   if (day) return day;
   return hhmmOf(now) < time ? ymd(now) : plusDays(ymd(now), 1);

@@ -55,21 +55,29 @@ test("reset puts the bedtime back to what it was before he fixed one, clears ton
   assert.notEqual(out.readback.sleepBy, "23:15");
   assert.notEqual(out.readback.sleepBy, "00:00");
   const s = saved();
-  assert.equal(s.bedtime, "23:00");
+  assert.equal(s.bedtime, "23:00");   // he had one before fixing: exactly that comes back
   assert.notEqual(s.sleepPlan.bedFixed, true);
   assert.equal(s.sleepPlan.bedOverrides, undefined);
   assert.equal(s.sleepPlan.bedWas, undefined);
 });
 
-test("reset on a default config leaves the default bedtime, and a second fix after a reset remembers the right one", (t) => {
-  const { run, saved } = sandbox(t);
+test("reset on a config that never had a bedtime removes the key again (gate 3 #9/#10: the snapshot had none)", (t) => {
+  const { run, saved } = sandbox(t, { commuteMinutes: 45 });
   run("bedtime", "23:15", "--json");
-  run("bedtime", "23:20", "--json");   // already fixed: the remembered one is still the original
+  assert.equal(saved().bedtime, "23:15");
+  run("bedtime", "23:20", "--json");   // already fixed: nothing new is remembered
   run("bedtime", "reset", "--json");
-  assert.equal(saved().bedtime, "00:00");
+  assert.equal("bedtime" in saved(), false);
+  assert.equal(saved().commuteMinutes, 45, "the rest of the config is untouched");
   run("bedtime", "23:40", "--json");
   run("bedtime", "reset", "--json");
-  assert.equal(saved().bedtime, "00:00");
+  assert.equal("bedtime" in saved(), false);
+});
+
+test("reset when no bedtime was ever fixed writes nothing", (t) => {
+  const { run, saved } = sandbox(t, { commuteMinutes: 45 });
+  assert.equal(run("bedtime", "reset", "--json").code, 0);
+  assert.equal("bedtime" in saved(), false);
 });
 
 test("orion-wake clear sets each request aside under its own name instead of deleting alarm data", (t) => {

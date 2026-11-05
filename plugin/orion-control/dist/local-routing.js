@@ -618,6 +618,11 @@ export function spokenFinalLine(allFindings, ctx) {
 const wroteThisTurn = (tools) => tools.some((t) => /orion-reschedule|orion-tasks|orion_task_run|orion-session|orion-remember/.test(t.canonical) && !/\b(show|day|list|status)\b/.test(t.canonical));
 /** Whether the worker made the directive's call (directly, or through tool_call with the orion_task_run id).
  *  2026-10-16 (tool wiring): a "Tool orion_task_run not found" or error result is not a call made. */
+/** The `at` of the alarm_set call the worker actually made (the last one), "YYYY-MM-DDTHH:MM", or undefined. */
+const actualAlarmAt = (tools) => {
+    const hit = [...tools].reverse().find((t) => madeTaskRunCall(t, "alarm_set"));
+    return hit ? /\\?"at\\?":\\?"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/.exec(hit.canonical)?.[1] : undefined;
+};
 const directiveCalled = (run) => !!run.directive && run.tools.some((t) => madeTaskRunCall(t, run.directive.action));
 /** The tool family that can stand in for each directive action (re-review, 2026-10-16): an unrelated success
  *  (lights, supplement_add) must not carry a reply about weather or a dose. */
@@ -2848,8 +2853,13 @@ export function registerLocalRouting(api, options) {
                     remember([runId, sessionKeyNow], owed);
                 }
                 // Wave 6 B (foc-pomodoro-break-v): once it is set, the reply is code's line (worded on pluginNow), never the worker's paraphrase of the tool result.
-                else if (!run.flow && run.reminder.say)
-                    run.flow = { outcome: "done", calls: [], outputs: [], reply: run.reminder.say };
+                else if (!run.flow && run.reminder.say) {
+                    // w20 r5 (gate 3 #72): the reply states what the call actually stored. A worker that set another time than the planned one (the desk's own
+                    // "20:00" for "at 8") is told as it is, never as the plan said.
+                    const actual = action === "alarm_set" ? actualAlarmAt(run.tools) : undefined;
+                    const off = actual && run.reminder.at && actual !== run.reminder.at && run.reminder.label;
+                    run.flow = { outcome: "done", calls: [], outputs: [], reply: off ? `I set that reminder for ${ampm12(actual.slice(11, 16))} ${actual.slice(0, 10) === run.reminder.at.slice(0, 10) ? "" : `on ${actual.slice(0, 10)} `}to ${run.reminder.label}, not ${ampm12(run.reminder.at.slice(11, 16))}. Say if that's wrong and I'll move it.` : run.reminder.say };
+                }
             }
             // 2026-10-19 backstop: the worker was refused `orion-reschedule <write>` and no flow acted. Its reply is never "I can't" or "I need you to
             // confirm" (he had confirmed): the sentence the guard asked it to write is read by the schedule flow (all its guards), else an honest line.

@@ -321,7 +321,7 @@ const WHEN_HOME_TAIL = /[,\s]*(?:when|once|as soon as|after)\s+(?:i|we)\b.*$/i;
 const IMPORTANT_TAIL = /[,.\s]*(?:it'?s |this is )?(?:really |very )?important\s*$/i;
 
 // "and another in 15 mins to drink water" right after a reminder: a second reminder (w20 r4, gate 2 #31: it became a calendar block).
-const ANOTHER = /^(?:(?:and|also|then|ok(?:ay)?|oh|actually|yeah|plus)[,\s]+)*(?:another(?:\s+(?:one|reminder|alarm))?|one more(?:\s+(?:reminder|alarm))?|a second(?:\s+(?:one|reminder))?|a 2nd(?:\s+one)?)\s+((?:in|at|for|around|by|tomorrow|tonight)\b.*)$/i;
+const ANOTHER = /^(?:(?:and|also|then|ok(?:ay)?|oh|actually|yeah|plus)[,\s]+)*(?:another(?:\s+(?:one|reminder|alarm))?|(?:same\s+)?again|once more|one more time|one more(?:\s+(?:reminder|alarm))?|a second(?:\s+(?:one|reminder))?|a 2nd(?:\s+one)?)\s+((?:in|at|for|around|by|tomorrow|tonight)\b.*)$/i;
 /** A second reminder asked for with a time and no verb. Only meaningful right after one was set (the caller checks). */
 export const isAnotherReminder = (message: string): boolean => ANOTHER.test(fixTypos(message).trim()) && (CLOCK.test(message) || RELATIVE.test(message) || /\bat\s+\d/i.test(message));
 

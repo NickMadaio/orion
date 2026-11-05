@@ -152,6 +152,18 @@ export function loadConfig(file = CONFIG_FILE) {
   return { ...merged, anchors: Array.isArray(saved.anchors) || legacy ? anchorsFrom(merged) : DEFAULT_ANCHORS.map((a) => ({ ...a, days: [...a.days] })) };
 }
 
+/** Removes one setting from the saved file, so the default applies again (a reset puts back "no bedtime", not a copy of the default). */
+export function unsetConfig(key, file = CONFIG_FILE) {
+  let current;
+  try { current = JSON.parse(readFileSync(file, "utf8")); } catch { return false; }
+  if (!current || typeof current !== "object" || !(key in current)) return false;
+  const { [key]: _gone, ...rest } = current;
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(rest, null, 2));
+  renameSync(tmp, file);
+  return true;
+}
+
 const VALIDATORS = {
   commuteMinutes: (v) => Number.isInteger(v) && v >= 0 && v <= 180,
   homeGapMinutes: (v) => Number.isInteger(v) && v >= 60 && v <= 600,

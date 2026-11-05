@@ -121,11 +121,25 @@ export function readBedtimeChange(message: string): BedChange | undefined {
 // "going to bed at 11:30, set an alarm for 7": the bedtime is the first clause and the alarm time belongs to the alarm clause (w20 fix-sleep).
 const ALARM_CLAUSE = /(?:[,;.]\s*|\s+(?:and|then|also|plus|&)\s+)(?=(?:(?:and|also|then)\s+)?(?:(?:set|put|make|add)\b[^,;.]{0,25}\b(?:alarm|wake)|wake\s+me|(?:an? )?alarm\b|get me up))/i;
 
-/** A bedtime clause followed by an alarm clause: the bedtime change and the alarm clause's own text, or undefined. */
+const ALARM_FIRST = /^(?:(?:and|also|then|ok(?:ay)?|please|pls|orion|hey)\s+)*(?:(?:set|put|make|add)\b[^,;.]{0,25}\b(?:alarm|wake)|wake\s+me|(?:an? )?alarm\b|get me up)/i;
+const JOINER = /\s*[,;]\s*(?:and\s+|then\s+|also\s+)?|\s+(?:and then|and also|and|then|also|plus|&)\s+/gi;
+
+/**
+ * A bedtime clause and an alarm clause in one message, in either order: the bedtime change and the alarm clause's own text, or undefined.
+ * "going to bed at 11:30, set an alarm for 7" and "wake me at 7 tomorrow and bedtime tonight is midnight" (w20 r5, gate 3 #103: the second dropped the bedtime).
+ */
 export function readBedtimeWithAlarm(message: string): { change: BedChange; alarmText: string } | undefined {
   const hit = ALARM_CLAUSE.exec(message);
-  if (!hit) return undefined;
-  const change = readBedtimeChange(message.slice(0, hit.index));
-  const alarmText = message.slice(hit.index + hit[0].length).replace(/^(?:and|also|then)\s+/i, "").trim();
-  return change && !("reset" in change) && alarmText ? { change, alarmText } : undefined;
+  if (hit) {
+    const change = readBedtimeChange(message.slice(0, hit.index));
+    const alarmText = message.slice(hit.index + hit[0].length).replace(/^(?:and|also|then)\s+/i, "").trim();
+    return change && !("reset" in change) && alarmText ? { change, alarmText } : undefined;
+  }
+  for (const m of message.matchAll(JOINER)) {
+    const left = message.slice(0, m.index).trim(); const right = message.slice((m.index ?? 0) + m[0].length).trim();
+    if (!left || !right || !ALARM_FIRST.test(left)) continue;
+    const change = readBedtimeChange(right);
+    if (change && !("reset" in change) && !readBedtimeChange(left)) return { change, alarmText: left };
+  }
+  return undefined;
 }

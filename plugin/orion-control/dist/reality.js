@@ -1,6 +1,10 @@
 import { noteOf } from "./scheduler-out.js";
+import { readDayEdit, touchesPast } from "./day-edit.js";
+import { runDayEdit } from "./day-edit-run.js";
+import { readOverride } from "./day-edit-memory.js";
 import { readDayRequest, runDayRequest, whyNot, yesterdayOf } from "./day-requests.js";
 import { pluginNow } from "./plugin-clock.js";
+import { readIntent } from "./calendar-intent.js";
 import { intentOf, namesTitle, pickByTime, resolveBlockName, whichOne } from "./block-names.js";
 import { napWindow } from "./nap-window.js";
 import { asksToShiftAfter, namesOwnEvent, nothingToMove } from "./own-event-writes.js";
@@ -91,6 +95,11 @@ export function readReality(message, now = pluginNow()) {
         return null;
     // A calendar request code carries out itself comes first (day-requests.ts): its own reader rules out questions and conditions
     // ("can we do gym later, like after dinner" is a request, not a question).
+    // w20 sched: what he says about time that is already gone is a record of his day (logged, not refused), and several edits in one
+    // message are all done. The older readers keep every single future edit they already read.
+    const edit = readOverride(message, now) ?? readDayEdit(message, now);
+    if (edit && (touchesPast(edit, now) || edit.parts.length > 1 || edit.parts.some((p) => p.op === "bedtime" || p.op === "busy")))
+        return { reality: { kind: "edit", edit }, rest: false };
     const request = readDayRequest(message, now);
     if (request)
         return { reality: { kind: "request", request }, rest: false };
@@ -143,6 +152,9 @@ export function readReality(message, now = pluginNow()) {
     const place = PLACE.exec(m);
     if (place)
         return { reality: { kind: "place", place: place[1] }, rest };
+    // natural times, typo'd ranges and filler the older readers leave to the model: one edit read here, when the intent layer would not
+    if (edit && !("intent" in (readIntent(message, { now }) ?? {})))
+        return { reality: { kind: "edit", edit }, rest: false };
     return null;
 }
 // ---- matching his words against the day (block-names.ts: "macro" is ECON1115 by its course, "marketing" is MKTG2201) ----
@@ -498,6 +510,8 @@ export async function runReality(read, deps) {
         return attendedIt(r, deps);
     if (r.kind === "request")
         return runDayRequest(r.request, deps);
+    if (r.kind === "edit")
+        return runDayEdit(r.edit, deps);
     return noted(r, deps, deps.next);
 }
 /** Only the fact, for a statement that also asks for another change ("i skipped marketing, put catch-up tomorrow"): the change goes on as usual. */

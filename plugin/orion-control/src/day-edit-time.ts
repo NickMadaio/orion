@@ -9,7 +9,7 @@
  for something he wants (future) the first time still to come, for a move of something that happened the one nearest its old slot.
 */
 import { parseClock, spokenTimesToDigits, type Said } from "./intent-time.js";
-import { EARLY_CUE, wakingOnly } from "./waking-hours.js";
+import { EARLY_CUE, LATE_CUE, wakingOnly } from "./waking-hours.js";
 
 export type Mode = "past" | "future";
 const HOURS = "one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve";
@@ -61,9 +61,12 @@ const exact = (s: Said): number => (s.ap ? (s.h % 12) * 60 + (s.ap === "p" ? 720
 // A bare clock is a time he is awake for (waking-hours.ts): "2-4" is 14:00-16:00, "at half 5" is 17:30, unless he made it exact or said early morning.
 const options = (s: Said): number[] => (s.exact || s.h === 0 || s.h > 12 ? [exact(s)] : wakingOnly(s.h === 12 ? [s.m, 720 + s.m] : [s.h * 60 + s.m, s.h * 60 + s.m + 720]));
 
-/** His words say early morning: a bare clock in them is the small hours, made exact. */
+/** His words carry a time of day ("breakfast", "5 in the morning", "dinner", "this arvo", "tonight"): a bare clock in them is read that way, made exact. */
 export function withEarlyCue<T extends Said>(s: T, text: string): T {
-  return EARLY_CUE.test(text) && !s.exact && !s.ap && s.h >= 1 && s.h <= 11 ? { ...s, ap: "a" as const, exact: true } : s;
+  if (s.exact || s.ap || s.h < 1 || s.h > 11) return s;
+  if (EARLY_CUE.test(text) && !LATE_CUE.test(text)) return { ...s, ap: "a" as const, exact: true };
+  if (LATE_CUE.test(text) && !EARLY_CUE.test(text)) return { ...s, ap: "p" as const, exact: true };
+  return s;
 }
 
 /** One clock: exact as said, else toward the sentence's direction (`near`: the old slot of what is being moved). */

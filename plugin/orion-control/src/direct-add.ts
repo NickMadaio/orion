@@ -10,7 +10,7 @@
    - spelled-out times ("ten thirty") are read as digits first
  Anything that is not this exact shape returns undefined and the form handles it as before.
 */
-import { EARLY_CUE, WAKING_FROM } from "./waking-hours.js";
+import { EARLY_CUE, LATE_CUE, WAKING_FROM } from "./waking-hours.js";
 import type { AskContext, Day } from "./schedule-flow.js";
 import { isYes } from "./schedule-pending.js";
 import { clockAfter, parseClock, resolveEnd, spokenTimesToDigits } from "./intent-time.js";
@@ -25,6 +25,11 @@ export function eveningTime(t: string | undefined, nowMinute: number, message: s
   const m = toMin(t);
   // w20 r3 (waking-hours.ts): a small hour (1:00-6:59) he did not call morning is the afternoon or evening one, at any hour of the night:
   // "add gym at half 5" at 1 AM is 17:30. A 24-hour way of writing it ("05:30") is exact and stays.
+  // His words name the part of the day (dinner, tonight, this arvo: evening; breakfast, first thing: morning): that decides it.
+  if (start && m >= 60 && m < 720 && !/\b0\d:\d{2}\b/.test(message)) {
+    if (EARLY_CUE.test(message) && !LATE_CUE.test(message)) return t;
+    if (LATE_CUE.test(message) && !EARLY_CUE.test(message)) return hhmm(m + 720);
+  }
   if (start && m >= 60 && m < WAKING_FROM && !EARLY_CUE.test(message) && !/\b0\d:\d{2}\b/.test(message)) return hhmm(m + 720);
   return m < nowMinute && m + 720 > nowMinute && m + 720 < 1440 && m >= 60 && m < 720 ? hhmm(m + 720) : t;
 }

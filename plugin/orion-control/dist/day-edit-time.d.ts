@@ -14,7 +14,7 @@ export declare function takeClock(text: string): {
     s: Said;
     rest: string;
 } | null;
-/** His words say early morning: a bare clock in them is the small hours, made exact. */
+/** His words carry a time of day ("breakfast", "5 in the morning", "dinner", "this arvo", "tonight"): a bare clock in them is read that way, made exact. */
 export declare function withEarlyCue<T extends Said>(s: T, text: string): T;
 /** One clock: exact as said, else toward the sentence's direction (`near`: the old slot of what is being moved). */
 export declare function pickClock(s: Said, now: number, mode: Mode, near?: number): number;

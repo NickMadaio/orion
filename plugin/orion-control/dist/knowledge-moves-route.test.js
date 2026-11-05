@@ -17,6 +17,8 @@ function route(knowledgeRun) {
         brainSearch: async () => "",
         scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }),
         realityRun: async () => ({ stdout: "ok", code: 0 }),
+        // The ledger is wired as in production: a restore phrase must reach the knowledge route past the ledger's own asks (r5 review HIGH 1).
+        ledgerRun: async () => ({ stdout: "", code: 0 }),
         knowledgeRun, });
     let n = 0;
     const turn = async (prompt) => {

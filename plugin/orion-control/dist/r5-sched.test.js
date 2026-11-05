@@ -193,3 +193,7 @@ describe("#102 a past range is never end-before-start or ending now", () => {
         expect(out.writes).toBe(1);
     });
 });
+describe("r5 review HIGH 1: 'put it back' is the single put-back, never undo-all", () => {
+    it.each(["wait put it back", "put it back", "put that back", "ok put it back pls"])("%s is not an undo-all", (say) => expect(readLedgerAsk(say)?.all).toBeUndefined());
+    it.each(["put it all back", "put everything back", "put the lot back", "undo the lot", "undo all of that"])("%s is", (say) => expect(readLedgerAsk(say)?.all).toBe(true));
+});

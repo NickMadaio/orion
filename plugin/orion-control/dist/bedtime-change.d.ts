@@ -15,6 +15,7 @@ export type Readback = {
     lockdownBelowHours: number;
     tonightOnly: boolean;
     standing: string;
+    fixed?: boolean;
 };
 export type BedResult = {
     ok: true;
@@ -32,7 +33,7 @@ export declare function applyBedChange(c: BedChange, run: BedRun): Promise<BedRe
     args: string[];
 }>;
 /** What moved with the bedtime, in his words, from the read-back alone. */
-export declare function bedtimeSentence(b: Readback): string;
+export declare function bedtimeSentence(b: Readback, reset?: boolean): string;
 export declare function runBedChange(c: BedChange, run: BedRun): Promise<{
     flow: FlowResult;
     tools: Array<{

@@ -13,11 +13,11 @@ import type { BedChange } from "./bedtime-read.js";
 import { meridiem } from "./sleep-fmt.js";
 
 export type BedRun = (args: string[]) => Promise<{ stdout: string; code: number }>;
-export type Readback = { evening: string; sleepBy: string; nudgeAt: string; wake: string; wakeDate: string; alarmAsked: boolean; hours: number; lockdownBelowHours: number; tonightOnly: boolean; standing: string };
+export type Readback = { evening: string; sleepBy: string; nudgeAt: string; wake: string; wakeDate: string; alarmAsked: boolean; hours: number; lockdownBelowHours: number; tonightOnly: boolean; standing: string; fixed?: boolean };
 export type BedResult = { ok: true; readback: Readback; was?: string; stdout: string } | { ok: false; error: string; stdout: string };
 
 export const bedArgs = (c: BedChange): string[] => [
-  "bedtime", ...("time" in c ? [c.time] : ["shift", String(c.shift)]), ...(c.scope === "tonight" ? ["--tonight"] : []), "--json",
+  "bedtime", ...("reset" in c ? ["reset"] : "time" in c ? [c.time] : ["shift", String(c.shift)]), ...(c.scope === "tonight" ? ["--tonight"] : []), "--json",
 ];
 
 /** Runs the one writer and parses its read-back; any failure is an error with the script's own reason. */
@@ -34,7 +34,8 @@ export async function applyBedChange(c: BedChange, run: BedRun): Promise<BedResu
 const hm = (hours: number): string => { const t = Math.round(hours * 60); const h = Math.floor(t / 60); const m = t % 60; return m ? `${h}h${String(m).padStart(2, "0")}` : `${h}h`; };
 
 /** What moved with the bedtime, in his words, from the read-back alone. */
-export function bedtimeSentence(b: Readback): string {
+export function bedtimeSentence(b: Readback, reset = false): string {
+  if (reset) return `Back to normal. Bedtime's ${meridiem(b.sleepBy)} tonight, worked out from your ${meridiem(b.wake)} alarm and how much sleep you need, not a fixed time. Wind-down at ${meridiem(b.nudgeAt)}.`;
   const when = b.tonightOnly ? "tonight" : "every night from now on";
   const alarm = `alarm ${b.alarmAsked ? "still" : "(the automatic one)"} ${meridiem(b.wake)}`;
   const parts = [`Bedtime ${meridiem(b.sleepBy)} ${when}.`, `Wind-down at ${meridiem(b.nudgeAt)}, ${alarm}, that's ${hm(b.hours)} of sleep.`];
@@ -47,5 +48,5 @@ export async function runBedChange(c: BedChange, run: BedRun): Promise<{ flow: F
   const r = await applyBedChange(c, run);
   const tools = [{ canonical: `exec orion-sleepplan ${r.args.join(" ")}`, stdout: r.stdout, exit: r.ok ? 0 : 1 }];
   if (!r.ok) return { flow: { outcome: "say", kind: "plain", text: `I couldn't change your bedtime (${r.error}), so it's as it was.` }, tools };
-  return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply: bedtimeSentence(r.readback) }, tools };
+  return { flow: { outcome: "done", calls: tools.map((t) => t.canonical), outputs: tools.map((t) => t.stdout), reply: bedtimeSentence(r.readback, "reset" in c) }, tools };
 }

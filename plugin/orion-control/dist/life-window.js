@@ -7,7 +7,7 @@
 */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { sandboxNowMs } from "./plugin-clock.js";
+import { pluginNow, sandboxNowMs } from "./plugin-clock.js";
 /** scripts/lib/life/config.mjs DEFAULTS. */
 const DEFAULT_BEDTIME = 0;
 const DEFAULT_WIND_DOWN = 30;
@@ -24,15 +24,22 @@ function readLifeConfig(stateDir) {
         return {};
     }
 }
+/** Tonight's bedtime: a night he named (sleepPlan.bedOverrides[evening], the day turns at 04:00) else the standing one (scripts/lib/life/effective-bed.mjs). */
+function effectiveBedtime(stateDir, config) {
+    const evening = new Date(pluginNow(stateDir ? { dir: stateDir } : {}).getTime() - 4 * 3600_000).toLocaleDateString("en-CA");
+    const forced = config.sleepPlan?.bedOverrides?.[evening];
+    return validTime(forced) ? forced : config.bedtime;
+}
 /** His bedtime in minutes after midnight (midnight when unset or unreadable). */
 export function bedtimeMin(stateDir) {
-    const bed = readLifeConfig(stateDir).bedtime;
+    const bed = effectiveBedtime(stateDir, readLifeConfig(stateDir));
     return validTime(bed) ? minutesOf(bed) : DEFAULT_BEDTIME;
 }
 /** The latest a planned block may end today: bedtime less wind-down, on the evening's clock (00:30 bedtime is 24:00 at most). */
 export function dayEndFor(stateDir) {
     const config = readLifeConfig(stateDir);
-    const bed = validTime(config.bedtime) ? minutesOf(config.bedtime) : DEFAULT_BEDTIME;
+    const named = effectiveBedtime(stateDir, config);
+    const bed = validTime(named) ? minutesOf(named) : DEFAULT_BEDTIME;
     const wind = Number.isInteger(config.windDownMinutes) && Number(config.windDownMinutes) >= 0 ? Number(config.windDownMinutes) : DEFAULT_WIND_DOWN;
     const line = bed < 12 * 60 ? bed + 1440 : bed;
     return Math.min(1440, line - wind);

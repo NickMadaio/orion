@@ -1351,10 +1351,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // A stall ("in 10") answering ORION's own line is that line's loop (outreach-reply.ts); a bare time after "What time?" is the reminder's.
     const move = free && !pendingYes && !lighten && !phoneBlock ? readFocusMove(message) ?? undefined : undefined;
     const focusMove = move?.kind === "stall" && (parseOutreach(raw) || reminderAsk.has(sessionKey)) ? undefined : move;
-    const health = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+    const healthRead = free && !pendingYes && !lighten && !move && options.stateDir ? readHealthIntent(message, (options.now ?? pluginNow)()) ?? undefined : undefined;
+    // A bedtime the health reader caught goes through orion-sleepplan like every other bedtime (scope, bedFixed and read-back identical on both routes);
+    // health-log.ts runBedtime writes the file itself only when there is no sleep-plan runner (no state-dir-only callers).
+    const healthBed = healthRead?.kind === "bedtime" && !healthRead.read && healthRead.time && options.sleepPlanRun ? healthRead : undefined;
+    const health = healthBed ? undefined : healthRead;
     const sheld = sessionKey ? sleepPending.take(sessionKey, Date.now()) : undefined;   // W10-B: before preference-remember can keep it as a "preference"
     const alarmCtx = { now: (options.now ?? pluginNow)(), ...(sessionKey && sleepPending.recentAlarm(sessionKey, Date.now()) ? { recentAlarm: true } : {}) };   // W18 (alarm-read.ts)
-    const sleepTurn = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message, alarmCtx)) ? readSleepTurn(message, { held: sheld, ...alarmCtx }) : undefined;
+    const sleepTurnRead = free && !pendingYes && !phoneBlock && options.sleepPlanRun && !isCrisis(message) && (sheld || (!lighten && !move && !health) || ownsSleepStatement(message, alarmCtx)) ? readSleepTurn(message, { held: sheld, ...alarmCtx }) : undefined;
+    const sleepTurn = sleepTurnRead ?? (healthBed && free && !phoneBlock && !isCrisis(message) ? { kind: "bedset" as const, change: { time: healthBed.time!, scope: healthBed.scope ?? "tonight" } } : undefined);
     const preference = !sleepTurn && !phoneBlock && free && !pendingYes && !lighten && !move && !health && options.rememberRun && (!spokenTurn || tellsFactAloud(message)) ? readPreference(message) : undefined;
     // Wave 12 (correction-learn.ts): a correction meant to last becomes a standing rule in USER.md (never in an evaluation); the turn goes on as usual.
     // Fixer: what ORION just proposed (its label, last push, held offer or memo), so "no dont move my study block" stays one-off.

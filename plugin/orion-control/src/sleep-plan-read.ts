@@ -18,7 +18,7 @@ import { isNo, isYes } from "./schedule-pending.js";
 import { saysYes } from "./day-lighten.js";
 import { readAlarm, type AlarmReq } from "./alarm-read.js";
 import { normalizeSpoken } from "./spoken-numbers.js";
-import { readBedtimeChange, type BedChange } from "./bedtime-read.js";
+import { readBedtimeChange, readBedtimeWithAlarm, type BedChange } from "./bedtime-read.js";
 import { AMOUNT, clean, LEAD, leadMinutes, slotsOf, wakeTime, type Draft } from "./sleep-plan-slots.js";
 
 export type { Draft, DayWake } from "./sleep-plan-slots.js";
@@ -35,7 +35,7 @@ export type SleepTurn =
   /** "i wanna sleep earlier this week": sleep only, nothing about waking. A new bedtime, said and saved in one reply. */
   | { kind: "bedtime"; time?: string }
   /** w20 routegate (bedtime-read.ts): an exact bedtime or a shift, tonight or every night; carried out by bedtime-change.ts. */
-  | { kind: "bedset"; change: BedChange }
+  | { kind: "bedset"; change: BedChange; /** "going to bed at 11:30, set an alarm for 7": the alarm clause, read on its own */ alarm?: AlarmReq }
   /** W18: one morning's alarm said outright: set, off, moved, or read (alarm-read.ts, alarm-flow.ts). */
   | { kind: "alarm"; req: AlarmReq };
 
@@ -212,6 +212,11 @@ export function readSleepTurn(raw: string, { held, now, recentAlarm }: { held?: 
   const message = normalizeSpoken(raw);   // the shared spoken-number normaliser, ahead of every reader below
   const fresh = readHabit(message);
   if (fresh) return { kind: "interview", draft: held && held.step !== "confirm" ? merge(held.draft, fresh) : fresh };
+  const both = readBedtimeWithAlarm(message);
+  if (both) {
+    const alarm = readAlarm(both.alarmText, alarmCtx({ now, ...(recentAlarm ? { recentAlarm } : {}) }));
+    return alarm?.kind === "set" ? { kind: "bedset", change: both.change, alarm } : undefined;   // an alarm half that cannot be read: nothing is guessed, the model asks
+  }
   const bedset = readBedtimeChange(message);
   if (bedset) return { kind: "bedset", change: bedset };
   const bed = readBedShift(message);

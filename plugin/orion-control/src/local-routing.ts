@@ -129,7 +129,7 @@ import { WorkoutMemory, readWorkoutPending, runWorkoutTurn, type WorkoutRun } fr
 import { readMouseTurn } from "./mouse-read.js";   // w18 mousechat
 import { MouseMemory, runMouseTurn, type MouseRun } from "./mouse-chat.js";   // w18 mousechat
 import { answeredCardLine } from "./questions-store.js";
-import { MadeLedger } from "./made-ledger.js";   // w20 r3: one "recent things I made" ledger per chat
+import { MadeLedger, contentWords } from "./made-ledger.js";   // w20 r3: one "recent things I made" ledger per chat
 import { readLedgerAsk, type LedgerAsk } from "./ledger-ask.js";
 import { runLedgerAsk, type JournalEntry, type LedgerRun } from "./ledger-run.js";
 import { liveMailPrefsRun, readMailMove, runMailMove, type MailPrefsRun } from "./mail-flow.js";   // wave 14 f-mail
@@ -966,17 +966,21 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   // w20 wording: the chats whose last reply was "I can't do that yet ... Want me to build that?": the request, so a yes starts the fix project for it.
   const buildOffers = new Map<string, { request: string; at: number }>();
   /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
-  const sessionChanges = new Map<string, { at: number; first: number; marks: string[] }>();
+  const sessionChanges = new Map<string, { at: number; first: number; marks: string[]; /** Journal stamps this chat wrote (another writer's entry is never this chat's to undo). */ stamps: string[] }>();
+  const ledgerHeld = new Map<string, { kind: "block" | "note" | "reminder" | "food" | "water"; label: string; at: number }>();
+  const journalTopAt = (): string | undefined => [...(options.undoJournal ? options.undoJournal() : undoJournalEntries())].reverse().find((e) => (e.steps ?? []).length)?.at;
   const madeLedger = new MadeLedger();   // w20 r3 (made-ledger.ts)
   const ledgerSeen = new WeakSet<object>();
   /** Per session: what the last reality statement did (declared facts, calendar writes), for its "undo" (reality.ts). Any later change forgets it. */
   const lastReality = new Map<string, { facts: string[]; writes: number; at: number }>();
-  const recordChange = (sessionKey: string | undefined, marks: string[]) => {
+  const recordChange = (sessionKey: string | undefined, marks: string[], stamp = true) => {
     forgetMade(sessionKey);   // any write: "make it an hour" no longer means the older block (review of 45b3383)
     if (!sessionKey) return;
     lastReality.delete(sessionKey);
     forgetReplan(sessionKey);
-    sessionChanges.set(sessionKey, { at: Date.now(), first: sessionChanges.get(sessionKey)?.first ?? Date.now(), marks: [...(sessionChanges.get(sessionKey)?.marks ?? []), ...marks] });
+    const top = stamp ? journalTopAt() : undefined;
+    const prior = sessionChanges.get(sessionKey);
+    sessionChanges.set(sessionKey, { at: Date.now(), first: prior?.first ?? Date.now(), marks: [...(prior?.marks ?? []), ...marks], stamps: [...(prior?.stamps ?? []), ...(top ? [top] : [])] });
   };
   /** r8b2 (2026-10-16): per session, the block the last code day answer named (what "and after that?" means), short window. */
   const dayMemory = new Map<string, { at: number; memory: DayMemory }>();
@@ -1357,7 +1361,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // w19 selffix (selffix-flow.ts): "why did you do that" / "that was wrong" (he reads his own last turns and answers), or his now / later / no to a fix offer.
     // A "why is X first" plan question belongs to plan-why.ts, not to self-diagnosis.
     // w20 r3 (ledger-ask.ts): "undo", "scrap the gym block i just added", "delete that note i just made", "cancel the stretch one": the ledger's.
-    const ledgerAsk = on && !cutOff && !quietTurn && !isCrisis(message) && options.ledgerRun ? readLedgerAsk(message) ?? undefined : undefined;
+    const heldAsk = sessionKey ? ledgerHeld.get(sessionKey) : undefined;
+    if (sessionKey) ledgerHeld.delete(sessionKey);   // any next turn answers or drops the question
+    const ledgerAsk: LedgerAsk | undefined = on && !cutOff && !quietTurn && !isCrisis(message) && options.ledgerRun
+      ? (heldAsk && nowMs() - heldAsk.at < STITCH_WINDOW_MS && (isYes(message.replace(/[.!?…]+$/, "")) || saysYes(message))
+        ? { verb: "remove", strong: true, kinds: [heldAsk.kind], targets: [contentWords(heldAsk.label)], pointing: false, bare: false, confirmed: true }
+        : readLedgerAsk(message) ?? undefined) : undefined;
     const ledgerOwns = !!ledgerAsk?.strong;
     const smove = on && !cutOff && !quietTurn && !ledgerOwns && !isCrisis(message) && !whyFirstAsk(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()),
       ...(sessionKey && buildOffers.has(sessionKey) && nowMs() - buildOffers.get(sessionKey)!.at < 3 * 3600_000 ? { build: { request: buildOffers.get(sessionKey)!.request } } : {}) }) : undefined;
@@ -1749,14 +1758,15 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const key = run.sessionKey; const changes = key ? sessionChanges.get(key) : undefined;
         const out = await withTimeout(runLedgerAsk(run.ledger, { run: options.ledgerRun, now: Date.now(), nothingText: UNDO_NOTHING_TO_UNDO,
           readDay: (a) => (options.readDayJson ? options.readDayJson(a) : Promise.resolve(undefined)),
-          items: madeLedger.recent(key, Date.now()), ...(changes ? { calendar: { since: changes.first, last: changes.at } } : {}),
+          owned: (at) => !!changes?.stamps.includes(at), items: madeLedger.recent(key, Date.now()), ...(changes ? { calendar: { since: changes.first, last: changes.at } } : {}),
           journal: options.undoJournal ?? (() => undoJournalEntries()),
           ...(options.listReminders && options.removeReminders ? { reminders: { list: options.listReminders, remove: options.removeReminders } } : {}) }).catch(() => undefined), 90000);
         if (out) {
           run.provided = true; run.flow = { outcome: "say", kind: "plain", text: out.text };
           out.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
           out.removed.forEach((item) => madeLedger.forget(key, madeLedger.recent(key, Date.now()).find((i) => i.kind === item.kind && i.label === item.label) ?? item));
-          if (out.wroteCalendar) { recordChange(key, []); forgetReplan(key); }
+          if (out.held && key) ledgerHeld.set(key, { ...out.held, at: Date.now() });
+          if (out.wroteCalendar) { recordChange(key, [], !out.calls.some((c) => /orion-reschedule undo$/.test(c))); forgetReplan(key); }
           markRead(run, "day");
         }
       }

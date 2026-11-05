@@ -110,13 +110,13 @@ import { fileURLToPath } from "node:url";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where", "--checkin", "--keep"].includes(args[i - 1])));
+const positional = args.filter((a, i) => !a.startsWith("--") && !(i > 0 && ["--why", "--at", "--before", "--id", "--date", "--plan", "--say", "--until", "--then", "--to", "--after", "--by", "--now", "--gap", "--minutes", "--from", "--instead", "--include", "--where", "--checkin", "--keep"].includes(args[i - 1])));
 const planArgs = args.flatMap((a, i) => (a === "--plan" && args[i + 1] ? [args[i + 1]] : []));
 const [command, ...restRaw] = positional;
 // An option this tool does not have is an error, never silently ignored
 // (2026-10-06: ORION passed "--until 20:00" when it did not exist; the evening
 // was planned to 21:29 and he told Nick things "didn't fit by 8 PM").
-const KNOWN = new Set(["--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--length-explicit", "--minutes", "--named", "--no-replan", "--notify", "--now", "--plan",
+const KNOWN = new Set(["--id", "--after", "--again", "--checkin", "--anchors", "--auto", "--at", "--before", "--by", "--check", "--date", "--dry-run", "--fill", "--fixed", "--from", "--gap", "--include", "--instead", "--json", "--keep", "--length-explicit", "--minutes", "--named", "--no-replan", "--notify", "--now", "--plan",
   "--no-breaks", "--only", "--replace", "--say", "--shift", "--then", "--to", "--todos", "--until", "--what", "--where", "--why"]);
 const unknown = args.filter((a) => a.startsWith("--") && !KNOWN.has(a));
 if (unknown.length) {
@@ -137,7 +137,7 @@ if (COMMANDS.has(command) && glued) {
   process.exit(2);
 }
 const OWN_OPTIONS = {
-  drop: ["--after", "--date", "--dry-run"],
+  drop: ["--after", "--id", "--date", "--dry-run"],
   resize: ["--date", "--dry-run"],
   swap: ["--date", "--dry-run"],
   rename: ["--date", "--dry-run"],
@@ -326,7 +326,7 @@ if (command === "show") {
     plan: { commuteMinutes: config.commuteMinutes, bufferMinutes: config.bufferMinutes, anchors: (config.anchors ?? []).map((a) => ({ title: a.title, minutes: a.minutes })) },
     blocks: [...blocks].sort((a, b) => a.start - b.start).map((b) => ({ title: b.title, start: hhmm(b.start), end: hhmm(b.end), fixed: !!b.fixed && !b.pinned, pinned: !!b.pinned, kind: b.kind,
       // nameable: one of his own events (not a class or a plan with people) that he may move or change himself by naming it
-      ...(b.fixed && !b.pinned && b.nameable ? { nameable: true } : {}), ...(b.made ? { made: true } : {}) })) }));
+      ...(b.fixed && !b.pinned && b.nameable ? { nameable: true } : {}), ...(b.made ? { made: true, id: b.calendarId } : {}) })) }));
   // pinned = an ORION block at a time he stated: the planner keeps it there, but he can still move it.
   process.exit(0);
 }
@@ -854,7 +854,7 @@ if (command === "late") {
   }
 
 } else if (command === "drop") {
-  if (!rest.length && !flag("--after")) fail('usage: orion-reschedule drop "<title>" ["<title>" …] | drop --after "<title>"');
+  if (!rest.length && !flag("--after") && !flag("--id")) fail('usage: orion-reschedule drop "<title>" ["<title>" …] | drop --after "<title>" | drop --id <calendar id>');
 } else if (command === "tidy") {
   // "Fix my schedule": nothing added; the day rules applied to the day as it is
   // (overlaps separated, ORION's blocks spaced out, free time kept).
@@ -1241,10 +1241,13 @@ const afterAnchor = command === "drop" && flag("--after")
   ? (blocks.filter((b) => sameThingEarly(flag("--after"), b.title) || namesTitle(flag("--after"), b.title)).sort((a, b) => a.start - b.start)[0]
     ?? fail(`NOTHING WAS DROPPED: no block called "${flag("--after")}" on ${dayName}`, 1))
   : null;
+// w20 r3 review HIGH 1: --id names ONE block (the ledger's exact block, found by its calendar id); never a fuzzy title match, and only a block ORION made.
+const dropId = command === "drop" && flag("--id") ? blocks.filter((b) => b.calendarId === flag("--id") && b.made) : null;
+if (dropId && !dropId.length) { console.log(`NOTHING WAS DROPPED on ${dayName}: no block ORION made has that id.`); process.exit(1); }
 let dropped = command === "drop"
-  ? (afterAnchor
+  ? (dropId ?? (afterAnchor
     ? blocks.filter((b) => b.start >= afterAnchor.end && (!b.fixed || b.pinned) && b.kind !== "class" && b.kind !== "deadline")
-    : droppable(blocks, nowMinute))
+    : droppable(blocks, nowMinute)))
   : [];
 // "get rid of the resume work tomorrow" arrived twice without --date (2026-09-30
 // eval). With no date given and nothing today, look at tomorrow before refusing.

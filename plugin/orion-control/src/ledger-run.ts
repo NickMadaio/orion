@@ -20,10 +20,12 @@ export type LedgerDeps = {
   calendar?: { since: number; last: number };
   journal: () => JournalEntry[];
   now: number;
+  /** Whether this chat wrote the journal entry with that stamp (not another writer). Unset: any entry counts. */
+  owned?: (at: string) => boolean;
   nothingText: string;
   reminders?: { list: () => Promise<StoredReminder[]>; remove: (ids: string[]) => Promise<void> };
 };
-export type LedgerOutcome = { text: string; calls: string[]; outputs: string[]; removed: MadeItem[]; wroteCalendar: boolean };
+export type LedgerOutcome = { text: string; calls: string[]; outputs: string[]; removed: MadeItem[]; wroteCalendar: boolean; /** A candidate asked about: his "yes" carries it out. */ held?: { kind: MadeItem["kind"]; label: string } };
 
 /** How far back this chat's calendar change can still be what a bare "undo" takes back. */
 export const CALENDAR_UNDO_WINDOW_MS = 2 * 3600_000;
@@ -57,7 +59,7 @@ const find = (day: Day | undefined, title: string, near?: string) => {
 function topEntry(deps: LedgerDeps): JournalEntry | undefined {
   const top = [...deps.journal()].reverse().find((e) => (e.steps ?? []).length);
   const at = top?.at ? Date.parse(top.at) : NaN;
-  if (!top || !deps.calendar || Number.isNaN(at) || at < deps.calendar.since - 5000 || deps.now - at > CALENDAR_UNDO_WINDOW_MS) return undefined;
+  if (!top || !deps.calendar || Number.isNaN(at) || at < deps.calendar.since - 5000 || deps.now - at > CALENDAR_UNDO_WINDOW_MS || (deps.owned && !deps.owned(top.at ?? ""))) return undefined;
   return top;
 }
 
@@ -95,9 +97,19 @@ async function undoCalendar(deps: LedgerDeps, words?: string[][]): Promise<Ledge
   return { ...out, text: lines.length || unread ? `${lines.join(" ")}${tail}`.trim() : `Undone: ${r.stdout.replace(/^Undone:?\s*/i, "").trim() || "the last change"}.` };
 }
 
-async function dropBlock(deps: LedgerDeps, title: string, dateArgs: string[]): Promise<LedgerOutcome> {
+/** Takes ONE block off by its calendar id (found among the blocks ORION made); never a title match, so his own same-named events stay. */
+async function dropBlock(deps: LedgerDeps, title: string, dateArgs: string[], knownId?: string): Promise<LedgerOutcome> {
   const out = acc();
-  const r = await exec(deps, out, "orion-reschedule", ["drop", title, ...dateArgs]);
+  let id = knownId;
+  if (!id) {
+    const before = await deps.readDay(dateArgs).catch(() => undefined);
+    const mine = (before?.blocks ?? []).filter((b) => b.made && b.id && same(b.title, title));
+    if (!before) return { ...out, text: `I couldn't read your calendar, so I haven't taken ${title} off.` };
+    if (!mine.length) return { ...out, text: `I can't see ${title} among the blocks I made on your calendar, so nothing changed.` };
+    if (mine.length > 1) return { ...out, text: `Which ${title}? I made ${mine.map((b) => `${span(b)}`).join(" and ")}.` };
+    id = mine[0]!.id;
+  }
+  const r = await exec(deps, out, "orion-reschedule", ["drop", "--id", id!, ...dateArgs]);
   if (r.code !== 0 || /NOTHING WAS/i.test(r.stdout)) {
     const why = r.stdout.split("\n").find((l) => /NOTHING WAS/i.test(l))?.replace(/^NOTHING WAS \w+( on \w+)?:\s*/i, "").trim();
     return { ...out, text: `I couldn't take ${title} off: ${why ? why.replace(/\.$/, "") : "the scheduler refused it"}. Nothing changed.` };
@@ -105,7 +117,7 @@ async function dropBlock(deps: LedgerDeps, title: string, dateArgs: string[]): P
   out.wroteCalendar = true;
   const day = await deps.readDay(dateArgs).catch(() => undefined);
   if (!day) return { ...out, text: `I took ${title} off, but couldn't read your calendar back to check it.` };
-  return { ...out, text: find(day, title) ? `I tried to take ${title} off but it's still on your calendar, so check it.` : `${title} is off your day (it's gone from your calendar now).` };
+  return { ...out, text: (day.blocks ?? []).some((b) => b.id === id) ? `I tried to take ${title} off but it's still on your calendar, so check it.` : `${title} is off your day (it's gone from your calendar now).` };
 }
 
 async function removeItem(deps: LedgerDeps, item: MadeItem): Promise<LedgerOutcome> {
@@ -134,7 +146,19 @@ async function removeItem(deps: LedgerDeps, item: MadeItem): Promise<LedgerOutco
 }
 
 const merge = (parts: LedgerOutcome[]): LedgerOutcome => ({ text: parts.map((p) => p.text).filter(Boolean).join(" "), calls: parts.flatMap((p) => p.calls), outputs: parts.flatMap((p) => p.outputs),
-  removed: parts.flatMap((p) => p.removed), wroteCalendar: parts.some((p) => p.wroteCalendar) });
+  removed: parts.flatMap((p) => p.removed), wroteCalendar: parts.some((p) => p.wroteCalendar), ...(parts.find((p) => p.held)?.held ? { held: parts.find((p) => p.held)!.held! } : {}) });
+
+/** A saved note found only by his words is asked about, with its text, before anything is archived. */
+async function askAboutNote(deps: LedgerDeps, words: string[]): Promise<LedgerOutcome> {
+  const out = acc();
+  const r = await exec(deps, out, "orion-brain", ["forget", words.join(" ")]);
+  let matches: Array<{ id: string; text: string }> = [];
+  try { matches = (JSON.parse(r.stdout.trim().split("\n").at(-1) ?? "") as { matches?: Array<{ id: string; text: string }> }).matches ?? []; } catch { /* none */ }
+  if (!matches.length) return { ...out, text: `I couldn't find a saved note about ${words.join(" ")}, so nothing was removed.` };
+  if (matches.length > 1) return { ...out, text: `I found ${matches.length} saved notes about ${words.join(" ")}, so I haven't removed any. Which one?` };
+  const text = matches[0]!.text.replace(/\s+/g, " ").trim();
+  return { ...out, text: `Do you mean this note: "${text.length > 80 ? `${text.slice(0, 80)}…` : text}"? Say yes and I'll remove it.`, held: { kind: "note", label: text } };
+}
 
 /** One named thing he wants gone: this chat's ledger first, then the stores (reminders, his day's own made blocks, food, notes). */
 async function removeNamed(ask: LedgerAsk, words: string[], deps: LedgerDeps): Promise<LedgerOutcome | undefined> {
@@ -145,18 +169,23 @@ async function removeNamed(ask: LedgerAsk, words: string[], deps: LedgerDeps): P
   const out = acc();
   if ((!kinds.length || kinds.includes("reminder")) && deps.reminders) {
     const live = await deps.reminders.list().catch(() => []);
-    if (live.some((r) => namesLabel(words, r.label))) return removeReminder(deps, [words.join(" ")], words);
+    const hits = live.filter((r) => namesLabel(words, r.label));
+    if (hits.length === 1 && !ask.confirmed) {
+      const due = new Date(hits[0]!.dueAt);
+      return { ...out, text: `Do you mean the "${hits[0]!.label}" reminder (${hits[0]!.repeat ? "repeating" : `due ${ampm(`${due.getHours()}:${due.getMinutes()}`)}`})? Say yes and I'll cancel it.`, held: { kind: "reminder", label: hits[0]!.label } };
+    }
+    if (hits.length) return removeReminder(deps, [words.join(" ")], words);
   }
   if (!kinds.length || kinds.includes("block")) {
     const cache = new Map<string, Day | undefined>();
     for (const date of [undefined, "tomorrow"]) {
       const day = date ? await deps.readDay(["--date", date]).catch(() => undefined) : await dayFor(deps, undefined, cache);
       const block = day?.blocks.find((b) => b.made && namesLabel(words, b.title));
-      if (block) return dropBlock(deps, block.title, date ? ["--date", date] : []);
+      if (block) return dropBlock(deps, block.title, date ? ["--date", date] : [], block.id);
     }
   }
   if (kinds.includes("food")) return removeItem(deps, { kind: "food", label: words.join(" "), at: deps.now });
-  if (kinds.includes("note")) return removeNote(deps, words.join(" "));
+  if (kinds.includes("note")) return ask.confirmed ? removeNote(deps, words.join(" ")) : askAboutNote(deps, words);
   void out;
   return undefined;
 }
@@ -167,7 +196,8 @@ export async function runLedgerAsk(ask: LedgerAsk, deps: LedgerDeps): Promise<Le
   if (ask.bare || pointingOnly) {
     const newest = deps.items.at(-1);
     const calendarLast = deps.calendar && topEntry(deps) ? deps.calendar.last : 0;
-    if (newest && newest.at >= calendarLast) return removeItem(deps, newest);
+    // A block ORION added is taken back through the journal (it restores anything the add replaced), never by dropping by name.
+    if (newest && newest.at >= calendarLast && newest.kind !== "block") return removeItem(deps, newest);
     return undoCalendar(deps);
   }
   if (ask.verb === "undo" && ask.kinds.length === 1 && ask.kinds[0] === "block" && !ask.pointing) return undoCalendar(deps, ask.targets);
@@ -181,7 +211,7 @@ export async function runLedgerAsk(ask: LedgerAsk, deps: LedgerDeps): Promise<Le
     else parts.push({ ...acc(), text: `I couldn't find ${words.join(" ")} to take off.` });
   }
   if (!claimed) return undefined;
-  const found = parts.filter((p) => p.removed.length || p.calls.length);
+  const found = parts.filter((p) => p.removed.length || p.calls.length || p.held);
   if (!ask.strong && !found.length) return undefined;
   return merge(parts);
 }

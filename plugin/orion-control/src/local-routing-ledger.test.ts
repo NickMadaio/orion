@@ -59,9 +59,20 @@ describe("ledger wired into the chat", () => {
     const prompt = await h.turn("undo");
     expect(h.ran).toEqual(["orion-log water-off 3"]); expect(prompt).toContain("Took 3 bottles off: 0 of 9 today.");
   });
-  it("the stretch reminder is cancelled by what it is for, and a schedule clear never runs", async () => {
+  it("a reminder found only by words is asked about, and his yes cancels it; a schedule clear never runs", async () => {
     const h = harness({ reminders: [{ id: "a1", label: "stretch", dueAt: Date.now() + 60_000 }] });
-    const prompt = await h.turn("dont need the stretch reminder anymore");
-    expect(prompt).toContain("Cancelled the reminder: stretch."); expect(h.store).toEqual([]); expect(h.ran).toEqual([]);
+    const ask = await h.turn("dont need the stretch reminder anymore");
+    expect(ask).toContain('Do you mean the "stretch" reminder'); expect(h.store.length).toBe(1);
+    const done = await h.turn("yeah");
+    expect(done).toContain("Cancelled the reminder: stretch."); expect(h.store).toEqual([]); expect(h.ran).toEqual([]);
+  });
+  it("a journal entry this chat did not write is never undone by this chat's undo", async () => {
+    const start = new Date(); start.setHours(12, 25, 0, 0);
+    const mine = { at: new Date(Date.now() - 120_000).toISOString(), steps: [{ op: "move", title: "plan", start: start.toISOString() }] };
+    const journal = [mine];
+    const h = harness({ journal });
+    await h.turn("push the plan back an hour");   // stamps `mine`
+    journal.push({ at: new Date().toISOString(), steps: [{ op: "move", title: "other", start: start.toISOString() }] });
+    expect(await h.turn("undo")).toContain(UNDO_NOTHING_TO_UNDO); expect(h.ran).toEqual([]);
   });
 });

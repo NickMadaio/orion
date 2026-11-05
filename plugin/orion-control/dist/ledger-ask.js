@@ -18,6 +18,9 @@ const TAKE_OFF = new RegExp(String.raw `^${FILLER}take\s+(.+?)\s+(?:back\s+)?off
 const NO_NEED = new RegExp(String.raw `^${FILLER}(?:i\s+)?(?:don'?t|do not|dont|no longer)\s+need\s+(.+?)(?:\s+(?:any\s?more|anymore|now))?$`);
 const DIDNT_HAVE = /(?:,|\.|\s)\s*(?:i\s+)?(?:didn'?t|did not|never|haven'?t|havent)\s+(?:actually\s+|even\s+)?(?:have|had|eat|ate|drink|drank)\b.*$/;
 const POINTING = /^(?:that|it|this|those|them|the last (?:one|thing)|that last \w+|the one i (?:just )?\w+)(?:\s|$)|\b(?:i|you) (?:just\s+)?(?:added|made|saved|logged|set|booked|created|put in)\b|\bjust (?:added|made|saved|logged|set|booked|created)\b/;
+// "undo that move", "undo what you just did", "undo the last thing you did": the newest change, whatever it was (never a thing called "move").
+const GENERIC_OBJECT = /^(?:(?:that|the|my|this|your)\s+)?(?:(?:last|latest|previous)\s+)?(?:one|change|changes|thing|move|moves|edit|edits)(?:\s+(?:you|i)\s+(?:just\s+)?(?:did|made|changed))?$|^(?:what|everything)\s+(?:you|i)\s+(?:just\s+)?(?:did|made|changed)$/;
+const NAMED_CHANGE = /^(.+?)\s+(?:move|change|edit)$/;
 const NOUN = [
     [/\b(?:notes?)\b/, "note"], [/\b(?:reminders?|alarms?|timers?)\b/, "reminder"],
     [/\b(?:water|bottles?)\b/, "water"], [/\b(?:calories|food|meal)\b/, "food"],
@@ -40,6 +43,12 @@ export function readLedgerAsk(message) {
         const blockish = /\b(?:move|change|edit)\b/.test(text);
         return { verb: "undo", strong: true, kinds: blockish ? ["block"] : [], targets: [], pointing: true, bare: true };
     }
+    const undoObject = UNDO_OBJECT.exec(text)?.[1]?.trim();
+    if (undoObject && GENERIC_OBJECT.test(undoObject))
+        return { verb: "undo", strong: true, kinds: ["block"], targets: [], pointing: true, bare: true };
+    const named = undoObject ? NAMED_CHANGE.exec(undoObject.replace(/^(?:the|my|that)\s+/, ""))?.[1] : undefined;
+    if (named && contentWords(named).length)
+        return { verb: "undo", strong: true, kinds: ["block"], targets: [contentWords(named)], pointing: false, bare: false };
     const back = PUT_BACK.exec(text);
     if (back) {
         const object = back[1];

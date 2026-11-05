@@ -29,7 +29,9 @@ export function pageCandidates(name, found) {
     const out = new Map();
     const text = found.snippets ?? "";
     for (const m of text.matchAll(URL_RE)) {
-        const near = text.slice(Math.max(0, m.index - 160), m.index + m[0].length + 160).toLowerCase();
+        const from = text.lastIndexOf("\n", m.index) + 1;
+        const to = text.indexOf("\n", m.index);
+        const near = text.slice(from, to < 0 ? undefined : to).toLowerCase(); // the same line: the name and its address are written together
         if (words.every((w) => near.includes(w))) {
             const url = clean(m[0]);
             if (!out.has(hostOf(url)))

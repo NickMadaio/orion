@@ -12,3 +12,19 @@ describe("a schedule sentence never reaches the computer type tool", () => {
         expect(detectComputerIntent("put orion test into the text field")?.kind).toBe("act");
     });
 });
+// review r3 #7: a bare "put" still types when an app is named, and the "put X on" forms reach open / music instead.
+import { openRequest } from "./open-request.js";
+import { readMusicTurn } from "./music-read.js";
+describe("put hello in notes, put spotify on", () => {
+    it.each(["put hello in notes", "put 'hello' in notes", "put hello in textedit", "put hello in the notes app"])("%s types", (m) => {
+        const intent = detectComputerIntent(m);
+        expect(intent?.kind).toBe("act");
+    });
+    it("put on some music is the music route", () => { expect(readMusicTurn("put on some music")).toMatchObject({ kind: "music", action: "play" }); });
+    it.each([["put spotify on", "Spotify"], ["put youtube on", "youtube"]])("%s opens it", (m, want) => {
+        const r = openRequest(m);
+        expect(r).not.toBeNull();
+        expect(r?.kind === "app" ? r.name : r?.kind === "url" ? r.url : "").toMatch(new RegExp(want, "i"));
+    });
+    it("put the kettle on is not an open", () => { expect(openRequest("put the kettle on")).toBeNull(); });
+});

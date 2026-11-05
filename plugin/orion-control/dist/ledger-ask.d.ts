@@ -10,6 +10,8 @@ export type LedgerAsk = {
     pointing: boolean;
     /** "undo" and nothing else (or "undo that last move"): the newest change in this chat, whatever it was. */
     bare: boolean;
+    /** His "yes" to a candidate ORION asked about: carry it out. */
+    confirmed?: boolean;
 };
 /** The ledger's reading of his message, or null when it is not about undoing or removing something. */
 export declare function readLedgerAsk(message: string): LedgerAsk | null;

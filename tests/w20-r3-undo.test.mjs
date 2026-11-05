@@ -86,3 +86,17 @@ test("#65 a removed event of his goes back with its location and notes", (t) => 
   assert.equal(back?.location, "High St 4");
   assert.equal(back?.notes, "ask about the crown");
 });
+
+test("review HIGH 1: drop --id removes exactly that block, never his same-titled event", (t) => {
+  const w = world(t, {}, [...day, { identifier: "hisgym", title: "Study group", start: at(17), end: at(18), location: "Library" }]);
+  assert.equal(w.run("add", "Study", "30", "--at", "19:00").code, 0);
+  const show = JSON.parse(w.run("show", "--json").out);
+  const mine = show.blocks.filter((b) => b.title === "Study" && b.made);
+  assert.equal(mine.length, 1, JSON.stringify(show.blocks));
+  assert.ok(mine[0].id, "show --json carries the calendar id");
+  const r = w.run("drop", "--id", mine[0].id);
+  assert.equal(r.code, 0, r.out);
+  const left = w.events().filter((e) => /^Study/.test(e.title));
+  assert.ok(left.some((e) => e.identifier === "hisgym") && !left.some((e) => e.title === "Study"), JSON.stringify(left));
+  assert.equal(w.run("drop", "--id", "nope").code, 1);
+});

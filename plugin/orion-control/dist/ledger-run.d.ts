@@ -27,6 +27,8 @@ export type LedgerDeps = {
     };
     journal: () => JournalEntry[];
     now: number;
+    /** Whether this chat wrote the journal entry with that stamp (not another writer). Unset: any entry counts. */
+    owned?: (at: string) => boolean;
     nothingText: string;
     reminders?: {
         list: () => Promise<StoredReminder[]>;
@@ -38,7 +40,11 @@ export type LedgerOutcome = {
     calls: string[];
     outputs: string[];
     removed: MadeItem[];
-    wroteCalendar: boolean;
+    wroteCalendar: boolean; /** A candidate asked about: his "yes" carries it out. */
+    held?: {
+        kind: MadeItem["kind"];
+        label: string;
+    };
 };
 /** How far back this chat's calendar change can still be what a bare "undo" takes back. */
 export declare const CALENDAR_UNDO_WINDOW_MS: number;

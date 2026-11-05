@@ -30,7 +30,7 @@ const find = (day, title, near) => {
 function topEntry(deps) {
     const top = [...deps.journal()].reverse().find((e) => (e.steps ?? []).length);
     const at = top?.at ? Date.parse(top.at) : NaN;
-    if (!top || !deps.calendar || Number.isNaN(at) || at < deps.calendar.since - 5000 || deps.now - at > CALENDAR_UNDO_WINDOW_MS)
+    if (!top || !deps.calendar || Number.isNaN(at) || at < deps.calendar.since - 5000 || deps.now - at > CALENDAR_UNDO_WINDOW_MS || (deps.owned && !deps.owned(top.at ?? "")))
         return undefined;
     return top;
 }
@@ -81,9 +81,22 @@ async function undoCalendar(deps, words) {
     const tail = unread ? " I couldn't read your calendar back to check the times." : "";
     return { ...out, text: lines.length || unread ? `${lines.join(" ")}${tail}`.trim() : `Undone: ${r.stdout.replace(/^Undone:?\s*/i, "").trim() || "the last change"}.` };
 }
-async function dropBlock(deps, title, dateArgs) {
+/** Takes ONE block off by its calendar id (found among the blocks ORION made); never a title match, so his own same-named events stay. */
+async function dropBlock(deps, title, dateArgs, knownId) {
     const out = acc();
-    const r = await exec(deps, out, "orion-reschedule", ["drop", title, ...dateArgs]);
+    let id = knownId;
+    if (!id) {
+        const before = await deps.readDay(dateArgs).catch(() => undefined);
+        const mine = (before?.blocks ?? []).filter((b) => b.made && b.id && same(b.title, title));
+        if (!before)
+            return { ...out, text: `I couldn't read your calendar, so I haven't taken ${title} off.` };
+        if (!mine.length)
+            return { ...out, text: `I can't see ${title} among the blocks I made on your calendar, so nothing changed.` };
+        if (mine.length > 1)
+            return { ...out, text: `Which ${title}? I made ${mine.map((b) => `${span(b)}`).join(" and ")}.` };
+        id = mine[0].id;
+    }
+    const r = await exec(deps, out, "orion-reschedule", ["drop", "--id", id, ...dateArgs]);
     if (r.code !== 0 || /NOTHING WAS/i.test(r.stdout)) {
         const why = r.stdout.split("\n").find((l) => /NOTHING WAS/i.test(l))?.replace(/^NOTHING WAS \w+( on \w+)?:\s*/i, "").trim();
         return { ...out, text: `I couldn't take ${title} off: ${why ? why.replace(/\.$/, "") : "the scheduler refused it"}. Nothing changed.` };
@@ -92,7 +105,7 @@ async function dropBlock(deps, title, dateArgs) {
     const day = await deps.readDay(dateArgs).catch(() => undefined);
     if (!day)
         return { ...out, text: `I took ${title} off, but couldn't read your calendar back to check it.` };
-    return { ...out, text: find(day, title) ? `I tried to take ${title} off but it's still on your calendar, so check it.` : `${title} is off your day (it's gone from your calendar now).` };
+    return { ...out, text: (day.blocks ?? []).some((b) => b.id === id) ? `I tried to take ${title} off but it's still on your calendar, so check it.` : `${title} is off your day (it's gone from your calendar now).` };
 }
 async function removeItem(deps, item) {
     const out = acc();
@@ -129,7 +142,23 @@ async function removeItem(deps, item) {
     return { ...result, removed: worked ? [item] : [] };
 }
 const merge = (parts) => ({ text: parts.map((p) => p.text).filter(Boolean).join(" "), calls: parts.flatMap((p) => p.calls), outputs: parts.flatMap((p) => p.outputs),
-    removed: parts.flatMap((p) => p.removed), wroteCalendar: parts.some((p) => p.wroteCalendar) });
+    removed: parts.flatMap((p) => p.removed), wroteCalendar: parts.some((p) => p.wroteCalendar), ...(parts.find((p) => p.held)?.held ? { held: parts.find((p) => p.held).held } : {}) });
+/** A saved note found only by his words is asked about, with its text, before anything is archived. */
+async function askAboutNote(deps, words) {
+    const out = acc();
+    const r = await exec(deps, out, "orion-brain", ["forget", words.join(" ")]);
+    let matches = [];
+    try {
+        matches = JSON.parse(r.stdout.trim().split("\n").at(-1) ?? "").matches ?? [];
+    }
+    catch { /* none */ }
+    if (!matches.length)
+        return { ...out, text: `I couldn't find a saved note about ${words.join(" ")}, so nothing was removed.` };
+    if (matches.length > 1)
+        return { ...out, text: `I found ${matches.length} saved notes about ${words.join(" ")}, so I haven't removed any. Which one?` };
+    const text = matches[0].text.replace(/\s+/g, " ").trim();
+    return { ...out, text: `Do you mean this note: "${text.length > 80 ? `${text.slice(0, 80)}…` : text}"? Say yes and I'll remove it.`, held: { kind: "note", label: text } };
+}
 /** One named thing he wants gone: this chat's ledger first, then the stores (reminders, his day's own made blocks, food, notes). */
 async function removeNamed(ask, words, deps) {
     const kinds = ask.kinds;
@@ -141,7 +170,12 @@ async function removeNamed(ask, words, deps) {
     const out = acc();
     if ((!kinds.length || kinds.includes("reminder")) && deps.reminders) {
         const live = await deps.reminders.list().catch(() => []);
-        if (live.some((r) => namesLabel(words, r.label)))
+        const hits = live.filter((r) => namesLabel(words, r.label));
+        if (hits.length === 1 && !ask.confirmed) {
+            const due = new Date(hits[0].dueAt);
+            return { ...out, text: `Do you mean the "${hits[0].label}" reminder (${hits[0].repeat ? "repeating" : `due ${ampm(`${due.getHours()}:${due.getMinutes()}`)}`})? Say yes and I'll cancel it.`, held: { kind: "reminder", label: hits[0].label } };
+        }
+        if (hits.length)
             return removeReminder(deps, [words.join(" ")], words);
     }
     if (!kinds.length || kinds.includes("block")) {
@@ -150,13 +184,13 @@ async function removeNamed(ask, words, deps) {
             const day = date ? await deps.readDay(["--date", date]).catch(() => undefined) : await dayFor(deps, undefined, cache);
             const block = day?.blocks.find((b) => b.made && namesLabel(words, b.title));
             if (block)
-                return dropBlock(deps, block.title, date ? ["--date", date] : []);
+                return dropBlock(deps, block.title, date ? ["--date", date] : [], block.id);
         }
     }
     if (kinds.includes("food"))
         return removeItem(deps, { kind: "food", label: words.join(" "), at: deps.now });
     if (kinds.includes("note"))
-        return removeNote(deps, words.join(" "));
+        return ask.confirmed ? removeNote(deps, words.join(" ")) : askAboutNote(deps, words);
     void out;
     return undefined;
 }
@@ -166,7 +200,8 @@ export async function runLedgerAsk(ask, deps) {
     if (ask.bare || pointingOnly) {
         const newest = deps.items.at(-1);
         const calendarLast = deps.calendar && topEntry(deps) ? deps.calendar.last : 0;
-        if (newest && newest.at >= calendarLast)
+        // A block ORION added is taken back through the journal (it restores anything the add replaced), never by dropping by name.
+        if (newest && newest.at >= calendarLast && newest.kind !== "block")
             return removeItem(deps, newest);
         return undoCalendar(deps);
     }
@@ -194,7 +229,7 @@ export async function runLedgerAsk(ask, deps) {
     }
     if (!claimed)
         return undefined;
-    const found = parts.filter((p) => p.removed.length || p.calls.length);
+    const found = parts.filter((p) => p.removed.length || p.calls.length || p.held);
     if (!ask.strong && !found.length)
         return undefined;
     return merge(parts);

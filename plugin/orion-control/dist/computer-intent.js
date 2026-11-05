@@ -83,7 +83,7 @@ function tabFilter(clause) {
         return withCount({ mode: "only", words: word });
     return { mode: "all" };
 }
-function parseClause(raw) {
+function parseClause(raw, appNamed = false) {
     const clause = raw.trim().replace(/[.!?]+$/, "");
     const text = clause.replace(/^(?:please|pls|can you|could you|now)\s+/i, "");
     let m;
@@ -99,7 +99,7 @@ function parseClause(raw) {
         return m[1] ? { kind: "new_doc", title: stripQuotes(m[1]) } : { kind: "new_doc" };
     }
     // "put" types only into a named place ("put hello in the box"): bare, it is "put the gym at 7", his schedule.
-    if ((m = text.match(/^(?:type|write|enter|put)\s+(?:in\s+)?(["“].+?["”]|.+?)(?:\s+(?:in|into)\s+(.+))?$/i)) && !/^up\b/i.test(m[1]) && (!/^put\b/i.test(text) || m[2])) {
+    if ((m = text.match(/^(?:type|write|enter|put)\s+(?:in\s+)?(["“].+?["”]|.+?)(?:\s+(?:in|into)\s+(.+))?$/i)) && !/^up\b/i.test(m[1]) && (!/^put\b/i.test(text) || m[2] || appNamed)) {
         const into = m[2] ? targetRef(m[2], "editable") : undefined;
         return into ? { kind: "type", text: stripQuotes(m[1]), into } : { kind: "type", text: stripQuotes(m[1]) };
     }
@@ -157,7 +157,7 @@ export function detectComputerIntent(message) {
     const shielded = text.replace(/["“][^"”]*["”]/g, (q) => `\u0000${quotes.push(q) - 1}\u0000`);
     const unshield = (s) => s.replace(/\u0000(\d+)\u0000/g, (_, i) => quotes[Number(i)] ?? "");
     const pieces = shielded.replace(/^in\s+[a-z ]+?,\s*/i, (lead) => (appIn(lead) ? "" : lead)).split(SPLIT_RE).filter(Boolean);
-    const parsed = pieces.map((piece) => parseClause(stripAppContext(unshield(piece))));
+    const parsed = pieces.map((piece) => parseClause(stripAppContext(unshield(piece)), !!app && new RegExp(`\\bin\\s+(?:the\\s+)?(?:${APP_WORDS})\\b`, "i").test(unshield(piece))));
     if (parsed.length === 0 || parsed.some((c) => c === null))
         return null;
     const clauses = mergeTitles(parsed);

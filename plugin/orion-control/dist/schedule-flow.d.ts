@@ -14,7 +14,8 @@ export type DayBlock = {
     fixed: boolean;
     kind?: string;
     nameable?: boolean; /** ORION booked it itself (w20 r3: it may come off his day when he says so). */
-    made?: boolean;
+    made?: boolean; /** The calendar id of a block ORION made (for an exact drop). */
+    id?: string;
 };
 /** plan: what `show --json` says about how the scheduler lays this day out (the trip home, the gap between blocks, the daily anchors). */
 export type Day = {

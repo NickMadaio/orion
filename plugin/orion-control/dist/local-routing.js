@@ -43,7 +43,7 @@ import { guardTaskRun, madeTaskRunCall, taskRunCall, taskRunNow } from "./task-r
 import { asksCurrentTask, asksFocusStatus, withoutDayClaims } from "./status-questions.js";
 import { parseTodoDone } from "./todo-done-flow.js";
 import { openRequest } from "./open-request.js";
-import { answersWebOffer, readChatAsks, runChatAsks, splitLeadListItem } from "./chat-asks.js"; // w20 r3
+import { answersWebOffer, readChatAsks, readListFollowUp, runChatAsks, splitLeadListItem, splitTrailingListAdd } from "./chat-asks.js"; // w20 r3
 import { outreachStale, staleOutreachNote, stripOutreachEcho } from "./outreach-stale.js";
 import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
 import { failedTools, failureReason } from "./tool-failure.js";
@@ -726,6 +726,7 @@ export function registerLocalRouting(api, options) {
     const knowledgePending = new KnowledgePending(); // wave 6 (knowledge-moves.ts): a forget pick, a "put it back", a trash yes; one turn
     const sleepPending = new SleepPlanPending(); // W10-B (sleep-plan-flow.ts): the interview question asked in this chat
     /** w20 r3: per chat, the web page ORION just offered ("want the web player?") and the last reply that came back blank. */
+    const listChats = new Map();
     const webOffers = new Map();
     const seenOutreach = new Map();
     const lastEmpty = new Map();
@@ -1437,7 +1438,15 @@ export function registerLocalRouting(api, options) {
         // w20 r3 (chat-asks.ts): open this, add that to his list, what is on it, or his yes to "want the web player?": code's, the desk is not asked.
         const webOffer = sessionKey ? webOffers.get(sessionKey) : undefined;
         const chatAsks = on && !cutOff && !quietTurn && options.chatRun && !isCrisis(message) && !appsTurn && !mouse && !food && !workout && !shutdownTurn && !qmove && !smove && !mmove
-            ? (webOffer && outreachNowMs - webOffer.at < 15 * 60_000 && answersWebOffer(message) ? [{ kind: "open", req: { kind: "url", url: webOffer.url } }] : readChatAsks(message) ?? undefined) : undefined;
+            ? (webOffer && outreachNowMs - webOffer.at < 15 * 60_000 && answersWebOffer(message) ? [{ kind: "open", req: { kind: "url", url: webOffer.url } }] : readChatAsks(message)
+                ?? (() => { const more = sessionKey && outreachNowMs - (listChats.get(sessionKey) ?? 0) < 10 * 60_000 ? readListFollowUp(message) : null; return more ? more.map((item) => ({ kind: "list-add", item })) : undefined; })()) : undefined;
+        // w20 r5 #88: the chat whose last turn added to his list; a bare "and batteries" next is one more item.
+        if (sessionKey && on && !quietTurn) {
+            if (chatAsks?.some((a) => a.kind === "list-add"))
+                listChats.set(sessionKey, outreachNowMs);
+            else
+                listChats.delete(sessionKey);
+        }
         if (sessionKey)
             webOffers.delete(sessionKey); // the offer answers one turn
         const codeFirst = intentFirst || editing || realityWhole || quietTurn || guarded || computerFirst || !!chatAsks;
@@ -2368,11 +2377,19 @@ export function registerLocalRouting(api, options) {
                 // forgot a stub wrote a block called "B4" to Nick's real calendar, 2026-10-12).
                 // The flow reads the day itself (q019, q024: its "no such block" came from that read): the log says so.
                 let flowRan = false;
+                // w20 r5 #101: "add a call with bea at 7pm and put eggs on my list": the list part is code's, the scheduler gets the rest.
+                const listTail = options.chatRun && !openAsk ? splitTrailingListAdd(run.message) : null;
                 run.flow = options.scheduleFlow
-                    ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], deadlineAt: flowDeadline(run.started), ...(openAsk ? { askContext: openAsk } : {}) }).then((r) => { flowRan = true; return r; }, (e) => ({ outcome: "fallback", reason: String(e) }))
+                    ? await options.scheduleFlow(listTail?.head ?? run.message, clock(), { undo: run.undo ?? [], deadlineAt: flowDeadline(run.started), ...(openAsk ? { askContext: openAsk } : {}) }).then((r) => { flowRan = true; return r; }, (e) => ({ outcome: "fallback", reason: String(e) }))
                     : { outcome: "fallback", reason: "no scheduling flow wired" };
                 if (flowRan)
                     markRead(run, meansTomorrow(run.message, (options.now ?? pluginNow)()) ? "day-tomorrow" : "day");
+                if (listTail && flowRan && (run.flow.outcome === "done" || run.flow.outcome === "say")) {
+                    const added = await withTimeout(runChatAsks(listTail.asks, options.chatRun).catch(() => undefined), 20000);
+                    const line = added?.text ?? "I couldn't add that to your list: nothing was added.";
+                    added?.calls.forEach((canonical, k) => run.tools.push({ canonical, stdout: added.outputs[k] ?? "", exit: 0 }));
+                    run.flow = run.flow.outcome === "done" ? { ...run.flow, reply: `${run.flow.reply ?? ""} ${line}`.trim() } : { ...run.flow, text: `${run.flow.text} ${line}` };
+                }
                 // 2026-10-30: a sentence the flow misread as "log what I did" ("im on tiktok instead of studying", a rehearsed presentation,
                 // "draft a text to annika") is refused by the scheduler as a zero-length or far-future log. That refusal is not his answer:
                 // the turn goes to the worker (foc-doomscroll-v, saf-send-message-c; R2's thirty "Not done: 6:00 AM–6:00 AM").

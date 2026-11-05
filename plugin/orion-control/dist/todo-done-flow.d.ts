@@ -4,12 +4,13 @@ export type TodoExec = (args: string[]) => Promise<{
     code: number;
 }>;
 export declare const ORION_TASKS = "/Users/nickmadaio/Desktop/ORION/scripts/orion-tasks";
-/** The to-do words he named, or null when this is not an imperative "mark it done" message. */
+/** The to-do words he named, or null when this is not an imperative "mark it done" message. "tick off eggs and bread" names two: `items` has each. */
 export declare function parseTodoDone(message: string): {
     words: string;
     imperative: boolean;
+    items: string[];
 } | null;
-/** One "mark it done" request, end to end; the reply is built only from orion-tasks' output. */
+/** One "mark it done" request, end to end; the reply is built only from orion-tasks' output (one run per item named). */
 export declare function runTodoDone({ message, exec }: {
     message: string;
     exec: TodoExec;

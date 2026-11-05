@@ -5,8 +5,8 @@ import { rig } from "./r4-harness.js";
 import { readFoodTurn } from "./food-read.js";
 import { waterLogBlock } from "./water-guard.js";
 import { parseNote } from "./note-flow.js";
-import { readChatAsks, runChatAsks, splitListItems } from "./chat-asks.js";
-import { parseTodoDone } from "./todo-done-flow.js";
+import { readChatAsks, readListFollowUp, runChatAsks, splitListItems, splitTrailingListAdd } from "./chat-asks.js";
+import { parseTodoDone, runTodoDone } from "./todo-done-flow.js";
 import { explicitFixSubject, gerund, readSelffixMove, runSelffixMove, subjectOfDiagnosis } from "./selffix-flow.js";
 const ANSWER = "About 12 g of protein (and ~400 kcal). Want me to log it?";
 /** The estimator as an evaluation run sees it: answers and logs, but never leaves an offer file behind. */
@@ -265,5 +265,67 @@ describe("food removal never swallows a calendar removal (review r4)", () => {
         const { r } = chat();
         await r.turn("whats the protein in a mcchicken");
         expect(await r.turn(m)).toBe("Okay, not logged.");
+    });
+});
+describe("round 5: list follow-ups, a list item beside a calendar add, ticking two at once", () => {
+    const tasks = () => { const adds = []; return { adds, chat: { open: async () => ({ stdout: "", code: 0 }), installed: async () => true, tasks: async (a) => { adds.push(a); return { stdout: `Added "${a[1]}"`, code: 0 }; } } }; };
+    it.each([["and batteries", ["batteries"]], ["oh and a phone charger", ["phone charger"]], ["also bin bags", ["bin bags"]], ["and toothpaste and floss", ["toothpaste", "floss"]], ["ok and some bread", ["bread"]], ["oh also lightbulbs", ["lightbulbs"]]])("%s is read as more items", (m, items) => {
+        expect(readListFollowUp(m)).toEqual(items);
+    });
+    it.each(["and add milk to my list", "and what time is it", "and move gym to 6", "and then i went home", "and remind me at 5", "and?", "oh and can you open safari", "and tomorrow", "and thanks"])("%s is not a list item", (m) => {
+        expect(readListFollowUp(m)).toBeNull();
+    });
+    it("right after a list add, 'and batteries' adds batteries to the same list; after another turn it does not", async () => {
+        const t = tasks();
+        const r = rig({ chatRun: t.chat });
+        expect(await r.turn("add stamps to my list")).toBe("Added stamps to your list.");
+        expect(await r.turn("and batteries")).toBe("Added batteries to your list.");
+        expect(t.adds).toEqual([["add", "Stamps"], ["add", "Batteries"]]);
+        await r.turn("whats the weather");
+        await r.turn("and umbrellas");
+        expect(t.adds).toHaveLength(2);
+    });
+    it("a completed 'Eggs' row from before never blocks a re-add: every add is its own orion-tasks add", async () => {
+        const t = tasks();
+        const r = rig({ chatRun: t.chat });
+        await r.turn("put eggs on my list");
+        await r.turn("put eggs on my list");
+        expect(t.adds).toEqual([["add", "Eggs"], ["add", "Eggs"]]);
+    });
+    it.each([
+        ["add a quick call with bea at 7pm and put eggs on my list", "add a quick call with bea at 7pm", ["eggs"]], ["book a haircut at 3 and add milk to my shopping list", "book a haircut at 3", ["milk"]],
+        ["add gym at 6pm, then put bread and butter on my list", "add gym at 6pm", ["bread and butter"]], ["put a 20 min walk at 4 and also stick batteries on my to do list", "put a 20 min walk at 4", ["batteries"]],
+        ["add dentist at 9am and add oat milk and eggs to my list", "add dentist at 9am", ["oat milk", "eggs"]],
+    ])("%s", (m, head, items) => {
+        const split = splitTrailingListAdd(m);
+        expect(split?.head).toBe(head);
+        expect(split?.asks).toEqual(items.map((item) => ({ kind: "list-add", item })));
+    });
+    it("the calendar add and the list add both happen and the reply names both", async () => {
+        const t = tasks();
+        const seen = [];
+        const r = rig({ chatRun: t.chat, scheduleFlow: async (m) => { seen.push(m); return { outcome: "done", calls: ['exec orion-reschedule add "Call with bea" 30 --at 19:00'], outputs: ["Added"], reply: "I put call with bea at 7-7:30 PM." }; } });
+        const reply = String(await r.turn("add a quick call with bea at 7pm and put eggs on my list"));
+        expect(seen).toEqual(["add a quick call with bea at 7pm"]);
+        expect(t.adds).toEqual([["add", "Eggs"]]);
+        expect(reply).toContain("Added eggs to your list.");
+        expect(reply).toContain("call with bea");
+    });
+    it.each([["tick off eggs and bread", ["eggs", "bread"]], ["cross off milk, eggs and bread", ["milk", "eggs", "bread"]], ["tick off the oat milk and the charger cable", ["oat milk", "charger cable"]], ["mark eggs and bread as done", ["eggs", "bread"]], ["tick off eggs & bread", ["eggs", "bread"]]])("%s completes each", (m, items) => {
+        expect(parseTodoDone(m)?.items).toEqual(items);
+    });
+    it("two ticks are two orion-tasks done calls and one reply", async () => {
+        const calls = [];
+        const out = await runTodoDone({ message: "tick off eggs and bread", exec: async (a) => { calls.push(a); return { stdout: `Changed "${a[1][0].toUpperCase()}${a[1].slice(1)}": done (ticked off Orion).`, code: 0 }; } });
+        expect(calls).toEqual([["done", "eggs"], ["done", "bread"]]);
+        expect(out).toMatchObject({ outcome: "done", reply: 'Ticked off "Eggs" and "Bread".' });
+    });
+    it("one missing item is said for that item alone", async () => {
+        const out = await runTodoDone({ message: "tick off eggs and bread", exec: async (a) => (a[1] === "bread" ? { stdout: 'no to-do called "bread"', code: 1 } : { stdout: 'Changed "Eggs": done (x).', code: 0 }) });
+        expect(out).toMatchObject({ outcome: "say", text: 'Ticked off "Eggs". I couldn\'t find a to-do matching "bread" — nothing was changed.' });
+    });
+    it("pronouns and long clauses are still left alone", () => {
+        expect(parseTodoDone("check them off")).toBeNull();
+        expect(parseTodoDone("tick off it and them")).toBeNull();
     });
 });

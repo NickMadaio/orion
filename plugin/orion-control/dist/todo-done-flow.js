@@ -30,7 +30,8 @@ const NOT_TODO = /\b(block|session|class|lecture|meeting|appointment|gym|workout
 const PRONOUN_ONLY = /^(?:them|it|that|this|those|these|all|everything|both)$/;
 const MULTI = /\s(?:and|&)\s|,/i;
 const FILLER = new Set(["the", "one", "ones", "todo", "todos", "to-do", "to-dos", "task", "tasks", "my", "a", "an", "that", "this", "it", "please", "pls", "as", "off", "out", "on", "list", "thing", "item", "of", "ok", "okay", "now", "just", "can", "you", "for", "me"]);
-/** The to-do words he named, or null when this is not an imperative "mark it done" message. */
+const clean = (raw) => raw.toLowerCase().replace(/[^a-z0-9' -]/g, " ").split(/\s+/).filter((w) => w && !FILLER.has(w)).join(" ");
+/** The to-do words he named, or null when this is not an imperative "mark it done" message. "tick off eggs and bread" names two: `items` has each. */
 export function parseTodoDone(message) {
     const text = message.trim();
     if (!text || /\?\s*$/.test(text) || NOT_TODO.test(text))
@@ -38,17 +39,38 @@ export function parseTodoDone(message) {
     const mark = MARK.exec(text);
     const tick = TICK_OFF.exec(text) ?? TICK_OBJ_OFF.exec(text);
     const raw = mark?.[1] ?? tick?.[1];
-    if (raw === undefined || MULTI.test(raw))
+    if (raw === undefined)
         return null;
-    const words = raw.toLowerCase().replace(/[^a-z0-9' -]/g, " ").split(/\s+/).filter((w) => w && !FILLER.has(w)).join(" ");
-    return words && !PRONOUN_ONLY.test(words) ? { words, imperative: true } : null;
+    // Two or three plain items ("eggs and bread", "milk, eggs and bread") are each ticked; anything longer is the worker's.
+    const parts = MULTI.test(raw) ? raw.split(/\s*(?:,|&|\band\b)\s*/i).map(clean).filter(Boolean) : [clean(raw)];
+    if (!parts.length || parts.length > 4 || parts.some((p) => !p || PRONOUN_ONLY.test(p) || p.split(" ").length > 4))
+        return null;
+    return { words: parts.join(" and "), imperative: true, items: parts };
 }
 const say = (text, kind, calls, outputs) => ({ outcome: "say", kind, text, ...(calls ? { calls, outputs } : {}) });
-/** One "mark it done" request, end to end; the reply is built only from orion-tasks' output. */
+/** One "mark it done" request, end to end; the reply is built only from orion-tasks' output (one run per item named). */
 export async function runTodoDone({ message, exec }) {
     const req = parseTodoDone(message);
     if (!req)
         return { outcome: "fallback", reason: "not a to-do completion" };
+    if (req.items.length > 1)
+        return runMany(req.items, exec);
+    return runOne(req.words, exec);
+}
+async function runMany(items, exec) {
+    const results = [];
+    for (const item of items)
+        results.push({ item, r: await runOne(item, exec) });
+    const calls = results.flatMap(({ r }) => ("calls" in r && r.calls) || []);
+    const outputs = results.flatMap(({ r }) => ("outputs" in r && r.outputs) || []);
+    const ticked = results.filter(({ r }) => r.outcome === "done").map(({ r }) => r.reply.replace(/^Ticked off "(.+)"\.$/, "$1"));
+    const missed = results.filter(({ r }) => r.outcome !== "done").map(({ item, r }) => (r.outcome === "say" ? r.text : `I couldn't tick off "${item}".`));
+    const head = ticked.length ? `Ticked off ${ticked.map((t) => `"${t}"`).join(" and ")}.` : "";
+    const text = [head, ...missed].filter(Boolean).join(" ");
+    return ticked.length && !missed.length ? { outcome: "done", calls, outputs, reply: text } : { outcome: "say", kind: "plain", text, calls, outputs };
+}
+async function runOne(words, exec) {
+    const req = { words };
     const result = await exec(["done", req.words]);
     const out = result.stdout.trim();
     const calls = [`exec orion-tasks done ${JSON.stringify(req.words)}`];

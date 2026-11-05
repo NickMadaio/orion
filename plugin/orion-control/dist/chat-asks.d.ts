@@ -39,6 +39,13 @@ export declare function splitLeadListItem(message: string): {
     item: string;
     rest: string;
 } | null;
+/** The items of a bare "and X" follow-up, or null when it is anything else (a verb, a question, a time, a calendar word). */
+export declare function readListFollowUp(message: string): string[] | null;
+/** "add a call with bea at 7pm and put eggs on my list": the list part (run by code) and the rest left for the calendar (w20 r5 #101). */
+export declare function splitTrailingListAdd(message: string): {
+    head: string;
+    asks: ChatAsk[];
+} | null;
 /** "You have 3 on your list: milk, email careers (due 2026-11-06), ...", from `orion-tasks list` output. */
 export declare function listReply(stdout: string): string;
 /** Runs every ask in order (one failing never stops the next) and says what happened to each; items added in a row are one sentence naming each. */

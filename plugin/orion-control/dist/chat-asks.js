@@ -67,6 +67,30 @@ export function splitLeadListItem(message) {
     const item = (LIST_ITEM.exec(head)?.[1] ?? ADD.exec(head)?.[1])?.trim().replace(/^(?:some|a bit of)\s+/i, "");
     return item && rest && item.length <= 80 && !NOT_A_LIST_ITEM.test(item) && /[a-z0-9]/i.test(item) ? { item, rest } : null;
 }
+// "and batteries", "oh and a charger", "also bin bags": right after a list add, a bare "and X" is one more item for the same list (w20 r5 #88).
+const FOLLOW_LEAD = /^(?:(?:oh|ok|okay|hey|actually|wait|yeah|yep|um|uh|so|pls|please)[,\s]+)*(?:and|also|plus|and also|oh and)\s+/i;
+const NOT_AN_ITEM = /^(?:add|put|stick|set|open|remind|move|cancel|what|whats|what's|how|can|could|do|did|is|are|tell|show|turn|play|start|stop|go|make|call|text|log|tick|mark|remove|delete|undo|i|im|i'm|my|the day|when|why|who|where|then|that|this|it|if|but|so|not|no|yes|nah|thanks|thank)\b/i;
+/** The items of a bare "and X" follow-up, or null when it is anything else (a verb, a question, a time, a calendar word). */
+export function readListFollowUp(message) {
+    const m = message.trim().replace(/\s+/g, " ");
+    const lead = FOLLOW_LEAD.exec(m);
+    if (!lead || /\?\s*$/.test(m))
+        return null;
+    const rest = m.slice(lead[0].length).replace(/[.!]+$/, "").trim();
+    if (!rest || rest.length > 80 || NOT_AN_ITEM.test(rest) || NOT_A_LIST_ITEM.test(rest) || /\b(?:my list|the list|to-?dos?)\b/i.test(rest))
+        return null;
+    const items = splitListItems(rest);
+    return items.length && items.length <= 5 && items.every((i) => i.length <= 60 && i.split(" ").length <= 6) ? items : null;
+}
+const TRAILING_LIST = new RegExp(String.raw `^(.*?\S)\s*(?:,|;)?\s*(?:and then|and also|and|then|also)\s+((?:add|put|stick|throw|pop|chuck)\s+.+?\s+(?:to|on|onto|in|into)\s+(?:my|the|our)\s+(?:(?:to-?do|todo|to do|shopping|grocery|groceries|task)\s+)?(?:lists?|to-?dos?|tasks))\s*[.!]*$`, "i");
+/** "add a call with bea at 7pm and put eggs on my list": the list part (run by code) and the rest left for the calendar (w20 r5 #101). */
+export function splitTrailingListAdd(message) {
+    const at = TRAILING_LIST.exec(message.trim());
+    if (!at)
+        return null;
+    const asks = readOne(at[2]);
+    return asks && asks.length && asks.every((a) => a.kind === "list-add") ? { head: at[1].trim(), asks } : null;
+}
 /** The web player or site for an app that is not installed. */
 const WEB_VERSION = {
     spotify: { url: "https://open.spotify.com", label: "the Spotify web player" },

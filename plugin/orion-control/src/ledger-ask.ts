@@ -106,7 +106,7 @@ export function readLedgerAsk(message: string): LedgerAsk | null {
   // "delete that" / "cancel it" with nothing to say what: pointing only.
   if (!targets.length && !pointing && !kinds.length) return null;
   const strong = pointing || kinds.some((k) => k !== "block") || (verb === "undo" && !noNeed);
-  return { verb, strong: strong || everyOne, kinds, targets: everyOne ? groupsOf(object.replace(EVERY, "")) : targets, pointing, bare: false, ...(noNeed ? { soft: true } : {}), ...(everyOne ? { every: true } : {}) };
+  return { verb, strong: strong || (everyOne && groupsOf(object.replace(EVERY, "")).length > 0), kinds, targets: everyOne ? groupsOf(object.replace(EVERY, "")) : targets, pointing, bare: false, ...(noNeed ? { soft: true } : {}), ...(everyOne ? { every: true } : {}) };
 }
 
 /** "and the dentist one too": a new target for the removal he just made. Null when it is not that shape. */

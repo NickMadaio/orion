@@ -94,4 +94,12 @@ describe("ledger wired into the chat", () => {
         const h = harness({ reminders: [{ id: "d1", label: "ring the dentist", dueAt: Date.now() + 60_000 }] });
         expect(await h.turn("and the dentist one too")).not.toContain("Do you mean");
     });
+    it("clear all reminders asks once with the list, and his yes clears them", async () => {
+        const h = harness({ reminders: [{ id: "a", label: "stretch", dueAt: Date.now() + 60_000 }, { id: "b", label: "ring the dentist", dueAt: Date.now() + 90_000 }] });
+        const ask = await h.turn("clear all reminders");
+        expect(ask).toContain("you set yourself: stretch, ring the dentist. Clear all 2?");
+        expect(h.store.length).toBe(2);
+        expect(await h.turn("yes")).toContain("Cancelled the reminders: stretch and ring the dentist.");
+        expect(h.store).toEqual([]);
+    });
 });

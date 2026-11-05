@@ -226,3 +226,39 @@ describe("round 5 (gate run 3)", () => {
     expect(madeBy({ canonical: "timer_set 600s pasta", stdout: '{"id":"x1","dueAt":5}' }, 1)[0]).toMatchObject({ kind: "reminder", label: "pasta" });
   });
 });
+
+describe("review r5: bulk removal of a kind", () => {
+  it.each(["clear all reminders", "delete every note", "remove all my reminders", "cancel every reminder", "clear all my timers", "scrap all the notes"])("%s never names an empty block", async (m) => {
+    const h = deps({ reminders: [rem("a", "stretch")] });
+    const out = (await runLedgerAsk(readLedgerAsk(m)!, h.d))!;
+    expect(out.text).not.toMatch(/""|any block like/);
+  });
+  it("reminders he set himself are listed and asked about once; nothing is removed until yes", async () => {
+    const h = deps({ reminders: [rem("a", "stretch"), rem("b", "ring the dentist"), rem("c", "pasta"), rem("d", "call dad")], items: [{ kind: "reminder", label: "pasta", at: NOW - 1000 }, { kind: "reminder", label: "stretch", at: NOW - 900 }] });
+    const ask = readLedgerAsk("clear all reminders")!;
+    const first = (await runLedgerAsk(ask, h.d))!;
+    expect(first.text).toBe("That's 4 reminders, 2 I set in this chat and 2 you set yourself: stretch, pasta, ring the dentist, call dad. Clear all 4?");
+    expect(first.held).toEqual({ kind: "reminder", label: "*all" }); expect(h.store.length).toBe(4);
+    const yes = (await runLedgerAsk({ ...ask, confirmed: true }, h.d))!;
+    expect(h.store).toEqual([]); expect(yes.text).toMatch(/Cancelled the reminders: /);
+  });
+  it("reminders all made in this chat are cleared at once and listed", async () => {
+    const h = deps({ reminders: [rem("a", "stretch")], items: [{ kind: "reminder", label: "stretch", at: NOW }] });
+    expect((await runLedgerAsk(readLedgerAsk("cancel every reminder")!, h.d))!.text).toBe("Cancelled the reminder: stretch."); expect(h.store).toEqual([]);
+  });
+  it("no reminders: says so", async () => { expect((await runLedgerAsk(readLedgerAsk("clear all reminders")!, deps().d))!.text).toMatch(/no reminders set/); });
+  it("every note: lists this chat's notes and asks; yes archives them", async () => {
+    const note = { kind: "note" as const, label: "went through the plan", at: NOW - 1000 };
+    const { d, calls } = deps({ items: [note], scripts: { "orion-brain forget": '{"matches":[{"id":"abc1234567","text":"went through the plan"}],"archived":[{"id":"abc1234567"}]}' } });
+    const ask = readLedgerAsk("delete every note")!;
+    const first = (await runLedgerAsk(ask, d))!;
+    expect(first.text).toMatch(/I saved 1 note in this chat: "went through the plan"\. Clear it\?/); expect(first.held?.kind).toBe("note"); expect(calls).toEqual([]);
+    const yes = (await runLedgerAsk({ ...ask, confirmed: true }, d))!;
+    expect(yes.text).toMatch(/Removed the note/);
+  });
+  it("every note with none made here: says what it can do, removes nothing", async () => {
+    const { d, calls } = deps();
+    expect((await runLedgerAsk(readLedgerAsk("delete every note")!, d))!.text).toMatch(/none, so I haven't removed anything/); expect(calls).toEqual([]);
+  });
+  it("clear all my blocks is left to the scheduler (not the ledger's)", () => { expect(readLedgerAsk("clear all my blocks")?.strong ?? false).toBe(false); });
+});

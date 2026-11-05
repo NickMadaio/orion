@@ -214,6 +214,30 @@ async function removeNamed(ask: LedgerAsk, words: string[], deps: LedgerDeps): P
   return undefined;
 }
 
+const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? "" : "s"}`;
+/** "clear all reminders" / "delete every note": lists what matches (ORION-made first) and asks once before removing anything he made himself. */
+async function removeAllOfKind(kind: "reminder" | "note", confirmed: boolean, deps: LedgerDeps): Promise<LedgerOutcome> {
+  const out = acc();
+  const mine = deps.items.filter((i) => i.kind === kind);
+  if (kind === "note") {
+    if (!mine.length) return { ...out, text: "I can only list the notes I saved in this chat, and there are none, so I haven't removed anything. Tell me which note (a few words from it) and I'll find it." };
+    if (!confirmed) return { ...out, text: `I saved ${plural(mine.length, "note")} in this chat: ${mine.map((n) => `"${n.label.length > 40 ? `${n.label.slice(0, 40)}…` : n.label}"`).join(", ")}. Clear ${mine.length === 1 ? "it" : `all ${mine.length}`}? Older notes I'd need you to name.`, held: { kind, label: "*all" } };
+    const parts: LedgerOutcome[] = [];
+    for (const item of [...mine].reverse()) parts.push(await removeNote(deps, item.label));
+    return merge(parts);
+  }
+  if (!deps.reminders) return { ...out, text: "I can't reach your reminders right now, so nothing was cancelled." };
+  const live = await deps.reminders.list().catch(() => []);
+  if (!live.length) return { ...out, text: "You have no reminders set, so there is nothing to clear." };
+  const madeHere = live.filter((r) => mine.some((i) => i.label.trim().toLowerCase() === r.label.trim().toLowerCase()));
+  const ownOnes = live.filter((r) => !madeHere.includes(r));
+  const names = [...madeHere, ...ownOnes].map((r) => r.label).join(", ");
+  if (ownOnes.length && !confirmed) {
+    return { ...out, text: `That's ${plural(live.length, "reminder")}${madeHere.length ? `, ${madeHere.length} I set in this chat` : ""} and ${ownOnes.length} you set yourself: ${names}. Clear all ${live.length}?`, held: { kind, label: "*all" } };
+  }
+  return removeReminder(deps, live.map((r) => r.label), undefined, live.map((r) => r.id));
+}
+
 /** "revert that and the one before": this chat's last `n` calendar changes, newest first; stops, and says so, when there are no more of its own. */
 async function undoSteps(deps: LedgerDeps, n: number): Promise<LedgerOutcome> {
   const parts: LedgerOutcome[] = [];
@@ -264,6 +288,10 @@ export async function runLedgerAsk(ask: LedgerAsk, deps: LedgerDeps): Promise<Le
   }
   if (ask.verb === "undo" && ask.kinds.length === 1 && ask.kinds[0] === "block" && !ask.pointing) return undoCalendar(deps, ask.targets);
   if (ask.verb === "undo" && ask.pointing && ask.kinds.includes("block")) return undoCalendar(deps);
+  if (ask.every && !ask.targets.length) {
+    const kind = ask.kinds.find((k) => k === "reminder" || k === "note");
+    return kind ? removeAllOfKind(kind, ask.confirmed === true, deps) : undefined;   // "clear all my blocks" stays with the scheduler
+  }
   if (ask.every) return removeEvery(ask.targets, deps);
   const groups = ask.targets.length ? ask.targets : [[]];
   const parts: LedgerOutcome[] = []; let claimed = false;

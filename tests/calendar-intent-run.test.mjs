@@ -156,7 +156,7 @@ test("follow-up 3: the scheduler writes, then its output is lost (a crash): the 
   assert.equal(r.reply, "The scheduler stopped before it reported back. Your calendar for tomorrow now differs from before: walk added at 5:00 PM–5:45 PM. Say \"undo\" to put it back.");
 });
 
-test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (nothing booked); a walk at 5 at 2 AM is 5 AM", async (t) => {
+test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (nothing booked); a walk at 5 at 2 AM is read in waking hours (5 PM) or asked, never 5 AM", async (t) => {
   const late = world(t, [23, 0]);
   const before = late.day();
   const a = await late.say("put cs lab from now until 2am");
@@ -164,8 +164,9 @@ test("follow-up 1 and 2, script side: until 2am at 23:00 is after midnight (noth
   assert.deepEqual(late.day(), before);
   const early = world(t, [2, 0]);
   const b = await early.say("put a walk at 5");
-  assert.deepEqual(early.writes, [["add", "walk", "30", "--at", "05:00"]]);
-  assert.equal(b.outcome, "done", JSON.stringify(b));
+  // w20 round 3 (waking-hours.ts): a bare small hour at 2 AM is a time he is awake for, or asked; never the small hours.
+  assert.ok(!early.writes.some((w) => w.includes("05:00")), JSON.stringify(early.writes));
+  assert.ok(early.writes.some((w) => w.includes("17:00")) || /\?/.test(b.text ?? ""), JSON.stringify(b));
 });
 
 test("live run 3 #8: 'can u block 2 hrs for econ homework tonight at 7' books 7:00-9:00 PM, not 1:20 PM", async (t) => {

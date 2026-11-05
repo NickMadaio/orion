@@ -140,7 +140,7 @@ describe("routing log: provided and reads", () => {
         expect(today.log.provided).toBe(true);
         expect(today.log.reads).toEqual(["day"]);
         const tmr = await harness({ move: "escalate", tier: "quick" }).turn("whats on tomorrow morning");
-        expect(tmr.log.reads).toEqual([meansTomorrow("whats on tomorrow morning") ? "day-tomorrow" : "day"]);
+        expect(tmr.log.reads).toEqual([meansTomorrow("whats on tomorrow morning", new Date(2026, 9, 16, 3, 31)) ? "day-tomorrow" : "day"]);
     });
     it("a change the schedule flow read the day for logs day (q019, q024)", async () => {
         const { log } = await harness({ move: "tool", tool: "reschedule" }).turn("cancel my 4:30 meal prep");

@@ -13,7 +13,9 @@ const HOURS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five:
 const MINUTE_WORDS: Record<string, number> = { five: 5, ten: 10, quarter: 15, twenty: 20, "twenty five": 25 };
 const HOUR_RE = `(?:${Object.keys(HOURS).join("|")}|\\d{1,2})`;
 const MER = String.raw`(?:\s*(a\.?\s?m\.?|p\.?\s?m\.?)(?![a-z]))?`;
-const PREP = String.raw`(?:at|by|for|around|about|is|be|to|till|until|bedtime|bed|sleep|=)`;
+// Only words that put a time on a clock: "for five to six minutes" and "about ten to twelve people" are amounts.
+const PREP = String.raw`(?:at|by|till|until|around|bedtime|bed|sleep|alarm\s+(?:for|to)|wake(?:\s+me)?(?:\s+up)?\s+(?:at|for|to)|=)`;
+const NOT_AMOUNT = String.raw`(?!\s+(?:minutes?|mins?|hours?|hrs?|seconds?|secs?|days?|weeks?|months?|years?|times?|people|guys|items?|things?|bottles|pages|sets|reps|miles|dollars|bucks))`;
 const WORDS = "twenty[\\s-]five|twenty|quarter|ten|five";
 
 const hourOf = (s: string): number | undefined => (/^\d+$/.test(s) ? Number(s) : HOURS[s]);
@@ -30,14 +32,14 @@ function build(minutes: number, dir: string, hourWord: string, mer: string | und
 
 /** Words ("ten to twelve") after a time preposition; with `digits`, also "10 to 12", anywhere. */
 export function relativeClock(text: string, { digits = false }: { digits?: boolean } = {}): string {
-  const word = new RegExp(String.raw`(?<=\b${PREP}\s)(${WORDS})\s+(to|past|after)\s+(${HOUR_RE})\b${MER}`, "gi");
+  const word = new RegExp(String.raw`(?<=\b${PREP}\s)(${WORDS})\s+(to|past|after)\s+(${HOUR_RE})\b${MER}${NOT_AMOUNT}`, "gi");
   let out = text.replace(word, (whole, n: string, dir: string, hour: string, mer?: string) => {
     const minutes = MINUTE_WORDS[n.toLowerCase().replace(/[\s-]+/g, " ")];
     return (minutes === undefined ? undefined : build(minutes, dir.toLowerCase(), hour, mer)) ?? whole;
   });
   if (!digits) return out;
   // The whole message is a bedtime: no preposition needed ("bedtime ten to twelve"), digit counts allowed, "half 11" is 11:30.
-  const loose = new RegExp(String.raw`\b(${WORDS}|5|10|15|20|25)\s+(to|past|after)\s+(${HOUR_RE})\b${MER}`, "gi");
+  const loose = new RegExp(String.raw`\b(${WORDS}|5|10|15|20|25)\s+(to|past|after)\s+(${HOUR_RE})\b${MER}${NOT_AMOUNT}`, "gi");
   out = out.replace(loose, (whole, n: string, dir: string, hour: string, mer?: string) => {
     const minutes = /^\d+$/.test(n) ? Number(n) : MINUTE_WORDS[n.toLowerCase().replace(/[\s-]+/g, " ")];
     return (minutes === undefined ? undefined : build(minutes, dir.toLowerCase(), hour, mer)) ?? whole;

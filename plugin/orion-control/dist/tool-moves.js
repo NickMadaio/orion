@@ -28,13 +28,15 @@ export function weatherDirective(sent) {
 /** "set a timer for 25 min": a timer, whatever the front desk picked (never a focus session, q032). */
 // "cancel the timer for 10 min", "is my timer for 20 min still running": about a timer, not a new one
 // (review, 2026-10-16).
-const NOT_A_NEW_TIMER = /\b(cancel|stop|clear|remove|delete|kill|abort|never ?mind)\b|^\s*(is|are|was|how|what|whats|when|did|does|has|have)\b/i;
-/** The seconds in "set a 10 min timer", or undefined (w20 r4: timer-flow.ts carries it out in code). */
-export function timerSeconds(message) {
-    const t = isTimerRequest(message) ? TIMER.exec(normalizeSpoken(message)) : null;
+const NOT_A_NEW_TIMER = /\b(cancel|stop|clear|remove|delete|kill|abort|never ?mind|don'?t|dont|do not|never|no need)\b|^\s*(is|are|was|how|what|whats|when|did|does|has|have|should|shall|do|would)\b(?!\s+you\b)|\b(?:should|shall) i\b|\bwhat if\b|\bhow about\b|\bdo you think\b|\binstead\b|\?.+\b(?:or|but)\b|\bor is (?:that|it)\b|\btoo (?:short|long)\b/i;
+/** The seconds in a timer sentence whether or not it is an order (timer-flow.ts decides that). */
+export function timerLength(message) {
+    const t = TIMER.exec(normalizeSpoken(message));
     const total = t ? seconds(t[1] ?? t[3] ?? "0", t[2] ?? t[4] ?? "m") : 0;
     return total >= 1 && total <= 86400 ? total : undefined;
 }
+/** The seconds in "set a 10 min timer", or undefined (w20 r4: timer-flow.ts carries it out in code). */
+export function timerSeconds(message) { return isTimerRequest(message) ? timerLength(message) : undefined; }
 export const isTimerRequest = (message) => { const m = normalizeSpoken(message); return TIMER.test(m) && !NOT_A_NEW_TIMER.test(m); };
 /** The app named in an open-an-app request, or null when it is anything else (open-request.ts reads every shape). */
 export function appOpenName(message) {

@@ -17,6 +17,8 @@ export type ToolDirective =
 export declare function weatherDirective(sent: string): Extract<ToolDirective, {
     kind: "call";
 }>;
+/** The seconds in a timer sentence whether or not it is an order (timer-flow.ts decides that). */
+export declare function timerLength(message: string): number | undefined;
 /** The seconds in "set a 10 min timer", or undefined (w20 r4: timer-flow.ts carries it out in code). */
 export declare function timerSeconds(message: string): number | undefined;
 export declare const isTimerRequest: (message: string) => boolean;

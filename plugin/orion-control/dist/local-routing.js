@@ -48,7 +48,7 @@ import { outreachStale, staleOutreachNote, stripOutreachEcho } from "./outreach-
 import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
 import { failedTools, failureReason } from "./tool-failure.js";
 import { isTimerRequest, toolDirective } from "./tool-moves.js";
-import { readTimer, runTimer } from "./timer-flow.js";
+import { readTimer, runTimer, splitTimerAsk } from "./timer-flow.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { readIntent } from "./calendar-intent.js";
 import { runsFirst } from "./intent-run.js";
@@ -834,6 +834,7 @@ export function registerLocalRouting(api, options) {
     };
     /** Per session: the reminder just set (for "no wait make it 5:30") and an unanswered "what/when?" about one. */
     const lastReminder = new Map();
+    const lastTimer = new Map();
     /** w18 note: sessions waiting for the note after a bare "make a note" (when it was asked); the next message in that chat is the note. */
     const noteAwait = new Map();
     const saveNote = async (run, bound) => {
@@ -2006,7 +2007,7 @@ export function registerLocalRouting(api, options) {
                     .catch((e) => ({ outcome: "fallback", reason: String(e) }));
                 if (flow.outcome !== "fallback") {
                     run.flow = flow;
-                    markRead(run, /--date/.test("calls" in flow ? (flow.calls ?? []).join(" ") : "") || meansTomorrow(run.message) ? "day-tomorrow" : "day");
+                    markRead(run, /--date/.test("calls" in flow ? (flow.calls ?? []).join(" ") : "") || meansTomorrow(run.message, (options.now ?? pluginNow)()) ? "day-tomorrow" : "day");
                     settleSchedule(run);
                 }
                 else
@@ -2265,14 +2266,30 @@ export function registerLocalRouting(api, options) {
             const whyDone = !run.flow && !run.cutOff && whyAbout && (asksWhy(run.message) || (asksYourQuestion(run.message) && run.message.trim().split(/\s+/).length <= 10)) ? whyAnswer(whyAbout) : undefined;
             if (whyDone?.kind === "say")
                 run.flow = { outcome: "say", kind: "plain", text: whyDone.text };
-            // w20 r4 (timer-flow.ts): a timer is written by code and read back; the worker's one call was never made (gate 2 #61).
-            const timerAsk = !run.flow && !run.cutOff && options.addTimer ? readTimer(run.message) : undefined;
+            // w20 r4 (timer-flow.ts): a timer ORDER is written by code and read back; the worker's one call was never made (gate 2 #61). A timer clause with
+            // another ask after it ("... and move my gym to 6") goes to the worker as separate asks, so neither is dropped.
+            if (!run.flow && !run.cutOff && options.addTimer) {
+                const split = splitTimerAsk(run.message);
+                if (split) {
+                    const asks = [split.timer, split.rest];
+                    const hints = asks.map((a) => { const d = toolDirective({ move: "answer" }, a); return d?.kind === "call" ? `use ${taskRunCall(d.args)}` : undefined; });
+                    run.multiAsk = asks;
+                    return { systemPrompt: `${LOCAL_IDENTITY}\n\n${multiAskPrompt(asks, hints)}\n\n${PRODUCTION_NOTES}\n\n${now}` };
+                }
+            }
+            const lastT = run.sessionKey ? lastTimer.get(run.sessionKey) : undefined;
+            const hasLastTimer = !!lastT && Date.now() - lastT.at < 15 * 60_000 && !!options.removeReminders;
+            const timerAsk = !run.flow && !run.cutOff && options.addTimer ? readTimer(run.message, { hasLast: hasLastTimer }) : undefined;
             if (timerAsk) {
-                const set = await runTimer(timerAsk, { add: options.addTimer, list: options.listReminders ?? (async () => []), now: (options.now ?? pluginNow)() }).catch(() => undefined);
+                const swap = timerAsk.replace && lastT && options.removeReminders ? { id: lastT.id, remove: (id) => options.removeReminders([id]) } : undefined;
+                const set = await runTimer(timerAsk, { add: options.addTimer, list: options.listReminders ?? (async () => []), now: (options.now ?? pluginNow)(), ...(swap ? { replace: swap } : {}) }).catch(() => undefined);
                 if (set) {
                     set.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: set.outputs[i] ?? "", exit: set.ok ? 0 : 1 }));
-                    if (set.ok && run.sessionKey)
+                    if (set.ok && run.sessionKey) {
                         recordOther(run.sessionKey, "timer");
+                        if (set.id)
+                            lastTimer.set(run.sessionKey, { id: set.id, at: Date.now() });
+                    }
                     run.flow = { outcome: "say", kind: "plain", text: set.text };
                 }
             }
@@ -2358,7 +2375,7 @@ export function registerLocalRouting(api, options) {
                     ? await options.scheduleFlow(run.message, clock(), { undo: run.undo ?? [], deadlineAt: flowDeadline(run.started), ...(openAsk ? { askContext: openAsk } : {}) }).then((r) => { flowRan = true; return r; }, (e) => ({ outcome: "fallback", reason: String(e) }))
                     : { outcome: "fallback", reason: "no scheduling flow wired" };
                 if (flowRan)
-                    markRead(run, meansTomorrow(run.message) ? "day-tomorrow" : "day");
+                    markRead(run, meansTomorrow(run.message, (options.now ?? pluginNow)()) ? "day-tomorrow" : "day");
                 // 2026-10-30: a sentence the flow misread as "log what I did" ("im on tiktok instead of studying", a rehearsed presentation,
                 // "draft a text to annika") is refused by the scheduler as a zero-length or far-future log. That refusal is not his answer:
                 // the turn goes to the worker (foc-doomscroll-v, saf-send-message-c; R2's thirty "Not done: 6:00 AM–6:00 AM").
@@ -2403,7 +2420,7 @@ export function registerLocalRouting(api, options) {
             }
             // w20 xf-other (day-read-answers.ts): "how long til my first thing" is arithmetic from the day by code; the desk guessed "about five hours" at 2:34 AM for 6 h 26 min.
             if (!run.flow && !run.cutOff && options.readDay && isFirstThingQuestion(run.message)) {
-                const tomorrow = meansTomorrow(run.message);
+                const tomorrow = meansTomorrow(run.message, (options.now ?? pluginNow)());
                 const day = await options.readDay(tomorrow).catch(() => "");
                 const first = day ? codeDayAnswer(run.message, day, tomorrow, nowMinutes(options.now)) : null;
                 if (first) {
@@ -2416,7 +2433,7 @@ export function registerLocalRouting(api, options) {
             }
             // A question about his day: code reads the day and hands it over (it said "I can't see your schedule").
             if ((SCHEDULING.test(run.message) || asksCurrentTask(run.message)) && (isQuestion(run.message) || asksDayRead(run.message)) && options.readDay && !run.flow) {
-                const tomorrow = meansTomorrow(run.message);
+                const tomorrow = meansTomorrow(run.message, (options.now ?? pluginNow)());
                 const day = await options.readDay(tomorrow).catch(() => "");
                 if (day) {
                     run.provided = true;

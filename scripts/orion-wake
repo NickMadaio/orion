@@ -22,8 +22,8 @@ if (!arg) {
   console.log(current ? `Wake-up set for ${new Date(current.at).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })} (asked ${current.setAt}).` : "No manual wake-up; the phone uses the automatic one (first class minus get-ready time).");
   process.exit(0);
 }
-// Never destroys alarm data (w20 r4): the request is set aside as wake-request.cleared.json, so a misread "clear" can be undone by hand.
-if (arg === "clear") { if (existsSync(file)) renameSync(file, join(dir, "wake-request.cleared.json")); console.log("Cleared. The phone goes back to the automatic wake-up."); process.exit(0); }
+// Never destroys alarm data (w20 r4): the request is set aside as wake-request.cleared-<timestamp>.json (one file per clear), so a misread "clear" can be undone by hand.
+if (arg === "clear") { if (existsSync(file)) renameSync(file, join(dir, `wake-request.cleared-${now.toISOString().replace(/[^0-9]/g, "")}-${process.pid}.json`)); console.log("Cleared. The phone goes back to the automatic wake-up."); process.exit(0); }
 const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(arg);
 if (!m) { console.error("usage: orion-wake HH:MM | clear"); process.exit(2); }
 const at = new Date(now); at.setHours(Number(m[1]), Number(m[2]), 0, 0);

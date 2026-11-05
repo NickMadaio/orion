@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,13 +72,16 @@ test("reset on a default config leaves the default bedtime, and a second fix aft
   assert.equal(saved().bedtime, "00:00");
 });
 
-test("orion-wake clear sets the request aside instead of deleting alarm data", (t) => {
+test("orion-wake clear sets each request aside under its own name instead of deleting alarm data", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "wake-r4-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const at = "2026-11-06T07:00:00";
-  writeFileSync(join(dir, "wake-request.json"), JSON.stringify({ at, setAt: "x" }));
-  const r = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/orion-wake", import.meta.url)), "clear"], { encoding: "utf8", env: { ...process.env, HOME: dir, ORION_CONTROLLED_DIR: dir, ORION_NOW: "2026-11-05T22:00:00" } });
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(existsSync(join(dir, "wake-request.json")), false);
-  assert.equal(JSON.parse(readFileSync(join(dir, "wake-request.cleared.json"), "utf8")).at, at);
+  const wake = (now) => spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/orion-wake", import.meta.url)), "clear"], { encoding: "utf8", env: { ...process.env, HOME: dir, ORION_CONTROLLED_DIR: dir, ORION_NOW: now } });
+  for (const [at, now] of [["2026-11-06T07:00:00", "2026-11-05T22:00:00"], ["2026-11-06T08:30:00", "2026-11-05T22:05:00"]]) {
+    writeFileSync(join(dir, "wake-request.json"), JSON.stringify({ at, setAt: "x" }));
+    assert.equal(wake(now).status, 0);
+    assert.equal(existsSync(join(dir, "wake-request.json")), false);
+  }
+  const kept = readdirSync(dir).filter((f) => f.startsWith("wake-request.cleared-"));
+  assert.equal(kept.length, 2, "the second clear did not overwrite the first");
+  assert.deepEqual(kept.map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")).at).sort(), ["2026-11-06T07:00:00", "2026-11-06T08:30:00"]);
 });

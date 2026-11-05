@@ -211,9 +211,9 @@ async function bedtimePart(ctx, p) {
     const raw = s.exact ? s.h * 60 + s.m + (s.ap === "p" && s.h < 12 ? 720 : 0) : s.h >= 6 && s.h <= 11 ? s.h * 60 + s.m + 720 : s.h === 12 ? s.m : s.h * 60 + s.m;
     const at = s.ap ? (s.h % 12) * 60 + (s.ap === "p" ? 720 : 0) + s.m : raw % 1440;
     // One writer, one read-back (bedtime-change.ts): "push sleep to 11:45" is that night only; the line says what the files now hold.
-    const r = await applyBedChange({ time: hhmm(at), scope: "tonight" }, async (args) => { const o = await exec(ctx, "orion-sleepplan", args); return { stdout: o.stdout, code: o.code }; });
+    const r = await applyBedChange({ time: hhmm(at), scope: p.scope ?? "tonight" }, async (args) => { const o = await exec(ctx, "orion-sleepplan", args); return { stdout: o.stdout, code: o.code }; });
     if (r.ok)
-        ctx.done.push(`set your bedtime to ${ampm(toMin(r.readback.sleepBy))} tonight (wind-down ${ampm(toMin(r.readback.nudgeAt))}, ${r.readback.hours}h of sleep before your ${ampm(toMin(r.readback.wake))} alarm)`);
+        ctx.done.push(`set your bedtime to ${ampm(toMin(r.readback.sleepBy))} ${r.readback.tonightOnly ? "tonight" : "every night from now on"} (wind-down ${ampm(toMin(r.readback.nudgeAt))}, ${r.readback.hours}h of sleep before your ${ampm(toMin(r.readback.wake))} alarm)`);
     else
         ctx.failed.push(`change your bedtime (${r.error.slice(0, 80)})`);
 }
@@ -229,6 +229,25 @@ async function busyPart(ctx, p) {
         ctx.done.push(`blocked ${spanText(from, until)} and moved the rest of today around it`);
 }
 const clock12 = (hhmmText) => ampm(toMin(hhmmText));
+/** "i went to bed at 2 last night": kept as a fact he told me (orion-declare note), so the sleep is on record; the reply says exactly that. */
+async function sleptPart(ctx, p) {
+    const out = await ctx.deps.run("orion-declare", ["add", "--kind", "note", "--text", p.text.slice(0, 200), "--source", ctx.deps.source]).catch(() => ({ stdout: "", code: 1 }));
+    ctx.calls.push("exec orion-declare add --kind note");
+    ctx.outputs.push(out.stdout);
+    let id;
+    try {
+        id = JSON.parse(out.stdout.trim().split("\n").at(-1) ?? "").id;
+    }
+    catch {
+        id = undefined;
+    }
+    if (out.code === 0 && typeof id === "string") {
+        ctx.facts.push(id);
+        ctx.done.push(`noted that ${p.text.replace(/^i /, "you ").replace(/\bi'm\b/g, "you're")}`);
+    }
+    else
+        ctx.failed.push("note when you went to bed");
+}
 /** "wake me at 6": orion-wake sets the alarm; the line is said only when it answered that it did. */
 async function wakePart(ctx, p) {
     const wake = ctx.deps.wake;
@@ -277,7 +296,7 @@ function bedtimeOf(deps) {
     }
 }
 export async function runDayEdit(edit, deps) {
-    const ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set(), extra: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps) } : {}) };
+    const ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set(), extra: [], facts: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps) } : {}) };
     const notes = [];
     const refused = [];
     for (const p of edit.parts) {
@@ -306,6 +325,8 @@ export async function runDayEdit(edit, deps) {
             await bedtimePart(ctx, p);
         else if (p.op === "busy")
             await busyPart(ctx, p);
+        else if (p.op === "slept")
+            await sleptPart(ctx, p);
         else if (p.op === "wake")
             await wakePart(ctx, p);
         else if (p.op === "food")
@@ -322,7 +343,7 @@ export async function runDayEdit(edit, deps) {
         rememberEdit({ parts: refused }, deps.now);
     else
         forgetEdit();
-    rememberRun(ctx.writes, [], deps.now);
+    rememberRun(ctx.writes, ctx.facts, deps.now);
     const bits = [];
     if (ctx.done.length)
         bits.push(`I ${list(ctx.done)}.`);
@@ -336,5 +357,5 @@ export async function runDayEdit(edit, deps) {
     const flow = ctx.writes || ctx.done.length
         ? { outcome: "done", calls: ctx.calls, outputs: ctx.outputs, reply: text, ...(ctx.failed.length ? { partial: true } : {}), ...(ctx.failures.length ? { failures: ctx.failures } : {}) }
         : { outcome: "say", kind: "plain", text: text || "I couldn't read that as a change to your day, so nothing changed.", calls: ctx.calls, outputs: ctx.outputs, ...(ctx.failures.length ? { failures: ctx.failures } : {}) };
-    return { flow, facts: [], writes: ctx.writes };
+    return { flow, facts: ctx.facts, writes: ctx.writes };
 }

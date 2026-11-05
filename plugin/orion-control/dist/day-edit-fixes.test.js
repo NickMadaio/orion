@@ -166,11 +166,13 @@ function route() {
     writeFileSync(join(dir, "health-log.json"), JSON.stringify({ schema: "orion.health.v3", supplements: [], supplementLog: {}, workouts: [] }));
     const calls = [];
     const wakes = [];
+    const foodCalls = [];
     registerLocalRouting(api, { warm: false, mode: "on", logPath: join(dir, "r.jsonl"), progressDir: join(dir, "tp"), stateDir: dir, clock: () => "Thu 19:57", now: () => NOW,
         decideImpl: async () => ({ move: "escalate" }), brainSearch: async () => "",
         scheduleFlow: async () => ({ outcome: "fallback", reason: "test" }), readDayJson: async () => DAY, readDay: async () => JSON.stringify(DAY),
         realityRun: async (s, a) => { calls.push([s, ...a]); return { stdout: "Changed Thursday\nWritten to his calendar.", code: 0 }; },
         wakeExec: async (a) => { wakes.push(a); return { stdout: "Sent to the phone", code: 0 }; },
+        foodRun: async (a) => { foodCalls.push(a); return { stdout: "", code: 1 }; },
         workoutRun: async () => ({ stdout: "{}", code: 0 }) });
     let n = 0;
     const turn = async (prompt) => {
@@ -178,9 +180,11 @@ function route() {
         await fire("before_model_resolve", { prompt }, ctx);
         const [direct] = (await fire("before_agent_reply", { cleanedBody: prompt }, ctx));
         const [built] = (await fire("before_prompt_build", { prompt, messages: [] }, ctx));
-        return direct?.reply?.text ?? /Your whole reply must be exactly: ([\s\S]*)\]$/.exec(built?.appendContext ?? "")?.[1];
+        const text = direct?.reply?.text ?? /Your whole reply must be exactly: ([\s\S]*)\]$/.exec(built?.appendContext ?? "")?.[1];
+        await fire("before_agent_finalize", { runId: ctx.runId, lastAssistantMessage: text ?? "ok", messages: [] }, ctx); // where a retry offer is stored
+        return text;
     };
-    return { turn, calls, wakes };
+    return { turn, calls, wakes, foodCalls };
 }
 describe("E11: undo, then the corrected ask", () => {
     it("'undo. i meant add those to the schedule' reads the last ask back as an edit, undoing first", () => {
@@ -208,6 +212,69 @@ describe("chat route: wake beside day edits reaches orion-wake", () => {
         expect(r.wakes).toEqual([["06:00"]]);
         expect(r.calls.map((c) => c.join(" ")).join("|")).not.toMatch(/wake/i);
         expect(text).toMatch(/wake alarm/);
+    });
+});
+describe("round 2", () => {
+    const sleepRun = (args) => async (s, a) => { args.push([s, ...a]); return s === "orion-sleepplan" ? { stdout: JSON.stringify({ ok: true, readback: { evening: "2026-11-05", sleepBy: "23:30", nudgeAt: "23:00", wake: "07:00", wakeDate: "2026-11-06", alarmAsked: false, hours: 7.5, lockdownBelowHours: 6, tonightOnly: !a.includes("--tonight") ? false : true, standing: "23:30" } }), code: 0 } : { stdout: "Changed\nWritten to his calendar.", code: 0 }; };
+    it("N1: a standing bedtime keeps its scope through the day-edit route", async () => {
+        for (const [m, want] of [["change my bedtime to 11:30", ["bedtime", "23:30", "--json"]], ["bed at 1 every night", ["bedtime", "01:00", "--json"]], ["push my bedtime to 12 tonight", ["bedtime", "00:00", "--tonight", "--json"]]]) {
+            const seen = [];
+            const { deps } = fake({ reply: (sc, a) => { seen.push([sc, ...a]); return sc === "orion-sleepplan" ? { stdout: JSON.stringify({ ok: true, readback: { evening: "2026-11-05", sleepBy: "23:30", nudgeAt: "23:00", wake: "07:00", wakeDate: "2026-11-06", alarmAsked: false, hours: 7.5, lockdownBelowHours: 6, tonightOnly: a.includes("--tonight"), standing: "23:30" } }), code: 0 } : undefined; } });
+            const edit = readDayEdit(m, NOW);
+            expect(edit, m).not.toBeNull();
+            const out = await runDayEdit(edit, deps);
+            expect(seen, m).toEqual([["orion-sleepplan", ...want]]);
+            expect(reply(out), m).toContain(want.includes("--tonight") ? "tonight" : "every night");
+        }
+    });
+    it("M4: went to bed at 2 last night is noted AND tonight's bedtime changes", async () => {
+        const m = "i went to bed at 2 last night, push my bedtime to 12 tonight";
+        expect(ops(m)).toEqual(["slept", "bedtime"]);
+        const seen = [];
+        const { deps } = fake({ reply: (sc, a) => { seen.push([sc, ...a]); if (sc === "orion-declare")
+                return { stdout: JSON.stringify({ id: "f1" }), code: 0 }; return sc === "orion-sleepplan" ? { stdout: JSON.stringify({ ok: true, readback: { evening: "2026-11-05", sleepBy: "00:00", nudgeAt: "23:30", wake: "07:00", wakeDate: "2026-11-06", alarmAsked: false, hours: 7, lockdownBelowHours: 6, tonightOnly: true, standing: "23:30" } }), code: 0 } : undefined; } });
+        const out = await runDayEdit(readDayEdit(m, NOW), deps);
+        expect(seen.map((c) => c[0])).toEqual(["orion-declare", "orion-sleepplan"]);
+        expect(seen[1]).toEqual(["orion-sleepplan", "bedtime", "00:00", "--tonight", "--json"]);
+        expect(reply(out)).toMatch(/went to bed at 2 last night/);
+        expect(reply(out)).toContain("bedtime");
+        expect(readReality(m, NOW)?.reality.kind).toBe("edit");
+    });
+    it("N4: only the clause that is not scheduling is left alone, and that is said", async () => {
+        expect(ops("put the oven on at 6 and add gym at 7")).toEqual(["note", "add"]);
+        expect(ops("switch the lights on at 7 and book gym 8-9")).toEqual(["note", "add"]);
+        const { calls, deps } = fake();
+        const out = await runDayEdit(readDayEdit("put the oven on at 6 and add gym at 9", NOW), deps);
+        expect(calls).toEqual([["orion-reschedule", "add", "Gym", "60", "--at", "21:00", "--length-explicit"]]);
+        expect(reply(out)).toMatch(/oven/);
+        expect(readDayEdit("put the oven on at 6", NOW)).toBeNull();
+    });
+    it("N3: 'then did gym at 3' is a block called Gym", async () => {
+        const p = readDayEdit("i ate lunch at 2 and then did gym at 3", NOW).parts;
+        expect(p.map((x) => x.op)).toEqual(["food", "add"]);
+        expect(p[1]).toMatchObject({ name: "gym" });
+        const q = readDayEdit("add run at 9 then went to the gym at 10", NOW).parts;
+        expect(q[1]).toMatchObject({ name: "gym" });
+    });
+    it("N6: i ate chicken at 4 and did gym 5-6 does both", async () => {
+        const m = "i ate chicken at 4 and did gym 5-6";
+        expect(ops(m)).toEqual(["food", "log"]);
+        const { calls, foods, deps } = fake({ food: true });
+        const out = await runDayEdit(readDayEdit(m, NOW), deps);
+        expect(foods).toHaveLength(1);
+        expect(calls[0].slice(0, 7)).toEqual(["orion-reschedule", "log", "Gym", "--from", "17:00", "--to", "18:00"]);
+        expect(reply(out)).toContain("Logged chicken");
+    });
+    it("retry: a go under another session key finds the failed message", async () => {
+        const r = route();
+        const first = await r.turn("log two eggs and toast"); // session key 1
+        expect(first).toMatch(/retry/i);
+        expect(r.foodCalls.length).toBeGreaterThan(0);
+        const before = r.foodCalls.length;
+        await r.turn("hows it going"); // key 2, unrelated
+        const again = await r.turn("go"); // key 0
+        expect(again).toMatch(/retry|couldn/i);
+        expect(r.foodCalls.length).toBeGreaterThan(before);
     });
 });
 // ---- 30 held-out messages: the route each must take ----
@@ -251,7 +318,7 @@ const CASES = [
     ["move gym to 9, and tell my mum i love her at 5", "none"],
     ["wake me at 6 and put gym at 7", "edit:wake,add"],
     ["what time is my alarm", "wake"],
-    ["put the heating on at 6 and gym at 7", "none"],
+    ["put the heating on at 6 and gym at 7", "edit:note,add"],
     ["add milk to my list at 5", "none"],
     ["i did gym 2-3 not 4", "edit:log"],
     ["set the kettle on at 6", "none"],

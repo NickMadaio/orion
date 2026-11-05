@@ -80,7 +80,7 @@ import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readG
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { casualStartTask, workStartTask } from "./work-start.js";
-import { afterReply as retryAfterReply, replayOf as retryReplay, withoutRetryOffer, RETRY_OFFER } from "./retry-slot.js";
+import { afterReply as retryAfterReply, isRetryWord, replayOf as retryReplay, withoutRetryOffer, RETRY_OFFER } from "./retry-slot.js";
 import { honestReply, offersBuild, refusalRewrite, truthfulDenial } from "./honest-reply.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, requestShaped, roomQuiet, roomTalk } from "./chatter.js";
 import { planLighten, readLighten, runLighten, saysYes } from "./day-lighten.js";
@@ -1210,9 +1210,15 @@ export function registerLocalRouting(api, options) {
         const crisisRest = stitch && isCrisis(stitch.text) && !isCrisis(continuation ?? "") ? continuation : undefined;
         const typed = cont?.full ?? (stitch ? `${stitch.text} ${continuation}` : cont?.rest || said);
         // w20 H3: a bare go / retry after a reply that offered one runs the failed message again. The slot answers one turn, the latest offer's.
-        const message = retryReplay(sessionKey ? retrySlots.get(sessionKey) : undefined, typed, nowMs());
+        // The phone sends one conversation under several session keys, so a retry word with no offer of its own takes the most recent offer under any key (RETRY_WINDOW_MS still applies).
+        const ownSlot = sessionKey ? retrySlots.get(sessionKey) : undefined;
+        const phoneKey = (k) => !!k && /orion-(?:app-v2|chat)/.test(k); // other chats stay separate
+        const recentKey = !ownSlot && isRetryWord(typed) && phoneKey(sessionKey) ? [...retrySlots.entries()].filter(([k]) => phoneKey(k)).sort((x, y) => y[1].at - x[1].at)[0]?.[0] : undefined;
+        const message = retryReplay(ownSlot ?? (recentKey ? retrySlots.get(recentKey) : undefined), typed, nowMs());
         if (sessionKey)
             retrySlots.delete(sessionKey);
+        if (recentKey)
+            retrySlots.delete(recentKey);
         const spokenTurn = SPOKEN.test(raw);
         // 2026-10-30 (chatter.ts): "shush" / "don't reply unless I say orion" starts a quiet window; inside it, spoken turns without
         // "orion" are dropped before anything else reads them (no desk, no flow, no memory). Saying "orion" ends it.

@@ -33,7 +33,7 @@ const defaultMinutes = (name: string): number => DEFAULT_MIN.find(([re]) => re.t
 const ANCHOR_END: Array<[RegExp, number]> = [[/lunch/, 13 * 60 + 30], [/dinner|supper/, 19 * 60 + 30], [/breakfast/, 9 * 60]];
 const list = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`);
 
-type Ctx = { deps: RealityDeps; nowMin: number; calls: string[]; outputs: string[]; done: string[]; failed: string[]; sides: string[]; writes: number; failures: ScheduleFailure[]; bedtime?: string; /** days the calendar could not be read for (a failed read is never "no block by that name") */ unread: Set<DayRef>; /** sentences another route answered for a clause it took (the food log), said as they are */ extra: string[] };
+type Ctx = { deps: RealityDeps; nowMin: number; calls: string[]; outputs: string[]; done: string[]; failed: string[]; sides: string[]; writes: number; failures: ScheduleFailure[]; bedtime?: string; /** days the calendar could not be read for (a failed read is never "no block by that name") */ unread: Set<DayRef>; /** sentences another route answered for a clause it took (the food log), said as they are */ extra: string[]; /** ids of facts declared (undone with the edit) */ facts: string[] };
 
 async function dayOf(ctx: Ctx, ref: DayRef): Promise<Day | undefined> {
   const { deps } = ctx;
@@ -168,8 +168,8 @@ async function bedtimePart(ctx: Ctx, p: Extract<EditPart, { op: "bedtime" }>): P
   const s = p.to; const raw = s.exact ? s.h * 60 + s.m + (s.ap === "p" && s.h < 12 ? 720 : 0) : s.h >= 6 && s.h <= 11 ? s.h * 60 + s.m + 720 : s.h === 12 ? s.m : s.h * 60 + s.m;
   const at = s.ap ? (s.h % 12) * 60 + (s.ap === "p" ? 720 : 0) + s.m : raw % 1440;
   // One writer, one read-back (bedtime-change.ts): "push sleep to 11:45" is that night only; the line says what the files now hold.
-  const r = await applyBedChange({ time: hhmm(at), scope: "tonight" }, async (args) => { const o = await exec(ctx, "orion-sleepplan", args); return { stdout: o.stdout, code: o.code }; });
-  if (r.ok) ctx.done.push(`set your bedtime to ${ampm(toMin(r.readback.sleepBy))} tonight (wind-down ${ampm(toMin(r.readback.nudgeAt))}, ${r.readback.hours}h of sleep before your ${ampm(toMin(r.readback.wake))} alarm)`);
+  const r = await applyBedChange({ time: hhmm(at), scope: p.scope ?? "tonight" }, async (args) => { const o = await exec(ctx, "orion-sleepplan", args); return { stdout: o.stdout, code: o.code }; });
+  if (r.ok) ctx.done.push(`set your bedtime to ${ampm(toMin(r.readback.sleepBy))} ${r.readback.tonightOnly ? "tonight" : "every night from now on"} (wind-down ${ampm(toMin(r.readback.nudgeAt))}, ${r.readback.hours}h of sleep before your ${ampm(toMin(r.readback.wake))} alarm)`);
   else ctx.failed.push(`change your bedtime (${r.error.slice(0, 80)})`);
 }
 
@@ -181,6 +181,15 @@ async function busyPart(ctx: Ctx, p: Extract<EditPart, { op: "busy" }>): Promise
 }
 
 const clock12 = (hhmmText: string): string => ampm(toMin(hhmmText));
+
+/** "i went to bed at 2 last night": kept as a fact he told me (orion-declare note), so the sleep is on record; the reply says exactly that. */
+async function sleptPart(ctx: Ctx, p: Extract<EditPart, { op: "slept" }>): Promise<void> {
+  const out = await ctx.deps.run("orion-declare", ["add", "--kind", "note", "--text", p.text.slice(0, 200), "--source", ctx.deps.source]).catch((): Run => ({ stdout: "", code: 1 }));
+  ctx.calls.push("exec orion-declare add --kind note"); ctx.outputs.push(out.stdout);
+  let id: unknown; try { id = (JSON.parse(out.stdout.trim().split("\n").at(-1) ?? "") as { id?: unknown }).id; } catch { id = undefined; }
+  if (out.code === 0 && typeof id === "string") { ctx.facts.push(id); ctx.done.push(`noted that ${p.text.replace(/^i /, "you ").replace(/\bi'm\b/g, "you're")}`); }
+  else ctx.failed.push("note when you went to bed");
+}
 
 /** "wake me at 6": orion-wake sets the alarm; the line is said only when it answered that it did. */
 async function wakePart(ctx: Ctx, p: Extract<EditPart, { op: "wake" }>): Promise<void> {
@@ -214,7 +223,7 @@ function bedtimeOf(deps: RealityDeps): string | undefined {
 }
 
 export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<RealityOutcome> {
-  const ctx: Ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set<DayRef>(), extra: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps)! } : {}) };
+  const ctx: Ctx = { deps, nowMin: deps.now.getHours() * 60 + deps.now.getMinutes(), calls: [], outputs: [], done: [], failed: [], sides: [], writes: 0, failures: [], unread: new Set<DayRef>(), extra: [], facts: [], ...(bedtimeOf(deps) ? { bedtime: bedtimeOf(deps)! } : {}) };
   const notes: string[] = []; const refused: EditPart[] = [];
   for (const p of edit.parts) {
     const failedBefore = ctx.failed.length;
@@ -232,6 +241,7 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
     else if (p.op === "didnt") await didntPart(ctx, p);
     else if (p.op === "bedtime") await bedtimePart(ctx, p);
     else if (p.op === "busy") await busyPart(ctx, p);
+    else if (p.op === "slept") await sleptPart(ctx, p);
     else if (p.op === "wake") await wakePart(ctx, p);
     else if (p.op === "food") await foodPart(ctx, p);
     else if (p.op === "sleephours") await sleepHoursPart(ctx, p);
@@ -240,7 +250,7 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
   }
   // "anyway" later re-runs only what was refused, never what already worked
   if (refused.length) rememberEdit({ parts: refused }, deps.now); else forgetEdit();
-  rememberRun(ctx.writes, [], deps.now);
+  rememberRun(ctx.writes, ctx.facts, deps.now);
   const bits: string[] = [];
   if (ctx.done.length) bits.push(`I ${list(ctx.done)}.`);
   if (ctx.failed.length) bits.push(`I couldn't ${list(ctx.failed)}, so ${ctx.done.length ? "that part is" : "nothing is"} unchanged.`);
@@ -251,5 +261,5 @@ export async function runDayEdit(edit: DayEdit, deps: RealityDeps): Promise<Real
   const flow: FlowResult = ctx.writes || ctx.done.length
     ? { outcome: "done", calls: ctx.calls, outputs: ctx.outputs, reply: text, ...(ctx.failed.length ? { partial: true as const } : {}), ...(ctx.failures.length ? { failures: ctx.failures } : {}) }
     : { outcome: "say", kind: "plain", text: text || "I couldn't read that as a change to your day, so nothing changed.", calls: ctx.calls, outputs: ctx.outputs, ...(ctx.failures.length ? { failures: ctx.failures } : {}) };
-  return { flow, facts: [], writes: ctx.writes };
+  return { flow, facts: ctx.facts, writes: ctx.writes };
 }

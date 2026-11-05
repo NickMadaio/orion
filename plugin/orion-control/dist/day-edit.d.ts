@@ -32,9 +32,17 @@ export type EditPart = {
     name: string;
     did?: string;
     span?: Span;
-} | {
+}
+/** scope: bedtime-read.ts's reading of the clause ("change my bedtime to 11:30" is every night, "push it to 12" is tonight). */
+ | {
     op: "bedtime";
     to: Said;
+    scope?: "tonight" | "always";
+}
+/** "i went to bed at 2 last night": what happened, noted as a fact (orion-declare), not a change. */
+ | {
+    op: "slept";
+    text: string;
 } | {
     op: "busy";
     until: Said;

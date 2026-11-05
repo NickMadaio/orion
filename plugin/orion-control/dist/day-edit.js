@@ -14,6 +14,7 @@ import { naturalToDigits, pickClock, pickRange, takeClock, takeRange } from "./d
 import { takeLength } from "./intent-time.js";
 import { notScheduling } from "./not-scheduling.js";
 import { parseWake } from "./wake-flow.js";
+import { readBedtimeChange } from "./bedtime-read.js";
 import { normalizeSpoken } from "./spoken-numbers.js";
 const clean = (m) => m.toLowerCase().replace(/[’`]/g, "'").replace(/[…]/g, ".").replace(/\s+/g, " ").trim();
 const FILLER = /\b(?:um+|uh+|erm|hmm+|like|just|literally|basically|actually|please|pls|plz|orion|hey|ok(?:ay)?|alright|hello|so|really|for me|real quick|quickly|lol|lmao|haha|tbh|btw|idk|ish)\b[,]?/g;
@@ -25,15 +26,16 @@ const EXERCISE = /\b(?:\d+\s*x\s*\d+|sets?|reps?|squats?|bench|deadlifts?|lbs?|k
 const LOG_SAY = /\bi(?:'ve| have)?\s+(?:actually\s+)?(?:was|did|went|had|ended up|spent|got|been)\b/;
 const PAST_SAY = /\bi(?:'ve| have)?\s+(?:actually\s+)?(?:was|did|went|had|ended up|spent|got|been|am)\b|\bi'?m\s+(?:at|in|on)\b/;
 const NAME_STOP = /\s+(?:i'?m|im|i am|i'?m not|because|cause|coz|as|since|but|cos)\b.*$/;
-const PREP = /^(?:(?:at|in|on|doing|to|the|a|an|my|some|having|been|going to|go to|up|that|i was|i did|i had|i went to|me)\s+)+/;
+const PREP = /^(?:(?:at|in|on|doing|to|the|a|an|my|some|having|been|going to|go to|up|that|i was|i did|i had|i went to|me|did|went to|went|then)\s+)+/;
 const tidy = (raw) => raw.trim().replace(NAME_STOP, "").replace(/\b(?:to|in|on) (?:my|the) (?:schedule|calendar|day|plan|planner)\b/g, " ").replace(/\b(?:session|block|slot|start|starts|starting|begin|begins)s?\b/g, " ")
     .replace(/\b(?:today|tonight|tomorrow|tmrw|yesterday|this (?:morning|afternoon|evening)|earlier|later|again|too|as well)\b/g, " ")
     .replace(/\s+/g, " ").trim().replace(PREP, "").replace(/^(?:me|that|it)\s+/, "").replace(/[.,!?]+$/g, "").replace(/\s+/g, " ").trim();
 const nameOf = (raw) => { const t = tidy(raw); return t && t.split(" ").length <= 5 && /[a-z]/.test(t) && !/^(?:everything|all|anything|something|it|that|this|day|my day)\b/.test(t) ? t : null; };
 const dayOf = (c, dflt) => (/\b(?:yesterday|last night)\b/.test(c) ? "yesterday" : /\b(?:tomorrow|tmrw)\b/.test(c) ? "tomorrow" : /\b(?:today|tonight|earlier|this (?:morning|afternoon|evening))\b/.test(c) ? "today" : dflt);
-const SPLIT = /[.;!|]+\s*(?=\S)|\s+(?=(?:add|put|schedule) (?:it|that|them|this)\b)|\s+(?:and then|then|also|plus)\s+|\s*,\s*(?=(?:and |also |then )?(?:add|ass|put|move|push|shift|drop|clear|delete|remove|cancel|schedule|book|log|set)\b)|\s+and\s+(?=(?:add|put|move|push|shift|drop|clear|delete|remove|cancel|schedule|book|log)\b)|\s*,\s*(?=(?:and |also |then )?(?:my )?(?:bed\s?time|sleep(?:\s?time)?|wake|alarm|(?:i )?(?:ate|eaten|drank))\b)|\s+and\s+(?=(?:my\s+)?(?:bed\s?time|sleep(?:\s?time)?|wake\s+(?:me|up)|alarm|set (?:an? )?alarm|(?:i )?(?:ate|eaten|drank)\b))/;
+const SPLIT = /[.;!|]+\s*(?=\S)|\s+(?=(?:add|put|schedule) (?:it|that|them|this)\b)|\s+(?:and then|then|also|plus)\s+|\s*,\s*(?=(?:and |also |then )?(?:add|ass|put|move|push|shift|drop|clear|delete|remove|cancel|schedule|book|log|set)\b)|\s+and\s+(?=(?:add|put|move|push|shift|drop|clear|delete|remove|cancel|schedule|book|log)\b)|\s*,\s*(?=(?:and |also |then )?(?:my )?(?:bed\s?time|sleep(?:\s?time)?|wake|alarm|(?:i )?(?:ate|eaten|drank))\b)|\s+and\s+(?=(?:my\s+)?(?:bed\s?time|sleep(?:\s?time)?|wake\s+(?:me|up)|alarm|set (?:an? )?alarm|(?:i )?(?:ate|eaten|drank|did|went to)\b))/;
 const BEDTIME = /(?:\b(?:push|move|shift|set|change|make|put)\s+|^(?:and |also |then )?)(?:my\s+)?(?:sleep(?:\s?time)?|bed\s?time|bed)\s+(?:back\s+|earlier\s+|later\s+|up\s+)?(?:to|until|till|at|for)\s+(\S+(?:\s*[ap]\.?m\.?)?)\b/;
 const SLEEP_HOURS = /\b(?:plan|aim|give me|get|want|need)\b.*\b(\d{1,2})\s*(?:hours?|hrs?)\s+(?:of\s+)?sleep\b/;
+const SLEPT_SAY = /^(?:(?:i|ive|i've)\s+)?(?:just\s+)?(?:went to bed|got to bed|got into bed|fell asleep|slept|got to sleep|crashed)\b/;
 const WAKE_WORD = /\b(?:wake|woke|alarm|get me up|get up)\b/;
 const FOOD_SAY = /^(?:(?:i|ive|i've)\s+)?(?:just\s+|already\s+)?(?:ate|eaten|drank|had (?:lunch|dinner|breakfast|a snack|supper|some food))\b/;
 /** What a clause says after its time: a second clock there is a second ask, never part of the first one's name. */
@@ -55,7 +57,8 @@ function didnt(c) {
 }
 function logged(c, dflt) {
     const body = c.replace(/^(?:add|log|note|put|record|mark)(?: down)?(?: that)?\s+/, "");
-    if (!LOG_SAY.test(body))
+    const bare = /^(?:did|went to)\s/.test(body); // "then did gym 5-6": the clause after a split has lost its "i"
+    if (!LOG_SAY.test(body) && !bare)
         return null;
     const range = takeRange(body);
     const len = takeLength(range ? range.rest : body);
@@ -106,7 +109,7 @@ export function readDayEdit(message, now) {
     let m = clean(message);
     if (!m || m.length > 420)
         return null;
-    if (EXERCISE.test(m.replace(/\bset (?:an? |my |the )?(?:alarm|wake)/g, "")) || CONDITION.test(m) || notScheduling(m))
+    if (EXERCISE.test(m.replace(/\bset (?:an? |my |the )?(?:alarm|wake)/g, "")) || CONDITION.test(m))
         return null;
     m = clean(m.replace(FILLER, " ").replace(/\b(\d{1,2}(?::\d{2})?)\s*\/\s*(\d{1,2}(?::\d{2})?)(\s*[ap]m)?/g, "$2$3"));
     m = naturalToDigits(m.replace(/\b(to|at|until|till|by|for|from)\s*,\s*/g, "$1 ").replace(/^[\s.,]+/, "").replace(/\bass\b/g, "add"), nowMin);
@@ -136,7 +139,13 @@ export function readDayEdit(message, now) {
         if (/^(?:add|put|schedule|book) (?:it|that|them|this)\b/.test(c) && !/\d/.test(c))
             continue;
         const bed = BEDTIME.exec(c);
-        if (WAKE_WORD.test(c)) {
+        if (notScheduling(c)) {
+            parts.push({ op: "note", text: `I left "${c.replace(/\s*\|\s*/g, " ").slice(0, 60)}" alone, that isn't something for your calendar` });
+            continue;
+        }
+        if (SLEPT_SAY.test(c) && !/\b(?:push|move|set|change|make)\b/.test(c))
+            part = { op: "slept", text: c.replace(/^(?:ive|i've)\s+/, "i ") };
+        else if (WAKE_WORD.test(c)) {
             // wake / alarm wording is the alarm's, never a block: a clause whose time cannot be read makes the whole message not mine
             const w = parseWake(c, undefined, now);
             if (w?.kind !== "set")
@@ -145,7 +154,8 @@ export function readDayEdit(message, now) {
         }
         else if (bed) {
             const t = takeClock(`to ${bed[1]}`);
-            part = t ? { op: "bedtime", to: t.s } : null;
+            const rc = readBedtimeChange(c);
+            part = t ? { op: "bedtime", to: t.s, scope: rc && "time" in rc ? rc.scope : "tonight" } : null;
         }
         else if (SLEEP_HOURS.test(normalizeSpoken(c)))
             part = { op: "sleephours", hours: Number(SLEEP_HOURS.exec(normalizeSpoken(c))[1]) };
@@ -175,7 +185,7 @@ export function readDayEdit(message, now) {
         if (asks || clocked)
             return null;
     }
-    if (parts.length && parts.every((p) => p.op === "wake" || p.op === "food"))
+    if (parts.length && parts.every((p) => p.op === "wake" || p.op === "food" || p.op === "slept" || p.op === "note"))
         return null; // a wake ask alone is the alarm route's (wake-flow.ts), a meal alone the food route's
     return parts.length ? { parts } : null;
 }

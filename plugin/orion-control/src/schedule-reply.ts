@@ -91,6 +91,11 @@ export function spokenReply(outputs: string[], when?: string, kept?: string): st
     if (m) { said.push(`${m[1]} now ${ampm(m[2]!)}–${ampm(m[3]!)}`); continue; }
     m = l.match(/^(.+?) is now (\d+) min: (\d{2}:\d{2})–(\d{2}:\d{2})/);
     if (m) { said.push(`${m[1]} is now ${m[2]} minutes, ${ampm(m[3]!)}–${ampm(m[4]!)}`); continue; }
+    // w20 r3 (#64): a class or event he did not make is only marked skipped in ORION's day record; it stays on his calendar. First person, no "his".
+    m = l.match(/^skipped (.+?) \d{2}:\d{2}–\d{2}:\d{2} — marked skipped/i);
+    if (m) { said.push(`I've marked ${m[1]} as skipped in my day record (it stays on your calendar, and nobody is emailed)`); continue; }
+    m = l.match(/^removed (.+?) \d{2}:\d{2}–\d{2}:\d{2} \(a block I booked\)/i);
+    if (m) { said.push(`took ${m[1]} off your day`); continue; }
     m = l.match(/^cleared \d+ prior schedule blocks?: (.+)$/i) ?? l.match(/^removed (.+)$/i);
     if (m) { said.push(`cleared ${m[1]}`); continue; }
     if (/^Logged .+/.test(l)) { logged = l; continue; }

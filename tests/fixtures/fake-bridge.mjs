@@ -53,7 +53,7 @@ switch (request.action) {
     const identifier = `ev-${events.length}-${Math.random().toString(36).slice(2, 8)}`;
     // [orion:kind] markers: orionTags = "kind,tag,..." (what the real bridge returns for [orion:kind][tag]...), read back by live-day.
     const tags = p.orionKind ? [p.orionKind, ...String(p.orionTags ?? "").split(",").filter(Boolean)].join(",") : null;
-    save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.calendar ? { calendar: p.calendar } : {}), ...(p.orionKind ? { orion: p.orionKind, orionTags: tags } : {}) }]);
+    save([...events, { identifier, title: p.title, start: p.start, end: p.end, ...(p.calendar ? { calendar: p.calendar } : {}), ...(p.location ? { location: p.location } : {}), ...(p.notes ? { notes: p.notes } : {}), ...(p.url ? { url: p.url } : {}), ...(p.orionKind ? { orion: p.orionKind, orionTags: tags } : {}) }]);
     reply({ identifier }); break;
   }
   case "delete_calendar_event":
@@ -62,7 +62,12 @@ switch (request.action) {
       process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: "read-only calendar: Northeastern" })}\n`); break;
     }
     if (!find(p.identifier)) { process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: "no such event" })}\n`); break; }
-    save(events.filter((e) => e.identifier !== p.identifier)); reply({ deleted: true }); break;
+    { const gone = find(p.identifier); save(events.filter((e) => e.identifier !== p.identifier)); reply({ deleted: true, calendar: gone.calendar ?? "", location: gone.location ?? "", notes: gone.notes ?? "", url: gone.url ?? "" }); } break;
+  case "get_calendar_event": {
+    const e = find(p.identifier);
+    reply(e ? { exists: "true", identifier: e.identifier, title: e.title, start: e.start, end: e.end, calendar: e.calendar ?? "", location: e.location ?? "", notes: e.notes ?? "", url: e.url ?? "" } : { exists: "false", identifier: p.identifier });
+    break;
+  }
   case "move_calendar_event":
     save(events.map((e) => (e.identifier === p.identifier ? { ...e, start: p.start, end: p.end } : e))); reply({ moved: true }); break;
   default: process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, error: `unsupported ${request.action}` })}\n`);

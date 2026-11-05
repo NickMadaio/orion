@@ -42,8 +42,8 @@
 //        and it is recorded as done (not a slip). gym / other activity: ends now, recorded as done.
 //        The freed time is re-weighed (a break, a short block topped up, the day pulled forward) and the first line says
 //        what happened. Nothing under way: says so and offers the next item, exit 0. One undo reverses all of it.
-//   orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]   he is not going to it: just that occurrence comes
-//        off his calendar (no approval; undo puts it back). A class never moves unless he says so — this is him saying so.
+//   orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]   he is not going to it: that occurrence is MARKED SKIPPED in ORION's
+//        day record (an event ORION did not create is never deleted; undo unmarks it). A block ORION booked itself comes off instead.
 //   orion-reschedule classes-off ["<class>" …] [--keep "<word>"] [--date YYYY-MM-DD]   "no classes today": every class that day (or
 //        the ones named) is marked cancelled in ORION's planning, never deleted; --keep leaves one he still has; one undo restores all.
 //   orion-reschedule log "<what he did>" --from HH:MM --to HH:MM|now [--where <placeId>] [--instead "<planned title>"] [--no-replan]
@@ -326,7 +326,7 @@ if (command === "show") {
     plan: { commuteMinutes: config.commuteMinutes, bufferMinutes: config.bufferMinutes, anchors: (config.anchors ?? []).map((a) => ({ title: a.title, minutes: a.minutes })) },
     blocks: [...blocks].sort((a, b) => a.start - b.start).map((b) => ({ title: b.title, start: hhmm(b.start), end: hhmm(b.end), fixed: !!b.fixed && !b.pinned, pinned: !!b.pinned, kind: b.kind,
       // nameable: one of his own events (not a class or a plan with people) that he may move or change himself by naming it
-      ...(b.fixed && !b.pinned && b.nameable ? { nameable: true } : {}) })) }));
+      ...(b.fixed && !b.pinned && b.nameable ? { nameable: true } : {}), ...(b.made ? { made: true } : {}) })) }));
   // pinned = an ORION block at a time he stated: the planner keeps it there, but he can still move it.
   process.exit(0);
 }
@@ -683,25 +683,29 @@ if (command === "late") {
   if (!name) fail('usage: orion-reschedule skip "<class or plan>" [--date YYYY-MM-DD]');
   // A movable block that IS what he named means he did not mean a class.
   const nearest = closest(name, blocks.filter((b) => b.end > nowMinute));
+  // w20 r3 #60-62: a block ORION booked itself (a call with mum) is never "a class or plan with people": skipping it takes it off his day.
+  const mine = nearest.filter((b) => b.made && b.kind !== "class" && b.kind !== "deadline").sort((a, b) => a.start - b.start)[0];
+  if (mine) {
+    if (dry) { console.log(`Would remove ${mine.title} ${hhmm(mine.start)}–${hhmm(mine.end)} on ${dayName}.`); process.exit(0); }
+    await applyPlan({ date, moves: [], created: [], removed: [mine], blocksById: new Map() }).catch((e) => fail(`orion-reschedule: ${e.message}`, 1));
+    console.log(`Changed ${dayName} ${date}:\n  removed ${mine.title} ${hhmm(mine.start)}–${hhmm(mine.end)} (a block I booked). That time is free now.`);
+    console.log('Written to his calendar. "orion-reschedule undo" puts it back.');
+    process.exit(0);
+  }
   const loose = nearest.find((b) => !b.fixed);
   if (loose) fail(`NOTHING WAS CHANGED: "${loose.title}" is one of ORION's movable blocks, not a class — skip is only for classes and plans with people. Use move/resize/drop "${loose.title}". Classes today stay as they are.`, 1);
   const target = nearest.filter((b) => b.fixed).sort((a, b) => a.start - b.start)[0];
   if (!target) fail(`NOTHING WAS CHANGED: no class or fixed plan called "${name}" left on ${dayName}. Fixed today: ${blocks.filter((b) => b.fixed).map((b) => `${b.title} ${hhmm(b.start)}`).join(", ") || "none"}.`, 1);
-  const start = iso(date, target.start); const end = iso(date, target.end);
-  if (dry) { console.log(`Would skip ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} on ${dayName}.`); process.exit(0); }
-  let how;
-  try {
-    await bridge("delete_calendar_event", { identifier: target.calendarId, start });
-    recordUndo([{ op: "delete", title: target.title, start, end }]);
-    how = "removed from his calendar";
-  } catch (e) {
-    if (!/read-only/i.test(String(e.message))) fail(`orion-reschedule: ${e.message}`, 1);
-    addSkip(target.title, start);
-    recordUndo([{ op: "unskip", title: target.title, start }]);
-    how = "skipped in ORION's planning (that calendar is read-only, so it still shows in Apple Calendar)";
-  }
-  console.log(`Changed ${dayName} ${date}:\n  skipped ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} — ${how}. That time is free now.`);
-  console.log('Written. "orion-reschedule undo" puts it back.');
+  const start = iso(date, target.start);
+  if (dry) { console.log(`Would mark ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} skipped on ${dayName}.`); process.exit(0); }
+  // w20 r3 #64 ("skip the lecture today, im ill" deleted the real lecture): an event ORION did not create is NEVER deleted. It is marked
+  // skipped in ORION's own day record (skips.mjs: every view of his day, the nudges and the planner leave it out) and stays on his
+  // calendar untouched, so there is nothing to lose and nothing to restore but the mark. Nobody is emailed or told.
+  addSkip(target.title, start);
+  recordUndo([{ op: "unskip", title: target.title, start }]);
+  touchDirty();
+  console.log(`Changed ${dayName} ${date}:\n  skipped ${target.title} ${hhmm(target.start)}–${hhmm(target.end)} — marked skipped in ORION's day record (the event itself stays on the calendar, untouched). That time is free in my plan now.`);
+  console.log('Written. "orion-reschedule undo" puts it back. Nobody was emailed or told.');
   process.exit(0);
 } else if (command === "classes-off") {
   /*
@@ -1227,7 +1231,8 @@ if (command === "day" || command === "add") {
   });
 }
 // A drop by name is explicit: any of his own events he names that is not a class or a plan with people.
-const droppable = (list, from) => list.filter((block) => block.end > from && nameableBy(block) && block.kind !== "class" && block.kind !== "deadline"
+// w20 r3 #60-62: a block ORION booked itself (block.made, made.mjs) is droppable even when it is a plan with people ("call with mum").
+const droppable = (list, from) => list.filter((block) => block.end > from && (nameableBy(block) || block.made) && block.kind !== "class" && block.kind !== "deadline"
   && rest.some((name) => closeness(name, block.title) > 0));   // wave 5: "side project tonight", and "cs lab" is not "DS Lab 05"
 if (command === "day" || command === "add") add = sensible(add);
 // "Delete everything after finishing the resume": every planned block that

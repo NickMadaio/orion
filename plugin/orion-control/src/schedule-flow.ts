@@ -34,7 +34,7 @@ import { asksToShiftAfter, movesThisOne, overrunIsMove } from "./own-event-write
 export { nothingWritten, spokenFailure, spokenReply, summarize };
 
 /** nameable: one of his own events (not a class or a plan with people): fixed for automatic changes, but he may move it by naming it. */
-export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string; nameable?: boolean };
+export type DayBlock = { title: string; start: string; end: string; fixed: boolean; kind?: string; nameable?: boolean; /** ORION booked it itself (w20 r3: it may come off his day when he says so). */ made?: boolean };
 /** plan: what `show --json` says about how the scheduler lays this day out (the trip home, the gap between blocks, the daily anchors). */
 export type Day = { date: string; now: string | null; blocks: DayBlock[]; plan?: { commuteMinutes: number; bufferMinutes: number; anchors: Array<{ title: string; minutes: number }> } };
 export type Intent = {

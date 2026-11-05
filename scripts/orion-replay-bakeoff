@@ -1,0 +1,50 @@
+#!/bin/bash
+#
+# orion-replay-bakeoff: the same live replay (private corpus + both schedule suites) against several local model setups, one after
+# another, each measured on a cold start with only its own models resident. Local models only, on Ollama, never a cloud model.
+#
+#   orion-replay-bakeoff [--only label,label]
+#
+# Results go to ~/.openclaw/orion-controlled/evals/replay/results/ (one JSON per setup, plus the `ollama ps` taken while it was loaded).
+# It does not touch the live config: the plugin keeps its own two models. When it finishes (or is killed) it unloads whatever it
+# loaded and puts the original two back at the context ORION calls them with (16384 and 32768), kept for 24 hours.
+set -u
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+OUT="$HOME/.openclaw/orion-controlled/evals/replay/results"
+HOST="http://127.0.0.1:11434"
+DESK="qwen3.5:4b-q4_K_M"
+WORKER="qwen3.5:9b"
+mkdir -p "$OUT"
+
+# label|desk|worker
+SETUPS=(
+  "control|$DESK|$WORKER"
+  "nodesk-9b|$WORKER|$WORKER"
+  "moe-30b|$DESK|qwen3:30b"
+  "qwen36-27b|$DESK|qwen3.6:27b"
+)
+only="${2:-}"; [ "${1:-}" = "--only" ] || only=""
+
+unload_all() {
+  curl -s "$HOST/api/ps" | python3 -c 'import json,sys; [print(m.get("name") or m.get("model")) for m in json.load(sys.stdin).get("models",[])]' 2>/dev/null \
+    | while read -r m; do [ -n "$m" ] && curl -s "$HOST/api/generate" -d "{\"model\":\"$m\",\"keep_alive\":0}" >/dev/null; done
+  sleep 2
+}
+restore_originals() {
+  unload_all
+  curl -s "$HOST/api/generate" -d "{\"model\":\"$DESK\",\"keep_alive\":\"24h\",\"options\":{\"num_ctx\":16384}}" >/dev/null
+  curl -s "$HOST/api/generate" -d "{\"model\":\"$WORKER\",\"keep_alive\":\"24h\",\"options\":{\"num_ctx\":32768}}" >/dev/null
+  echo "restored: $(curl -s "$HOST/api/ps" | python3 -c 'import json,sys; print(", ".join((m.get("name") or "?")+" ctx "+str(m.get("context_length")) for m in json.load(sys.stdin).get("models",[])))')"
+}
+trap restore_originals EXIT
+trap 'exit 130' INT TERM HUP
+
+for setup in "${SETUPS[@]}"; do
+  IFS='|' read -r label desk worker <<<"$setup"
+  if [ -n "$only" ] && [[ ",$only," != *",$label,"* ]]; then continue; fi
+  echo "=== $label: desk $desk, worker $worker ($(date +%H:%M:%S))"
+  unload_all
+  node "$REPO/scripts/orion-replay" --live --label "$label" --desk "$desk" --worker "$worker"
+  ollama ps > "$OUT/$label.ps.txt" 2>&1
+  cat "$OUT/$label.ps.txt"
+done

@@ -423,6 +423,27 @@ with Command Line Tools alone and is proven to exit non-zero; converting it to a
 `swift test` target with the same wrapper pattern would be more consistent with
 `native/Orion` and is a reasonable thing for a later session to do.
 
+## Replay: the regression guard (w20)
+
+Nick: "every time we take a few steps forward we take a million backwards". `scripts/orion-replay` replays his real turns against the routing
+and grades PROPERTIES (which route took it, which script ran with which args, every ask in a multi-ask message addressed, banned reply shapes
+such as "say it again", a bare "…", "I couldn't run that lookup", third-person ORION), never exact text.
+- **Deterministic layer** (CI, `orion_v2_ci_check.sh`, `orion-deploy`): `scripts/eval/replay/cases.json`, 66 anonymised paraphrases (all 41
+  tube-audit turns, good turns that work today, bugs found while building it) through `registerLocalRouting` with recorded model outputs and
+  recorded scripts (`plugin/orion-control/src/replay/`). Runs in `npx vitest run src/replay` and `node scripts/orion-replay`. Exit 1 only for
+  a case NOT marked `expectFail`. A fixed bug shows as XPASS: delete its `expectFail`; `--strict` makes that an error.
+  When you fix an audit bug, flip its case to a plain pass in the same commit. When you add a code route, add a good turn for the turns it
+  must NOT take (E4/E10/E17: the workout route took "add gym 10 to 11pm").
+- **Live layer** (`orion-replay --live`, on demand): real local models (Ollama only, never a cloud model) on the private corpus and on both
+  schedule suites. Corpus: `node scripts/lib/replay/build-corpus.mjs` writes `~/.openclaw/orion-controlled/evals/replay/real.cases.json` (his
+  real words; NEVER in the repo). Each Session has its own temp `ORION_CONTROLLED_DIR` with its own eval marker and sandbox calendar, so no
+  marker is ever left in the live state dir and nothing touches the real calendar, Notes or Mac. Only the scheduler and agenda run for real;
+  every other script is a recorder. `--desk M --worker M` swap models, `--compare BASELINE.json` lists cases that passed then and fail now.
+  `scripts/orion-replay-bakeoff` runs several model setups in turn and restores the original two.
+- Case fields that matter: `recorded` (desk decision, schedule form, worker reply, `obey` for a desk tool move, scripts), `prior` (earlier
+  turns in the same chat: repeat guard, "undo", pending questions), `outreach` (the line he is replying to), `expect` (route, calls, noCalls,
+  asks, replyHas/replyLacks, promptLacks). The M13 turn (phone command delivered late) is Swift (LinkEngine) and is counted as skipped.
+
 ## Traps that have already bitten, do not reintroduce
 - **/Applications/Safari.app is a symlink into the system cryptex on macOS 26.** Before 2026-11-04, `resolveApplication` skipped symlinks, so "open safari" and every browser action failed with "not found". Resolve symlinks, but only into Apple-owned roots.
 - **Stage Manager ignores `defaults write com.apple.WindowManager GloballyEnabled` on macOS 26**, even after `killall WindowManager`. Toggle the Control Center AX checkbox instead (StageManagerToggle.swift).

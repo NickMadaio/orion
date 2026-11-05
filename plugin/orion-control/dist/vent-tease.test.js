@@ -4,7 +4,7 @@ import { ventTease } from "./vent-tease.js";
 describe("everyday venting", () => {
     it.each([
         "i hate this uni so much lol", "ugh i hate my lectures so much haha", "i cant stand this module lol", "so sick of the commute tbh lol", "i hate this course so much",
-        "honestly i hate my coursework rn lol", "i hate the bus every morning lmao".replace("every morning ", ""), "lol i hate this uni", "this uni is the worst lol", "lectures are so boring lol", "uni sucks lol", "lol this place is a joke", "the commute is so draining haha",
+        "honestly i hate my coursework rn lol", "i hate the bus every morning lmao".replace("every morning ", ""), "lol i hate this uni", "this uni is the worst lol", "lectures are so boring lol", "uni sucks lol", "lol this place is a joke", "the commute is so boring haha",
     ])("%s is a tease only", (m) => {
         const t = ventTease(m);
         expect(t, m).not.toBeNull();

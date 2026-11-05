@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readLedgerAsk } from "./ledger-ask.js";
+import { readFollowUp, readLedgerAsk } from "./ledger-ask.js";
 import { runLedgerAsk } from "./ledger-run.js";
 import { MadeLedger, madeBy } from "./made-ledger.js";
 const NOW = new Date(2030, 9, 8, 15, 0).getTime();
@@ -192,5 +192,71 @@ describe("review r3", () => {
         expect(out.text).toMatch(/Do you mean this note: "idempotency matters for the lecture"/);
         expect(out.held?.kind).toBe("note");
         expect(calls.every(([, a]) => a[0] === "forget" && a[1] !== "--apply")).toBe(true);
+    });
+});
+describe("round 5 (gate run 3)", () => {
+    it.each(["revert whatever you just did", "reverse what you just did", "roll back the last change", "take back that move", "revert that", "roll back that last thing you did"])("%s is a bare undo", (m) => {
+        expect(readLedgerAsk(m)).toMatchObject({ verb: "undo", bare: true });
+    });
+    it.each(["revert that and the one before it as well", "undo that and the one before", "roll back that and the one before it too", "undo the last two changes", "undo both"])("%s takes back two", (m) => {
+        expect(readLedgerAsk(m)).toMatchObject({ bare: true, count: 2 });
+    });
+    it("undoes two of this chat's changes, newest first, and says what each one shows", async () => {
+        const journal = [{ at: new Date(NOW - 120_000).toISOString(), steps: [{ op: "move", title: "Gym", start: iso(9), end: iso(10) }] }, { at: new Date(NOW - 60_000).toISOString(), steps: [{ op: "move", title: "Study", start: iso(11), end: iso(12) }] }];
+        let popped = 0;
+        const { d, calls } = deps({ calendar: { since: NOW - 900_000, last: NOW - 60_000 }, days: [day([["Study", "11:00", "12:00"]]), day([["Gym", "09:00", "10:00"]])],
+            journal: () => journal.slice(0, journal.length - popped), run: async (s, a) => { calls.push([s, a]); popped += 1; return { stdout: "Undone: x", code: 0 }; } });
+        const out = (await runLedgerAsk(readLedgerAsk("revert that and the one before it as well"), d));
+        expect(calls.map((c) => c[1])).toEqual([["undo"], ["undo"]]);
+        expect(out.text).toBe("Study is back at 11:00 AM–12:00 PM. Gym is back at 9:00 AM–10:00 AM.");
+    });
+    it("only one of its own changes: undoes it and says there was no earlier one", async () => {
+        const journal = [{ at: new Date(NOW - 60_000).toISOString(), steps: [{ op: "move", title: "Study", start: iso(11), end: iso(12) }] }];
+        let popped = 0;
+        const { d } = deps({ calendar: { since: NOW - 900_000, last: NOW - 60_000 }, days: [day([["Study", "11:00", "12:00"]])], journal: () => (popped ? [] : journal), run: async () => { popped += 1; return { stdout: "Undone: x", code: 0 }; } });
+        expect((await runLedgerAsk(readLedgerAsk("undo that and the one before"), d)).text).toMatch(/Study is back at 11:00 AM–12:00 PM\. There wasn't an earlier change/);
+    });
+    it.each(["scrap the water one", "remove drink water from my calendar", "ditch that drink water block", "get rid of the water block"])("%s removes the block called Drink water", async (m) => {
+        const { d, calls } = deps({ items: [{ kind: "block", label: "Drink water", at: NOW - 1000 }], days: [day([["Drink water", "05:25", "06:25", "dw1"]]), day([])] });
+        const out = (await runLedgerAsk(readLedgerAsk(m), d));
+        expect(calls[0][1]).toEqual(["drop", "--id", "dw1"]);
+        expect(out.text).toMatch(/Drink water is off your day/);
+    });
+    it("the water block is found on the day even when this chat did not make it", async () => {
+        const { d, calls } = deps({ days: [day([["Drink water", "05:25", "06:25", "dw1"]]), day([])] });
+        expect((await runLedgerAsk(readLedgerAsk("scrap the water one"), d)).text).toMatch(/off your day/);
+        expect(calls[0][1]).toEqual(["drop", "--id", "dw1"]);
+    });
+    it.each(["and the dentist one too", "also the dentist one", "and the dentist as well", "oh and the dentist one too"])("%s reads as a follow-up target", (m) => {
+        expect(readFollowUp(m)).toEqual([["dentist"]]);
+    });
+    it.each(["and then what", "and", "whats next too", "and the gym tomorrow"])("%s is not a follow-up", (m) => { expect(readFollowUp(m)).toBeNull(); });
+    it.each(["get rid of every call with dad", "delete all the calls with dad", "remove all my dad calls", "cancel every dad call", "scrap all calls with dad"])("%s removes every made block, listing them, never his own", async (m) => {
+        const todayAll = day([["Call with dad", "17:00", "17:40", "c1"], ["Call with dad", "20:00", "20:30"]]);
+        const tomorrowAll = day([["Catch up call with dad", "10:00", "10:30", "c2"]]);
+        const { d, calls } = deps();
+        d.readDay = async (a) => { const dropped = calls.flatMap((c) => c[1]); const base = a.includes("tomorrow") ? tomorrowAll : todayAll; return { ...base, blocks: base.blocks.filter((bl) => !(bl.id && dropped.includes(bl.id))) }; };
+        const out = (await runLedgerAsk(readLedgerAsk(m), d));
+        expect(calls.map((c) => c[1])).toEqual([["drop", "--id", "c1"], ["drop", "--id", "c2", "--date", "tomorrow"]]);
+        expect(out.text).toMatch(/Call with dad \(5:00 PM–5:40 PM\)[^]*Catch up call with dad \(10:00 AM–10:30 AM, tomorrow\)/);
+    });
+    it("every call with dad, none made by ORION: nothing changes and it says so", async () => {
+        const { d, calls } = deps({ days: [day([["Call with dad", "20:00", "20:30"]])] });
+        expect((await runLedgerAsk(readLedgerAsk("get rid of every call with dad"), d)).text).toMatch(/I don't remove your own events/);
+        expect(calls).toEqual([]);
+    });
+    it.each(["cancel the pasta timer", "stop the pasta timer", "kill the pasta timer", "scrap my pasta timer", "dont need the pasta timer"])("%s cancels the stored timer by label", async (m) => {
+        const h = deps({ reminders: [rem("t1", "pasta"), rem("t2", "stretch")] });
+        const out = (await runLedgerAsk({ ...readLedgerAsk(m), confirmed: true }, h.d));
+        expect(h.store.map((r) => r.id)).toEqual(["t2"]);
+        expect(out.text).toMatch(/Cancelled the reminder: pasta/);
+    });
+    it("cancel the pasta timer with a plain order cancels it outright when one timer matches", async () => {
+        const h = deps({ reminders: [rem("t1", "pasta")] });
+        expect((await runLedgerAsk(readLedgerAsk("cancel the pasta timer"), h.d)).text).toMatch(/Cancelled the reminder: pasta/);
+        expect(h.store).toEqual([]);
+    });
+    it("a timer set in this chat is in the ledger", () => {
+        expect(madeBy({ canonical: "timer_set 600s pasta", stdout: '{"id":"x1","dueAt":5}' }, 1)[0]).toMatchObject({ kind: "reminder", label: "pasta" });
     });
 });

@@ -162,9 +162,12 @@ async function askAboutNote(deps, words) {
 /** One named thing he wants gone: this chat's ledger first, then the stores (reminders, his day's own made blocks, food, notes). */
 async function removeNamed(ask, words, deps) {
     const kinds = ask.kinds;
-    const pool = [...deps.items].reverse().filter((i) => (!kinds.length || kinds.includes(i.kind)) && (!words.length || namesLabel(words, i.label)));
-    if (pool[0])
-        return removeItem(deps, pool[0]);
+    const named = (i) => !words.length || namesLabel(words, i.label);
+    // "scrap the water one" can be the block called Drink water: a noun he used is tried first, then any kind with those words.
+    const pool = [...deps.items].reverse().filter((i) => (!kinds.length || kinds.includes(i.kind)) && named(i));
+    const anyKind = words.length ? [...deps.items].reverse().filter(named) : [];
+    if (pool[0] ?? anyKind[0])
+        return removeItem(deps, (pool[0] ?? anyKind[0]));
     if (!words.length)
         return undefined;
     const out = acc();
@@ -178,7 +181,7 @@ async function removeNamed(ask, words, deps) {
         if (hits.length)
             return removeReminder(deps, [words.join(" ")], words);
     }
-    if (!kinds.length || kinds.includes("block")) {
+    if (!kinds.length || kinds.some((k) => k === "block" || k === "water" || k === "food")) {
         const cache = new Map();
         for (const date of [undefined, "tomorrow"]) {
             const day = date ? await deps.readDay(["--date", date]).catch(() => undefined) : await dayFor(deps, undefined, cache);
@@ -199,6 +202,42 @@ async function removeNamed(ask, words, deps) {
     void out;
     return undefined;
 }
+/** "revert that and the one before": this chat's last `n` calendar changes, newest first; stops, and says so, when there are no more of its own. */
+async function undoSteps(deps, n) {
+    const parts = [];
+    for (let i = 0; i < n; i += 1) {
+        const part = await undoCalendar(deps);
+        if (part.text === deps.nothingText && i > 0) {
+            parts.push({ ...acc(), text: "There wasn't an earlier change of mine in this chat to undo." });
+            break;
+        }
+        parts.push(part);
+        if (!part.wroteCalendar)
+            break;
+    }
+    return merge(parts);
+}
+/** "get rid of every call with dad": every block ORION made (today and tomorrow) whose title names it, each dropped by id and read back. His own events are never touched. */
+async function removeEvery(targets, deps) {
+    const parts = [];
+    const said = [];
+    for (const words of targets.length ? targets : [[]]) {
+        let found = 0;
+        for (const date of [undefined, "tomorrow"]) {
+            const dateArgs = date ? ["--date", date] : [];
+            const day = await deps.readDay(dateArgs).catch(() => undefined);
+            for (const block of (day?.blocks ?? []).filter((b) => b.made && b.id && words.length && namesLabel(words, b.title))) {
+                found += 1;
+                const dropped = await dropBlock(deps, block.title, dateArgs, block.id);
+                parts.push({ ...dropped, text: dropped.text.replace(block.title, `${block.title} (${span(block)}${date ? ", tomorrow" : ""})`) });
+            }
+        }
+        if (!found)
+            said.push(`I haven't made any block like "${words.join(" ")}" on your calendar, and I don't remove your own events, so nothing changed.`);
+    }
+    const merged = merge(parts);
+    return { ...merged, text: [merged.text, ...said].filter(Boolean).join(" ") };
+}
 /** The reply and effects for one ledger ask; undefined when a weak ask found nothing it owns (the turn goes on to the ordinary flows). */
 export async function runLedgerAsk(ask, deps) {
     const pointingOnly = ask.pointing && !ask.targets.length && !ask.kinds.length;
@@ -214,12 +253,14 @@ export async function runLedgerAsk(ask, deps) {
         }
         if (newest && newest.at >= calendarLast && newest.kind !== "block")
             return removeItem(deps, newest);
-        return undoCalendar(deps);
+        return undoSteps(deps, ask.count ?? 1);
     }
     if (ask.verb === "undo" && ask.kinds.length === 1 && ask.kinds[0] === "block" && !ask.pointing)
         return undoCalendar(deps, ask.targets);
     if (ask.verb === "undo" && ask.pointing && ask.kinds.includes("block"))
         return undoCalendar(deps);
+    if (ask.all)
+        return removeEvery(ask.targets, deps);
     const groups = ask.targets.length ? ask.targets : [[]];
     const parts = [];
     let claimed = false;

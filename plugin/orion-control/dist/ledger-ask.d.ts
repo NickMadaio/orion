@@ -14,6 +14,12 @@ export type LedgerAsk = {
     confirmed?: boolean;
     /** "i dont need the stretch reminder": a remark, not an order, so a reminder found only in the store is asked about first. */
     soft?: boolean;
+    /** "revert that and the one before it": how many changes to take back (default 1). */
+    count?: number;
+    /** "get rid of every call with dad": every matching block ORION made, never his own. */
+    all?: boolean;
 };
 /** The ledger's reading of his message, or null when it is not about undoing or removing something. */
 export declare function readLedgerAsk(message: string): LedgerAsk | null;
+/** "and the dentist one too": a new target for the removal he just made. Null when it is not that shape. */
+export declare function readFollowUp(message: string): string[][] | null;

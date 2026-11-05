@@ -75,4 +75,16 @@ describe("ledger wired into the chat", () => {
     journal.push({ at: new Date().toISOString(), steps: [{ op: "move", title: "other", start: start.toISOString() }] });
     expect(await h.turn("undo")).toContain(UNDO_NOTHING_TO_UNDO); expect(h.ran).toEqual([]);
   });
+  it("and the dentist one too continues the removal he just made with a new target", async () => {
+    const h = harness({ reminders: [{ id: "d1", label: "ring the dentist", dueAt: Date.now() + 60_000 }] });
+    await h.turn("had a big bottle of water");
+    await h.made("orion-log water 3", "Logged 3 bottles: 3 of 9 today.");
+    expect(await h.turn("scrap the water one")).toContain("Took 3 bottles off");
+    const next = await h.turn("and the dentist one too");
+    expect(next).toContain('Do you mean the "ring the dentist" reminder');
+  });
+  it("without a removal just before, an 'and ... too' is not the ledger's", async () => {
+    const h = harness({ reminders: [{ id: "d1", label: "ring the dentist", dueAt: Date.now() + 60_000 }] });
+    expect(await h.turn("and the dentist one too")).not.toContain("Do you mean");
+  });
 });

@@ -9,6 +9,8 @@ export type CrisisTier = "full" | "gentle" | null;
 export declare function crisisTier(message: string): CrisisTier;
 /** The one short, dry tease that opens a GENTLE turn: names his cause when he gave one, varies by message, stable for the same one. */
 export declare function gentleCheckIn(message: string): string;
+/** A GENTLE slang line with no request in it: the dry tease is the whole reply. */
+export declare function isBanterOnly(message: string): boolean;
 /** The reply with the gentle check-in in front, once (a text that already opens with it is left as it is). */
 export declare function withGentleCheckIn(message: string, text: string): string;
 export declare const isCrisis: (message: string) => boolean;

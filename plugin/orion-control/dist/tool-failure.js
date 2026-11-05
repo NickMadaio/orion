@@ -13,8 +13,13 @@ export const acknowledgesFailure = (text) => HOST_ACK.test(text.toLowerCase());
 const WRITE_CANONICAL = /\b(?:add|move|drop|late|early|extend|resize|swap|day|clear|undo|learn|forget|remove|delete|rm|mv|write|send|start|end|pause|set|log|done)\b/i;
 /** Tool results this turn that failed or wrote nothing (a flow's own outputs are code-authored and filtered by the caller). */
 export function failedTools(tools) {
-    return tools.filter((t) => { const o = outcomeOf(t); return o === "failed" || o === "nothing"; });
+    const bad = tools.filter((t) => { const o = outcomeOf(t); return o === "failed" || o === "nothing"; });
+    // w20 R3 (gate #41): a guessed tool id ("openclaw:weather") the host answered "Unknown tool id" is the worker finding its way, not a part of
+    // the job that failed; when it then reached a real tool that worked, the reply must not say "One part didn't work".
+    const worked = tools.some((t) => !UNKNOWN_ID.test(String(t.stdout)) && ["success", "partial", "read"].includes(outcomeOf(t)) && /^(?:tool_call|orion_task_run|exec)\b/.test(t.canonical));
+    return worked ? bad.filter((t) => !(/^tool_call\b/.test(t.canonical) && UNKNOWN_ID.test(String(t.stdout)))) : bad;
 }
+const UNKNOWN_ID = /Unknown tool id|unknown tool\b/i;
 /** True when any tool this turn really changed something. */
 export const wroteSomething = (tools) => tools.some((t) => { const o = outcomeOf(t); return o === "success" || o === "partial"; });
 /** One short human clause for why a tool failed ("" when the output says nothing a person could use). Never raw text. */

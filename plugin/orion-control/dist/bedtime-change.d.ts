@@ -28,6 +28,13 @@ export type BedResult = {
     stdout: string;
 };
 export declare const bedArgs: (c: BedChange) => string[];
+/** orion-sleepplan --json prints pretty (multi-line) JSON: parse the whole output, else the last single-line object. Never a lone "{". */
+export declare function parseScriptJson(stdout: string): {
+    ok?: boolean;
+    error?: string;
+    readback?: Readback | null;
+    was?: string;
+} | undefined;
 /** Runs the one writer and parses its read-back; any failure is an error with the script's own reason. */
 export declare function applyBedChange(c: BedChange, run: BedRun): Promise<BedResult & {
     args: string[];

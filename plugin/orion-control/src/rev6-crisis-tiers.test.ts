@@ -97,11 +97,16 @@ function route() {
 }
 
 describe("through the chat route", () => {
-  it.each(GENTLE.slice(0, 5))("gentle: %s → normal turn, check-in first", async (m) => {
+  // w20 R3 (gate #52): slang that asks for nothing is the tease alone (no invented offer, no sorry); with a request in it, the tease leads and the turn runs.
+  it.each(GENTLE.slice(0, 5))("gentle: %s -> the tease alone", async (m) => {
+    const t = await route()(m, "Ugh, that sounds annoying.");
+    expect(t.direct).toBe(gentleCheckIn(m));
+    expect(t.direct).not.toBe(CRISIS_REPLY);
+  });
+  it.each(["i hate my life lol can you tell me when my class is tomorrow", "hate my life lol the wifi is down, can you play some music"])("gentle with a request: %s -> check-in first, then the turn", async (m) => {
     const t = await route()(m, "Ugh, that sounds annoying.");
     expect(t.direct).toBeUndefined();
-    expect(t.exact).not.toBe(CRISIS_REPLY);
-    expect(t.final).toBe(`${gentleCheckIn(m)} Ugh, that sounds annoying.`);
+    expect(t.final.startsWith(gentleCheckIn(m))).toBe(true);
   });
   it.each(["i'm just a burden to everyone", "there's no reason to keep going", "i hate my life"])("full: %s → the fixed reply", async (m) => {
     const t = await route()(m, "whatever");

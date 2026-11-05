@@ -54,7 +54,7 @@ import { maybeRunComputerTask, type ComputerDeps } from "./computer-loop.js";
 import { detectComputerIntent } from "./computer-intent.js";
 import { stepsAsToolResults } from "./computer-evidence.js";
 import { DESK_TIMEOUT_MS, DeskHealth, HOOK_TIMEOUT_MS, SLOW_FLOW_LINE, LATE_UNKNOWN_LINE, SLOW_FLOW_MAYBE_WROTE_LINE, SLOW_TURN_LINE, SLOW_TURN_MS, flowDeadline, revisePasses } from "./turn-budget.js";
-import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
+import { CRISIS_REPLY, OVERWHELMED_NOTE, SUPPORT_LINE, gentleCheckIn, isBanterOnly, isCrisis, isOverwhelmed, withGentleCheckIn } from "./distress.js";
 import { NOTE_ASK, NOTE_WINDOW_MS, isBareNoteRequest, isOtherCommand, parseNote } from "./note-flow.js";
 import { FACT_NOTE, FACT_NOW, RECALL_NOTE, RECALL_NOW, SEARCH_UNAVAILABLE, asksRecall, learnedLines, reframeDocumentRecall, searchRefused, stripExecFailed, tellsFact, tellsFactAloud } from "./memory-facts.js";
 import { MESSAGES_NOTE, cannotSend, isMessagesJob } from "./messages-route.js";
@@ -1520,6 +1520,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       const run = runFor(event, ctx);
       // Words that may mean he is not safe get the fixed caring reply, never a draft (2026-10-16).
       if (run && isCrisis(run.message) && !run.afterCrisis) return { handled: true, reply: { text: CRISIS_REPLY }, reason: "distress: fixed safety reply" };
+      if (run && !run.afterCrisis && !run.hushed && isBanterOnly(run.message)) return { handled: true, reply: { text: gentleCheckIn(run.message) }, reason: "distress: slang tease only" };   // w20 R3 #52
       if (run && (run.room || run.hushed || run.pending || run.preference || run.sleepTurn || run.phoneBlock || run.pendingYes || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge)) return undefined;   // 2026-10-31: code's, or the worker's textbook answer
       if (run?.ownText) return { handled: true, reply: { text: withGentleCheckIn(run.message, run.ownText) }, reason: "code answered from data" };
       if (run && openRequest(run.message)) return undefined;   // w18 voiceself: opening an app is app_open, never a drafted "I can't pull up apps"

@@ -2,18 +2,28 @@ import { meridiem } from "./sleep-fmt.js";
 export const bedArgs = (c) => [
     "bedtime", ...("reset" in c ? ["reset"] : "time" in c ? [c.time] : ["shift", String(c.shift)]), ...(c.scope === "tonight" ? ["--tonight"] : []), "--json",
 ];
+/** orion-sleepplan --json prints pretty (multi-line) JSON: parse the whole output, else the last single-line object. Never a lone "{". */
+export function parseScriptJson(stdout) {
+    const text = stdout.trim();
+    for (const candidate of [text, text.slice(text.indexOf("{")), text.split("\n").at(-1) ?? ""]) {
+        try {
+            const o = JSON.parse(candidate);
+            if (o && typeof o === "object")
+                return o;
+        }
+        catch { /* next */ }
+    }
+    return undefined;
+}
 /** Runs the one writer and parses its read-back; any failure is an error with the script's own reason. */
 export async function applyBedChange(c, run) {
     const args = bedArgs(c);
     const r = await run(args).catch(() => ({ stdout: "", code: 1 }));
     let out;
-    try {
-        out = JSON.parse(r.stdout.trim().split("\n").at(-1) ?? "");
-    }
-    catch { /* not json */ }
+    out = parseScriptJson(r.stdout);
     if (r.code === 0 && out?.ok && out.readback)
         return { ok: true, readback: out.readback, ...(out.was ? { was: out.was } : {}), stdout: r.stdout, args };
-    const raw = out?.error ?? r.stdout.replace(/^NOTHING WAS SAVED:\s*/, "").trim().split("\n")[0] ?? "";
+    const raw = out?.error ?? (out ? "" : r.stdout.replace(/^NOTHING WAS SAVED:\s*/, "").trim().split("\n")[0] ?? "");
     return { ok: false, error: raw.slice(0, 160) || "the sleep plan did not answer", stdout: r.stdout, args };
 }
 const hm = (hours) => { const t = Math.round(hours * 60); const h = Math.floor(t / 60); const m = t % 60; return m ? `${h}h${String(m).padStart(2, "0")}` : `${h}h`; };

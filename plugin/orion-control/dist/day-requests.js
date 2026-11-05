@@ -237,7 +237,7 @@ const done = (reply, calls, outputs) => {
 };
 const nowMin = (deps) => deps.now.getHours() * 60 + deps.now.getMinutes();
 const UNDO = "Say \"undo\" to put it back.";
-const READ_FAILED = "I couldn't read your calendar just now, so nothing changed. Tell me again in a moment.";
+const READ_FAILED = "I couldn't read your calendar just now, so nothing changed. Say go and I'll retry it.";
 /** One block of his by name: one still ahead first, else the latest. */
 function findBlock(name, day, now, opts = {}) {
     const found = day ? blocksNamed(name, day).filter((b) => b.kind !== "commute") : [];

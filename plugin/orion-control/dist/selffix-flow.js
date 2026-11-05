@@ -41,6 +41,8 @@ const bare = (m, set) => {
     const ws = m.replace(/[.!,]+/g, " ").split(" ").filter(Boolean);
     return ws.length > 0 && ws.length <= 5 && ws.every((w) => set.all.has(w) || (set === LATER_W && CLOCK_TOKEN.test(w))) && ws.some((w) => set.core.has(w) || (set === LATER_W && CLOCK_TOKEN.test(w) && ws.includes("at")));
 };
+// His answer to "Want me to build that?": a plain yes, or "build it".
+const BUILD_YES = /^(?:(?:yes|yeah|yep|yup|ya|sure|ok|okay|please|pls)[,.!\s]+)*(?:go (?:ahead )?and )?(?:build|make|add|create) (?:that|it|this|one)\b/;
 const START_FIX = /\b(?:start|run|launch|begin|kick off|get on)\s+(?:the|that|my|ur|your)\s+(?:self[- ]?)?(?:fix|fix project|repair)\b/;
 // "go into the code and fix it", "can you fix that yourself", "fix your code", "can you modify something in your own code": a request for the fix itself.
 // A fix verb needs ORION himself or his code as the object; an edit verb needs "your (own) code". "fix my resume", "update yourself" and "fix it" alone are not.
@@ -110,6 +112,8 @@ export function readSelffixMove(message, ctx) {
     }
     if (!ctx.outreach && asksFix(m))
         return { kind: "fix", about: message.trim() };
+    if (!ctx.outreach && ctx.build && (BUILD_YES.test(m) || bare(m, NOW_W)))
+        return { kind: "fix", about: message.trim(), target: ctx.build.request };
     if (waiting && ctx.bound === true) {
         if ((bare(m, LATER_W) || /^not now[.!]*$/.test(m)) && !/^now$/.test(m)) {
             const at = laterAt(m, ctx.now);
@@ -179,12 +183,12 @@ async function settleFix(item, run, log, now) {
 async function fixRequest(move, run, log, now) {
     const listed = await call(run, "orion-selffix", ["list", "--json"], log);
     const items = Array.isArray(listed?.items) ? listed.items : [];
-    const reuse = reusableFix(items, now);
+    const reuse = move.target ? undefined : reusableFix(items, now);
     if (reuse)
         return settleFix(reuse, run, log, now);
-    const found = await call(run, "orion-selfcheck", ["why", "--about", "", "--exclude", move.about, "--request", "--json"], log);
+    const found = await call(run, "orion-selfcheck", ["why", "--about", move.target ?? "", "--exclude", move.about, "--request", "--json"], log);
     if (!found)
-        return { ...log, text: "I couldn't read back my own recent turns just now, so I don't know what to fix and nothing was started. Tell me what went wrong and try again in a minute." };
+        return { ...log, text: "I couldn't read back my own recent turns just now, so I don't know what to fix and nothing was started. Tell me what went wrong and I'll retry." };
     if (!found.diagnosis)
         return { ...log, text: "I have no recent turns on record to fix from, so nothing was started. Tell me what went wrong." };
     const offer = await call(run, "orion-selffix", ["propose", "--stdin", "--requested"], log, JSON.stringify(found.diagnosis));
@@ -200,7 +204,7 @@ export async function runSelffixMove(move, run, now = new Date()) {
         case "why": {
             const found = await call(run, "orion-selfcheck", ["why", "--about", move.about, "--exclude", move.about, "--json"], log);
             if (!found)
-                return { ...log, text: "I couldn't read back my own recent turns just now, so I can't tell you why yet. Try me again in a minute." };
+                return { ...log, text: "I couldn't read back my own recent turns just now, so I can't tell you why yet. Say go and I'll retry it." };
             const d = found.diagnosis;
             if (!d)
                 return { ...log, text: "I have no recent turns on record to look at, so I can't say why." };
@@ -226,7 +230,7 @@ export async function runSelffixMove(move, run, now = new Date()) {
         case "later": {
             const out = await call(run, "orion-selffix", ["accept", move.id, "--later", ...(move.at ? ["--at", move.at] : [])], log);
             if (!out)
-                return { ...log, text: "I couldn't set that up just now, so nothing was created. Tell me again in a bit." };
+                return { ...log, text: "I couldn't set that up just now, so nothing was created. Say go and I'll retry it." };
             return { ...log, text: `Okay, I made the fix project and parked it. It won't run until you say so. I'll remind you ${spokenWhen(String(out.remindAt), now)}. ${SAFE}` };
         }
         case "no": {

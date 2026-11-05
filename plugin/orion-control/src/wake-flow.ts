@@ -89,7 +89,7 @@ const firstLine = (s: string) => s.trim().split("\n")[0]?.replace(/^orion-wake:\
 export async function runWakeFlow({ message, decision, now, exec, answering = false }: { message: string; decision?: Decision; now: Date; exec: WakeExec; answering?: boolean }): Promise<FlowResult> {
   const req = parseWake(message, decision, now, answering);
   if (!req) return { outcome: "fallback", reason: "not a wake alarm request" };
-  if (req.kind === "repeat") return say("I can't set repeating alarms yet, so nothing was changed. Want a one-off wake alarm for the next one instead?");
+  if (req.kind === "repeat") return say("I can't set repeating alarms yet, so nothing was changed. I can set a one-off alarm for the next one now, or build repeating ones. Which?");
   if (req.kind === "ask") return { outcome: "say", kind: "ask", text: "What time should I set your wake alarm for?" };
   if (req.kind === "bedtime") {
     // He said goodnight, not a time: the alarm is read, never changed.

@@ -4,7 +4,9 @@ export declare const UNKNOWN_OUTCOME = "OUTCOME UNKNOWN: the scheduler stopped b
 export declare const FAILED: RegExp;
 /** One scheduler failure line → one short spoken clause. The raw line was spoken word for word (sweep
  *  2026-10-16): usage text, "Blocks today: … 09:00–10:30", "Do not tell him anything was added". */
-export declare function spokenFailure(line: string): string;
+export declare function spokenFailure(line: string | Record<string, unknown>): string;
+/** The whole spoken answer to a refused run: what went wrong in first person, then the concrete next step. */
+export declare function failureReply(line: string | Record<string, unknown>): string;
 /** What to tell Nick, from the scheduler's own output only. */
 export declare function summarize(outputs: string[], said: string[]): {
     reply: string;

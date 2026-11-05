@@ -113,7 +113,7 @@ export async function runNote({ message, exec, bound }) {
     const tooLong = /too long/i.test(out);
     return { outcome: "say", kind: "plain", calls, outputs: [out], text: tooLong
             ? "That note is longer than I can keep in one piece — nothing was saved. Split it in two and I'll save both."
-            : "I couldn't save that note — nothing was saved. Say it again?" };
+            : "I couldn't save that note — nothing was saved. Want me to try it again?" };
 }
 const runFile = (file, args, timeout) => new Promise((resolve) => execFile(file, args, { timeout, maxBuffer: 1 << 20 }, (error, stdout, stderr) => resolve({
     stdout: error ? String(stderr || stdout || error.message) : String(stdout),

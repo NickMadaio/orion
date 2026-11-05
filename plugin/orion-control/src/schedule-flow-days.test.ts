@@ -36,7 +36,7 @@ describe("schedule flow — past gaps and blocks that are not there (sweep 2026-
 
   it("the scheduler's 'already ended' line is spoken plainly", () => {
     expect(spokenFailure("NOTHING WAS CHANGED: Review spending already ended at 15:30 today (Thursday 2026-10-15) — if he meant another day, run again with --date YYYY-MM-DD."))
-      .toBe("Review spending already ended at 3:30 PM today");
+      .toBe("Review spending already ended at 3:30 PM");
   });
 });
 

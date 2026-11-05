@@ -19,8 +19,9 @@ describe("the honest line for a statement of his own plans", () => {
     expect(STATEMENT_LINE).not.toMatch(/say it again|didn't actually do/i);
   });
   it("keeps the original lines for real requests and when no message is given", () => {
-    expect(honestLine(false)).toMatch(/I didn't actually do that/);
-    expect(honestLine(true, "move gym to 7")).toMatch(/couldn't make that change/);
-    expect(honestLine(false, "start a focus session i'll need 40 min")).toMatch(/didn't actually do that/);
+    expect(honestLine(false)).toMatch(/couldn't (?:actually )?run that/);
+    expect(honestLine(false)).not.toMatch(/say it again|rephrase/i);
+    expect(honestLine(true, "move gym to 7")).toMatch(/couldn't (?:make|run|get) that change/);
+    expect(honestLine(false, "start a focus session i'll need 40 min")).toMatch(/couldn't (?:actually )?run that/);
   });
 });

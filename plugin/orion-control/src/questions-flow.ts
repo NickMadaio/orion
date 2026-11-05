@@ -101,7 +101,7 @@ export async function runQuestionsMove(move: QuestionsMove, run: QuestionsRun): 
     case "drop": {
       if (!move.id) return { ...log, text: "There's no question of mine waiting on you." };
       const out = await call(run, ["drop", move.id, "--why", "Nick said to drop it", "--json"], log);
-      return { ...log, text: out?.ok ? `Okay, dropped it. I won't ask "${move.q}" again.` : "I couldn't drop that question just now. Try again in a moment." };
+      return { ...log, text: out?.ok ? `Okay, dropped it. I won't ask "${move.q}" again.` : "I couldn't drop that question just now. Say go and I'll retry it." };
     }
     case "skip": {
       const out = await call(run, ["skip", move.id, "--json"], log);

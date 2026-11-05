@@ -79,7 +79,7 @@ describe("runFoodTurn", () => {
     });
     it("a failure is one honest sentence", async () => {
         const out = await runFoodTurn({ kind: "ask", text: "toast" }, { run: fakeRun({ "--text": { ok: false, error: "the local model took longer than 45 s" } }), stateDir: dir(), now: NOW });
-        expect(out.text).toBe("I couldn't estimate that just now (the local model took longer than 45 s), so nothing was logged. Tell me again in a bit.");
+        expect(out.text).toBe("I couldn't estimate that just now (the local model took longer than 45 s), so nothing was logged. Say go and I'll retry it.");
     });
     it("a photo in chat points to the phone's food inbox unless an inbox estimate is fresh", async () => {
         const d = dir();

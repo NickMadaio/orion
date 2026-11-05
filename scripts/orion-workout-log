@@ -35,7 +35,7 @@ function finish(result, line) {
   process.exit(result.ok ? 0 : 1);
 }
 const usage = () => { console.error(USAGE); process.exit(2); };
-const failLine = (error) => `I couldn't read that workout (${error}), so nothing was logged. Tell me again in a bit.`;
+const failLine = (error) => `I couldn't read that workout (${error}), so nothing was logged. Say go and I'll retry it.`;
 const today = () => now.toDateString();
 
 /** Logs the draft with what is still missing named as skipped; the one reply. */

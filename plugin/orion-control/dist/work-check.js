@@ -49,7 +49,7 @@ const STATUS = /\b(you'?re (all set|clear|good to go|in)|good to go|all set|alre
 // Screen actions he can watch happen (2026-11-02): "Done: opened Notes and made a note", "I typed it", "closed the tabs".
 const SCREEN_DONE = /\b(?:I(?:'ve| have)?|Done:?|all done:?)\s+(?:\w+\s+){0,3}?(?:opened|typed|clicked|pressed|closed|scrolled|switched to|brought up|launched|made (?:a|an|the|one)\b[\w ]{0,20}?(?:note|document|doc|page)|created (?:a|an|the)\b[\w ]{0,20}?(?:note|document|doc|page))\b/i;
 const NARRATION = /\b(he|she|they|something|someone)\s+(\w+\s+)?(created|booked|moved|added|started|set|changed|removed|deleted|broke)\b/i;
-const DENIAL = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|wasn'?t able|unable|failed|nothing (was|got|fit)|no (room|space)|not (booked|added|moved|sent|set|saved|done|changed)|won'?t fit|doesn'?t fit)\b/i;
+const DENIAL = /\b(couldn'?t|could not|didn'?t|did not|can'?t|cannot|wasn'?t able|unable|failed|nothing (was|got|fit|changed|moved|happened|ran)|no (room|space)|not (booked|added|moved|sent|set|saved|done|changed)|won'?t fit|doesn'?t fit)\b/i;
 const PAST_DENIAL = /\b(couldn'?t|could not|didn'?t|did not|wasn'?t able|failed to|nothing (was|got)|not (booked|added|moved|sent|set|saved|done|changed))\b/i;
 const HYPOTHETICAL = /\b(may|might|could|should|would|if|to be|need(s)? to|want(s)? to|try to|going to)\b/i;
 const PENDING_ACK = /\b(still|not yet|yet to|can'?t confirm|waiting|pending|in progress|check back)\b/i;

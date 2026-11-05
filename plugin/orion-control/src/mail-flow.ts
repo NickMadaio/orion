@@ -198,7 +198,7 @@ export async function runMailMove(move: MailMove, run: MailPrefsRun): Promise<Ma
     const out = await call(run, ["add", r.action, r.kind, r.value, "--via", "chat", "--json"], log);
     if (out?.ok) saved.push(r);
   }
-  if (!saved.length) return { ...log, text: "I couldn't save that just now, so I'll keep going by my own guess for these. Try again in a moment." };
+  if (!saved.length) return { ...log, text: "I couldn't save that just now, so I'll keep going by my own guess for these. Say go and I'll retry it." };
   const missed = move.rules.length - saved.length;
   return { ...log, text: `${saidText(move.action, saved)}${missed ? ` (${missed} didn't save, so I may still flag ${missed === 1 ? "that one" : "those"}.)` : ""}` };
 }

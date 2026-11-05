@@ -83,7 +83,7 @@ export declare function readReality(message: string, now?: Date): RealityRead | 
 export declare function names(word: string, title: string): boolean;
 /** "MKTG2201" for "MKTG2201 Introduction to Marketing — Lecture", the title otherwise. */
 export declare const shortTitle: (title: string) => string;
-export declare const REALITY_SAVE_FAILED = "I couldn't save that just now, so nothing changed. Say it again in a moment.";
+export declare const REALITY_SAVE_FAILED = "I couldn't save that just now, so nothing changed. Say go and I'll retry it.";
 export declare const OVERRUN_GUESS_MIN = 15;
 /** Carries out what he said, with no model. Null: the words were not a reality statement after all (the turn goes on). */
 export declare function runReality(read: RealityRead, deps: RealityDeps & {

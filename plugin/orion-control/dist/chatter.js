@@ -13,6 +13,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isCrisis } from "./distress.js";
+import { repeatedFailure } from "./honest-reply.js";
 /** What a turn that should be silent sends. The Mac app treats an empty reply as an error, so it is an ellipsis, said as nothing. */
 export const QUIET_REPLY = "…";
 export const QUIET_FILE = "chat-quiet.json";
@@ -71,26 +72,28 @@ export class QuietWindow {
     }
 }
 // Lines that report something did not work: these are what repeated thirty times.
-const FAILURE = /^(?:Not done:|NOTHING WAS|That doesn't fit|I couldn't|I didn't|Didn't catch that|Something went wrong|Go on\.$)/;
-export const STILL_FAILING = "Same problem as a moment ago, so still nothing changed. Tell me differently and I'll try again.";
+const FAILURE = /^(?:Not done:|NOTHING WAS|That doesn't fit|I couldn't|I didn't|I tried to|I haven't actually|I don't have a way|Didn't catch that|Something went wrong|Go on\.$)/;
 const squash = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
-/** Per session, the failure lines sent and when. `guard` returns what to send instead of a repeat. */
+/** Per session, the failure lines sent and when. `guard` returns what to send instead of a repeat.
+ *  Typed and phone turns key a repeat on what he SAID (the same ask failing again), and get a different, more useful reply
+ *  (the reason plus a concrete alternative), never a bare "…". Spoken turns also key on the failure line itself (R2's thirty
+ *  rehearsal lines) and stay silent from the second repeat on. */
 export class RepeatGuard {
     sent = new Map();
-    guard(sessionKey, text, spoken, now = Date.now()) {
+    guard(sessionKey, text, spoken, now = Date.now(), message) {
         if (!sessionKey || !FAILURE.test(text.trim()))
             return text;
         const recent = (this.sent.get(sessionKey) ?? []).filter((r) => now - r.at < REPEAT_WINDOW_MS);
         const key = squash(text);
-        const repeat = recent.some((r) => r.key === key);
-        if (!repeat) {
-            this.sent.set(sessionKey, [...recent, { key, at: now }]);
+        const ask = message ? squash(message) : "";
+        const prior = recent.find((r) => (ask ? r.ask === ask : r.key === key) || (spoken && r.key === key));
+        if (!prior) {
+            this.sent.set(sessionKey, [...recent, { key, ask, at: now, text, repeats: 0 }]);
             return text;
         }
-        // A repeat: spoken, nothing at all; typed, one plain "same problem" line, then nothing.
-        const still = squash(STILL_FAILING);
-        const replacement = spoken || recent.some((r) => r.key === still) ? QUIET_REPLY : STILL_FAILING;
-        this.sent.set(sessionKey, [...recent, ...(replacement === STILL_FAILING ? [{ key: still, at: now }] : [])]);
+        const level = prior.repeats + 1;
+        const replacement = spoken && level >= 2 ? QUIET_REPLY : repeatedFailure(prior.text, level, `repeat:${sessionKey}`);
+        this.sent.set(sessionKey, [...recent.filter((r) => r !== prior), { ...prior, at: now, repeats: level }]);
         return replacement;
     }
 }

@@ -104,7 +104,7 @@ describe("H2 no early return after an earlier step wrote", () => {
       { preview: "NOTHING WAS BOOKED on Friday (2026-10-16). Do not tell him anything was added or moved.\nWould change Friday:\n  NOT BOOKED: Walk (30 min) did not fit on Friday — ask whether" });
     expect(writes).toEqual([]);
     expect(result).toMatchObject({ outcome: "say", kind: "plain" });
-    expect((result as { text: string }).text).toMatch(/Not done: Walk didn't fit/);
+    expect((result as { text: string }).text).toMatch(/Walk didn't fit/);
     expect((result as { text: string }).text).toMatch(/nothing else was changed/i);
   });
 

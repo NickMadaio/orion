@@ -30,7 +30,7 @@ const MESSAGES_READ = /\b(?:g-?mail|inbox|imessages?|texts|text messages?|e-?mai
 /** A to-do or a reminder that mentions email ("add a todo to email prof") is not a send. */
 const NOT_MESSAGES = /\bto-?dos?\b|\bto do\b|\bremind|\breminder\b|\balarm\b/i;
 
-export const CANNOT_EMAIL = "I can't send email yet — I can only read and search your Gmail. Nothing was sent.";
+export const CANNOT_EMAIL = "I can't send email yet — I can only read and search your Gmail. Nothing was sent. Want me to build that?";
 export const CANNOT_TEXT_SELF = "I can't text you yet — I can only send a text to someone you name, by contact or number, once you approve it. Nothing was sent.";
 
 /** The fixed reply for a send ORION cannot do, or null. */

@@ -246,7 +246,7 @@ const done = (reply: string, calls: string[], outputs: string[]): FlowResult => 
 };
 const nowMin = (deps: RequestDeps) => deps.now.getHours() * 60 + deps.now.getMinutes();
 const UNDO = "Say \"undo\" to put it back.";
-const READ_FAILED = "I couldn't read your calendar just now, so nothing changed. Tell me again in a moment.";
+const READ_FAILED = "I couldn't read your calendar just now, so nothing changed. Say go and I'll retry it.";
 
 /** One block of his by name: one still ahead first, else the latest. */
 function findBlock(name: string, day: Day | undefined, now: number, opts: { ahead?: boolean } = {}): DayBlock | undefined {

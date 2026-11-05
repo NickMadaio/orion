@@ -39,7 +39,7 @@ export class MouseMemory {
 
 type Json = Record<string, unknown> & { ok?: boolean; error?: string; say?: string; asking?: boolean; ask?: string; button?: number };
 const parse = (stdout: string): Json => { try { return JSON.parse(stdout.trim().split("\n").at(-1) ?? "") as Json; } catch { return { ok: false, error: "orion-mouse gave no answer" }; } };
-const failed = (error?: string) => `I couldn't change the mouse settings just now${error ? ` (${error})` : ""}, so nothing was changed. Tell me again in a bit.`;
+const failed = (error?: string) => `I couldn't change the mouse settings just now${error ? ` (${error})` : ""}, so nothing was changed. Say go and I'll retry it.`;
 
 export const argsFor = (turn: MouseTurn): string[] | null => {
   const app = (a?: string) => (a ? ["--app", a] : []);

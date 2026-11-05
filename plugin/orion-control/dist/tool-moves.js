@@ -8,8 +8,8 @@ const SUPPLEMENT_QUESTION = /\b(did|have|has)\s+i\b|\bwhat supplements\b|\?\s*$/
 const SLEEP_LOG = /\b(log|logged|track|record|note)\b.*\bsleep|\bslept\b/i;
 const WORKOUT_BY_TIME = /\b(workout|work out|worked out|gym session|training session|lift(?:ed|ing)?|run|ran)\b.*\b\d+\s*(min(?:ute)?s?|hours?|hrs?|h)\b/i;
 const WORKOUT_SETS = /\b\d+\s*(x|reps?|sets?|lbs?|kg)\b/i;
-const SLEEP_LINE = "I can't log sleep yet — I only track water, food, supplements and workout sets. Nothing was logged.";
-const WORKOUT_LINE = "I can't log a workout by time yet — only exercises with their sets, like \"bench 135 for 8, 8, 6\". Nothing was logged.";
+const SLEEP_LINE = "I can't log sleep yet — I only track water, food, supplements and workout sets. Nothing was logged. Want me to build that?";
+const WORKOUT_LINE = "I can't log a workout by time yet — only exercises with their sets, like \"bench 135 for 8, 8, 6\". Nothing was logged. Want me to build that?";
 function seconds(amount, unit) {
     const n = Number(amount);
     if (/^h/i.test(unit))
@@ -22,7 +22,7 @@ const call = (action, step, note, failLine) => ({ kind: "call", action, args: JS
 /** He asked why ORION sent a weather notice: the forecast is looked up, then the reason is worded from it (never from memory). */
 export function weatherDirective(sent) {
     const said = sent.replace(/["\\$`]/g, "").slice(0, 200);
-    return call("weather_now", { location: LOCATION }, `He is asking WHY you sent him: "${said}". Answer that from the result only, in one or two short sentences, as the reason ("Because it's 46 degrees Fahrenheit and rain starts around 4"). Say temperatures in Fahrenheit as the words "degrees Fahrenheit" (never F, °F or Celsius). Do not ask whether he is ready and do not change anything.`, "I sent that because of the weather, but I can't check the forecast just now. Ask me again in a moment.");
+    return call("weather_now", { location: LOCATION }, `He is asking WHY you sent him: "${said}". Answer that from the result only, in one or two short sentences, as the reason ("Because it's 46 degrees Fahrenheit and rain starts around 4"). Say temperatures in Fahrenheit as the words "degrees Fahrenheit" (never F, °F or Celsius). Do not ask whether he is ready and do not change anything.`, "I sent that because of the weather, but I can't check the forecast just now. Say go and I'll retry it.");
 }
 /** "set a timer for 25 min": a timer, whatever the front desk picked (never a focus session, q032). */
 // "cancel the timer for 10 min", "is my timer for 20 min still running": about a timer, not a new one
@@ -53,7 +53,7 @@ export function toolDirective(decision, message) {
     if (timer) {
         const total = seconds(timer[1] ?? timer[3] ?? "0", timer[2] ?? timer[4] ?? "m");
         if (total >= 1 && total <= 86400)
-            return call("timer_set", { seconds: total }, "Then say the timer is set, only if the result shows it.", "I didn't manage to set that timer — nothing is running. Can you say it again?");
+            return call("timer_set", { seconds: total }, "Then say the timer is set, only if the result shows it.", "I didn't manage to set that timer — nothing is running. Want me to try it again?");
     }
     const opening = openRequest(message);
     if (opening)
@@ -75,7 +75,7 @@ export function toolDirective(decision, message) {
         // The supplement must be one he named: a desk-invented name never logs a dose.
         const named = name.toLowerCase().split(/\W+/).some((w) => w.length >= 3 && message.toLowerCase().includes(w));
         if (args.do === "take" && name && named && !SUPPLEMENT_QUESTION.test(message))
-            return call("supplement_take", { name }, "Then say it is logged, only if the result shows it.", `I didn't manage to log your ${name} — nothing was recorded. Can you say it again?`);
+            return call("supplement_take", { name }, "Then say it is logged, only if the result shows it.", `I didn't manage to log your ${name} — nothing was recorded. Want me to try it again?`);
         if (["search", "read", "status"].includes(String(args.do ?? "")) || SUPPLEMENT_QUESTION.test(message)) {
             return call("supplement_status", {}, "This is a question: do not log a dose. Answer from the result only (yes with the time, or no).", "I couldn't read your supplement log just now.");
         }

@@ -77,6 +77,7 @@ import { WIPE_CONFIRM, gymPushback, isWipe, deferAsk, legitAsk, legitLead, readG
 import { ModelHealth, OUTAGE_LINE, REPLAY_MARK, ReplayQueue, doneWhileDown, drainQueue, replayText, type Probe, type QueuedMessage } from "./model-outage.js";
 import { notBooked, refused, sideNotes, wrote } from "./scheduler-out.js";
 import { casualStartTask, workStartTask, type KnownName } from "./work-start.js";
+import { capabilityLine, honestReply, offersBuild, refusalRewrite, truthfulDenial } from "./honest-reply.js";
 import { QUIET_REPLY, QuietWindow, RepeatGuard, RoomStreak, addressed, quietAck, quietRequest, requestShaped, roomQuiet, roomTalk } from "./chatter.js";
 import { planLighten, readLighten, runLighten, saysYes, type LightenPending, type LightenRead } from "./day-lighten.js";
 import { readFocusMove, runFocusMove, type FocusMove } from "./focus-moves.js";
@@ -716,25 +717,25 @@ const HONEST_STOP = "The check still finds a problem. Undo any change you made i
  *  so the reply_payload_sending swap never runs there. Left to HONEST_STOP alone, the 9B repeated
  *  "I've started the focus session" verbatim (2026-10-15). */
 /** 2026-11-03 phone audit: "I'll get home and see, I need to meal prep" (a plan he was telling ORION, not asking for) got
- *  "I didn't actually do that — nothing was started or changed. Can you say it again?" twice, as if he had asked and it broke. */
+ *  "I didn't actually do that — nothing was started or changed. Want me to try it again?" twice, as if he had asked and it broke. */
 const OWN_PLAN = /\b(?:i'?ll|i will|ill|i'?m (?:gonna|going to)|im (?:gonna|going to)|i (?:do )?need to|i have to|we'?ll see|gonna)\b/i;
 export const isPlanStatement = (message: string): boolean =>
   OWN_PLAN.test(message) && !isQuestion(message) && !CHANGE_REQUEST.test(message) && !requestShaped(message);
 export const STATEMENT_LINE = "Got it. I haven't changed or noted anything. Tell me if you want me to add it to your day.";
-export const honestLine = (calendar: boolean, message?: string): string => message && isPlanStatement(message)
+/** w20 wording: never "say it again". From the tool results when there are any (what ran, what failed and why, the next step);
+ *  else what really happened (nothing ran) and an offer to do it now. `rotate` avoids the same variant twice in a row (live replies only). */
+export const honestLine = (calendar: boolean, message?: string, tools?: ReadonlyArray<ToolResult>, rotate = false): string => message && isPlanStatement(message)
   ? STATEMENT_LINE
-  : calendar
-  ? "I couldn't make that change — nothing on your calendar changed. Can you say it again?"
-  : "I didn't actually do that — nothing was started or changed. Can you say it again?";
+  : honestReply({ calendar, ...(message ? { message } : {}), ...(tools ? { tools } : {}), rotate });
 const FALSE_CLAIM = /claims what the tools|promised but did not act/;
 const LOOKUP_CLAIM = /claims a lookup/;
 const LOOKUP_UNCHECKED = "I didn't actually check that.";
 export const MESSAGES_UNSURE = "I read your messages but my summary contradicted itself, so I won't guess. Ask me again and I'll read them out.";
-export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you right now. Want me to try again?";
+export const LOOKUP_HONEST = "I didn't actually check that, so I can't tell you yet. Want me to look it up now?";
 const HONEST_STOP_NO_WRITE = "The check still finds a problem. Tell Nick in one or two plain sentences what you could not do and why. Do not say it is done.";
 /** Spoken turns get one revise round (turn-budget.ts). What HONEST_STOP would have had the model say, said by code instead. */
 export const SPOKEN_STOP_WROTE = "Something went wrong partway through that, so I won't say it's done. Check your calendar, and say \"undo\" if it looks wrong.";
-export const SPOKEN_STOP = "I couldn't finish that properly, so I won't say it's done. Can you say it again?";
+export const SPOKEN_STOP = "That didn't finish properly, so I won't say it's done. Want me to run it again?";
 /**
  * Review of feat/voice-fluid (HIGH 3): after a spoken turn's single retry, ANY finding still open ends in an honest line written by code —
  * never the model's reply, never a clean success line over a failed command.
@@ -746,14 +747,14 @@ export const SPOKEN_BLOCKING = ["claims what the tools don't show", "promised bu
 export function spokenBlocking(findings: readonly string[], calendarChecked: boolean): string[] {
   return findings.filter((f) => (SPOKEN_BLOCKING as readonly string[]).includes(f) || (calendarChecked && (f === "overlap left" || f === "duplicate block")));
 }
-export function spokenFinalLine(allFindings: readonly string[], ctx: { calendar: boolean; wrote: boolean; calendarChecked?: boolean }): string | undefined {
+export function spokenFinalLine(allFindings: readonly string[], ctx: { calendar: boolean; wrote: boolean; calendarChecked?: boolean; tools?: ReadonlyArray<ToolResult>; message?: string }): string | undefined {
   const findings = spokenBlocking(allFindings, ctx.calendarChecked ?? false);
   if (!findings.length) return undefined;
-  if (findings.some((f) => FALSE_CLAIM.test(f))) return honestLine(ctx.calendar);
+  if (findings.some((f) => FALSE_CLAIM.test(f))) return honestLine(ctx.calendar, ctx.message, ctx.tools, !!ctx.tools);
   if (findings.some((f) => LOOKUP_CLAIM.test(f))) return LOOKUP_HONEST;
   if (findings.includes("denies messages it shows")) return MESSAGES_UNSURE;
   if (ctx.wrote) return SPOKEN_STOP_WROTE;
-  return ctx.calendar ? honestLine(true) : SPOKEN_STOP;
+  return ctx.calendar ? honestLine(true, ctx.message, ctx.tools, !!ctx.tools) : SPOKEN_STOP;
 }
 /** A write this turn: an orion-reschedule/orion-tasks change or an orion_task_run action (not a read). */
 const wroteThisTurn = (tools: ToolResult[]): boolean =>
@@ -908,6 +909,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
   const lastTurn = new Map<string, { text: string; at: number; marks: string[] }>();
   // w19 selffix: the chats whose last message from ORION was the fix offer ("now or later?"). Any other turn in that chat clears it.
   const fixOfferChats = new Map<string, number>();
+  // w20 wording: the chats whose last reply was "I can't do that yet ... Want me to build that?": the request, so a yes starts the fix project for it.
+  const buildOffers = new Map<string, { request: string; at: number }>();
   /** Per session: when it last changed his calendar (flow marks, or a write the worker ran). What a bare "undo" may take back. */
   const sessionChanges = new Map<string, { at: number; marks: string[] }>();
   /** Per session: what the last reality statement did (declared facts, calendar writes), for its "undo" (reality.ts). Any later change forgets it. */
@@ -1018,7 +1021,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     if (skip.kind === "stated") {   // wave 8 B (stated-move.ts): "gym is bumped to 10:30" is a request; the flow moves it or adds it
       const flow = options.scheduleFlow ? await options.scheduleFlow(`move ${skip.name} to ${ampm12(skip.at)} ${skip.day}`, clock(), { deadlineAt: flowDeadline(run.started) }).catch(() => undefined) : undefined;
       if (flow && flow.outcome !== "fallback") { run.flow = flow; if (flow.outcome === "done") settleSchedule(run); }
-      else say(`I haven't changed your calendar: I couldn't move ${skip.name} to ${ampm12(skip.at)} just now. Say it again and I'll retry.`);
+      else say(`I haven't changed your calendar: I couldn't move ${skip.name} to ${ampm12(skip.at)} just now. Say go and I'll retry it.`);
       return;
     }
     if (skip.kind === "excuse") {
@@ -1281,7 +1284,8 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     };
     // w19 selffix (selffix-flow.ts): "why did you do that" / "that was wrong" (he reads his own last turns and answers), or his now / later / no to a fix offer.
     // A "why is X first" plan question belongs to plan-why.ts, not to self-diagnosis.
-    const smove = on && !cutOff && !quietTurn && !isCrisis(message) && !whyFirstAsk(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()) }) : undefined;
+    const smove = on && !cutOff && !quietTurn && !isCrisis(message) && !whyFirstAsk(message) && options.stateDir ? readSelffixMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), outreach: !!parseOutreach(raw), bound: selffixBound(sessionKey, parseOutreach(raw)?.text, (options.now ?? pluginNow)()),
+      ...(sessionKey && buildOffers.has(sessionKey) && nowMs() - buildOffers.get(sessionKey)!.at < 3 * 3600_000 ? { build: { request: buildOffers.get(sessionKey)!.request } } : {}) }) : undefined;
     const qmove = on && !cutOff && !quietTurn && !smove && !isCrisis(message) && options.stateDir ? readQuestionsMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw)!.text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
     // Wave 14 (mail-flow.ts): "not important" / "this matters" to a mail alert, or "stop telling me about X emails", owns the whole turn.
     const mmove = on && !cutOff && !quietTurn && !qmove && !smove && !isCrisis(message) && options.stateDir ? readMailMove(message, { stateDir: options.stateDir, now: (options.now ?? pluginNow)(), ...(parseOutreach(raw) ? { label: parseOutreach(raw)!.text } : {}), lastPush: readLastOutreach(options.stateDir, (options.now ?? pluginNow)()) }) : undefined;
@@ -1426,7 +1430,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     if (food && options.foodRun && options.stateDir) {   // w14 g-food: the reply is built from orion-food-estimate's JSON
       const out = await withTimeout(runFoodTurn(food, { run: options.foodRun, stateDir: options.stateDir, now: (options.now ?? pluginNow)() }).catch(() => undefined), 55000);
-      run.ownText = out?.text ?? "I couldn't estimate that just now, so nothing was logged. Tell me again in a bit.";
+      run.ownText = out?.text ?? "I couldn't estimate that just now, so nothing was logged. Say go and I'll retry it.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
       if (out?.logged) foodMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime(), out.logged.ids ?? [out.logged.id]);
       if (food.kind === "undo") foodMemory.forgetLog(sessionKey);
@@ -1434,22 +1438,22 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     }
     if (workout && options.workoutRun && options.stateDir) {   // w17 g-workout: the reply is orion-workout-log's own sentence
       const out = await withTimeout(runWorkoutTurn(workout, { run: options.workoutRun, stateDir: options.stateDir, now: (options.now ?? pluginNow)() }).catch(() => undefined), 55000);
-      run.ownText = out?.text ?? "I couldn't log that workout just now, so nothing was logged. Tell me again in a bit.";
+      run.ownText = out?.text ?? "I couldn't log that workout just now, so nothing was logged. Say go and I'll retry it.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
       if (out?.logged) { workoutMemory.logged(sessionKey, out.logged.id, (options.now ?? pluginNow)().getTime()); foodMemory.forgetLog(sessionKey); }
       if (workout.kind === "undo") workoutMemory.forgetLog(sessionKey);
     }
     if (shutdownTurn && options.shutdownRun) {   // w18 bedtime: the reply is orion-bedtime-shutdown's own sentence
       const out = await withTimeout(runShutdownTurn(shutdownTurn, { run: options.shutdownRun }).catch(() => undefined), 100000);
-      run.ownText = out?.text ?? "I couldn't shut the Mac down just now, so nothing was closed or locked. Tell me again in a bit.";
+      run.ownText = out?.text ?? "I couldn't shut the Mac down just now, so nothing was closed or locked. Say go and I'll retry it.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
     } else if (appsTurn && options.appsRun) {   // w18 apps: the reply is orion-apps' own sentence
       const out = await withTimeout(runAppsTurn(appsTurn, { run: options.appsRun }).catch(() => undefined), 70000);
-      run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Try again in a bit.";
+      run.ownText = out?.text ?? "I couldn't reach your apps just now, so nothing was closed. Say go and I'll retry it.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
     } else if (mouse && options.mouseRun) {   // w18 mousechat: the reply is orion-mouse's own sentence
       const out = await withTimeout(runMouseTurn(mouse, { run: options.mouseRun }).catch(() => undefined), 20000);
-      run.ownText = out?.text ?? "I couldn't change the mouse settings just now, so nothing was changed. Tell me again in a bit.";
+      run.ownText = out?.text ?? "I couldn't change the mouse settings just now, so nothing was changed. Say go and I'll retry it.";
       out?.calls.forEach((canonical, i) => run.tools.push({ canonical, stdout: out.outputs[i] ?? "", exit: 0 }));
       if (out && (out.pending || out.confirm)) mouseMemory.wait(sessionKey, mouseAt.getTime(), { ...(out.pending ? { pending: out.pending } : {}), ...(out.confirm ? { confirm: true } : {}) });
       else mouseMemory.clear(sessionKey);
@@ -1676,7 +1680,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         else if (target.kind === "session") run.flow = { outcome: "say", kind: "plain", text: SESSION_EDIT(target.task) };
         else if (options.scheduleFlow) {
           const flow = await options.scheduleFlow(run.message, clock(), { edit: { target, req }, deadlineAt: flowDeadline(run.started) }).catch((e: unknown) => ({ outcome: "fallback" as const, reason: String(e) }));
-          run.flow = flow.outcome === "fallback" ? { outcome: "say", kind: "plain", text: `I couldn't change ${target.title} just now, so nothing changed. Tell me again in a moment.` } : flow;
+          run.flow = flow.outcome === "fallback" ? { outcome: "say", kind: "plain", text: `I couldn't change ${target.title} just now, so nothing changed. Say go and I'll retry it.` } : flow;
           markRead(run, target.dateArgs.length ? "day-tomorrow" : "day");
           settleSchedule(run);
         }
@@ -1993,7 +1997,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         if (run.room === "streak" && roomQuiet(exactFor(run), run.flow.kind)) run.flow = { outcome: "say", kind: "plain", text: QUIET_REPLY };
         if (run.spoken && !addressed(run.message) && exactFor(run) === QUIET_REPLY) rooms.mark(run.sessionKey, nowMs());
         // 2026-10-30: the same failure line never twice in ten minutes in a session (R2: thirty "Not done: 6:00 AM–6:00 AM").
-        const said = exactFor(run); const guarded = repeats.guard(run.sessionKey, said, !!run.spoken, nowMs());
+        const said = exactFor(run); const guarded = repeats.guard(run.sessionKey, said, !!run.spoken, nowMs(), run.message);
         if (guarded !== said) run.flow = { outcome: "say", kind: "plain", text: guarded };
         const exact = exactFor(run);
         return { systemPrompt: `${EXACT_REPLY_PROMPT}\n${exact}`,
@@ -2260,7 +2264,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // got "I couldn't make that change": a write-failure line for a turn with no write. A question with no write keeps its answer.
       const questionOnly = isQuestion(run.message) && !wroteThisTurn(run.tools) && !run.directive && !run.reminder;
       // 2026-10-31 (cha-thinking-aloud-c): a textbook answer with no tool is never replaced by the claims check.
-      const findings = run.knowledge && !run.hostTools ? [] : codeReadOnly || questionOnly ? allFindings.filter((f) => !FALSE_CLAIM.test(f)) : allFindings;
+      // w20 wording (audit E14, E16): a reply that plainly says nothing changed ("Nothing changed. 7:00 is already running.") was true; the
+      // check read "already running" as a claim. It is kept, not replaced by a canned line.
+      const keepsTruth = truthfulDenial(reply, run.tools);
+      const findings = run.knowledge && !run.hostTools ? [] : codeReadOnly || questionOnly || keepsTruth ? allFindings.filter((f) => !FALSE_CLAIM.test(f)) : allFindings;
       run.findings.push(findings);
       // A revise returns before the end of this hook; it is logged first so no turn goes unrecorded (those 16 had routing null).
       const record = async (extra: Record<string, unknown> = {}) => {
@@ -2281,10 +2288,10 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
           await record({ revised: true });
           return { action: "revise", reason: "the reminder was not set", retry: { instruction: `You have NOT set the reminder yet — no tool was called. Call the tool_call tool now with id "openclaw:orion-control:orion_task_run" and args exactly ${run.reminder.args}, then reply.`, idempotencyKey: `${runId}:reminder:${run.passes}`, maxAttempts: 1 } };
         }
-        if (!called) { owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Can you say it again?"
-          : action === "reminder_snooze" ? "I didn't manage to snooze that — nothing was changed. Say it again?"
-          : action === "reminder_done" ? "I didn't manage to mark that done — nothing was changed. Say it again?"
-          : "I didn't manage to set that reminder — nothing was set. Can you say it again?"; remember([runId, sessionKeyNow], owed); }
+        if (!called) { owed = action === "reminder_cancel" ? "I didn't manage to cancel that reminder — nothing was changed. Want me to try it again?"
+          : action === "reminder_snooze" ? "I didn't manage to snooze that — nothing was changed. Want me to try it again?"
+          : action === "reminder_done" ? "I didn't manage to mark that done — nothing was changed. Want me to try it again?"
+          : "I didn't manage to set that reminder — nothing was set. Want me to try it again?"; remember([runId, sessionKeyNow], owed); }
         // Wave 6 B (foc-pomodoro-break-v): once it is set, the reply is code's line (worded on pluginNow), never the worker's paraphrase of the tool result.
         else if (!run.flow && run.reminder.say) run.flow = { outcome: "done", calls: [], outputs: [], reply: run.reminder.say };
       }
@@ -2326,7 +2333,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // line goes in place NOW, from the scheduler's own words when it says nothing was booked/changed.
       const honestNow = on && !flowActed && !run.reminder && ((run.hostTools ?? 0) > 0 || hostDrops) && findings.some((f) => FALSE_CLAIM.test(f))
         ? nothingMovedReply(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).slice(-1).map((t) => t.stdout), /\b(late|move|push)\b/.test(run.tools.filter((t) => /orion-reschedule/.test(t.canonical)).at(-1)?.canonical ?? "") ? "I couldn't move anything, so nothing was moved" : "I couldn't make that change, so nothing on your calendar was changed")
-          ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message)
+          ?? honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message, run.tools, true)
         : undefined;
       if (honestNow) { owed = honestNow; remember([runId, sessionKeyNow], honestNow); }
       if (on && findings.length > 0 && run.passes < revisePasses(!!run.spoken) && !flowActed && !hostDrops && !honestNow) {
@@ -2339,14 +2346,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // back an earlier turn's change from the journal (review, 2026-10-16).
         const stop = wroteThisTurn(run.tools) ? HONEST_STOP : HONEST_STOP_NO_WRITE;
         const instruction = run.passes === 1 ? retryInstruction(findings)
-          : claimed ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar, run.message)}`
+          : claimed ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${honestLine(calendar, run.message, run.tools)}`
           : lookedUp ? `${stop}\nIgnore the earlier conversation. Your whole reply must be exactly this text, nothing before or after: ${LOOKUP_HONEST}`
           : stop;
         return { action: "revise", reason: `work check: ${findings.join(", ")}`, retry: { instruction, idempotencyKey: `${runId}:work-check:${run.passes}`, maxAttempts: 1 } };
       }
       // Out of retries and still claiming something the tools don't show: deliver an honest line instead.
       if (on && !flowActed && !run.reminder && !honestNow && findings.some((f) => FALSE_CLAIM.test(f))) {
-        owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message);
+        owed = honestLine(SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), run.message, run.tools, true);
         remember([runId, sessionKeyNow], owed);
       } else if (on && !flowActed && !run.reminder && findings.some((f) => LOOKUP_CLAIM.test(f))) {
         // "I checked the weather… no rain" with no lookup, after both retries (review, 2026-10-16).
@@ -2361,7 +2368,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // Never over the scheduler's own honest line (honestNow), and only for a finding that makes the reply false (spokenBlocking):
       // a real move with a mismatched time keeps its reply (re-review HIGH). This path never has calendar data (checkWork gets none).
       if (on && run.spoken && !honestNow && !flowActed && !run.reminder && (run.passes >= revisePasses(true) || hostDrops) && spokenBlocking(findings, false).length > 0) {
-        const line = spokenFinalLine(findings, { calendar: SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), wrote: wroteThisTurn(run.tools) });
+        const line = spokenFinalLine(findings, { calendar: SCHEDULING.test(run.message) || run.tools.some((t) => /orion-reschedule/.test(t.canonical)), wrote: wroteThisTurn(run.tools), tools: run.tools, message: run.message });
         if (line) { owed = line; remember([runId, sessionKeyNow], owed); }
       }
       // Out of retries and the call was never made: say so (not "I checked the weather…", q007).
@@ -2388,6 +2395,13 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
       // here can it be fixed on the Mac chat / phone route (reply_payload_sending never runs there).
       // Wave 4: code-authored lines (owed) are cleaned too (the scheduler's "orion-reschedule extend … --until HH:MM" hint rode in one); a failed
       // host tool must be owned in the reply, or the host appends its raw "Exec failed" payload (finalizeReply, tool-failure.ts).
+      // w20 wording: a model refusal that neither tried nor explained ("I can't do that with the tools I have, try it yourself") becomes what is
+      // really missing, in plain words, with the offer that hands the request to the self-fix flow.
+      if (on && !owed && !flowActed && !run.reminder && !run.approvalHeld && !run.directive) {
+        const cap = refusalRewrite(reply, run.message, run.tools, `cap:${run.sessionKey ?? ""}`);
+        if (cap) { owed = cap; remember([runId, sessionKeyNow], owed); }
+      }
+      if (run.sessionKey && on) { if (offersBuild(owed ?? reply)) buildOffers.set(run.sessionKey, { request: run.message, at: nowMs() }); else buildOffers.delete(run.sessionKey); }
       if (on && (owed ?? reply).trim()) {
         const before: string = owed ?? reply;
         const clean = finalizeReply(before, run.tools, { mailFailed: mailReadFailed(run.tools), hostTools: run.hostTools ?? 0, changeRequest: CHANGE_REQUEST.test(run.message), askedChange: !isQuestion(run.message) && (CHANGE_REQUEST.test(run.message) || readStatedMove(run.message) !== null), codeAuthored: owed !== undefined });

@@ -32,7 +32,7 @@ const parse = (stdout) => { try {
 catch {
     return { ok: false, error: "orion-mouse gave no answer" };
 } };
-const failed = (error) => `I couldn't change the mouse settings just now${error ? ` (${error})` : ""}, so nothing was changed. Tell me again in a bit.`;
+const failed = (error) => `I couldn't change the mouse settings just now${error ? ` (${error})` : ""}, so nothing was changed. Say go and I'll retry it.`;
 export const argsFor = (turn) => {
     const app = (a) => (a ? ["--app", a] : []);
     switch (turn.kind) {

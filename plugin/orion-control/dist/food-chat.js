@@ -66,7 +66,7 @@ const parse = (stdout) => { try {
 catch {
     return { ok: false, error: "orion-food-estimate gave no answer" };
 } };
-const failed = (error) => `I couldn't estimate that just now${error ? ` (${error})` : ""}, so nothing was logged. Tell me again in a bit.`;
+const failed = (error) => `I couldn't estimate that just now${error ? ` (${error})` : ""}, so nothing was logged. Say go and I'll retry it.`;
 const offerOf = (j) => String(j.offer?.text ?? (j.summary ? `${String(j.summary)}. Log it?` : ""));
 const lower = (s) => String(s ?? "").toLowerCase();
 async function call(run, args) {

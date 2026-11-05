@@ -30,8 +30,8 @@ export const SLOW_TURN_MS = 40_000;
 export const REVISE_PASSES = 2;
 export const SPOKEN_REVISE_PASSES = 1;
 export const revisePasses = (spoken) => (spoken ? SPOKEN_REVISE_PASSES : REVISE_PASSES);
-export const SLOW_TURN_LINE = "I'm running slowly right now, so I didn't get to that and nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
-export const SLOW_FLOW_LINE = "That took longer than I can wait on right now, so nothing on your day was changed. Say it again in a minute, or tell me exactly what to put where and when.";
+export const SLOW_TURN_LINE = "I'm running slowly right now, so I didn't get to that and nothing on your day was changed. Give it a minute and say go, or tell me exactly what to put where and when.";
+export const SLOW_FLOW_LINE = "That took longer than I can wait on right now, so nothing on your day was changed. Give it a minute and say go, or tell me exactly what to put where and when.";
 /** The hook gave up after a write had started: the write is NOT stopped (a half-applied day is worse than a late one); he hears how it ended with his next message. */
 export const SLOW_FLOW_MAYBE_WROTE_LINE = "That's taking longer than I can wait on. The change to your day is already being made and I'm letting it finish, so I'll tell you how it went with your next message. If your calendar looks wrong, say \"undo\" and I'll put the last change back.";
 /** What he is told when the change that was left to finish did not report. */

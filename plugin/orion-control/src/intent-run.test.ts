@@ -73,7 +73,7 @@ describe("re-run #5: 'put cs lab from now until ten thirty' at 22:42", () => {
   it("a run the scheduler refused is never 'Done', even when it lists the plan it tried (NOTHING WAS CHANGED … planned CS Lab …)", async () => {
     const refused = "NOTHING WAS CHANGED: must-haves could not fit: Gym.\n  rebuilt the remaining day from fixed commitments and must-haves first\n  cleared 1 prior schedule block: Gym\n  planned CS Lab: 21:55–22:30\n  MUST-HAVE NOT BOOKED: Gym (90 min) did not fit on Thursday\n";
     const { result } = await flow("put cs lab from now until ten thirty", { days: { today: today("21:55") }, now: new Date(2030, 9, 3, 21, 55), out: refused });
-    expect(result).toMatchObject({ outcome: "say", text: "Not done: Gym didn't fit. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait." });
+    expect(result).toMatchObject({ outcome: "say", text: "I couldn't do that: Gym didn't fit around your classes and bedtime. I won't cut it short to fit, so nothing was changed. Tell me if CS Lab should end earlier, or whether it should wait." });
   });
   it("'from now' tomorrow is refused with the reason", async () => {
     const { result, writes } = await flow("put cs lab from now until ten thirty tomorrow");

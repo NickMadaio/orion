@@ -21,9 +21,12 @@ export type SelffixMove = {
 } | {
     kind: "start";
     id: string;
-} | {
+}
+/** target: the request ORION said he cannot do and offered to build ("want me to build that?"); the diagnosis is made from it. */
+ | {
     kind: "fix";
     about: string;
+    target?: string;
 };
 /** `offered`: the reply ends in "now or later?", so his next bare answer is about this offer. */
 export type SelffixOut = {
@@ -39,7 +42,10 @@ export type SelffixCtx = {
     now: Date;
     outreach?: boolean;
     items?: FixItem[];
-    bound?: boolean;
+    bound?: boolean; /** ORION's last reply offered to build something: the request it could not do */
+    build?: {
+        request: string;
+    };
 };
 export declare const asksWhy: (message: string) => boolean;
 export declare const asksFix: (message: string) => boolean;

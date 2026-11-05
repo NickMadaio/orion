@@ -109,5 +109,5 @@ export function reframeDocumentRecall(reply: string, message: string, lines: str
 /** The host appends a raw "Exec failed: `cmd`" line to a reply when a command is refused: never spoken to Nick. */
 export const EXEC_FAILED_LINE = /(?:^|\n)[^\S\n]*(?:⚠️\s*)?(?:🛠️\s*)?Exec failed:?[^\n]*/gi;
 export const stripExecFailed = (text: string): string => text.replace(EXEC_FAILED_LINE, "").trim();
-export const SEARCH_UNAVAILABLE = "I couldn't search your notes just now. Ask me again in a moment.";
+export const SEARCH_UNAVAILABLE = "I couldn't search your notes just now. Say go and I'll retry it.";
 export const searchRefused = (results: string[]): boolean => results.some((r) => /allowlist miss|exec denied/i.test(r));

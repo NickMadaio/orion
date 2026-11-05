@@ -207,7 +207,7 @@ const listed = (items: string[]) => items.length <= 1 ? items.join("") : `${item
 const ORD = ["", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth"];
 
 const UNDO = "Say \"undo\" to put it back.";
-export const REALITY_SAVE_FAILED = "I couldn't save that just now, so nothing changed. Say it again in a moment.";
+export const REALITY_SAVE_FAILED = "I couldn't save that just now, so nothing changed. Say go and I'll retry it.";
 
 async function declare(deps: RealityDeps, kind: string, extra: string[] = []): Promise<string | null> {
   const out = await deps.run("orion-declare", ["add", "--kind", kind, "--text", deps.text.slice(0, 200), "--source", deps.source, ...extra]).catch(() => ({ stdout: "", code: 1 }));
@@ -290,7 +290,7 @@ async function missed(r: Extract<Reality, { kind: "missed" }>, deps: RealityDeps
 
 async function instead(r: Extract<Reality, { kind: "instead" }>, deps: RealityDeps): Promise<RealityOutcome | null> {
   const day = await deps.readDay().catch(() => undefined);
-  if (!day) return { flow: say("I couldn't read your calendar just now, so nothing changed. Tell me again in a moment."), facts: [], writes: 0 };
+  if (!day) return { flow: say("I couldn't read your calendar just now, so nothing changed. Say go and I'll retry it."), facts: [], writes: 0 };
   const now = deps.now.getHours() * 60 + deps.now.getMinutes();
   const current = day.blocks.filter((b) => b.kind !== "commute" && minuteOf(b.start) <= now && now < minuteOf(b.end))[0];
   const planned = r.planned ? matchBlock(r.planned, day.blocks) : current;
@@ -375,7 +375,7 @@ const NAP_GUESS_MIN = 45;
 async function doneIt(r: Extract<Reality, { kind: "done" }>, deps: RealityDeps): Promise<RealityOutcome> {
   const now = deps.now.getHours() * 60 + deps.now.getMinutes();
   const day = await deps.readDay().catch(() => undefined);
-  if (!day) return { flow: say("I couldn't read your calendar just now, so nothing changed. Tell me again in a moment."), facts: [], writes: 0 };
+  if (!day) return { flow: say("I couldn't read your calendar just now, so nothing changed. Say go and I'll retry it."), facts: [], writes: 0 };
   const nap = r.what === "nap";
   const blocks = day.blocks.filter((b) => b.kind !== "commute");
   const block = nap ? blocks.find((b) => /\b(?:nap|sleep|rest)\b/i.test(b.title) && minuteOf(b.start) <= now) : matchBlock(r.what, blocks);

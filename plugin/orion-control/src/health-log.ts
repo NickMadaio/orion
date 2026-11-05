@@ -23,7 +23,7 @@ import { mutate, readHealthLog, today as dayOf, type HealthLogFile } from "./hea
 
 export type MealRead = { kind: "meal"; meal: string; title: string; notes: string; at: Date };
 export type GymRead = { kind: "gym"; scope: "week" | "last7" | "recent" };
-export type BedtimeRead = { kind: "bedtime"; read: boolean; time?: string; week: boolean };
+export type BedtimeRead = { kind: "bedtime"; read: boolean; time?: string; week: boolean; /** every night only when he said set/make/change on "bedtime" or "this week"; else tonight (as bedtime-read.ts) */ scope?: "tonight" | "always" };
 export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead;
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -134,7 +134,7 @@ export function readBedtime(message: string): BedtimeRead | null {
   const explicit = !!set && BED_SET_VERB.test(m) && !BED_PAST_NIGHT.test(m);
   if (BED_PAST.test(m) && !explicit) return null;
   const time = set ? bedTime(set, 1) : undefined;
-  if (time) return { kind: "bedtime", read: false, time, week };
+  if (time) return { kind: "bedtime", read: false, time, week, scope: week || (BED_SET_VERB.test(m) && /\bbed\s?times?\b/i.test(m)) ? "always" : "tonight" };
   if (BED_EARLIER.test(m)) return { kind: "bedtime", read: false, week };
   return null;
 }

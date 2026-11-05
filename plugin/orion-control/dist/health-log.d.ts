@@ -15,7 +15,8 @@ export type BedtimeRead = {
     kind: "bedtime";
     read: boolean;
     time?: string;
-    week: boolean;
+    week: boolean; /** every night only when he said set/make/change on "bedtime" or "this week"; else tonight (as bedtime-read.ts) */
+    scope?: "tonight" | "always";
 };
 export type HealthRead = MealRead | GymRead | BedtimeRead | WaterGoalRead;
 export declare function readMeal(message: string, now: Date): MealRead | null;

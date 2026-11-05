@@ -134,7 +134,7 @@ export function readBedtime(message) {
         return null;
     const time = set ? bedTime(set, 1) : undefined;
     if (time)
-        return { kind: "bedtime", read: false, time, week };
+        return { kind: "bedtime", read: false, time, week, scope: week || (BED_SET_VERB.test(m) && /\bbed\s?times?\b/i.test(m)) ? "always" : "tonight" };
     if (BED_EARLIER.test(m))
         return { kind: "bedtime", read: false, week };
     return null;

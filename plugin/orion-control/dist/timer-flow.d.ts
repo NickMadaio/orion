@@ -31,6 +31,14 @@ export declare function readTimer(message: string, { hasLast }?: {
     hasLast?: boolean;
 }): TimerAsk | undefined;
 /**
+ * An ask joined to another ask, in either order: the clause `isHit` picks (`hit`) and the rest, when the other side passes `isRest` (a request of its own,
+ * so "... for mac and cheese" is never split). Undefined for a single ask.
+ */
+export declare function splitAsk(text: string, isHit: (part: string) => boolean, isRest: (part: string) => boolean): {
+    hit: string;
+    rest: string;
+} | undefined;
+/**
  * A timer order joined to another ask, in either order ("set a 10 min timer and move my gym to 6", "move my gym to 6 and set a 10 min timer"):
  * the timer clause and the rest. Undefined for a single ask, or when the other side is not a request ("... for mac and cheese").
  */

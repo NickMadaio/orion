@@ -53,7 +53,7 @@ const TWO_BACK = /^(?:(?:that|it|this)\s+)?(?:and|&|plus)\s+(?:the\s+)?(?:one|th
 const EVERY = /^(?:every|each|all(?:\s+of)?(?:\s+(?:the|my))?)\s+/;
 const NAMED_CHANGE = /^(.+?)\s+(?:move|change|edit)$/;
 const NOUN: Array<[RegExp, MadeKind]> = [
-  [/\b(?:notes?)\b/, "note"], [/\b(?:reminders?|alarms?|timers?)\b/, "reminder"],
+  [/\b(?:notes?)\b/, "note"], [/\b(?:reminders?|alarms?|timers?|pings?|nudges?|buzz(?:es|ers?)?|heads[- ]?ups?)\b/, "reminder"],
   [/\b(?:water|bottles?)\b/, "water"], [/\b(?:calories|food|meal)\b/, "food"],
   [/\b(?:blocks?|sessions?|slots?|events?)\b/, "block"],
 ];

@@ -30,6 +30,7 @@ import { withoutAsleepClaims, claimsAsleep } from "./awake-claims.js";
 import { newestOffer, slotAnswersGo } from "./offer-binding.js";
 import { ventTease } from "./vent-tease.js";
 import { withoutUnverifiedAlarmClaims } from "./alarm-claims.js";
+import { withoutUnverifiedBedtimeClaims } from "./bedtime-claims.js";
 import { asksChatSummary, chatSummary } from "./chat-summary.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { execFile } from "node:child_process";
@@ -51,6 +52,8 @@ import { emptyReplyLine, isBlank, whyEmptyLine } from "./empty-reply.js";
 import { failedTools, failureReason } from "./tool-failure.js";
 import { isTimerRequest, toolDirective, type ToolDirective } from "./tool-moves.js";
 import { readTimer, runTimer, splitTimerAsk, type TimerDeps } from "./timer-flow.js";
+import { runReminderClause, splitReminderAsk } from "./reminder-split.js";
+import type { Reminder } from "./ambient.js";
 import { directAddShape, restatementIsHis } from "./direct-add.js";
 import { type ReplanAsk } from "./day-replan.js";
 import { readIntent } from "./calendar-intent.js";
@@ -219,6 +222,8 @@ export type LocalRoutingOptions = {
   extractReminder?: (message: string, clock?: string) => Promise<{ time: string | null; label: string } | null>;
   /** w20 r4 (timer-flow.ts): writes a timer into the reminder store, as timer_set does; unset: timers stay with the worker. Wired from index.ts. */
   addTimer?: TimerDeps["add"];
+  /** w20 r6 (reminder-split.ts): writes one plain reminder into the store, as alarm_set does; unset: a reminder joined to another ask goes the old way. Wired from index.ts. */
+  addReminder?: (dueAt: number, label: string, important: boolean) => Promise<Reminder>;
   /** Reads the live reminder store, to list and to find what to cancel (tests pass a stub; wired from index.ts). */
   listReminders?: () => Promise<StoredReminder[]>;
   /** w20 r3 (ledger-run.ts): scripts the ledger removes things with (orion-reschedule, orion-log, orion-brain, orion-food-estimate); unset: the ledger stays off. */
@@ -1368,11 +1373,14 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
     // back; only the other clause goes on to the normal routes, and the reply says both. The 9B never called timer_set from a hint (gate 2 #61).
     const timerSplit = on && options.addTimer && !retrySlots.has(sessionKey) ? splitTimerAsk(messageIn) : undefined;
     const timerFirst = timerSplit ? await runTimer(readTimer(timerSplit.timer) ?? { seconds: 0, label: "Timer" }, { add: options.addTimer!, list: options.listReminders ?? (async () => []), now: (options.now ?? pluginNow)() }).catch(() => undefined) : undefined;
+    // w20 r6 (reminder-split.ts): a reminder joined to another ask is set by code first, read back, and the rest goes on ("put pasta prep in at 6pm and remind me at 5 to buy pasta").
+    const remSplit = on && options.addReminder && !(timerSplit && timerFirst) ? splitReminderAsk(messageIn) : undefined;
+    const remFirst = remSplit ? await runReminderClause(remSplit.clause, { now: (options.now ?? pluginNow)(), extract: (m) => (options.extractReminder ? options.extractReminder(m, clock()) : Promise.resolve(null)), list: options.listReminders ?? (async () => []), add: options.addReminder! }).catch(() => undefined) : undefined;
     // w20 r5 (chat-asks.ts splitLeadOpen): "open youtube in safari and tell me whats the weather": the open is run by code and said first, the question is what is left.
-    const openSplit = on && options.chatRun && !(timerSplit && timerFirst) ? splitLeadOpen(messageIn) : undefined;
+    const openSplit = on && options.chatRun && !(timerSplit && timerFirst) && !(remSplit && remFirst) ? splitLeadOpen(messageIn) : undefined;
     const openFirst = openSplit ? await withTimeout(runChatAsks([{ kind: "open", req: openSplit.req }], options.chatRun!).catch(() => undefined), 40000) : undefined;
-    const message = timerSplit && timerFirst ? timerSplit.rest : openSplit && openFirst ? openSplit.rest : messageIn;
-    const timerTools = openFirst ? openFirst.calls.map((canonical, i) => ({ canonical, stdout: openFirst.outputs[i] ?? "", exit: 0 })) : timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
+    const message = timerSplit && timerFirst ? timerSplit.rest : remSplit && remFirst ? remSplit.rest : openSplit && openFirst ? openSplit.rest : messageIn;
+    const timerTools = openFirst ? openFirst.calls.map((canonical, i) => ({ canonical, stdout: openFirst.outputs[i] ?? "", exit: 0 })) : remFirst ? remFirst.calls.map((canonical, i) => ({ canonical, stdout: remFirst.outputs[i] ?? "", exit: remFirst.ok ? 0 : 1 })) : timerFirst ? timerFirst.calls.map((canonical, i) => ({ canonical, stdout: timerFirst.outputs[i] ?? "", exit: timerFirst.ok ? 0 : 1 })) : [];
     if (sessionKey) retrySlots.delete(sessionKey);
     if (recentKey) retrySlots.delete(recentKey);
     const spokenTurn = SPOKEN.test(raw);
@@ -1545,7 +1553,7 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         // Wave 6 (bed-state.ts): past his bedtime with no nudge in reach, a stall or "going to bed" is still the bedtime reply.
         ?? bedtimeFromState({ message, now: pendingAt, ...(options.stateDir ? { stateDir: options.stateDir } : {}), focusActive: focusRunning(raw), memo: pendingMemory.memo(sessionKey, pendingAt.getTime()) }) : undefined;
     if (sessionKey && !cutOff && !pending) pendingMemory.setMemo(sessionKey, null);
-    const run: Run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : openFirst ? { preface: openFirst.text } : {}), started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
+    const run: Run = { ...(outreachIsStale && staleOutreachOf ? { staleOutreach: [staleOutreachOf.text], staleOutreachNote: staleOutreachNote(staleOutreachOf) } : {}), message, decision, tools: timerTools, ...(timerFirst ? { preface: timerFirst.text } : remFirst ? { preface: remFirst.text } : openFirst ? { preface: openFirst.text } : {}), started: Date.now(), passes: 0, findings: [], sessionKey, cutOff, ...(card ? { card } : {}), ...(reality ? { reality } : {}), ...(quietStart !== undefined ? { quietStart } : {}), ...(hushed ? { hushed } : {}), ...(room ? { room } : {}), ...(pendingYes ? { pendingYes } : {}), ...(lighten ? { lighten } : {}), ...(focusMove ? { focusMove } : {}), ...(health ? { health } : {}), ...(dayDefault ? { dayDefault } : {}), ...(knowledge ? { knowledge } : {}), ...(own ? { own } : {}), ...(gymSkip ? { gymSkip } : {}), ...(wipe ? { wipe } : {}), ...(replayed ? { replayed } : {}), ...(intentFirst ? { codeFirst: true } : {}), ...(editing ? { edit: true } : {}), ...(askContext ? { ask: askContext } : {}), ...(outreach ? { outreach } : {}), spoken: SPOKEN.test(raw), undo: stitch?.marks ?? [], ...(stitch || cont ? { stitched: true } : {}), ...(pending ? { pending } : {}), ...(preference ? { preference } : {}), ...(sleepTurn ? { sleepTurn } : {}), ...(phoneBlock ? { phoneBlock } : {}), ...(crisisRest ? { crisisRest } : {}),
       ...(on && !cutOff && !quietTurn && !isBareConfirm(message) ? { brain: (options.brainSearch ?? defaultBrainSearch)(message).catch(() => "") } : {}) };
     if (ledgerAsk) run.ledger = ledgerAsk;
     if (runId) runs.set(runId, run);
@@ -2764,6 +2772,12 @@ export function registerLocalRouting(api: HookApi, options: LocalRoutingOptions)
         const before: string = owed ?? reply;
         const verified = withoutUnverifiedAlarmClaims(before, options.stateDir, (options.now ?? pluginNow)());
         if (verified !== before && verified.trim()) { owed = verified; remember([runId, sessionKeyNow], owed); }
+      }
+      // w20 r6 (bedtime-claims.ts): a reply claims a bedtime change only when orion-sleepplan wrote one this turn; its own read-back is what code states.
+      if (on && (owed ?? reply).trim() && !(run.flow && (run.flow.outcome === "done" || run.flow.outcome === "say"))) {   // code's own sentences are built from its read-backs
+        const before: string = owed ?? reply;
+        const verified = withoutUnverifiedBedtimeClaims(before, run.tools);
+        if (verified !== before) { owed = verified; remember([runId, sessionKeyNow], owed); }
       }
       // 2026-11-02: past tonight's nudge time a reply never ends by ordering him to the gym or a plan task.
       if (on && (owed ?? reply).trim() && pastNudgeTime(options.stateDir, (options.now ?? pluginNow)())) {

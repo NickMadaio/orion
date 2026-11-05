@@ -65,7 +65,7 @@ function setup(decision = { move: "escalate", tier: "quick" }, extra = {}) {
         }
         return "";
     };
-    return { turn, sleepCalls, wakeCalls, timers, store, workerCalled, delivered };
+    return { turn, sleepCalls, wakeCalls, timers, store, workerCalled, delivered, handlers };
 }
 describe("bedtime phrasings reach the one bedtime writer, never the wake tool or the scheduler", () => {
     it.each([
@@ -194,5 +194,53 @@ describe("gate 3 #23: 'again in 15 mins' after a reminder is a reminder, not a 6
         const prompt = await h.turn(said);
         expect(prompt).toMatch(/"action":"alarm_set"/);
         expect(prompt).not.toMatch(/orion-reschedule/);
+    }, 30000);
+});
+describe("w20 r6: a bedtime claim with nothing written never goes out (gate 4 #13 #81)", () => {
+    it.each(["Set bedtime to 11:30 PM tonight.", "Bedtime tonight only is 11:50 PM.", "Saved: your bedtime is half 11 every night now."])("%s", async (claim) => {
+        const h = setup({ move: "tool", tool: "wake", args: { at: "23:30" } });
+        await h.turn("sleepy, gonna crash about eleven-ish i think");
+        const messages = [{ role: "user", content: "x" }, { role: "assistant", content: [{ type: "text", text: claim }] }];
+        // A flagged first draft is sent back for a revise round or two (the same claim comes back); the last pass is what goes out.
+        for (let pass = 0; pass < 4; pass += 1)
+            for (const fn of h.handlers.get("before_agent_finalize") ?? [])
+                await fn({ sessionId: "s", lastAssistantMessage: claim, messages }, { runId: "r1", sessionKey: "agent:main:orion-chat-bt4" });
+        const said = messages[1].content[0].text;
+        expect(said).toMatch(/haven't changed/); // the guard's line, or the honest statement line a flagged draft already gets
+        expect(said).not.toMatch(/11:30 PM|11:50|half 11/);
+    }, 30000);
+});
+describe("w20 r6 #17: 'scrap the water ping' cancels the water reminder", () => {
+    it.each(["scrap the water ping", "ditch the water nudge", "kill the water buzz"])("%s", async (said) => {
+        const h = setup();
+        h.store.push({ id: "a1", label: "drink water", dueAt: NOW.getTime() + 900_000 }, { id: "a2", label: "ring the dentist", dueAt: NOW.getTime() + 3_600_000 });
+        expect(await h.turn(said)).toMatch(/Cancelled the reminder: drink water/);
+        expect(h.store.map((r) => r.id)).toEqual(["a2"]);
+    }, 30000);
+});
+describe("w20 r6 #100: a reminder joined to another ask is a reminder, and the other ask still runs", () => {
+    it.each([
+        ["put pasta prep in at 6pm and remind me at 5 to buy pasta", "pasta prep"],
+        ["remind me at 5 to buy pasta and put pasta prep in at 6pm", "pasta prep"],
+        ["add gym at 7 and ping me at 6 to pack my bag", "gym"],
+        ["move leetcode to 4, then remind me at 3 to charge my laptop", "leetcode"],
+        ["book a call with dad at 6pm and nudge me at 5 to ring mum", "call with dad"],
+    ])("%s", async (said, rest) => {
+        const seen = [];
+        const added = [];
+        const h = setup(undefined, {
+            scheduleFlow: async (m) => { seen.push(m); return { outcome: "done", calls: ["exec orion-reschedule add"], outputs: ["ok"], reply: "Added it." }; },
+            extractReminder: async (m) => ({ time: /remind|ping|nudge/.test(m) ? "17:00" : null, label: /pasta/.test(m) ? "buy pasta" : /bag/.test(m) ? "pack my bag" : /laptop/.test(m) ? "charge my laptop" : "ring mum" }),
+            addReminder: async (dueAt, label) => { added.push({ at: new Date(dueAt).toISOString(), label }); const r = { id: `a${added.length}`, kind: "alarm", label, dueAt, createdAt: NOW.getTime() }; h0.store.push(r); return r; },
+        });
+        const h0 = h;
+        const reply = await h.turn(said);
+        expect(added).toHaveLength(1);
+        for (const m of seen) {
+            expect(m).toContain(rest.split(" ")[0]);
+            expect(m).not.toMatch(/remind|ping me|nudge me/);
+        }
+        expect(reply).toMatch(/I'll remind you/);
+        expect(reply).toContain("Added it.");
     }, 30000);
 });

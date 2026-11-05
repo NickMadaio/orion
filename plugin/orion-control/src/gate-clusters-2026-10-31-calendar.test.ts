@@ -279,7 +279,7 @@ describe("cluster 10: days, times, alarms and labels", () => {
   it("cha-phone-call-c 'orion remind me to call my mom on sunday at 6': Sunday 6 PM, not Saturday", async () => {
     const sat = new Date(2026, 9, 31, 13, 30);
     const plan = await planReminder({ message: "orion remind me to call my mom on sunday at 6", now: sat, extract: async () => ({ time: "18:00", label: "call my mom" }), list: async () => [] });
-    expect(plan).toMatchObject({ kind: "call", at: "2026-11-01T18:00", reply: "I'll remind you Sunday at 6:00 PM to call my mom." });
+    expect(plan).toMatchObject({ kind: "call", at: "2026-11-01T18:00", reply: "I'll remind you Sunday at 6:00 PM to call your mom." });
     const next = await planReminder({ message: "remind me to pay rent next monday at 9am", now: at("10:00"), extract: async () => ({ time: "09:00", label: "pay rent" }), list: async () => [] });
     expect(next).toMatchObject({ at: "2026-11-09T09:00" });
   });

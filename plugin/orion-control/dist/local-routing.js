@@ -26,9 +26,9 @@
  (Written by Claude on 2026-10-10 for the V3 implementation.)
 */
 import { isBareConfirm } from "./bare-confirm.js";
-import { finalSanitize } from "./final-sanitizer.js";
+import { askedForTechnical, finalSanitize } from "./final-sanitizer.js";
 import { splitLeadMouse } from "./mouse-lead.js";
-import { isBareGoAhead, nothingPending, pendingNote, resolvePending } from "./pending-resolver.js";
+import { isBareGoAhead, latestExchange, nothingPending, pendingNote, resolvePending } from "./pending-resolver.js";
 import { withoutAsleepClaims, claimsAsleep } from "./awake-claims.js";
 import { newestOffer, slotAnswersGo } from "./offer-binding.js";
 import { ventTease } from "./vent-tease.js";
@@ -1721,7 +1721,7 @@ export function registerLocalRouting(api, options) {
                 return { handled: true, reply: { text: vent }, reason: "distress: everyday venting, light tease only" };
             // w20 r6 (pending-resolver.ts): a bare go / "that one" nothing else owns refers to ORION's latest question or offer in THIS chat, or to nothing (said so, never invented).
             if (run && !run.ownText && !run.flow && isBareGoAhead(run.message) && !(run.room || run.hushed || run.pending || run.pendingYes || run.preference || run.sleepTurn || run.phoneBlock || run.lighten || run.focusMove || run.health || run.dayDefault || run.knowledge || run.ledger || run.reality || run.late || run.reminder || run.addAnswer || run.computer || run.stitched)) {
-                const last = run.sessionKey ? lastExchange.get(run.sessionKey) : undefined;
+                const last = latestExchange(lastExchange, run.sessionKey, (k) => /orion-(?:app-v2|chat)/.test(k));
                 const resolved = resolvePending(last ? { reply: last.reply, at: last.at } : undefined, nowMs());
                 if (!resolved.pending)
                     return { handled: true, reply: { text: nothingPending(run.message) }, reason: "nothing pending: a bare go-ahead with nothing to answer" };
@@ -1759,7 +1759,7 @@ export function registerLocalRouting(api, options) {
             if (d?.move === "answer" && draftText && !CHANGE_REQUEST.test(run?.message ?? "") && !needsLiveData(run?.message ?? "") && !isSessionStart(run?.message ?? "") && !casualStartTask(run?.message ?? ""))
                 return { handled: true, reply: { text: withGentleCheckIn(run?.message ?? "", draftText) }, reason: "front desk answered" };
             return undefined;
-        })()));
+        })(), runFor(event, ctx)?.message));
         api.on("before_prompt_build", guardedPrompt(async (event, ctx) => {
             const run = runFor(event, ctx);
             // gate #57: a long chat keeps working on the local model: the oldest turns are dropped, in place, before the prompt is built (history-trim.ts).
@@ -2659,11 +2659,11 @@ export function registerLocalRouting(api, options) {
     // delivery: the 9B paraphrased it from session history ("Done: grind leetcode 6:15…" after a clear).
     const finalText = new Map();
     /** w20 r6 (final-sanitizer.ts): the last pass over a direct reply: no JSON fragment, unfilled value or tool name reaches him. */
-    const leakFree = (result) => {
+    const leakFree = (result, message) => {
         const r = result;
         const text = r?.reply?.text;
         if (r?.reply && typeof text === "string") {
-            const clean = finalSanitize(text);
+            const clean = finalSanitize(text, { asked: askedForTechnical(message) });
             if (clean !== text)
                 return { ...r, reply: { ...r.reply, text: clean } };
         }
@@ -3215,7 +3215,7 @@ export function registerLocalRouting(api, options) {
             }
             // w20 r6 (final-sanitizer.ts): the very last pass: no JSON fragment, unfilled value or tool name in anything that goes out, whichever route wrote it.
             if (on && (owed ?? reply).trim()) {
-                const leakless = finalSanitize(owed ?? reply);
+                const leakless = finalSanitize(owed ?? reply, { asked: askedForTechnical(run.message) });
                 if (leakless !== (owed ?? reply)) {
                     owed = leakless;
                     remember([runId, sessionKeyNow], owed);

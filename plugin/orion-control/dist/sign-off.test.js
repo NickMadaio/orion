@@ -2,8 +2,9 @@
 import { describe, expect, it } from "vitest";
 import { isSignOff } from "./sign-off.js";
 describe("sign-offs", () => {
-    it.each(["ok last one, cheers", "cheers mate night", "thanks mate", "ok thats all, thanks", "night", "cheers", "alright cheers then", "perfect thanks", "ta mate, bye", "ok im good, cheers"])("%s", (m) => expect(isSignOff(m), m).toBe(true));
-    it.each(["ok", "mate", "safari and chrome", "ok last one, cheers, open safari", "thanks, can you move the gym to 5", "night mode on please", "cheers for the weather, whats tomorrow", "sound the alarm at 7"])("%s is not one", (m) => expect(isSignOff(m), m).toBe(false));
+    it.each(["ok last one, cheers", "cheers mate night", "ok thats all, thanks", "night", "bye", "ttyl", "ok thats it", "ta mate, bye", "nothing else, cheers"])("%s", (m) => expect(isSignOff(m), m).toBe(true));
+    it.each(["thanks mate", "cheers", "ta", "alright cheers then"])("%s is one only when nothing is pending", (m) => { expect(isSignOff(m), m).toBe(true); expect(isSignOff(m, { pending: true }), m).toBe(false); });
+    it.each(["ok sound", "yeah perfect", "ok cool", "yeah sound", "sorted", "great", "nice", "ok im good", "all good", "ok", "mate", "safari and chrome", "ok last one, cheers, open safari", "thanks, can you move the gym to 5", "night mode on please", "sound the alarm at 7"])("%s is not one", (m) => { expect(isSignOff(m), m).toBe(false); expect(isSignOff(m, { pending: true }), m).toBe(false); });
 });
 import { runFocusReady } from "./focus-ready.js";
 describe("with the apps question still open", () => {

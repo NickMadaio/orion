@@ -34,3 +34,19 @@ describe("the words", () => {
   });
   it("the note carries what it refers to", () => expect(pendingNote("go", "Want me to log it?")).toContain('"Want me to log it?"'));
 });
+
+describe("review r6: the resolver's own words are never an offer, and a plain question is not one", () => {
+  it.each(["There's nothing waiting on a yes from me right now. What did you mean?", "I don't have anything open to go ahead with. What are you after?", "Nothing's pending on my side, so I'm not sure what you mean. What should I do?"])("%s", (line) =>
+    expect(resolvePending(said(line), now)).toEqual({ pending: false }));
+  it.each(["Done: gym at 6. Anything else?", "It's 6:23 AM. How are you feeling?", "I couldn't find that. What did you mean?", "Your day is clear. Is there something you want to plan?".replace("want to plan", "need").replace("Is there something you need?", "Is there something specific?")])("%s leaves nothing pending", (reply) =>
+    expect(resolvePending(said(reply), now)).toEqual({ pending: false }));
+});
+
+import { latestExchange } from "./pending-resolver.js";
+describe("one conversation under several phone keys", () => {
+  const family = (k: string) => /orion-(?:app-v2|chat)/.test(k);
+  const all = new Map([["agent:main:orion-chat-a", { at: now - 30_000, reply: "You have gym at 6. Want me to move it?" }], ["agent:main:orion-chat-b", { at: now - 90_000, reply: "older" }], ["agent:main:other", { at: now - 1_000, reply: "elsewhere" }]]);
+  it("a yes on another key finds the newest family exchange", () => expect(latestExchange(all, "agent:main:orion-chat-c", family)?.reply).toContain("Want me to move it?"));
+  it("a key outside the family only sees its own", () => expect(latestExchange(all, "agent:main:other", family)?.reply).toBe("elsewhere"));
+  it("with no key there is nothing", () => expect(latestExchange(all, undefined, family)).toBeUndefined());
+});

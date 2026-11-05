@@ -220,7 +220,8 @@ export async function runFocusReady(message, deps) {
     const site = readSiteOverride(message);
     if (site)
         return allowSite(deps, site);
-    if (isSignOff(message))
+    const openQuestion = deps.pending.get();
+    if (isSignOff(message, { pending: !!openQuestion && deps.now.getTime() - openQuestion.at <= PENDING_MS }))
         return fallback; // w20 r6: "ok last one, cheers" is thanks, not the apps he was asked for
     const done = isDoneMessage(message);
     if (done)

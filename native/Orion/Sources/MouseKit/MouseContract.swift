@@ -31,7 +31,25 @@ public struct MouseDevice: Codable, Equatable, Identifiable {
 public struct DevicesFile: Codable, Equatable {
     public var version: Int = 1
     public var devices: [MouseDevice] = []
+    /// Buttons he removed from the popup; they stay hidden until pressed or added again.
+    public var removedButtons: [Int] = []
     public init(devices: [MouseDevice] = []) { self.devices = devices }
+
+    private enum CodingKeys: String, CodingKey { case version, devices, removedButtons }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        devices = try c.decode([MouseDevice].self, forKey: .devices)
+        removedButtons = (try? c.decodeIfPresent([Int].self, forKey: .removedButtons)) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version, forKey: .version)
+        try c.encode(devices, forKey: .devices)
+        if !removedButtons.isEmpty { try c.encode(removedButtons, forKey: .removedButtons) }
+    }
 }
 
 public enum MouseAction: Equatable, Hashable {
@@ -121,6 +139,18 @@ public struct BindingsFile: Codable, Equatable {
         var map = next.apps[bundleId] ?? [:]
         map[String(button)] = action
         if map.isEmpty { next.apps[bundleId] = nil } else { next.apps[bundleId] = map }
+        return next
+    }
+
+    /// Drops every binding of one button, the default and each app's.
+    public func removingButton(_ button: Int) -> BindingsFile {
+        var next = self
+        let key = String(button)
+        next.default[key] = nil
+        for (app, map) in next.apps {
+            var m = map; m[key] = nil
+            next.apps[app] = m.isEmpty ? nil : m
+        }
         return next
     }
 

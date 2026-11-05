@@ -72,7 +72,7 @@ public enum DeviceRegistry {
         for (family, indices) in families {
             var all = Set(indices.flatMap { next.devices[$0].extraButtons })
             if MouseFamily.hasTopButton(family) { all.insert(KeyButtons.defaultId) }
-            let merged = all.sorted()
+            let merged = all.subtracting(next.removedButtons).sorted()
             for i in indices where next.devices[i].extraButtons != merged { next.devices[i].extraButtons = merged }
         }
         return next
@@ -90,6 +90,7 @@ public enum DeviceRegistry {
         var next = file
         var targets = next.devices.indices.filter { next.devices[$0].connected }
         if targets.isEmpty, !next.devices.isEmpty { targets = [next.devices.count - 1] }
+        next.removedButtons.removeAll { $0 == button }
         for i in targets where !next.devices[i].extraButtons.contains(button) {
             next.devices[i].extraButtons = (next.devices[i].extraButtons + [button]).sorted()
         }
@@ -104,12 +105,25 @@ public enum DeviceRegistry {
     /// What the popup shows: one mouse (the connected one's family), its fullest name, every button of the family plus saved bindings.
     public static func setupModel(_ file: DevicesFile, saved: [Int]) -> SetupModel {
         guard let primary = file.devices.first(where: \.connected) ?? file.devices.first else {
-            return SetupModel(name: nil, buttons: Array(Set(saved)).sorted())
+            return SetupModel(name: nil, buttons: Array(Set(saved).subtracting(file.removedButtons)).sorted())
         }
         let family = MouseFamily.key(name: primary.name)
         let members = file.devices.filter { MouseFamily.key(name: $0.name) == family }
-        let buttons = Set(members.flatMap(\.extraButtons)).union(saved)
+        let buttons = Set(members.flatMap(\.extraButtons)).union(saved).subtracting(file.removedButtons)
         return SetupModel(name: MouseFamily.displayName(members.map(\.name)), buttons: buttons.sorted())
+    }
+
+    /// Takes a button off the mouse's family and hides it until it is pressed or added again.
+    public static func removing(button: Int, from file: DevicesFile) -> DevicesFile {
+        var next = file
+        if !next.removedButtons.contains(button) { next.removedButtons = (next.removedButtons + [button]).sorted() }
+        for i in next.devices.indices { next.devices[i].extraButtons.removeAll { $0 == button } }
+        return next
+    }
+
+    /// True for the buttons this model ships with (back, front, and the top key), which return when pressed or re-added.
+    public static func isBuiltIn(_ button: Int, family: String?) -> Bool {
+        button == 3 || button == 4 || (button == KeyButtons.defaultId && family.map(MouseFamily.hasTopButton) == true)
     }
 
     public static func detached(id: String, into file: DevicesFile, now: String) -> DevicesFile {
@@ -123,6 +137,7 @@ public enum DeviceRegistry {
     public static func observed(button: Int, into file: DevicesFile) -> DevicesFile {
         guard button >= 3, !KeyButtons.isKeyButton(button) else { return file }
         var next = file
+        next.removedButtons.removeAll { $0 == button }
         for i in next.devices.indices where next.devices[i].connected && !next.devices[i].extraButtons.contains(button) {
             next.devices[i].extraButtons = (next.devices[i].extraButtons + [button]).sorted()
         }

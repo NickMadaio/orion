@@ -15,6 +15,7 @@ struct MouseSetupView: View {
     /// One mouse: its USB and Bluetooth entries are merged (MouseFamily), so the top button is there on either.
     private var model: DeviceRegistry.SetupModel { DeviceRegistry.setupModel(mouse.devices, saved: mouse.bindings.default.keys.compactMap(Int.init)) }
     private var buttons: [Int] { model.buttons }
+    @State private var confirmingRemove: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -96,7 +97,14 @@ struct MouseSetupView: View {
                     .foregroundStyle(lit ? OrionTheme.accent : OrionTheme.textSoft)
                 Spacer()
                 if lit { Text("that one").font(OrionTheme.mono(9.5)).foregroundStyle(OrionTheme.accent).transition(.opacity) }
+                if confirmingRemove != button {
+                    Button { confirmingRemove = button } label: {
+                        Text("Remove").font(OrionTheme.mono(9.5)).foregroundStyle(OrionTheme.textDim).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).help("Remove this button")
+                }
             }
+            if confirmingRemove == button { removeConfirm(button) }
             KnowledgeFlow(spacing: 6, lineSpacing: 6) {
                 choice("Stage Manager", current == .system("stageManager")) { mouse.setDefault(button, .system("stageManager")) }
                 choice("Mission Control", current == .system("missionControl")) { mouse.setDefault(button, .system("missionControl")) }
@@ -115,6 +123,22 @@ struct MouseSetupView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(lit ? OrionTheme.accent.opacity(0.75) : Color.white.opacity(0.12), lineWidth: 0.8))
         .shadow(color: lit ? OrionTheme.accent.opacity(0.35) : .clear, radius: 10)
         .animation(OrionMotion.hover, value: lit)
+    }
+
+    private func removeConfirm(_ button: Int) -> some View {
+        let builtIn = DeviceRegistry.isBuiltIn(button, family: model.name.map(MouseFamily.key(name:)))
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(MouseSetupPlan.removeQuestion(button, builtIn: builtIn))
+                .font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.accent).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 14) {
+                Button { confirmingRemove = nil; mouse.removeButton(button) } label: {
+                    Text("Remove").font(OrionTheme.mono(10, .semibold)).foregroundStyle(OrionTheme.orange).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                Button { confirmingRemove = nil } label: {
+                    Text("Keep").font(OrionTheme.mono(10)).foregroundStyle(OrionTheme.textSoft).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
+        }
     }
 
     @ViewBuilder private func detail(_ button: Int, _ current: MouseAction?) -> some View {

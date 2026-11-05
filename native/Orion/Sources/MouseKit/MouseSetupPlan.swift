@@ -58,6 +58,14 @@ public enum MouseSetupPlan {
         return "Set. " + ([first] + parts.dropFirst()).joined(separator: ", ") + "."
     }
 
+    /// The inline question when the little remove control is tapped.
+    public static func removeQuestion(_ button: Int, builtIn: Bool) -> String {
+        let name = KeyButtons.isKeyButton(button) || button <= 4 ? title(button) : "Button \(button + 1)"
+        let base = "Remove \(name)?"
+        guard builtIn else { return base }
+        return base + (KeyButtons.isKeyButton(button) ? " It comes back if you use Add a button." : " It comes back if you press it.")
+    }
+
     public static func kicker(deviceName: String?) -> String {
         "MOUSE · " + (deviceName ?? "NEW MOUSE").uppercased()
     }

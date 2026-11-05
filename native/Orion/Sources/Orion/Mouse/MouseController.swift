@@ -177,6 +177,14 @@ final class MouseController: ObservableObject {
         }
     }
 
+    /// Removes one button: its row, its defaults and per-app bindings. The row stays gone until it is pressed or added again.
+    func removeButton(_ button: Int) {
+        update(devices: { DeviceRegistry.removing(button: button, from: $0) })
+        change { $0.removingButton(button) }
+        if lastPressed == button { lastPressed = nil }
+        OrionLog.write("[mouse] removed button \(button)")
+    }
+
     func cancelLearning() { stopLearning(line: LearnWords.cancelled) }
 
     private func stopLearning(line: String?) {

@@ -160,3 +160,54 @@ final class MouseLearnTests: XCTestCase {
         XCTAssertFalse(OutreachTail.isLearnOpen(#"{"kind":"mouse","event":"setup-open"}"#))
     }
 }
+
+final class MouseRemoveButtonTests: XCTestCase {
+    private let ble = AttachedMouse(vendorId: 1678, productId: 186, name: "BSK V3 X HS", transport: "Bluetooth Low Energy", buttonCount: 5)
+
+    func testRemoveHidesAndSurvivesReattach() {
+        var f = DeviceRegistry.attached(ble, into: DevicesFile(), now: "t")
+        f = DeviceRegistry.removing(button: 4, from: f)
+        XCTAssertEqual(f.devices[0].extraButtons, [3, 113])
+        f = DeviceRegistry.attached(ble, into: f, now: "t2")
+        XCTAssertEqual(f.devices[0].extraButtons, [3, 113])
+        XCTAssertEqual(DeviceRegistry.setupModel(f, saved: [4, 5]).buttons, [3, 5, 113])
+    }
+
+    func testRemovingTopButtonStaysGoneAndStopsKeyCapture() {
+        var f = DeviceRegistry.attached(ble, into: DevicesFile(), now: "t")
+        f = DeviceRegistry.removing(button: 113, from: f)
+        XCTAssertEqual(DeviceRegistry.harmonized(f).devices[0].extraButtons, [3, 4])
+        XCTAssertTrue(DeviceRegistry.activeKeyButtons(in: f).isEmpty)
+    }
+
+    func testPressOrLearnBringsItBack() {
+        var f = DeviceRegistry.attached(ble, into: DevicesFile(), now: "t")
+        f = DeviceRegistry.removing(button: 4, from: f)
+        XCTAssertEqual(DeviceRegistry.observed(button: 4, into: f).devices[0].extraButtons, [3, 4, 113])
+        XCTAssertTrue(DeviceRegistry.learned(button: 113, into: DeviceRegistry.removing(button: 113, from: f)).devices[0].extraButtons.contains(113))
+    }
+
+    func testRemovalPersistsThroughJSONAndOldFilesDecode() throws {
+        var f = DeviceRegistry.attached(ble, into: DevicesFile(), now: "t")
+        f = DeviceRegistry.removing(button: 5, from: f)
+        let back = MouseCodec.decodeDevices(try MouseCodec.encode(f))
+        XCTAssertEqual(back.removedButtons, [5])
+        let old = MouseCodec.decodeDevices(try MouseCodec.encode(DeviceRegistry.attached(ble, into: DevicesFile(), now: "t")))
+        XCTAssertEqual(old.removedButtons, [])
+        XCTAssertEqual(old.devices.count, 1)
+    }
+
+    func testBindingsRemovalClearsDefaultAndPerApp() {
+        var b = BindingsFile().settingDefault(5, .system("missionControl")).settingDefault(3, .system("desktopLeft"))
+        b = b.settingApp("com.x", button: 5, .system("showDesktop")).settingApp("com.x", button: 3, .passthrough)
+        let r = b.removingButton(5)
+        XCTAssertNil(r.default["5"]); XCTAssertNotNil(r.default["3"])
+        XCTAssertEqual(r.apps["com.x"]?.keys.sorted(), ["3"])
+        XCTAssertNil(b.settingApp("com.y", button: 5, .passthrough).removingButton(5).apps["com.y"])
+    }
+
+    func testRemoveQuestionWording() {
+        XCTAssertEqual(MouseSetupPlan.removeQuestion(5, builtIn: false), "Remove Button 6?")
+        XCTAssertTrue(MouseSetupPlan.removeQuestion(3, builtIn: true).contains("comes back if you press it"))
+    }
+}
